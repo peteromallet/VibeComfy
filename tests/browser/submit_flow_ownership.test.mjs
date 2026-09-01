@@ -107,7 +107,7 @@ test("submit watchdog deps seam behaves as a consumer-owned plain object (behavi
     // Reset path restores frozen defaults.
     const reset = mod.resetSubmitWatchdogDeps();
     assert.equal(reset.submitDeadlineMs, 210000);
-    assert.equal(reset.submitAbsoluteDeadlineMs, 900000);
+    assert.equal(reset.submitAbsoluteDeadlineMs, 1800000);
     assert.equal(reset.submitAutomaticRetryCount, 1);
     assert.notEqual(reset.nowMs, nowMs, "reset restores the default nowMs, not the injected one");
     mod.resetSubmitWatchdogDeps();

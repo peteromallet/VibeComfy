@@ -461,8 +461,35 @@ export function writePipelineModeChoice(mode) {
 // ONLY for an explicit staged preference. Threaded AND unset both mean the
 // user has not asked for stage structure, so the UI must not show it — this is
 // the single gate every display site consults (B2-T1).
-function pipelineChromeEnabled(_panel) {
-  return readPipelineModeChoice().mode === "staged";
+function pipelineChromeEnabled(panel) {
+  return readConversationPipelineModeChoice(panel).mode === "staged";
+}
+
+function readConversationPipelineModeChoice(panel) {
+  const override = matchPipelineMode(panel?.state?.conversationPipelineMode);
+  if (override) {
+    return { present: true, mode: override, source: "conversation" };
+  }
+  const defaultChoice = readPipelineModeChoice();
+  return {
+    ...defaultChoice,
+    source: defaultChoice.present ? "settings" : "unset",
+  };
+}
+
+function renderComposerPipelineModeControl(panel) {
+  const select = panel?.fields?.composerPipelineMode;
+  if (!select) {
+    return readConversationPipelineModeChoice(panel);
+  }
+  const choice = readConversationPipelineModeChoice(panel);
+  select.value = choice.present ? choice.mode : "";
+  select.title = choice.source === "conversation"
+    ? `Conversation override: ${choice.mode}`
+    : choice.present
+      ? `Using Settings default: ${choice.mode}`
+      : "Choose an agent mode for this conversation.";
+  return choice;
 }
 
 // Sync every Settings-surface projection of the preference (select value,
@@ -530,6 +557,8 @@ const PANEL_IDS = Object.freeze({
   route: "vibecomfy-agent-panel-route",
   pipelineMode: "vibecomfy-agent-panel-pipeline-mode",
   pipelineModeHint: "vibecomfy-agent-panel-pipeline-mode-hint",
+  composerPipelineMode: "vibecomfy-agent-panel-composer-pipeline-mode",
+  composerPipelineModeInfo: "vibecomfy-agent-panel-composer-pipeline-mode-info",
   model: "vibecomfy-agent-panel-model",
   apiKey: "vibecomfy-agent-panel-api-key",
   researchContribution: "vibecomfy-agent-panel-research-contribution",
@@ -3416,7 +3445,11 @@ async function buildSubmitSnapshot(panel) {
   // This is the verified single funnel into the executor POST body. An unset
   // preference must NEVER silently fall back to staged: cancel the submit and
   // surface the onboarding mode step instead (caller handles the coded error).
-  const modeChoice = readPipelineModeChoice();
+  const defaultModeChoice = readPipelineModeChoice();
+  const conversationMode = matchPipelineMode(panel?.state?.conversationPipelineMode);
+  const modeChoice = conversationMode
+    ? { present: true, mode: conversationMode }
+    : defaultModeChoice;
   if (!modeChoice.present) {
     const error = new Error("Choose how you want the agent to work before submitting.");
     error.code = PIPELINE_MODE_REQUIRED_ERROR_CODE;
@@ -3435,8 +3468,8 @@ async function buildSubmitSnapshot(panel) {
   const layoutHash = await layoutGraphHash(graph);
   const liveCanvasToken = captureLiveCanvasToken(graphHash, structuralHash);
   const route = normalizeRoutePreference(panel.fields.route.value);
-  // Preference is the single source of truth; the Settings field is a
-  // projection kept in lockstep by the shared writers.
+  // The composer owns the current conversation's optional override. Settings
+  // supplies the default when the conversation has not selected one.
   const pipelineMode = modeChoice.mode;
   const model = normalizeModelPreference(panel.fields.model.value);
   const idempotencyKey = buildSubmitIdempotencyKey({
@@ -3697,6 +3730,155 @@ function createAgentPanelShell() {
   promptRegion.section.style.border = "none";
   promptRegion.section.style.background = "transparent";
   promptRegion.section.style.padding = "0";
+
+  const composerModeRow = el("div");
+  Object.assign(composerModeRow.style, {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "5px",
+    marginBottom: "5px",
+  });
+  const composerPipelineModeSelect = document.createElement("select");
+  composerPipelineModeSelect.id = PANEL_IDS.composerPipelineMode;
+  composerPipelineModeSelect.setAttribute(
+    "aria-label",
+    "Agent mode for this conversation",
+  );
+  const composerModePlaceholder = document.createElement("option");
+  composerModePlaceholder.value = "";
+  composerModePlaceholder.disabled = true;
+  composerModePlaceholder.textContent = "Choose mode…";
+  composerPipelineModeSelect.appendChild(composerModePlaceholder);
+  for (const [value, text] of [["staged", "Staged"], ["threaded", "Threaded"]]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    composerPipelineModeSelect.appendChild(option);
+  }
+  Object.assign(composerPipelineModeSelect.style, {
+    background: "transparent",
+    color: "#b8c0cc",
+    border: "1px solid #303541",
+    borderRadius: "5px",
+    padding: "3px 24px 3px 7px",
+    fontFamily: "monospace",
+    fontSize: "10px",
+    lineHeight: "1.2",
+    cursor: "pointer",
+  });
+  composerPipelineModeSelect.value = readPipelineModeChoice().mode || "";
+  composerPipelineModeSelect.onchange = () => {
+    const panel = currentAgentPanel();
+    const picked = matchPipelineMode(composerPipelineModeSelect.value);
+    if (!panel || !picked) {
+      renderComposerPipelineModeControl(panel);
+      return;
+    }
+    transition(panel, "SET_CONVERSATION_PIPELINE_MODE", { mode: picked });
+    renderComposerPipelineModeControl(panel);
+    scheduleRenderAgentPanel("conversation-pipeline-mode-change", panel, [
+      RENDER_SECTIONS.THREAD,
+      RENDER_SECTIONS.META,
+      RENDER_SECTIONS.COMPOSER,
+    ]);
+  };
+  const composerPipelineModeInfo = button("i", () => undefined);
+  composerPipelineModeInfo.id = PANEL_IDS.composerPipelineModeInfo;
+  composerPipelineModeInfo.setAttribute("aria-label", "Explain staged and threaded agent modes");
+  composerPipelineModeInfo.setAttribute(
+    "data-tooltip",
+    [
+      "AGENT MODE",
+      "",
+      `STAGED — Guided\n${AGENT_PIPELINE_MODE_COPY.staged}`,
+      "",
+      `THREADED — Direct\n${AGENT_PIPELINE_MODE_COPY.threaded}`,
+      "",
+      "New conversations start with the default from Settings.",
+    ].join("\n"),
+  );
+  composerPipelineModeInfo._vibecomfyBuildTooltip = () => {
+    const card = el("div");
+    Object.assign(card.style, {
+      display: "flex",
+      flexDirection: "column",
+      gap: "10px",
+      fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+    });
+
+    const heading = el("div", "Agent mode");
+    Object.assign(heading.style, {
+      color: "#f4f7fb",
+      fontSize: "12px",
+      fontWeight: "700",
+      letterSpacing: "0.02em",
+    });
+    card.appendChild(heading);
+
+    const addMode = (name, summary, description, accent) => {
+      const row = el("div");
+      Object.assign(row.style, {
+        borderLeft: `2px solid ${accent}`,
+        paddingLeft: "9px",
+      });
+      const title = el("div");
+      const modeName = el("span", name);
+      Object.assign(modeName.style, {
+        color: "#f4f7fb",
+        fontSize: "11px",
+        fontWeight: "700",
+      });
+      const modeSummary = el("span", ` · ${summary}`);
+      Object.assign(modeSummary.style, {
+        color: "#aab4c2",
+        fontSize: "11px",
+        fontWeight: "600",
+      });
+      title.appendChild(modeName);
+      title.appendChild(modeSummary);
+      const body = el("div", description);
+      Object.assign(body.style, {
+        color: "#c8d0db",
+        fontSize: "11px",
+        lineHeight: "1.4",
+        marginTop: "3px",
+      });
+      row.appendChild(title);
+      row.appendChild(body);
+      card.appendChild(row);
+    };
+
+    addMode("Staged", "Guided", AGENT_PIPELINE_MODE_COPY.staged, "#ff7a36");
+    addMode("Threaded", "Direct", AGENT_PIPELINE_MODE_COPY.threaded, "#64a8ff");
+
+    const footer = el("div", "New conversations use the default from Settings.");
+    Object.assign(footer.style, {
+      borderTop: "1px solid #343a46",
+      color: "#8f99a7",
+      fontSize: "10px",
+      lineHeight: "1.35",
+      paddingTop: "8px",
+    });
+    card.appendChild(footer);
+    return card;
+  };
+  attachInstantTooltip(composerPipelineModeInfo);
+  Object.assign(composerPipelineModeInfo.style, {
+    width: "18px",
+    minWidth: "18px",
+    height: "18px",
+    padding: "0",
+    borderRadius: "50%",
+    fontSize: "10px",
+    fontWeight: "700",
+    color: "#8f98a6",
+    background: "transparent",
+    borderColor: "#303541",
+  });
+  composerModeRow.appendChild(composerPipelineModeSelect);
+  composerModeRow.appendChild(composerPipelineModeInfo);
+  promptRegion.body.appendChild(composerModeRow);
   const textarea = document.createElement("textarea");
   textarea.id = PANEL_IDS.prompt;
   textarea.placeholder = "Describe the workflow change...";
@@ -3862,7 +4044,7 @@ function createAgentPanelShell() {
   });
   pollerPopulateRouteSelect(routeSelect, null, { selectedRoute: "auto" }, agentStatusDeps());
   routeSelect.value = "auto";
-  const pipelineModeLabel = el("label", "Agent mode");
+  const pipelineModeLabel = el("label", "Default agent mode");
   pipelineModeLabel.htmlFor = PANEL_IDS.pipelineMode;
   Object.assign(pipelineModeLabel.style, {
     color: "#c4ccd6",
@@ -4013,6 +4195,11 @@ function createAgentPanelShell() {
     const panel = currentAgentPanel();
     if (panel) {
       panel.fields.route.value = routeSelect.value;
+      // The model control is intentionally hidden: each route owns its default.
+      // Do not carry a model learned from the previous provider into the next
+      // request while the user has no visible way to correct it.
+      panel.fields.model.value = "";
+      panel.state.lastAutosavedModel = "";
       return autoSaveAgentSettings(panel);
     }
     return undefined;
@@ -4030,18 +4217,21 @@ function createAgentPanelShell() {
       return;
     }
     writePipelineModeChoice(picked);
+    const panel = currentAgentPanel();
     renderPipelineModeControls({
       select: pipelineModeSelect,
       hint: pipelineModeHint,
-      panel: currentAgentPanel(),
+      panel,
     });
+    renderComposerPipelineModeControl(panel);
     // Mid-flight switch repaints presentation NOW (thread + meta chrome);
     // execution picks the new mode on the NEXT submit only. Uses the existing
     // scheduler primitive — no event bus, no progress-state clearing.
-    if (currentAgentPanel()) {
-      scheduleRenderAgentPanel("pipeline-mode-change", currentAgentPanel(), [
+    if (panel) {
+      scheduleRenderAgentPanel("pipeline-mode-change", panel, [
         RENDER_SECTIONS.THREAD,
         RENDER_SECTIONS.META,
+        RENDER_SECTIONS.COMPOSER,
       ]);
     }
   };
@@ -4183,6 +4373,7 @@ function createAgentPanelShell() {
       prompt: textarea,
       route: routeSelect,
       pipelineMode: pipelineModeSelect,
+      composerPipelineMode: composerPipelineModeSelect,
       model: modelInput,
       apiKey: apiKeyInput,
       researchContribution: researchContributionControl,
@@ -6533,7 +6724,7 @@ function renderChatBubbleNode(bubble, panel, msg, messageKey, messageIndex) {
     createDetails,
     el,
     ensureThreadRenderState,
-    pipelineModeChoice: readPipelineModeChoice,
+    pipelineModeChoice: () => readConversationPipelineModeChoice(panel),
     showIssueModal,
     submitRating,
   });
@@ -6554,7 +6745,7 @@ function reconcileChatBubbles(panel, messagesMount, displayEntries) {
     el,
     ensureThreadRenderState,
     messageSignature,
-    pipelineModeChoice: readPipelineModeChoice,
+    pipelineModeChoice: () => readConversationPipelineModeChoice(panel),
     showIssueModal,
     submitRating,
   });
@@ -6694,7 +6885,7 @@ function populateAgentBubbleDetail(target, panel, message, snapshot = null) {
     createBubbleDetailSection,
     createDetails,
     el,
-    pipelineModeChoice: readPipelineModeChoice,
+    pipelineModeChoice: () => readConversationPipelineModeChoice(panel),
   });
 }
 
@@ -7795,10 +7986,10 @@ function renderPanelMetaAndStatus(panel) {
 }
 
 function renderThreadSection(panel) {
-  return renderThreadSectionImpl(panel, agentPanelThreadRenderDeps());
+  return renderThreadSectionImpl(panel, agentPanelThreadRenderDeps(panel));
 }
 
-function agentPanelThreadRenderDeps() {
+function agentPanelThreadRenderDeps(panel = null) {
   return {
     appendChildOnce,
     appendCodeLine,
@@ -7822,6 +8013,7 @@ function agentPanelThreadRenderDeps() {
     messageSignature,
     messageStableKey,
     markAgentPanelDirty,
+    pipelineModeChoice: () => readConversationPipelineModeChoice(panel),
     reconcileChatBubbles,
     recordAgentPanelRenderCount,
     recordThreadRender,
@@ -7841,6 +8033,7 @@ function renderComposerActions(panel) {
     RENDER_SECTIONS,
     setButtonEmphasis,
     syncComposerButtons,
+    syncComposerPipelineMode: renderComposerPipelineModeControl,
     submitReadinessState,
     PANEL_STATE,
   });
@@ -9457,7 +9650,15 @@ function attachInstantTooltip(element) {
     const text = tooltipText();
     if (!text) return;
     hide();
-    tooltip = el("div", text);
+    tooltip = el("div");
+    const customContent = typeof element._vibecomfyBuildTooltip === "function"
+      ? element._vibecomfyBuildTooltip()
+      : null;
+    if (customContent) {
+      tooltip.appendChild(customContent);
+    } else {
+      tooltip.textContent = text;
+    }
     Object.assign(tooltip.style, {
       position: "fixed",
       zIndex: "100000",
@@ -9465,10 +9666,13 @@ function attachInstantTooltip(element) {
       color: "#edf2f7",
       border: "1px solid #414855",
       borderRadius: "6px",
-      padding: "5px 8px",
+      padding: "9px 11px",
       fontSize: "11px",
       fontFamily: "monospace",
-      whiteSpace: "nowrap",
+      whiteSpace: "pre-line",
+      lineHeight: "1.4",
+      width: customContent ? "300px" : "280px",
+      maxWidth: "calc(100vw - 12px)",
       pointerEvents: "none",
       boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
     });
@@ -9491,7 +9695,12 @@ function attachInstantTooltip(element) {
   }
 
   function refresh() {
-    if (tooltip) tooltip.textContent = tooltipText();
+    if (!tooltip) return;
+    if (typeof element._vibecomfyBuildTooltip === "function") {
+      tooltip.replaceChildren(element._vibecomfyBuildTooltip());
+    } else {
+      tooltip.textContent = tooltipText();
+    }
   }
 
   element.addEventListener("mouseenter", show);
@@ -10041,6 +10250,7 @@ function openChooseEngineOverlay(panel, { onResolved } = {}) {
       // source of truth) and sync the live Settings field immediately.
       writePipelineModeChoice(selectedPipelineMode);
       renderPipelineModeControls({ panel });
+      renderComposerPipelineModeControl(panel);
       if (getPersistedAgentProvider()) {
         // The engine was already decided earlier (chosen explicitly or
         // auto-adopted from a ready credential). The mode answer completed

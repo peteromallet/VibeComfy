@@ -7780,25 +7780,23 @@ test("VibeComfy provider settings autosave OpenRouter credentials and surface so
           route_options: routeOptions,
         },
       },
-      "/vibecomfy/agent/status?route=anthropic&model=agent-model": {
+      "/vibecomfy/agent/status?route=anthropic": {
         status: 200,
         body: {
           ok: false,
           provider_available: false,
           route: "arnold",
           requested_route: "anthropic",
-          model: "agent-model",
           route_options: routeOptions,
         },
       },
-      "/vibecomfy/agent/status?route=openai-codex&model=agent-model": {
+      "/vibecomfy/agent/status?route=openai-codex": {
         status: 200,
         body: {
           ok: false,
           provider_available: false,
           route: "arnold",
           requested_route: "openai-codex",
-          model: "agent-model",
           route_options: routeOptions,
         },
       },
@@ -7853,13 +7851,15 @@ test("VibeComfy provider settings autosave OpenRouter credentials and surface so
 
     routeSelect.value = "anthropic";
     await routeSelect.onchange();
-    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=anthropic&model=agent-model"));
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=anthropic"));
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-model").value, "");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-api-key")?.style.display, "none");
     assert.match(harness.textDump(), /Claude runs through your local CLI setup/);
 
     routeSelect.value = "openai-codex";
     await routeSelect.onchange();
-    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=openai-codex&model=agent-model"));
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=openai-codex"));
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-model").value, "");
     harness.document.getElementById("vibecomfy-agent-panel-api-key").value = "codex-secret";
     await harness.document.getElementById("vibecomfy-agent-panel-api-key").onchange();
     await waitFor(() => /Browser keys are not accepted/.test(harness.textDump()));
@@ -8343,6 +8343,7 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
 
     routeSelect.value = "openai-codex";
     routeSelect.onchange();
+    assert.equal(modelInput.value, "", "route changes discard the previous provider's hidden model");
     await waitFor(() => /\u2713 Saved openai-codex \/ default model\./.test(settingsStatus.textContent));
     assert.match(settingsStatus.textContent, /\u2713 Saved openai-codex \/ default model\./);
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-settings-test")?.disabled === false);
@@ -8353,8 +8354,8 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
 
     routeSelect.value = "anthropic";
     routeSelect.onchange();
-    await waitFor(() => /\u2713 Saved anthropic \/ agent-edit\./.test(settingsStatus.textContent));
-    assert.match(settingsStatus.textContent, /\u2713 Saved anthropic \/ agent-edit\./);
+    await waitFor(() => /\u2713 Saved anthropic \/ default model\./.test(settingsStatus.textContent));
+    assert.match(settingsStatus.textContent, /\u2713 Saved anthropic \/ default model\./);
     await waitFor(() => /Claude runs through your local CLI setup/.test(settingsGuidance.textContent));
     assert.match(settingsGuidance.textContent, /Claude runs through your local CLI setup/);
 

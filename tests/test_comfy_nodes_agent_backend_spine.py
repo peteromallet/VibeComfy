@@ -5109,6 +5109,16 @@ def test_build_batch_messages_system_prompt_contains_privileged_calls() -> None:
     assert "clarify(" in system
 
 
+def test_build_batch_messages_system_prompt_names_preservation_priority() -> None:
+    messages = agent_provider.build_batch_messages(
+        task="Convert this workflow to image-to-video",
+        python_source="x=1",
+    )
+    system = messages[0]["content"]
+    assert "Preservation priority:" in system
+    assert "treat existing nodes and branches as user-owned context" in system
+
+
 def test_build_batch_messages_system_prompt_names_real_code_node_class() -> None:
     """Code/PIL requests should steer to the edit-surface executable node."""
     messages = agent_provider.build_batch_messages(

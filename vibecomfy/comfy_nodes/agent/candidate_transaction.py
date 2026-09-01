@@ -513,10 +513,8 @@ def capture_ingress_schema_snapshot(
             ) from exc
     # An index-backed provider exposes a listing-only surface.  Its IDs are
     # useful alias authority, but listing must not turn into a physical read of
-    # every indexed pack.  Graph classes are the only classes fetched during
-    # this ingress capture; non-index providers retain the historical full
-    # enumerated surface behavior.
-    listing_only = bool(getattr(schema_provider, "listing_only", False))
+    # every indexed pack. Concrete enumerated rows are retained; unresolved
+    # index names are fetched only when the graph actually references them.
     if surface is not None and not isinstance(surface, Mapping):
         # ``schemas_for`` validates this too, but keep the ingress boundary
         # fail-closed if a custom provider bypasses that helper in the future.
@@ -524,10 +522,11 @@ def capture_ingress_schema_snapshot(
             "schema_provider_error:surface:invalid_enumeration",
             code="schema_provider_error",
         )
-    if surface is not None and not listing_only:
-        # Composite/authoring providers may carry listing-only entries as
-        # ``None`` values.  Keep those names as alias authority, but fetch
-        # their packs only when they are present in the graph request.
+    if surface is not None:
+        # Mixed composites can be listing-only because one tail exposes index
+        # names while an earlier runtime provider still contributes concrete
+        # schemas. Always retain those materialized rows; ``None`` index rows
+        # remain listing/alias authority and are fetched only for graph types.
         requested.update(str(name) for name, value in surface.items() if value is not None)
     schemas: dict[str, Any] = {}
     missing: list[str] = []

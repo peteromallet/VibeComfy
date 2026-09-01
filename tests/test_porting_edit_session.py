@@ -2561,6 +2561,22 @@ sampler = KSampler(
         value_input = next(item for item in dst["inputs"] if item["name"] == "value")
         assert isinstance(value_input.get("link"), int)
 
+    def test_next_batch_accepts_canonical_name_rendered_for_added_node(self) -> None:
+        session = self._primitive_session()
+
+        first = session.apply_batch(
+            "mid = PassThroughImage(image=src.in_)\n"
+        )
+        rendered = session.render()
+        second = session.apply_batch("dst.value = passthroughimage.IMAGE\n")
+
+        assert first.ok is True
+        assert "passthroughimage = PassThroughImage(" in rendered
+        assert second.ok is True, second.diagnostics
+        assert second.landed_ops
+        replayed = session.verify_delta_history()
+        assert replayed.nodes.keys() == session.workflow.nodes.keys()
+
     def test_failed_batch_does_not_bind_new_graph_name_for_next_batch(self) -> None:
         session = self._primitive_session()
 
@@ -6368,6 +6384,21 @@ class TestSessionDeltaHistory:
         assert pi_edit(final) == pi_edit(session.workflow)
         replayed = interpret(pre, "widget.seed = 42\n")
         assert pi_edit(replayed.workflow) == pi_edit(session.workflow)
+
+    def test_idempotent_rewire_is_a_successful_skip_not_a_failed_batch(self) -> None:
+        session = _primitive_session()
+        first = session.apply_batch("dst.value = src.in_\n")
+        assert first.ok is True
+
+        second = session.apply_batch("dst.value = src.in_\ndone()\n")
+
+        assert second.ok is True
+        assert second.landed_ops == ()
+        assert second.statements[0].ok is True
+        assert second.statements[0].landed is False
+        assert second.statements[0].status == "skipped"
+        assert second.statements[0].reason == "already_applied"
+        assert second.statements[1].ok is True
 
 
 def test_session_close_projects_one_typed_terminal() -> None:

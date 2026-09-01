@@ -281,6 +281,69 @@ test("panel exposes staged/threaded selection, persists it, and submits it", asy
   }
 });
 
+test("composer mode overrides one conversation while Settings remains the default", async () => {
+  globalThis.localStorage?.clear?.();
+  globalThis.localStorage.setItem(PIPELINE_MODE_KEY, "staged");
+
+  const submitBodies = [];
+  const harness = await createBrowserHarness({
+    responses: {
+      ...READY_AUTO_STATUS,
+      "/vibecomfy/agent-executor": okSubmitResponse(submitBodies),
+    },
+    seedPipelineMode: false,
+  });
+
+  try {
+    await bootPanel(harness);
+    const settingsMode = harness.document.getElementById(
+      "vibecomfy-agent-panel-pipeline-mode",
+    );
+    const composerMode = harness.document.getElementById(
+      "vibecomfy-agent-panel-composer-pipeline-mode",
+    );
+    const info = harness.document.getElementById(
+      "vibecomfy-agent-panel-composer-pipeline-mode-info",
+    );
+
+    // The module's storage-failure mirror intentionally survives harnesses;
+    // write the default through the real Settings handler for this panel.
+    settingsMode.value = "staged";
+    settingsMode.onchange();
+    assert.equal(settingsMode.parentNode.textContent.includes("Default agent mode"), true);
+    assert.deepEqual(
+      composerMode.children.map((option) => option.value),
+      ["", "staged", "threaded"],
+    );
+    assert.equal(composerMode.value, "staged", "composer inherits the Settings default");
+    assert.match(info.getAttribute("data-tooltip"), /^AGENT MODE\n\nSTAGED — Guided\n/);
+    assert.match(info.getAttribute("data-tooltip"), /\n\nTHREADED — Direct\n/);
+    assert.match(info.getAttribute("data-tooltip"), /default from Settings/);
+
+    composerMode.value = "threaded";
+    composerMode.onchange();
+    assert.equal(composerMode.value, "threaded");
+    assert.equal(settingsMode.value, "staged", "conversation override leaves Settings alone");
+    assert.equal(globalThis.localStorage.getItem(PIPELINE_MODE_KEY), "staged");
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "edit it";
+    await waitFor(() => !harness.document.getElementById("vibecomfy-agent-panel-submit").disabled);
+    await harness.document.getElementById("vibecomfy-agent-panel-submit").click();
+    await waitFor(() => submitBodies.length > 0);
+    assert.equal(submitBodies[0].pipeline_mode, "threaded");
+
+    await harness.document.getElementById("vibecomfy-agent-panel-new-conversation").click();
+    assert.equal(
+      composerMode.value,
+      "staged",
+      "a new conversation starts from the Settings default",
+    );
+  } finally {
+    globalThis.localStorage?.removeItem(PIPELINE_MODE_KEY);
+    await harness.dispose();
+  }
+});
+
 test("unset preference blocks submit at the funnel and opens the mode ask (no request)", async () => {
   globalThis.localStorage?.clear?.();
 
@@ -684,24 +747,27 @@ function fnSource(text, name) {
   return text.slice(start, next === -1 ? text.length : next);
 }
 
-test("pipeline chrome gating derives from the explicit getter only (A7 source contract)", async () => {
+test("pipeline chrome gating derives from the conversation choice with Settings fallback", async () => {
   const rt = await source("vibecomfy_roundtrip.js");
   const thread = await source("panel_thread.js");
 
-  // The single display gate consults readPipelineModeChoice and NEVER the
-  // forgiving normalizer / silent staged default.
+  // The single display gate consults the per-conversation resolver and NEVER
+  // the forgiving normalizer / silent staged default.
   const gate = fnSource(rt, "pipelineChromeEnabled");
-  assert.match(gate, /readPipelineModeChoice\(\)/, "gate reads the explicit preference getter");
+  assert.match(
+    gate,
+    /readConversationPipelineModeChoice\(panel\)/,
+    "gate reads the conversation-aware resolver",
+  );
   assert.match(gate, /=== "staged"/, "only an explicit staged choice shows staged chrome");
   assert.doesNotMatch(gate, /DEFAULT_PIPELINE_MODE|normalizePipelineMode/);
 
-  // Every thread-side renderer receives that same getter as glue — no second
-  // store, no per-message snapshots of mode.
+  // Every thread-side renderer receives the same conversation-aware getter.
   for (const wrapper of ["renderChatBubbleNode", "reconcileChatBubbles", "populateAgentBubbleDetail"]) {
     assert.match(
       fnSource(rt, wrapper),
-      /pipelineModeChoice:\s*readPipelineModeChoice/,
-      `${wrapper} injects the shared getter`,
+      /pipelineModeChoice:\s*\(\) => readConversationPipelineModeChoice\(panel\)/,
+      `${wrapper} injects the conversation-aware getter`,
     );
   }
 
@@ -724,5 +790,6 @@ test("pipeline chrome gating derives from the explicit getter only (A7 source co
 
   // Live switching reuses the existing scheduler primitive from the REAL
   // Settings onchange handler — no event bus.
-  assert.match(rt, /scheduleRenderAgentPanel\("pipeline-mode-change", currentAgentPanel\(\), \[/);
+  assert.match(rt, /scheduleRenderAgentPanel\("pipeline-mode-change", panel, \[/);
+  assert.match(rt, /scheduleRenderAgentPanel\("conversation-pipeline-mode-change", panel, \[/);
 });

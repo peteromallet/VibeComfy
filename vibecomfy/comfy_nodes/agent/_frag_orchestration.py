@@ -401,7 +401,7 @@ def _default_runtime_schema_provider(on_demand_schemas: bool | None = None) -> A
     file-backed ``ObjectInfoSchemaProvider``. Falls back to ``local`` only if the registry
     is unavailable (i.e. not running inside ComfyUI).
     """
-    from vibecomfy.schema import get_authoring_schema_provider, get_schema_provider
+    from vibecomfy.schema import get_authoring_schema_provider
 
     try:
         # T5.4: concurrent executor turns (comparison legs, batch REPLs) must
@@ -418,9 +418,19 @@ def _default_runtime_schema_provider(on_demand_schemas: bool | None = None) -> A
                         json.dump(data, fh)
                     _RUNTIME_OBJECT_INFO_PATH[:] = [path]
         if _RUNTIME_OBJECT_INFO_PATH:
-            from vibecomfy.schema.provider import ObjectInfoSchemaProvider
+            from vibecomfy.schema.provider import (
+                CompositeSchemaProvider,
+                ObjectInfoSchemaProvider,
+            )
 
-            return ObjectInfoSchemaProvider(_RUNTIME_OBJECT_INFO_PATH[0])
+            # Installed runtime schemas stay authoritative; the authoring tail
+            # fills legitimate gaps for workflow nodes from absent packs.
+            return CompositeSchemaProvider(
+                ObjectInfoSchemaProvider(_RUNTIME_OBJECT_INFO_PATH[0]),
+                get_authoring_schema_provider(
+                    on_demand_schemas=on_demand_schemas,
+                ),
+            )
     except Exception:
         pass
     # Headless fallback (no comfy imported in-process): resolve every INSTALLED

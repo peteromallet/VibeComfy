@@ -446,13 +446,45 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
     assert receipt.op_count == 3
     assert receipt.error is None
 
+    admission_snapshot = capture_schema_snapshot(
+        class_types=sorted(provider._schemas),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {
+                class_type: schema_payload_from_node_schema(class_type, schema)
+                for class_type, schema in provider._schemas.items()
+            },
+            "missing_classes": [],
+        },
+        node_classes={
+            "10": "VAEDecode",
+            "12": "SaveImage",
+            "74": "ADE_AnimateDiffCombine",
+        },
+    )
     witness = build_schema_witness(
-        schema_provider=provider,
+        schema_provider=FrozenSchemaSnapshotProvider(admission_snapshot),
         submit_graph=submit_graph,
         candidate_payload=candidate,
         delta_envelope=envelope,
     )
     frozen_provider = schema_provider_from_witness(witness)
+
+    # Publication reconstructs admission authority from the persisted witness
+    # plus the original submit graph. The submit graph must not be ignored:
+    # the sequential simulator needs it to recognize ImageScale after the
+    # add_node op so the two dependent upserts can be admitted.
+    from vibecomfy.porting.edit.admit import (
+        AdmissionAllowed,
+        admit_operations,
+        snapshot_from_schema_witness,
+    )
+
+    reconstructed = snapshot_from_schema_witness(
+        witness,
+        submit_graph=submit_graph,
+    )
+    assert isinstance(admit_operations(reconstructed, envelope["ops"]), AdmissionAllowed)
 
     # Ambient schema discovery may change after candidate publication. Replay
     # remains tied to the persisted witness, while the changed ambient provider

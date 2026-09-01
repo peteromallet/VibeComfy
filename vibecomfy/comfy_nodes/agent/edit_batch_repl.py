@@ -1093,6 +1093,13 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # or on a search that previously succeeded.
     prior_search_signatures: tuple[str, ...] | None = None
     prior_search_landed: bool = False
+    # Keep successful exact-schema lookups available across later turns.  The
+    # normal teaching report only carries the immediately preceding turn, so
+    # an agent alternating between two required new classes could otherwise
+    # forget one result and search it again until the batch budget expired.
+    # Keying by the original call also keeps the memory deterministic and
+    # bounded: repeated lookups replace neither the first result nor add noise.
+    reusable_query_results: dict[str, str] = {}
     _batch_journal_mod = importlib.import_module(
         "vibecomfy.comfy_nodes.agent.batch_rollback_journal"
     )
@@ -1201,6 +1208,21 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             else ""
         )
         report_for_prompt = last_report
+        if reusable_query_results:
+            reusable_query_memory = (
+                "Reusable prior query results (already resolved; do not repeat "
+                "these searches). Use these signatures together to construct "
+                "the edit in this batch:\n"
+                + "\n\n".join(
+                    f"{source}\n{output}"
+                    for source, output in reusable_query_results.items()
+                )
+            )
+            report_for_prompt = (
+                f"{report_for_prompt}\n\n{reusable_query_memory}"
+                if report_for_prompt
+                else reusable_query_memory
+            )
         if discovery_nudge:
             report_for_prompt = (
                 f"{report_for_prompt}\n\n{discovery_nudge}"
@@ -1675,6 +1697,19 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             # this turn — a search followed by a successful edit is not a dead-end
             # and must not trigger the cycle guard on repeat.
             current_search_signatures = deps._extract_search_signatures(batch_result)
+            for item in batch_result.statements or ():
+                detail = item.detail if isinstance(item.detail, dict) else {}
+                query_output = detail.get("query_output")
+                source = str(item.source or "").strip()
+                if (
+                    item.ok
+                    and str(item.op_kind or "") == "query"
+                    and detail.get("query") == "search"
+                    and source
+                    and isinstance(query_output, str)
+                    and query_output.strip()
+                ):
+                    reusable_query_results.setdefault(source, query_output[:4000])
             if batch_result.landed_ops:
                 DELTA_SCHEMA_VERSION, ensure_root_scoped_delta_envelope, op_to_dict = _import_from("vibecomfy.porting.edit.ops", "DELTA_SCHEMA_VERSION"), _import_from("vibecomfy.porting.edit.ops", "ensure_root_scoped_delta_envelope"), _import_from("vibecomfy.porting.edit.ops", "op_to_dict")
 
@@ -2441,4 +2476,3 @@ __all__ = (
     "REQUIRED_DEPENDENCY_NAMES",
     "build_edit_batch_repl_deps",
 )
-

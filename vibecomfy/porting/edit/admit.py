@@ -402,6 +402,75 @@ def _schema_catalog_for(pair: AdmissionSnapshot, snapshot: Any) -> SchemaSnapsho
     return None
 
 
+def _catalog_with_known_working_nodes(
+    catalog: SchemaSnapshot | Mapping[str, Any] | None,
+    workflow: Any,
+    baseline_workflow: Any,
+) -> SchemaSnapshot | Mapping[str, Any] | None:
+    """Overlay sequentially-created identities without expanding authority.
+
+    ``admit_operations`` simulates allowed operations in order. A later wire
+    must therefore be able to resolve a node added earlier in that batch, but
+    only when its class schema was already frozen at ingress. This local view
+    leaves the retained snapshot and its digest untouched.
+    """
+    if catalog is None or workflow is None:
+        return catalog
+    from vibecomfy.schema.types import (
+        _snapshot_known_and_missing,
+        _snapshot_node_class_map,
+    )
+
+    known, missing = _snapshot_known_and_missing(catalog)
+    node_classes = _snapshot_node_class_map(catalog)
+    try:
+        # The frozen node-class map is the authoritative baseline identity set.
+        # ``pair.workflow`` is intentionally optional when callers supply a
+        # schema snapshot plus an explicit working workflow, so do not require
+        # a retained baseline IR merely to recognize same-batch additions.
+        baseline_identities: set[str] = {str(identity) for identity in node_classes}
+        if baseline_workflow is not None:
+            for node_id, node in (getattr(baseline_workflow, "nodes", {}) or {}).items():
+                baseline_identities.add(str(node_id))
+                uid = str(getattr(node, "uid", "") or "")
+                if uid:
+                    baseline_identities.add(uid)
+        nodes = getattr(workflow, "nodes", {}) or {}
+        for node_id, node in nodes.items():
+            class_type = str(getattr(node, "class_type", "") or "")
+            if not class_type or class_type not in known or class_type in missing:
+                continue
+            uid = str(getattr(node, "uid", "") or "")
+            if str(node_id) in baseline_identities or (uid and uid in baseline_identities):
+                continue
+            node_classes[str(node_id)] = class_type
+            if uid:
+                node_classes[uid] = class_type
+    except Exception as exc:
+        _LOGGER.debug("working node-class overlay failed: %s", exc)
+        return catalog
+
+    schemas = (
+        catalog.schemas
+        if isinstance(catalog, SchemaSnapshot)
+        else catalog.get("schemas", {})
+    )
+    missing_classes = (
+        list(catalog.missing_classes)
+        if isinstance(catalog, SchemaSnapshot)
+        else list(
+            catalog.get("missing_classes")
+            or catalog.get("missing_class_types")
+            or ()
+        )
+    )
+    return {
+        "schemas": schemas,
+        "missing_classes": missing_classes,
+        "node_classes": node_classes,
+    }
+
+
 def _needs_schema_knowledge(operation: Mapping[str, Any]) -> bool:
     """True when the op's touched closure is schema-dependent (T1.2 MUST-001)."""
 
@@ -434,6 +503,24 @@ def snapshot_from_schema_witness(
             schema = schema_snapshot_from_payload(payload)
         except SchemaSnapshotError:
             schema = None
+    if workflow is None and isinstance(submit_graph, Mapping):
+        try:
+            from vibecomfy.ingest.normalize import from_ui
+
+            frozen_provider = (
+                FrozenSchemaSnapshotProvider(schema) if schema is not None else None
+            )
+            workflow = from_ui(
+                dict(submit_graph),
+                schema_provider=frozen_provider,
+                use_comfy_converter=False,
+            )
+        except Exception as exc:
+            # Replay remains fail-closed if the persisted submit graph cannot
+            # be reconstructed. In particular, never fall back to ambient
+            # object_info or a live provider here.
+            _LOGGER.debug("submit graph reconstruction failed: %s", exc)
+            workflow = None
     return admission_snapshot_for(workflow, schema_snapshot=schema)
 
 def _operation_mapping(operation: Any) -> dict[str, Any]:
@@ -762,20 +849,28 @@ def admit_operation(
     operation = _operation_mapping(canonical_operation)
     op_name = str(operation.get("op") or "")
     schema_catalog = _schema_catalog_for(pair, snapshot)
-    touched = _touched_scope(canonical_operation, pair.schema)
-    if schema_catalog is not None and pair.schema is None and isinstance(schema_catalog, Mapping):
-        classes = touched_schema_classes(canonical_operation, schema_catalog)
-        if not classes:
-            class_type = operation.get("class_type")
-            classes = (str(class_type),) if isinstance(class_type, str) and class_type else ()
-        touched = TouchedScope(identities=_touched_identities(operation), class_types=tuple(classes))
     workflow = working_workflow
     if workflow is None and pair.workflow is not None:
         workflow = pair.workflow.workflow
+    operation_catalog = _catalog_with_known_working_nodes(
+        schema_catalog,
+        workflow,
+        pair.workflow.workflow if pair.workflow is not None else None,
+    )
+    touched = _touched_scope(canonical_operation, pair.schema)
+    if operation_catalog is not None:
+        classes = touched_schema_classes(canonical_operation, operation_catalog)
+        if not classes:
+            class_type = operation.get("class_type")
+            classes = (str(class_type),) if isinstance(class_type, str) and class_type else ()
+        touched = TouchedScope(
+            identities=_touched_identities(operation),
+            class_types=tuple(classes),
+        )
 
-    if schema_catalog is not None:
+    if operation_catalog is not None:
         try:
-            require_known_touched_schema(canonical_operation, schema_catalog)
+            require_known_touched_schema(canonical_operation, operation_catalog)
         except SchemaSnapshotError as exc:
             # DEEP-AUDIT-FIX-1-ADJUDICATION: the immutable pair.schema is the
             # SOLE admission authority. The retained live provider is never
@@ -786,10 +881,14 @@ def admit_operation(
             # S3: read-only source-missing edges (e.g., SVDSimpleImg2Vid → SaveImage)
             # are schema-opaque on the read side; do not block a valid target write.
             if exc.code == "missing_touched_schema" and _is_readonly_source_missing(
-                operation, pair, schema_catalog
+                operation, pair, operation_catalog
             ):
                 pass
-            elif _add_node_provisional_allows(operation, schema_catalog, working_workflow=workflow):
+            elif _add_node_provisional_allows(
+                operation,
+                operation_catalog,
+                working_workflow=workflow,
+            ):
                 pass
             else:
                 return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)

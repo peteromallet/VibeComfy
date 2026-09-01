@@ -5,7 +5,11 @@
 // *inactivity*, not total request duration, and leaves a small transport / job
 // scheduling margin beyond the worker's own timeout.
 export const DEFAULT_SUBMIT_DEADLINE_MS = 210000;
-export const DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS = 900000;
+// A single large-graph provider call may legally run for up to eight minutes,
+// and staged requests can contain research, implementation, and reply calls.
+// Keep the absolute browser deadline above that valid backend envelope so a
+// healthy request is not discarded moments before its completed response.
+export const DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS = 1800000;
 export const DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT = 1;
 
 export const DEFAULT_SUBMIT_WATCHDOG_DEPS = Object.freeze({

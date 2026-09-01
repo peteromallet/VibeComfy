@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from vibecomfy.porting.edit.ops import (
+    AddNodeOp,
     LinkSourceRef,
     LinkTargetRef,
     NodeFieldTarget,
@@ -195,6 +196,128 @@ def test_guard_rejects_remove_node_without_incident_links() -> None:
         issue.code == "full_ui_counter_changed_unattributed" for issue in result.diagnostics
     )
     assert any(issue.code == "full_ui_link_removed_unattributed" for issue in result.diagnostics)
+
+
+def test_captured_link_ids_use_output_array_position_when_slot_index_is_absent() -> None:
+    from vibecomfy.porting.emit.ui import _captured_link_id_map
+
+    door = {
+        "top": {"links": [[31, 105, 0, 8, 1, "VAE"]]},
+        "nodes": {
+            "105": {
+                "outputs": [{"name": "VAE", "type": "VAE", "links": [31]}],
+            },
+            "8": {
+                "inputs": [
+                    {"name": "samples", "type": "LATENT", "link": None},
+                    {"name": "vae", "type": "VAE", "link": 31},
+                ],
+            },
+        },
+    }
+
+    assert _captured_link_id_map(door) == {("105", "0", "8", "vae"): 31}
+
+
+def test_guard_attributes_upsert_from_a_node_added_in_the_same_delta() -> None:
+    original = _counter_ui(node_counter=2, link_counter=2)
+    candidate = deepcopy(original)
+    candidate["last_node_id"] = 3
+    candidate["last_link_id"] = 3
+    candidate["nodes"].append(
+        {
+            "id": 3,
+            "type": "LoadImage",
+            "properties": {"vibecomfy_uid": "n1"},
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [3]}],
+        }
+    )
+    candidate["nodes"][1]["inputs"][0]["link"] = 3
+    candidate["links"] = [[3, 3, 0, 2, 0, "IMAGE"]]
+    operations = (
+        AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type="LoadImage",
+            fields={},
+            inputs={},
+            uid="n1",
+            node_id="3",
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef("", "n1", "IMAGE"),
+            target=LinkTargetRef("", "target", "image"),
+        ),
+    )
+
+    result = guard_exit_ui(original, candidate, operations)
+
+    assert result.ok is True, result.diagnostics
+
+
+def test_guard_attributes_typed_multi_output_alias_from_new_node() -> None:
+    original = _counter_ui(node_counter=2, link_counter=2)
+    candidate = deepcopy(original)
+    candidate["last_node_id"] = 3
+    candidate["last_link_id"] = 3
+    candidate["nodes"].append(
+        {
+            "id": 3,
+            "type": "WanImageToVideo",
+            "properties": {"vibecomfy_uid": "n1"},
+            "outputs": [
+                {"name": "positive", "type": "CONDITIONING", "links": None},
+                {"name": "negative", "type": "CONDITIONING", "links": [3]},
+                {"name": "latent", "type": "LATENT", "links": None},
+            ],
+        }
+    )
+    candidate["nodes"][1]["inputs"][0]["link"] = 3
+    candidate["links"] = [[3, 3, 1, 2, 0, "CONDITIONING"]]
+    operations = (
+        AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type="WanImageToVideo",
+            fields={},
+            inputs={},
+            uid="n1",
+            node_id="3",
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef("", "n1", "CONDITIONING_1"),
+            target=LinkTargetRef("", "target", "image"),
+        ),
+    )
+
+    result = guard_exit_ui(original, candidate, operations)
+
+    assert result.ok is True, result.diagnostics
+
+
+def test_emitter_resolves_typed_multi_output_alias_to_its_position() -> None:
+    from vibecomfy.porting.emit.ui import _resolve_output_slot_and_type
+    from vibecomfy.schema import NodeSchema, OutputSpec
+
+    schema = NodeSchema(
+        class_type="WanImageToVideo",
+        pack=None,
+        inputs={},
+        outputs=[
+            OutputSpec(type="CONDITIONING", name="positive"),
+            OutputSpec(type="CONDITIONING", name="negative"),
+            OutputSpec(type="LATENT", name="latent"),
+        ],
+    )
+
+    assert _resolve_output_slot_and_type(
+        "CONDITIONING_1", "WanImageToVideo", {"WanImageToVideo": schema}
+    ) == (1, "CONDITIONING")
+    assert _resolve_output_slot_and_type(
+        "LATENT_2", "WanImageToVideo", {"WanImageToVideo": schema}
+    ) == (2, "LATENT")
 
 
 def test_guard_rejects_add_remove_mixture_for_counter_decrease() -> None:

@@ -260,14 +260,15 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 69 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 70 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 69);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 70);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("sessionId"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("turnId"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("conversationPipelineMode"));
   // ── T5: Scope identity fields ────────────────────────────────────────
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatScopeId"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatScopeFingerprint"));
@@ -323,12 +324,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 69 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 69);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 70);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 69 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 70 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -341,7 +342,7 @@ test("createAgentEditState initializes all 69 lifecycle fields to defaults", () 
 
   // No extra own keys beyond the lifecycle fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 69);
+  assert.equal(ownKeys.length, 70);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -349,6 +350,7 @@ test("createAgentEditState initializes all 69 lifecycle fields to defaults", () 
   // Session / turn identity
   assert.equal(state.sessionId, null);
   assert.equal(state.turnId, null);
+  assert.equal(state.conversationPipelineMode, null);
   assert.equal(state.agentEditProtocol, null);
   assert.equal(state.scopeActivationEpoch, 0);
 

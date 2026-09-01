@@ -82,7 +82,10 @@ class _ParseExecuteMixin:
                     interpreted.landed_ops,
                     working_workflow=pre_ir,
                 )
-                if isinstance(admitted, AdmissionRejected):
+                if (
+                    isinstance(admitted, AdmissionRejected)
+                    and admitted.typed_reason != "no_op"
+                ):
                     rejection = _diag(
                         admitted.typed_reason,
                         admitted.typed_reason,
@@ -242,7 +245,42 @@ class _ParseExecuteMixin:
                     name_hints=self._transient_name_index,
                 )
                 apply_gate_eligible = gate.apply_eligible
-                if not gate.ok or not gate.apply_eligible:
+                if gate.ok and not gate.apply_eligible and gate.reason == "empty_delta":
+                    # An idempotent rewire is already true in the retained IR.
+                    # It is not a failed edit and must not poison a later
+                    # done() in the same agent conversation. Keep the batch
+                    # successful, but do not claim a newly landed operation or
+                    # append a duplicate delta to history.
+                    for item in statement_results:
+                        if not item.landed:
+                            continue
+                        item.ok = True
+                        item.landed = False
+                        item.status = "skipped"
+                        item.reason = "already_applied"
+                        item.detail["status"] = "skipped"
+                        item.detail["reason"] = "already_applied"
+                    statement_results = self._enrich_statement_results(
+                        statement_results
+                    )
+                    query_diagnostics = tuple(
+                        diagnostic
+                        for statement in statement_results
+                        if statement.op_kind in {"query", "done"}
+                        for diagnostic in statement.diagnostics
+                        if diagnostic.severity in {"error", "warning"}
+                    )
+                    return BatchResult(
+                        ok=all(statement.ok for statement in statement_results),
+                        statements=tuple(statement_results),
+                        diagnostics=interpreted.diagnostics + query_diagnostics,
+                        landed_ops=(),
+                        field_changes=(),
+                        apply_eligible=False,
+                    )
+                if gate.reason != "no_op" and (
+                    not gate.ok or not gate.apply_eligible
+                ):
                     rejected = tuple(
                         StatementResult(
                             statement_index=item.statement_index,

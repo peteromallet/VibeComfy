@@ -397,10 +397,14 @@ export function renderComposerActions(panel, deps = {}) {
     RENDER_SECTIONS,
     setButtonEmphasis,
     syncComposerButtons: syncComposerButtonsImpl,
+    syncComposerPipelineMode,
     submitReadinessState: submitReadinessStateImpl,
     PANEL_STATE,
   } = deps;
   recordAgentPanelRenderCount(panel, RENDER_SECTIONS.COMPOSER);
+  if (typeof syncComposerPipelineMode === "function") {
+    syncComposerPipelineMode(panel);
+  }
   const phase = panel.state.phase;
   const submitting = phase === PANEL_STATE.SUBMITTING;
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;

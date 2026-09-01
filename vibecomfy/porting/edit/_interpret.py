@@ -1851,7 +1851,16 @@ class _InterpretRunner:
         for node_id, name in names.items():
             node = self.workflow.nodes.get(str(node_id))
             uid = str(getattr(node, "uid", "") or "")
-            if not uid or uid in bound_uids:
+            if not uid:
+                continue
+            if uid in bound_uids:
+                # A batch-local assignment alias may already address this
+                # node, but the next prompt exposes the canonical renderer
+                # name.  Keep both spellings resolvable instead of letting the
+                # transient alias shadow the name the model can actually see.
+                if name not in used_names:
+                    bindings[name] = uid
+                    used_names.add(name)
                 continue
             stable_name = fresh_name(name)
             bindings[stable_name] = uid

@@ -731,7 +731,14 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
       }, deps);
     }
     panel.fields.route.value = requestedRoute;
-    if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
+    // A hidden model control means the selected route owns its model default.
+    // Do not turn a status response into an invisible cross-provider override.
+    const modelOverrideVisible = panel.fields.model?.style?.display !== "none";
+    if (
+      modelOverrideVisible
+      && typeof status?.model === "string"
+      && !panel.fields.model.value.trim()
+    ) {
       panel.fields.model.value = status.model;
     }
   } catch (e) {

@@ -377,12 +377,15 @@ def _captured_link_id_map(
             link_ref = entry.get("link")
             if isinstance(link_ref, int):
                 input_name_by_link[link_ref] = (str(nid), str(entry.get("name", "")))
-        for entry in payload.get("outputs") or []:
+        for output_index, entry in enumerate(payload.get("outputs") or []):
             if not isinstance(entry, Mapping):
                 continue
-            slot = entry.get("slot_index")
-            if slot is None:
-                continue
+            # Ordinary ComfyUI workflow JSON identifies an output's socket by
+            # its array position and usually omits ``slot_index``.  Treat the
+            # explicit field as an override, not a prerequisite, otherwise the
+            # captured map is empty and every preserved link is spuriously
+            # renumbered after the first structural edit.
+            slot = entry.get("slot_index", output_index)
             try:
                 slot_int = int(slot)
             except (TypeError, ValueError):
@@ -1356,6 +1359,23 @@ def _resolve_output_slot_and_type(
         for idx, out_spec in enumerate(outputs):
             if out_spec.name == from_output:
                 return idx, out_spec.type or ""
+        # The editable renderer disambiguates repeated output types with a
+        # positional TYPE_N alias (for example CONDITIONING_1 or LATENT_2).
+        # Preserve that exact slot when it agrees with the frozen schema;
+        # falling through to slot 0 silently cross-wires multi-output nodes.
+        import re
+
+        typed = re.fullmatch(r"(.+)_(\d+)", from_output)
+        if typed is not None:
+            idx = int(typed.group(2))
+            if 0 <= idx < len(outputs):
+                out_spec = outputs[idx]
+                token = typed.group(1).casefold()
+                if token in {
+                    str(out_spec.name or "").casefold(),
+                    str(out_spec.type or "").casefold(),
+                }:
+                    return idx, out_spec.type or ""
     # Unresolvable name: best-effort slot 0, empty type
     return 0, ""
 
@@ -4393,6 +4413,18 @@ def _output_slot_for_ref(node: Mapping[str, Any], output: str | int) -> int | No
         index = int(match.group(1))
         if 0 <= index < len(outputs):
             return index
+    typed = re.fullmatch(r"(.+)_(\d+)", output)
+    if typed is not None:
+        index = int(typed.group(2))
+        if 0 <= index < len(outputs):
+            slot = outputs[index]
+            if isinstance(slot, Mapping):
+                token = typed.group(1).casefold()
+                if token in {
+                    str(slot.get("name") or "").casefold(),
+                    str(slot.get("type") or "").casefold(),
+                }:
+                    return index
     return None
 
 
@@ -4779,9 +4811,19 @@ def _expected_ui_links(
             return op.target is not None and _link_matches_remove_target(
                 record["parts"], op.target, original_scope
             )
+        prior_upsert = record.get("origin_op")
+        if isinstance(prior_upsert, UpsertLinkOp):
+            return prior_upsert.target == op.target
         return _link_matches_remove_target(record["parts"], op.target, original_scope)
 
+    added_uids: set[str] = set()
     for op in scope_ops:
+        if isinstance(op, AddNodeOp):
+            if op.uid:
+                added_uids.add(str(op.uid))
+            if op.node_id:
+                added_uids.add(str(op.node_id))
+            continue
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
                 records = [record for record in records if not endpoint_match(record, op)]
@@ -4793,15 +4835,33 @@ def _expected_ui_links(
             target_id = _native_node_id(target)
             source_slot = _output_slot_for_ref(source, op.source.output_slot) if source is not None else None
             target_slot = _input_slot_for_name(target, op.target.input_field) if target is not None else None
-            if source_id is None or target_id is None or source_slot is None or target_slot is None:
-                # Interpret rejects these in normal operation.  If a caller
-                # supplies one anyway, it must not authorize a partial fold.
+            concrete = (
+                source_id is not None
+                and target_id is not None
+                and source_slot is not None
+                and target_slot is not None
+            )
+            references_added_node = (
+                (source is None and str(op.source.uid) in added_uids)
+                or (target is None and str(op.target.uid) in added_uids)
+            )
+            if not concrete and not references_added_node:
+                # Interpret rejects unresolved endpoints in normal operation.
+                # A caller-supplied unresolved upsert must remain a fold no-op.
                 continue
             dropped = [record for record in records if endpoint_match(record, op)]
             records = [record for record in records if not endpoint_match(record, op)]
             link_type = dropped[0]["parts"][5] if dropped else ""
             records.append({
-                "parts": (None, source_id, source_slot, target_id, target_slot, link_type),
+                # For a newly-added endpoint the exact candidate coordinates
+                # are matched from ``origin_op`` below. Existing endpoints keep
+                # their concrete fold coordinates, preserving repeated-upsert
+                # and unresolved-upsert semantics.
+                "parts": (
+                    (None, None, None, None, None, link_type)
+                    if references_added_node
+                    else (None, source_id, source_slot, target_id, target_slot, link_type)
+                ),
                 "locked": False,
                 "origin_op": op,
             })

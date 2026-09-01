@@ -136,6 +136,7 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   // Session / turn identity
   "sessionId",
   "turnId",
+  "conversationPipelineMode",
 
   // ── T5: Scope identity (lifecycle-store-owned) ──────────────────────────
   // Per-workflow chat scope: the scope this panel is bound to.  Matched
@@ -283,6 +284,10 @@ export function createAgentEditState() {
     // Session / turn identity
     sessionId: null,
     turnId: null,
+    // Per-conversation execution-mode override. ``null`` means inherit the
+    // persisted default from Settings; scope snapshots preserve a live
+    // conversation's explicit choice and NEW_CONVERSATION resets it.
+    conversationPipelineMode: null,
 
     // ── T5: Scope identity ──────────────────────────────────────────────
     chatScopeId: null,
@@ -436,6 +441,22 @@ export function transition(panel, event, payload = {}) {
         render: true,
         dirtySections: ALL_RENDER_DIRTY_SECTIONS,
       });
+
+    case "SET_CONVERSATION_PIPELINE_MODE": {
+      const mode = payload?.mode;
+      if (mode !== "staged" && mode !== "threaded" && mode !== null) {
+        return { render: false };
+      }
+      panel.state.conversationPipelineMode = mode;
+      return _obligations({
+        render: true,
+        dirtySections: [
+          RENDER_SECTIONS.THREAD,
+          RENDER_SECTIONS.META,
+          RENDER_SECTIONS.COMPOSER,
+        ],
+      });
+    }
 
     case "RESTORE_LIFECYCLE_BASELINE":
       return _handleRestoreLifecycleBaseline(panel, payload);

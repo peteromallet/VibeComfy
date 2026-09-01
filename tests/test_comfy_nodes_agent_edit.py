@@ -2852,6 +2852,85 @@ def test_default_runtime_schema_provider_falls_back_to_authoring_object_info(
     assert provider.get_schema("SaveImage") is not None
 
 
+def test_default_runtime_schema_provider_in_process_keeps_runtime_first_and_authoring_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _default_runtime_schema_provider
+    from vibecomfy.schema import CompositeSchemaProvider
+
+    runtime_schema = _schema("RuntimeNode", [OutputSpec("IMAGE", "runtime")])
+    weaker_schema = _schema("RuntimeNode", [OutputSpec("MASK", "weaker")])
+    authoring_only = _schema("AuthoringOnlyNode")
+
+    class _FakeObjectInfoProvider(_Provider):
+        def __init__(self, _path: str) -> None:
+            super().__init__({"RuntimeNode": runtime_schema})
+
+    flags: list[bool | None] = []
+    authoring = _Provider(
+        {"RuntimeNode": weaker_schema, "AuthoringOnlyNode": authoring_only}
+    )
+    object_info_path = tmp_path / "object_info.json"
+    object_info_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent._frag_orchestration._RUNTIME_OBJECT_INFO_PATH",
+        [str(object_info_path)],
+    )
+    monkeypatch.setattr(
+        "vibecomfy.schema.provider.ObjectInfoSchemaProvider",
+        _FakeObjectInfoProvider,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        lambda *, on_demand_schemas=None: (
+            flags.append(on_demand_schemas) or authoring
+        ),
+    )
+
+    provider = _default_runtime_schema_provider(on_demand_schemas=True)
+
+    assert isinstance(provider, CompositeSchemaProvider)
+    assert provider.get_schema("RuntimeNode") is runtime_schema
+    assert provider.schemas()["RuntimeNode"] is runtime_schema
+    assert provider.get_schema("AuthoringOnlyNode") is authoring_only
+    assert flags == [True]
+
+
+def test_capture_ingress_snapshot_keeps_materialized_runtime_rows_from_mixed_listing_composite() -> None:
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import CompositeSchemaProvider
+
+    runtime_schema = _schema("RuntimeNode")
+    graph_only_schema = _schema("GraphOnlyNode")
+
+    class _ListingTail:
+        listing_only = True
+
+        def schemas(self) -> dict[str, None]:
+            return {"GraphOnlyNode": None, "UnreferencedIndexNode": None}
+
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            return graph_only_schema if class_type == "GraphOnlyNode" else None
+
+    provider = CompositeSchemaProvider(
+        _Provider({"RuntimeNode": runtime_schema}),
+        _ListingTail(),
+    )
+    graph = {"nodes": [{"id": 1, "type": "GraphOnlyNode"}], "links": []}
+
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=graph,
+    )
+
+    assert set(snapshot.schemas) == {"RuntimeNode", "GraphOnlyNode"}
+    assert "UnreferencedIndexNode" not in snapshot.schemas
+    assert snapshot.missing_classes == ()
+
+
 def test_agent_edit_batch_failed_edits_cannot_be_reported_as_successful_noop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -8935,6 +9014,14 @@ def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_pre
         assert "Previous agent message:" in user_msg
         assert previous_message in user_msg
         assert budget_line in user_msg
+
+    assert "Reusable prior query results" in second_user
+    assert 'search(focus_types=["SaveImage"])' in second_user
+    assert "# authoring:" in second_user
+    assert "Reusable prior query results" in third_user
+    assert 'search(focus_types=["SaveImage"])' in third_user
+    assert 'search(focus_types=["ImageScaleBy"])' in third_user
+    assert "do not repeat these searches" in third_user
 
 
 def test_handle_agent_edit_batch_repl_budget_exhaustion_reports_final_status_metadata_and_budget_lines(
@@ -20459,6 +20546,75 @@ def test_admit_operation_provisional_add_survives_for_schema_known_classes() -> 
         working_workflow=wf,
     )
     assert not isinstance(allowed, AdmissionRejected)
+
+
+def test_frozen_ingress_snapshot_admits_schema_known_add_then_wire_batch() -> None:
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.admit import (
+        AdmissionAllowed,
+        admission_snapshot_for,
+        admit_operations,
+    )
+
+    source_schema = NodeSchema(
+        class_type="NewSource",
+        pack=None,
+        inputs={},
+        outputs=[OutputSpec("IMAGE", "IMAGE")],
+        source_provider="test",
+        confidence=1.0,
+    )
+    target_schema = NodeSchema(
+        class_type="Target",
+        pack=None,
+        inputs={"image": InputSpec("IMAGE", required=True)},
+        outputs=[],
+        source_provider="test",
+        confidence=1.0,
+    )
+    provider = _Provider({"NewSource": source_schema, "Target": target_schema})
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+            }
+        ],
+        "links": [],
+    }
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=graph,
+    )
+    wf = VibeWorkflow(_AGENT_EDIT_TEST_WORKFLOW_ID, WorkflowSource("add-wire"))
+    wf.nodes["1"] = VibeNode("1", "Target", uid="target")
+    operations = [
+        {
+            "op": "add_node",
+            "scope_path": "",
+            "class_type": "NewSource",
+            "fields": {},
+            "inputs": {},
+            "uid": "source-new",
+        },
+        {
+            "op": "upsert_link",
+            "from": ["", "source-new", 0],
+            "to": ["", "target", "image"],
+        },
+    ]
+
+    result = admit_operations(
+        admission_snapshot_for(wf, schema_snapshot=snapshot),
+        operations,
+        working_workflow=wf,
+    )
+
+    assert isinstance(result, AdmissionAllowed)
+    assert result.allowed is True
 
 
 def test_ingest_door_binds_frozen_schema_snapshot_for_admission_and_receipts(
