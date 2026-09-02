@@ -31,7 +31,13 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_ROUTE = "arnold"
 DEFAULT_MODEL = "agent-edit"
 DEFAULT_HERMES_ENV_PATH = Path("~/.hermes/.env")
-SUPPORTED_BROWSER_ROUTES = ("auto", "openrouter", "anthropic", "openai-codex")
+SUPPORTED_BROWSER_ROUTES = (
+    "auto",
+    "hermes-cli",
+    "openrouter",
+    "anthropic",
+    "openai-codex",
+)
 
 _ARNOLD_GUIDANCE = (
     "Use local Arnold/Hermes setup for this route. Configure ARNOLD_API_KEY or "
@@ -45,6 +51,10 @@ _ANTHROPIC_GUIDANCE = (
 _CODEX_GUIDANCE = (
     "OpenAI Codex runs through local Arnold/Hermes. Configure local "
     "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted."
+)
+_HERMES_CLI_GUIDANCE = (
+    "Uses the locally installed Hermes CLI and its configured default model. "
+    "VibeComfy does not pass a model, provider, or browser API key override."
 )
 _BATCH_REPL_PARSE_RETRY_PROMPT = (
     "Your previous reply was empty or unparseable for VibeComfy's batch_repl "
@@ -1387,6 +1397,13 @@ def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
             browser_api_key_allowed=True,
             guidance="OpenRouter browser key submission is supported and stored locally.",
         )
+    if requested == "hermes-cli":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="hermes-cli",
+            browser_api_key_allowed=False,
+            guidance=_HERMES_CLI_GUIDANCE,
+        )
     if requested == "anthropic":
         return AgentRouteDescriptor(
             requested_route=requested,
@@ -1442,7 +1459,7 @@ def _resolve_route_and_model(
 
 def _runtime_dispatch_route(route_descriptor: AgentRouteDescriptor, selected_route: str) -> str:
     requested = route_descriptor.requested_route
-    if requested in {"anthropic", "openai-codex"}:
+    if requested in {"anthropic", "openai-codex", "hermes-cli"}:
         return requested
     # Preserve an explicit OpenRouter selection through the runtime boundary.
     # The runtime still uses the Hermes adapter internally, but the route name
@@ -1468,7 +1485,7 @@ def _provider_status_metadata(
         "route": selected_route,
         "requested_route": route_descriptor.requested_route,
         "model": selected_model,
-        "provider": "arnold",
+        "provider": "hermes-cli" if selected_route == "hermes-cli" else "arnold",
         "provider_available": provider_available,
         "contract_version": AGENT_EDIT_TURN_CONTRACT_VERSION,
         "route_metadata": route_descriptor.to_dict(),

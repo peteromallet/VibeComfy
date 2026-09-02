@@ -201,6 +201,18 @@ def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None
                 )
 
 
+def test_packaged_hermes_profile_uses_cli_default_without_model_override() -> None:
+    set_profile_override_dir(None)
+    profile = load_profile("hermes")
+
+    for stage in ("classify", "research", "implement", "reply", "execute"):
+        assert profile[stage] == AgentSpecShape(
+            agent="hermes-cli",
+            model="default",
+            effort="low",
+        )
+
+
 # ── load_all_profiles ────────────────────────────────────────────────────────
 
 

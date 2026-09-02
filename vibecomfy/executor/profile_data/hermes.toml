@@ -1,0 +1,11 @@
+# Local Hermes CLI profile for vibecomfy-executor.
+#
+# ``default`` is a contract marker, not a model override. The hermes-cli
+# runtime deliberately invokes ``hermes -z`` without ``--model`` or
+# ``--provider`` so every stage uses the locally configured Hermes default.
+[profiles.hermes]
+classify   = "hermes-cli:default"
+research   = "hermes-cli:default"
+implement  = "hermes-cli:default"
+reply      = "hermes-cli:default"
+execute    = "hermes-cli:default"

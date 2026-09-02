@@ -24759,7 +24759,7 @@ test("VibeComfy developer disclosure persists expanded state across settings pop
   }
 });
 
-test("VibeComfy settings route switching covers all four canonical providers (deepseek, openrouter, openai-codex, anthropic)", async () => {
+test("VibeComfy settings route switching covers all five canonical providers (deepseek, openrouter, Hermes, Codex, Claude)", async () => {
   globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
   const harness = await createBrowserHarness({
     responses: {
@@ -24778,6 +24778,7 @@ test("VibeComfy settings route switching covers all four canonical providers (de
           route_options: {
             auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
             deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            "hermes-cli": { requested_route: "hermes-cli", normalized_route: "hermes-cli", browser_api_key_allowed: false },
             openrouter: { requested_route: "openrouter", normalized_route: "openrouter", browser_api_key_allowed: true },
             anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false },
             "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
@@ -24801,12 +24802,15 @@ test("VibeComfy settings route switching covers all four canonical providers (de
 
     settingsGear.click();
 
-    // Route select must contain all four canonical providers
+    // Route select must contain all five canonical providers.
     const routeValues = routeSelect.children.map((entry) => entry.value);
     assert.ok(routeValues.includes("deepseek"), "route select should include deepseek");
     assert.ok(routeValues.includes("openrouter"), "route select should include openrouter");
     assert.ok(routeValues.includes("openai-codex"), "route select should include openai-codex");
     assert.ok(routeValues.includes("anthropic"), "route select should include anthropic");
+    assert.ok(routeValues.includes("hermes-cli"), "route select should include Hermes CLI");
+    const hermesOption = routeSelect.children.find((entry) => entry.value === "hermes-cli");
+    assert.equal(hermesOption.textContent, "Hermes", "Settings uses the product label");
 
     // deepseek is a direct provider (route stays as deepseek)
     routeSelect.value = "deepseek";
@@ -24819,6 +24823,12 @@ test("VibeComfy settings route switching covers all four canonical providers (de
     routeSelect.onchange();
     await waitFor(() => routeSelect.value === "openrouter");
     assert.equal(routeSelect.value, "openrouter");
+
+    // Hermes stays distinct and uses the local CLI/default-model route.
+    routeSelect.value = "hermes-cli";
+    routeSelect.onchange();
+    await waitFor(() => routeSelect.value === "hermes-cli");
+    assert.equal(routeSelect.value, "hermes-cli");
 
     // openai-codex stays as openai-codex in the select (resolved to arnold server-side)
     routeSelect.value = "openai-codex";

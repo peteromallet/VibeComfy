@@ -28,7 +28,7 @@ STAGED_STAGES: frozenset[str] = frozenset({"classify", "research", "implement", 
 THREADED_STAGES: frozenset[str] = frozenset({"execute"})
 DECLARED_STAGES: frozenset[str] = STAGED_STAGES | THREADED_STAGES
 _KNOWN_AGENTS: frozenset[str] = frozenset(
-    {"hermes", "openrouter", "codex", "claude", "shannon"}
+    {"hermes", "hermes-cli", "openrouter", "codex", "claude", "shannon"}
 )
 
 # ── AgentSpecShape ───────────────────────────────────────────────────────────

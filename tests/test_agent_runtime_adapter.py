@@ -137,6 +137,145 @@ def test_normalize_route_maps_hermes_to_openrouter() -> None:
     assert runtime._requested_route("hermes") == "openrouter"
 
 
+def test_hermes_cli_route_stays_distinct_and_never_resolves_a_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime, "_find_runnable_hermes_cli_command", lambda: ("/opt/bin/hermes",)
+    )
+
+    assert runtime._normalize_route("hermes-cli") == "hermes-cli"
+    assert runtime._requested_route("hermes-cli") == "hermes-cli"
+    assert runtime._agent_id_for_route("hermes-cli") == "hermes-cli"
+    assert runtime._runtime_model_for_route("hermes-cli", "default") is None
+    assert runtime._runtime_model_for_route("hermes-cli", "some/model") is None
+    kwargs = runtime._build_agent_kwargs(
+        "hermes-cli", route="hermes-cli", model="some/model"
+    )
+    assert kwargs["cli_command"] == ["/opt/bin/hermes"]
+    assert "model" not in kwargs
+    assert "provider" not in kwargs
+
+
+def test_hermes_cli_readiness_checks_the_local_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_hermes_cli_commands", lambda: (("/opt/bin/hermes",),))
+    monkeypatch.setattr(
+        runtime, "_find_runnable_hermes_cli_command", lambda: ("/opt/bin/hermes",)
+    )
+
+    status = runtime.readiness(route="hermes-cli", model="agent-edit")
+
+    assert status["ready"] is True
+    assert status["route"] == "hermes-cli"
+    assert status["model"] == "configured default"
+    assert status["hermes_cli_runnable"] is True
+
+
+def test_provider_preserves_hermes_cli_route_without_browser_credentials() -> None:
+    descriptor = agent_provider._resolve_agent_route("hermes-cli")
+
+    assert descriptor.normalized_route == "hermes-cli"
+    assert descriptor.browser_api_key_allowed is False
+    assert agent_provider._runtime_dispatch_route(
+        descriptor, descriptor.normalized_route
+    ) == "hermes-cli"
+    assert "hermes-cli" in agent_provider.SUPPORTED_BROWSER_ROUTES
+    assert agent_provider._supported_browser_route_options()["hermes-cli"][
+        "normalized_route"
+    ] == "hermes-cli"
+
+
+def test_executor_payload_maps_hermes_cli_selection_to_hermes_profile() -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _executor_request_payload
+
+    payload = _executor_request_payload(
+        {"query": "inspect this", "route": "hermes-cli", "profile": "openai"}
+    )
+
+    assert payload["route"] == "hermes-cli"
+    assert payload["profile"] == "hermes"
+
+
+def test_worker_invokes_hermes_oneshot_without_model_or_provider_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    cli_path = tmp_path / "hermes"
+    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    cli_path.chmod(0o755)
+    monkeypatch.setenv("HERMES_INFERENCE_MODEL", "must-not-leak")
+    monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "must-not-leak")
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
+
+    monkeypatch.setattr(worker.subprocess, "run", fake_run)
+
+    text, metadata = worker._dispatch_turn(
+        agent_id="hermes-cli",
+        agent_kwargs={"cli_command": [str(cli_path), "/checkout/hermes"]},
+        system_message="Return JSON only.",
+        user_message="Say hello.",
+        model=None,
+    )
+
+    command = captured["command"]
+    assert command[:4] == [
+        str(cli_path),
+        "/checkout/hermes",
+        "--ignore-rules",
+        "-z",
+    ]
+    assert "--model" not in command and "-m" not in command
+    assert "--provider" not in command
+    assert "System instructions:\nReturn JSON only." in command[4]
+    assert "User request:\nSay hello." in command[4]
+    assert "HERMES_INFERENCE_MODEL" not in captured["env"]
+    assert "HERMES_INFERENCE_PROVIDER" not in captured["env"]
+    assert text == '{"ok": true}\n'
+    assert metadata["resolved_model"] == "configured default"
+
+
+def test_worker_reports_missing_or_failed_hermes_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    with pytest.raises(FileNotFoundError, match="No runnable Hermes CLI"):
+        worker._dispatch_turn(
+            agent_id="hermes-cli",
+            agent_kwargs={"cli_path": None},
+            system_message=None,
+            user_message="hello",
+        )
+
+    cli_path = tmp_path / "hermes"
+    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    cli_path.chmod(0o755)
+    monkeypatch.setattr(
+        worker.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 2, stdout="", stderr="configuration failed"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="exited with code 2"):
+        worker._dispatch_turn(
+            agent_id="hermes-cli",
+            agent_kwargs={"cli_path": str(cli_path)},
+            system_message=None,
+            user_message="hello",
+        )
+
+    assert runtime._is_runtime_unavailable(
+        {"error_type": "FileNotFoundError", "error": "missing"}
+    )
+
+
 def test_provider_status_preserves_runtime_model_over_contract_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

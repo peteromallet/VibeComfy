@@ -914,6 +914,7 @@ def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "openai-codex": "openai",
         "codex": "openai",
         "openrouter": "openrouter",
+        "hermes-cli": "hermes",
         "anthropic": "anthropic",
         "claude": "anthropic",
         "opensource": "opensource",
