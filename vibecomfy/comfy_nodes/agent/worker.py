@@ -45,6 +45,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import time
 from typing import Any
@@ -144,6 +145,8 @@ def _worker_provider_transport(
     if not isinstance(agent_kwargs, dict):
         agent_kwargs = {}
     endpoint = normalize_model_endpoint(agent_kwargs.get("base_url"))
+    if agent_id == "hermes-cli":
+        return "hermes-cli", "local-cli", endpoint
     if agent_id != "hermes":
         return "unknown", "unknown", endpoint
     if "openrouter.ai" in endpoint:
@@ -178,7 +181,11 @@ def _model_attempt(
         outcome=outcome,
         failure_type=failure_type,
         requested_model=request.get("requested_model"),
-        resolved_model=agent_kwargs.get("model") or request.get("model"),
+        resolved_model=(
+            agent_kwargs.get("model")
+            or request.get("model")
+            or ("configured default" if request.get("agent_id") == "hermes-cli" else None)
+        ),
         adapter=request.get("agent_id") or "hermes",
         provider=provider,
         transport=transport,
@@ -329,6 +336,52 @@ def _dispatch_turn(
       ``dispatch`` raises :class:`LookupError`, which the parent maps to the
       runtime-unavailable signal. We never silently route them through DeepSeek.
     """
+    if agent_id == "hermes-cli":
+        raw_command = agent_kwargs.get("cli_command")
+        if isinstance(raw_command, (list, tuple)) and all(
+            isinstance(part, str) and part for part in raw_command
+        ):
+            cli_command = [str(part) for part in raw_command]
+        else:
+            cli_path = agent_kwargs.get("cli_path")
+            cli_command = [cli_path] if isinstance(cli_path, str) and cli_path.strip() else []
+        if not cli_command:
+            raise FileNotFoundError(
+                "No runnable Hermes CLI was found. Install Hermes or set "
+                "VIBECOMFY_HERMES_CLI to its executable."
+            )
+        path = Path(cli_command[0]).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise FileNotFoundError(f"Hermes CLI is not executable: {path}")
+
+        prompt_parts: list[str] = []
+        if isinstance(system_message, str) and system_message.strip():
+            prompt_parts.append(f"System instructions:\n{system_message.strip()}")
+        prompt_parts.append(f"User request:\n{user_message}")
+        prompt = "\n\n".join(prompt_parts)
+        env = dict(os.environ)
+        env.pop("HERMES_INFERENCE_MODEL", None)
+        env.pop("HERMES_INFERENCE_PROVIDER", None)
+        completed = subprocess.run(
+            [*cli_command, "--ignore-rules", "-z", prompt],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = redact_model_preview(completed.stderr, limit=800)
+            suffix = f" Details: {detail}" if detail else ""
+            raise RuntimeError(
+                f"Hermes CLI exited with code {completed.returncode}.{suffix}"
+            )
+        return completed.stdout or "", {
+            "provider": "hermes-cli",
+            "transport": "local-cli",
+            "resolved_model": "configured default",
+        }
+
     _anchor_agent_package_on_syspath()
     request = _build_request(
         agent_id=agent_id,
@@ -560,6 +613,14 @@ def main() -> int:
             )
             raw_text = text
             span.update(raw_text_length=len(text or ""))
+            if agent_id == "hermes-cli" and (
+                not isinstance(text, str) or not text.strip()
+            ):
+                raise EmptyModelResponseError(
+                    "Hermes CLI returned no response. Check that its configured "
+                    "default model/provider is authenticated with `hermes setup` "
+                    "or `hermes auth list`."
+                )
             if response_contract == "batch_repl":
                 if not isinstance(text, str) or not text.strip():
                     raise EmptyModelResponseError("Agent returned an empty batch_repl response.")
@@ -628,7 +689,7 @@ def main() -> int:
         # ImportError means the backend's heavy deps are missing. Both are setup
         # faults — flag them so the parent surfaces a non-retryable
         # runtime-unavailable signal rather than a transient provider error.
-        if isinstance(exc, (LookupError, ImportError)):
+        if isinstance(exc, (LookupError, ImportError, FileNotFoundError)):
             out["runtime_unavailable"] = True
         if raw_text is not None:
             # The raw response was received but discarded on a parse/content

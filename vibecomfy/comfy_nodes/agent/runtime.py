@@ -20,6 +20,9 @@ Routes
 * ``openrouter``  -> OpenRouter (``https://openrouter.ai/api/v1``), key resolved
   from ``OPENROUTER_API_KEY`` or ``~/.hermes/.env`` (where the browser
   credential route writes it). This is the canonical browser-key route.
+* ``hermes-cli`` -> the locally installed ``hermes`` executable in oneshot
+  mode. VibeComfy passes no model/provider override, so Hermes uses the default
+  configured in its own local settings.
 * ``arnold`` (also ``auto`` / ``anthropic`` / ``openai-codex`` after VibeComfy
   normalises them) -> AIAgent's own provider resolution (Claude via OpenRouter
   or local OAuth). Honest about availability: status reports ``ok`` only when a
@@ -33,8 +36,10 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import functools
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -283,6 +288,87 @@ _ARNOLD_BASE_URL = os.getenv("VIBECOMFY_ARNOLD_BASE_URL") or None
 _HERMES_ENV_PATH = Path("~/.hermes/.env").expanduser()
 
 
+def _hermes_cli_candidates() -> tuple[str, ...]:
+    """Return ordered local Hermes executable candidates without running them."""
+    candidates: list[str] = []
+    explicit = os.getenv("VIBECOMFY_HERMES_CLI", "").strip()
+    if explicit:
+        explicit_path = Path(explicit).expanduser()
+        resolved_explicit = (
+            str(explicit_path)
+            if explicit_path.parent != Path(".")
+            else shutil.which(explicit) or str(explicit_path)
+        )
+        candidates.append(resolved_explicit)
+    on_path = shutil.which("hermes")
+    if on_path:
+        candidates.append(on_path)
+    candidates.extend(
+        str(path.expanduser())
+        for path in (
+            Path("~/.local/bin/hermes"),
+            Path("~/bin/hermes"),
+            Path("~/.hermes/hermes-agent/venv/bin/hermes"),
+            Path("/usr/local/bin/hermes"),
+        )
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
+def _hermes_cli_commands() -> tuple[tuple[str, ...], ...]:
+    """Return runnable-shape commands for installed and checkout CLI layouts."""
+    commands: list[tuple[str, ...]] = []
+    for raw in _hermes_cli_candidates():
+        path = Path(raw).expanduser()
+        try:
+            if path.is_file() and os.access(path, os.X_OK):
+                commands.append((str(path.resolve(strict=True)),))
+        except OSError:
+            continue
+
+    # Developer/local installs may retain the canonical checkout under
+    # ~/.hermes/hermes-agent while their generated venv entrypoint is absent.
+    # Run that same CLI launcher with VibeComfy's Python when its dependencies
+    # are available; the version probe below fails closed otherwise.
+    checkout_launcher = Path("~/.hermes/hermes-agent/hermes").expanduser()
+    try:
+        if checkout_launcher.is_file():
+            commands.append((sys.executable, str(checkout_launcher.resolve(strict=True))))
+    except OSError:
+        pass
+    return tuple(dict.fromkeys(commands))
+
+
+@functools.lru_cache(maxsize=8)
+def _hermes_cli_command_is_runnable(command: tuple[str, ...]) -> bool:
+    """Probe a resolved command once so a broken launcher is never shown ready."""
+    env = dict(os.environ)
+    env.pop("HERMES_INFERENCE_MODEL", None)
+    env.pop("HERMES_INFERENCE_PROVIDER", None)
+    try:
+        result = subprocess.run(
+            [*command, "--version"],
+            cwd=tempfile.gettempdir(),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _find_runnable_hermes_cli_command() -> tuple[str, ...] | None:
+    """Return the first local Hermes command whose version probe succeeds."""
+    for command in _hermes_cli_commands():
+        if _hermes_cli_command_is_runnable(command):
+            return command
+    return None
+
+
 def begin_deepseek_usage_capture() -> contextvars.Token:
     return _DEEPSEEK_USAGE_CAPTURE.set(
         {
@@ -471,7 +557,12 @@ def _is_runtime_unavailable(result: Mapping[str, Any]) -> bool:
     """
     if result.get("runtime_unavailable"):
         return True
-    return result.get("error_type") in {"ModuleNotFoundError", "ImportError", "LookupError"}
+    return result.get("error_type") in {
+        "ModuleNotFoundError",
+        "ImportError",
+        "LookupError",
+        "FileNotFoundError",
+    }
 
 
 def _raise_worker_error(result: Mapping[str, Any]) -> None:
@@ -521,6 +612,8 @@ def _normalize_route(route: str | None) -> str:
         return "arnold"
     if normalized == "hermes":
         return "openrouter"
+    if normalized == "hermes-cli":
+        return "hermes-cli"
     if normalized in {"arnold", "openrouter", "deepseek"}:
         return "openrouter" if normalized == "deepseek" else normalized
     return "unknown"
@@ -535,6 +628,7 @@ _ROUTE_TO_AGENT_ID = {
     "openrouter": "hermes",
     "openai-codex": "codex",
     "anthropic": "claude",
+    "hermes-cli": "hermes-cli",
 }
 
 
@@ -559,6 +653,8 @@ def _default_model_for_route(route: str, model: str | None) -> str:
     normalized_route = _normalize_route(route)
     if normalized_route == "unknown":
         return "unknown"
+    if normalized_route == "hermes-cli":
+        return "configured default"
     if _is_real_model_override(model):
         return _strip_provider_prefix(model, "openrouter")
     if normalized_route == "openrouter":
@@ -581,6 +677,11 @@ def _runtime_model_for_route(route: str | None, model: str | None) -> str | None
     """
     normalized_route = _normalize_route(route)
     if normalized_route == "unknown":
+        return None
+    # The dedicated local-CLI route is intentionally model-less. In
+    # particular, neither the executor's ``default`` marker nor a panel model
+    # value may become ``hermes --model``; Hermes owns model/provider choice.
+    if normalized_route == "hermes-cli":
         return None
     # Explicit per-process force-override: when set, ignore the profile/judge
     # model slug and route everything through this model (e.g. swapping the
@@ -754,6 +855,9 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
             max_tokens=_OPENROUTER_MAX_TOKENS,
             **common,
         )
+    if agent_id == "hermes-cli":
+        cli_command = _find_runnable_hermes_cli_command()
+        return dict(cli_command=list(cli_command) if cli_command else None, **common)
     # codex / claude -> default dispatcher resolves everything; kwargs unused.
     return dict(**common)
 
@@ -782,6 +886,8 @@ def _runtime_provider_transport(
     *, agent_id: str, agent_kwargs: Mapping[str, Any]
 ) -> tuple[str, str, str]:
     endpoint = normalize_model_endpoint(agent_kwargs.get("base_url"))
+    if agent_id == "hermes-cli":
+        return "hermes-cli", "local-cli", endpoint
     if agent_id != "hermes":
         return "unknown", "unknown", endpoint
     if "openrouter.ai" in endpoint:
@@ -1301,11 +1407,19 @@ def _run_worker_once(
         # Ensure the child sees the same credential the parent resolved for the
         # Hermes adapter.  For native DeepSeek endpoints this must be the
         # DeepSeek key, not a stale browser/OpenRouter key from ~/.hermes/.env.
-        hermes_key = agent_kwargs.get("api_key") or _resolve_openrouter_key()
-        if isinstance(hermes_key, str) and hermes_key:
-            env["OPENROUTER_API_KEY"] = hermes_key
-            env["OPENAI_API_KEY"] = hermes_key
-            env["HERMES_API_KEY"] = hermes_key
+        if agent_id == "hermes":
+            hermes_key = agent_kwargs.get("api_key") or _resolve_openrouter_key()
+            if isinstance(hermes_key, str) and hermes_key:
+                env["OPENROUTER_API_KEY"] = hermes_key
+                env["OPENAI_API_KEY"] = hermes_key
+                env["HERMES_API_KEY"] = hermes_key
+        elif agent_id == "hermes-cli":
+            # Hermes' oneshot precedence is arg -> env -> config. Removing the
+            # two inference override vars makes an argument-free invocation
+            # land on the user's configured CLI default, even when ComfyUI was
+            # launched from a shell that happened to pin another model.
+            env.pop("HERMES_INFERENCE_MODEL", None)
+            env.pop("HERMES_INFERENCE_PROVIDER", None)
         # Don't leak ComfyUI's cwd/path into the child (it is what causes the
         # `utils` collision); run from a neutral directory.
         stdout_path = os.path.join(tmp, "worker.stdout.log")
@@ -1640,6 +1754,29 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
     """
     backend = "arnold.pipelines.megaplan.agent.run_agent.AIAgent"
     requested = _requested_route(route)
+
+    if requested == "hermes-cli":
+        discovered = _hermes_cli_commands()
+        cli_command = _find_runnable_hermes_cli_command()
+        runnable = cli_command is not None
+        return {
+            "ready": runnable,
+            "backend": "local Hermes CLI",
+            "route": "hermes-cli",
+            "model": "configured default",
+            "hermes_cli_present": bool(discovered),
+            "hermes_cli_runnable": runnable,
+            "reason": (
+                "Local Hermes CLI is runnable; its configured default model will be used."
+                if runnable
+                else (
+                    "A Hermes executable was found but is not runnable. Repair the local "
+                    "Hermes installation or set VIBECOMFY_HERMES_CLI."
+                    if discovered
+                    else "No runnable Hermes CLI was found on PATH or in standard install locations."
+                )
+            ),
+        }
 
     if requested == "openrouter" or (
         requested in {"", "auto"} and _resolve_openrouter_key()

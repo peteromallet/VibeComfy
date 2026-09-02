@@ -96,11 +96,13 @@ export function createSubmitFlow(deps) {
       ? "openai"
       : route === "anthropic" || route === "claude"
         ? "anthropic"
-        : route === "openrouter"
-          ? "openrouter"
-        : route === "opensource"
-          ? "opensource"
-          : "default";
+        : route === "hermes-cli" || route === "hermes"
+          ? "hermes"
+          : route === "openrouter"
+            ? "openrouter"
+            : route === "opensource"
+              ? "opensource"
+              : "default";
     return {
       graph: snapshot.graph,
       workflow_id: snapshot.workflowId,
@@ -108,7 +110,9 @@ export function createSubmitFlow(deps) {
       route: snapshot.route,
       profile,
       pipeline_mode: normalizePipelineMode(snapshot.pipelineMode),
-      model: snapshot.model || undefined,
+      // Hermes owns model/provider selection through its local config. Never
+      // serialize a stale Settings/status model value as an override marker.
+      model: profile === "hermes" ? undefined : snapshot.model || undefined,
       session_id: sessionIdOverride || panel.state.sessionId || undefined,
       client_id: api?.clientId || undefined,
       client_graph_hash: snapshot.graphHash,

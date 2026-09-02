@@ -23,6 +23,8 @@ export const ROUTE_ALIASES = Object.freeze({
   deepseek: "deepseek",
   anthropic: "anthropic",
   claude: "anthropic",
+  hermes: "hermes-cli",
+  "hermes-cli": "hermes-cli",
   "openai-codex": "openai-codex",
   codex: "openai-codex",
 });
@@ -32,10 +34,17 @@ export const ROUTE_LABELS = Object.freeze({
   deepseek: "deepseek",
   openrouter: "openrouter",
   anthropic: "anthropic",
+  "hermes-cli": "Hermes",
   "openai-codex": "openai-codex",
 });
 
-export const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "deepseek", "openai-codex", "openrouter"]);
+export const CANONICAL_AGENT_PROVIDERS = new Set([
+  "anthropic",
+  "deepseek",
+  "hermes-cli",
+  "openai-codex",
+  "openrouter",
+]);
 
 export const DEFAULT_FETCH_DEADLINE_MS = 30000;
 

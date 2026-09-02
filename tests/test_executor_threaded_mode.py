@@ -179,7 +179,7 @@ def test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap() -> N
 
 
 def test_shipped_profiles_have_explicit_execute_specs() -> None:
-    for name in ("default", "opensource", "openrouter", "openai", "anthropic"):
+    for name in ("default", "hermes", "opensource", "openrouter", "openai", "anthropic"):
         assert isinstance(load_profile(name)["execute"], AgentSpecShape)
 
 

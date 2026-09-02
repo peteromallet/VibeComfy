@@ -9546,6 +9546,7 @@ function openChooseEngineOverlay(panel, { onResolved } = {}) {
   // ── card colors ──
   const claudeColor = "#e6a817";
   const codexColor = "#02d4b3";
+  const hermesColor = "#a78bfa";
   const openrouterColor = "#7e8ba3";
 
   // Selection state shared across screens: each card registers a setSelected()
@@ -9599,7 +9600,7 @@ function openChooseEngineOverlay(panel, { onResolved } = {}) {
     });
     box.appendChild(subtitle);
 
-    // ── cards (order: Claude, OpenRouter, Codex) ──
+    // ── cards (order: Claude, OpenRouter, Codex, Hermes) ──
     // Card factory is scoped to the engine screen so its click handlers can
     // close over this screen's selectRoute (defined below in this function).
     function makeCard(label, description, accentColor, route) {
@@ -9685,11 +9686,18 @@ function openChooseEngineOverlay(panel, { onResolved } = {}) {
       codexColor,
       "openai-codex",
     );
+    const hermesCard = makeCard(
+      "Hermes",
+      "Uses your locally installed Hermes CLI and its configured default model.",
+      hermesColor,
+      "hermes-cli",
+    );
 
     cardRegistry.length = 0;
     cardRegistry.push({ route: "anthropic", setSelected: claudeCard.setSelected });
     cardRegistry.push({ route: "openrouter", setSelected: openrouterCard.setSelected });
     cardRegistry.push({ route: "openai-codex", setSelected: codexCard.setSelected });
+    cardRegistry.push({ route: "hermes-cli", setSelected: hermesCard.setSelected });
 
     // ── Claude revealed content: ToS warning (no buttons) ──
     const claudeWarning = el(
@@ -9762,10 +9770,11 @@ function openChooseEngineOverlay(panel, { onResolved } = {}) {
     });
     openrouterCard.body.appendChild(openrouterErrorNode);
 
-    // Vertical order: Claude (top), OpenRouter (middle), Codex (bottom).
+    // Vertical order: Claude, OpenRouter, Codex, Hermes.
     box.appendChild(claudeCard.card);
     box.appendChild(openrouterCard.card);
     box.appendChild(codexCard.card);
+    box.appendChild(hermesCard.card);
 
     // ── Confirm button (below all cards) ──
     const confirmBtn = button("Confirm Selection", function () {
