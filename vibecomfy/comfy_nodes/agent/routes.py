@@ -106,7 +106,7 @@ def _handle_roundtrip(
             schema_provider = get_schema_provider("local")
         recovery_report: list = []
         change_report_out: list = []
-        wf = from_ui(payload["graph"])
+        wf = from_ui(payload["graph"], use_comfy_converter=False)
         emitted_ui = emit_ui_json(
             wf,
             schema_provider=schema_provider,

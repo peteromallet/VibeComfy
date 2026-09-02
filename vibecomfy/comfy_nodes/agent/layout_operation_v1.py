@@ -416,7 +416,10 @@ def build_layout_operation_envelope(
             from vibecomfy.ingest.normalize import from_ui
             from vibecomfy.porting.edit.admit import admission_snapshot_for
 
-            working_workflow = from_ui(dict(submit_ui))
+            working_workflow = from_ui(
+                dict(submit_ui),
+                use_comfy_converter=False,
+            )
             snapshot = admission_snapshot_for(working_workflow)
         except Exception:
             snapshot = None

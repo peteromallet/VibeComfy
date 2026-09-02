@@ -175,8 +175,12 @@ def canonical_semantic_view(
             workflow = from_ui(
                 raw,
                 schema_provider=schema_provider,
+                # Assessment must be deterministic and must not import the
+                # complete optional ComfyUI node runtime merely because the
+                # top-level ``comfy`` package is importable.  Converter-specific
+                # coverage opts in explicitly with ``use_comfy_converter=True``.
                 use_comfy_converter=(
-                    _comfy_available() if use_comfy_converter is None else use_comfy_converter
+                    False if use_comfy_converter is None else use_comfy_converter
                 ),
             )
             representation = "ui"
@@ -213,15 +217,6 @@ def canonical_semantic_view(
     raise TypedCarrierRequired(
         f"unsupported assessor carrier type: {type(payload).__name__}"
     )
-
-
-def _comfy_available() -> bool:
-    """Whether the optional ComfyUI converter runtime is importable."""
-    try:
-        import comfy  # noqa: F401
-    except Exception:  # noqa: BLE001 - headless harness has no ComfyUI runtime
-        return False
-    return True
 
 
 _LINEAGE_KEYS = ("scenario_id", "session_id", "turn_id", "baseline_id")

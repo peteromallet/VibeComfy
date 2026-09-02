@@ -26,7 +26,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     field_name = getattr(args, "field", None)
     if field_name:
         try:
-            loaded = load_port_source(args.workflow, schema_provider=get_schema_provider("auto"))
+            loaded = load_port_source(args.workflow, schema_provider=get_schema_provider("local"))
         except Exception as exc:
             print(f"Failed to load workflow: {type(exc).__name__}: {exc}", __import__("sys").stderr)
             return 1
@@ -45,7 +45,10 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
     workflow = load_workflow_any(args.workflow)
     shape = "api"
-    schema_provider = get_schema_provider("auto")
+    # Inspect is a read-only/schema-only command.  Never boot a managed
+    # ComfyUI server just because one happens to be installed: an occupied
+    # default port must not make static inspection nondeterministic.
+    schema_provider = get_schema_provider("local")
     report = workflow.validate(schema_provider=schema_provider)
     applicable_patches = [
         {"name": patch.name, "rationale": patch.rationale(workflow)}

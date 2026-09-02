@@ -92,10 +92,24 @@ function _ssRemove(key) {
 // conversation per duplicate-tab rule (SD2).
 
 function _tabNonce() {
-  if (_memoryTabNonce) {
+  // Re-read sessionStorage on every call when it is available.  Besides
+  // preserving the browser's per-tab value, this handles a storage reset
+  // (for example, a duplicated test tab) without returning a stale module
+  // memory value.
+  const storage = _safeStorage("sessionStorage");
+  let storageReadable = false;
+  if (storage) {
+    try {
+      storage.getItem(SS_TAB_NONCE_KEY);
+      storageReadable = true;
+    } catch (_e) {
+      // Fall back to the module-lifetime value when storage is inaccessible.
+    }
+  }
+  if (!storageReadable && _memoryTabNonce) {
     return _memoryTabNonce;
   }
-  let nonce = _ssGet(SS_TAB_NONCE_KEY);
+  let nonce = _storageGet("sessionStorage", SS_TAB_NONCE_KEY);
   if (!nonce) {
     nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     _ssSet(SS_TAB_NONCE_KEY, nonce);

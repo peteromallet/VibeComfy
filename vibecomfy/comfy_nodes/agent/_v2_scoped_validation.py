@@ -132,7 +132,10 @@ def _admission_snapshot_for_turn(*, session_dir: Path, turn_id: str):
         try:
             from vibecomfy.ingest.normalize import from_ui
 
-            workflow = from_ui(dict(submit_graph))
+            workflow = from_ui(
+                dict(submit_graph),
+                use_comfy_converter=False,
+            )
         except Exception:
             workflow = None
     return snapshot_from_schema_witness(witness, submit_graph=submit_graph, workflow=workflow), workflow

@@ -1455,7 +1455,9 @@ def judge_edit_intent(
     )
     from vibecomfy.schema import get_schema_provider  # late import: judge stays light
 
-    schema_provider = get_schema_provider("auto")
+    # Evidence assessment is an offline/static operation.  Never start or
+    # probe a managed ComfyUI server merely to decode persisted test artifacts.
+    schema_provider = get_schema_provider("local")
 
     # T5.2: when the run carries a typed artifact lineage manifest, the judge
     # takes the canonical path — every carrier passes the common constructor

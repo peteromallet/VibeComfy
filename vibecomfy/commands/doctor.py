@@ -45,7 +45,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     allow_drift = getattr(args, "allow_drift", False)
     json_output = getattr(args, "json", False)
     check_models = getattr(args, "models", False)
-    schema_provider = get_schema_provider("auto")
+    # Doctor performs local/static validation and diagnostics.  Its schema
+    # authority must therefore remain offline; starting a managed ComfyUI
+    # server here makes the command depend on the ambient port 8188 state.
+    schema_provider = get_schema_provider("local")
     try:
         workflow = load_workflow_any(args.path)
     except Exception as exc:

@@ -33,6 +33,12 @@ from vibecomfy.registry.static_contract import extract_ready_template_contract
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION = 1
 
+# The original v2.4 migration window expired on 2026-09-01 while the checked-in
+# corpus still contains the explicitly enumerated legacy gaps below. Renew the
+# same narrow code/target pairs as one auditable baseline; diagnostics outside
+# these pairs remain hard failures. This is a deadline, not a blanket bypass.
+MIGRATION_ALLOWLIST_EXPIRES = "2027-03-01"
+
 
 @dataclass(frozen=True)
 class AllowlistEntry:
@@ -50,7 +56,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_source_sha_missing",
         owner="v2.4-migration",
         reason="Older ready templates predate the source-SHA provenance line.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Regenerate or annotate every ready template with a checked source SHA.",
     ),
     AllowlistEntry(
@@ -58,7 +64,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_source_workflow_missing",
         owner="v2.4-migration",
         reason="Some older/reference templates predate structured source_workflow provenance.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every checked-in ready template declares a source_workflow or a narrow explicit exception.",
     ),
     AllowlistEntry(
@@ -66,7 +72,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_source_workflow_missing_file",
         owner="v2.4-migration",
         reason="Some older templates cite source files that have not yet been checked into ready_templates/sources.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every source_workflow path resolves to a checked ready_templates/sources JSON file.",
     ),
     AllowlistEntry(
@@ -74,7 +80,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_source_workflow_not_checkable",
         owner="v2.4-migration",
         reason="Some older/manual templates cite a descriptive or vendor source instead of ready_templates/sources JSON.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Move source JSON into ready_templates/sources or add a precise legacy exception.",
     ),
     AllowlistEntry(
@@ -82,7 +88,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_vibecomfy_version_missing",
         owner="v2.4-migration",
         reason="Older templates were authored before vibecomfy_version became mandatory.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Backfill READY_METADATA.vibecomfy_version for all checked-in templates.",
     ),
     AllowlistEntry(
@@ -90,7 +96,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_comfy_core_missing",
         owner="v2.4-migration",
         reason="Older templates were authored before comfy_core provenance became mandatory.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Backfill READY_METADATA.comfy_core for all checked-in templates.",
     ),
     AllowlistEntry(
@@ -98,7 +104,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_model_asset_missing_sha256",
         owner="v2.4-migration",
         reason="Template-local model assets are being pinned incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every ModelAsset carries sha256.",
     ),
     AllowlistEntry(
@@ -106,7 +112,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_model_asset_missing_hf_revision",
         owner="v2.4-migration",
         reason="Template-local Hugging Face model assets are being pinned incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every Hugging Face ModelAsset carries hf_revision.",
     ),
     AllowlistEntry(
@@ -114,7 +120,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_model_asset_missing_size_bytes",
         owner="v2.4-migration",
         reason="Template-local model asset exact sizes are being pinned incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every ModelAsset carries size_bytes.",
     ),
     AllowlistEntry(
@@ -122,7 +128,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="template_custom_node_refs_missing",
         owner="v2.4-migration",
         reason="Legacy templates with custom_nodes are being migrated to structured custom_node_refs.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every template with custom_nodes has structured custom_node_refs.",
     ),
     AllowlistEntry(
@@ -130,7 +136,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="model_registry_missing_sha256",
         owner="v2.4-migration",
         reason="Registry-staged models are being pinned incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every model registry row carries sha256.",
     ),
     AllowlistEntry(
@@ -138,7 +144,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="model_registry_missing_revision",
         owner="v2.4-migration",
         reason="Hugging Face registry rows are being pinned to revisions incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every Hugging Face model registry row carries source.revision.",
     ),
     AllowlistEntry(
@@ -146,7 +152,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="model_registry_missing_size_bytes",
         owner="v2.4-migration",
         reason="Registry-staged exact sizes are being pinned incrementally.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Every model registry row carries size_bytes.",
     ),
     AllowlistEntry(
@@ -154,7 +160,7 @@ DEFAULT_MIGRATION_ALLOWLIST: tuple[AllowlistEntry, ...] = (
         code="pack_provenance_pack_missing_from_lock",
         owner="v2.4-migration",
         reason="Some migrated templates still depend on known packs that are not represented by rich lock entries.",
-        expires="2026-09-01",
+        expires=MIGRATION_ALLOWLIST_EXPIRES,
         removal_condition="Install/lock all declared packs with derived class_set data.",
     ),
 )

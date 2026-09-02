@@ -1775,6 +1775,8 @@ def ingest_workflow_and_ui(
     graph: dict[str, Any],
     *,
     schema_provider: SchemaProvider | None = None,
+    use_comfy_converter: bool = False,
+    comfy_converter_strict: bool = True,
 ) -> tuple[VibeWorkflow, dict[str, Any]]:
     """Named door: detect shape once, never mutate caller inputs, retain IR.
 
@@ -1782,6 +1784,13 @@ def ingest_workflow_and_ui(
     ``{prompt: API}`` unwraps once; the wrapper is retained as snapshot sidecar.
     Envelope/API graphs are converted and re-emitted as canonical UI JSON.
     Unknown shape stays unknown and fails closed.
+
+    The named door is offline by default.  In particular, do not import the
+    optional ComfyUI converter while handling agent/executor inspection or
+    edit requests: importing it executes ComfyUI node discovery and can pull
+    incompatible optional dependencies into an otherwise pure-Python path.
+    Callers that explicitly need live converter semantics may opt in with
+    ``use_comfy_converter=True``.
     """
     from vibecomfy.porting.emit.ui import emit_ui_json
 
@@ -1792,7 +1801,12 @@ def ingest_workflow_and_ui(
         return _ingest_unknown_shape(graph), graph
     if shape == "ui":
         detached = deepcopy(graph)
-        workflow = from_ui(detached, schema_provider=schema_provider)
+        workflow = from_ui(
+            detached,
+            schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
+            comfy_converter_strict=comfy_converter_strict,
+        )
         return workflow, detached
     if shape == "vibe":
         detached = deepcopy(graph)
@@ -1819,7 +1833,13 @@ def ingest_workflow_and_ui(
             guard_original_ui=detached_prompt,
         )
     detached = deepcopy(graph)
-    workflow = from_api(detached, schema_provider=schema_provider)
+    api = normalize_to_api(
+        detached,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=comfy_converter_strict,
+    )
+    workflow = from_api(api, schema_provider=schema_provider)
     return workflow, emit_ui_json(
         workflow,
         schema_provider=schema_provider,

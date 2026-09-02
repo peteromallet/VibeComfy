@@ -1252,7 +1252,11 @@ def lint_delta(
         from vibecomfy.porting.emit.ui import emit_ui_json
 
         try:
-            pre = from_ui(dict(index.graph), schema_provider=schema_provider)
+            pre = from_ui(
+                dict(index.graph),
+                schema_provider=schema_provider,
+                use_comfy_converter=False,
+            )
             interpreted = interpret(pre, tuple(passed_adds), schema_provider=schema_provider)
             if interpreted.ok:
                 candidate = emit_ui_json(
@@ -1276,7 +1280,11 @@ def lint_delta(
     try:
         from vibecomfy.ingest.normalize import from_ui
 
-        lint_workflow = from_ui(dict(index.graph), schema_provider=schema_provider)
+        lint_workflow = from_ui(
+            dict(index.graph),
+            schema_provider=schema_provider,
+            use_comfy_converter=False,
+        )
     except Exception:
         lint_workflow = None
     admission_pair = admission_snapshot_for(lint_workflow, schema_provider)

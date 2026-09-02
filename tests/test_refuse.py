@@ -155,6 +155,36 @@ def test_widget_shape_refusal_diff_is_node_keyed_and_json_tolerant(monkeypatch) 
         _restore_vibecomfy_modules(removed_modules)
 
 
+def test_guard_api_view_falls_back_when_lazy_live_converter_fails(monkeypatch) -> None:
+    """A present-but-broken optional ComfyUI runtime must not disable the gate."""
+    from vibecomfy.porting import refuse
+
+    calls: list[dict] = []
+
+    def broken_live_converter(raw: dict) -> dict:
+        calls.append(raw)
+        raise ImportError("optional ComfyUI node dependency is incompatible")
+
+    monkeypatch.setattr(refuse, "_convert_ui_to_api", broken_live_converter)
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "widgets_values": ["example.png"],
+                "properties": {"vibecomfy_uid": "loadimage"},
+            }
+        ],
+        "links": [],
+    }
+
+    projected = refuse._guard_api_view(raw)
+
+    assert calls == [raw]
+    assert projected["1"]["class_type"] == "LoadImage"
+    assert refuse._convert_ui_to_api is refuse._offline_convert_ui_to_api
+
+
 def _ksampler_ui(widgets_values: list) -> dict:
     """Minimal UI graph: CheckpointLoader + EmptyLatent + 2x CLIPTextEncode + KSampler."""
     return {

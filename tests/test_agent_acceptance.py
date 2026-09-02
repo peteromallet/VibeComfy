@@ -147,8 +147,19 @@ def test_acceptance_discover_corrupt_ready_index_returns_structured_error(
 
 
 def test_acceptance_inspect_contract_and_doctor_surfaces_align_for_z_image(
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    # A schema-only command must not start a managed ComfyUI server.  Simulate
+    # an installed runtime whose default port is occupied (the failure mode
+    # seen under the full Makefile gate) and make any attempted boot explicit.
+    monkeypatch.setattr("vibecomfy.schema.provider.has_comfyui_runtime", lambda: True)
+
+    async def fail_managed_server(*args, **kwargs):
+        raise AssertionError("schema-only acceptance commands must not boot ComfyUI")
+
+    monkeypatch.setattr("vibecomfy.runtime.server._spawn_comfy_server", fail_managed_server)
+
     assert _cmd_inspect(argparse.Namespace(workflow="image/z_image", json=True)) == 0
     inspect_payload = _read_json(capsys)
 

@@ -61,6 +61,26 @@ def _load_convert_ui_to_api() -> _ConvertUiToApi:
     return _convert_ui_to_api
 
 
+def _guard_api_view(raw: dict[str, Any]) -> Mapping[str, Any]:
+    """Project UI through the live converter, with an offline safety net.
+
+    Importing the optional converter does not prove its lazily loaded node
+    runtime is usable.  If conversion itself fails because that optional
+    runtime is incomplete or incompatible, keep the refusal gate active over
+    the deterministic offline projection instead of aborting the edit path.
+    """
+    global _IMPORT_ERROR, _convert_ui_to_api
+    converter = _load_convert_ui_to_api()
+    try:
+        return converter(raw)
+    except Exception as exc:
+        if converter is _offline_convert_ui_to_api:
+            raise
+        _IMPORT_ERROR = exc
+        _convert_ui_to_api = _offline_convert_ui_to_api
+        return _offline_convert_ui_to_api(raw)
+
+
 class RefusedEmit(Exception):
     """Raised when ``guard_emit`` detects an unauthorized re-emit divergence.
 
@@ -304,9 +324,8 @@ def guard_emit(
     if not scope_uids:
         return
 
-    convert_ui_to_api = _load_convert_ui_to_api()
-    orig_api = convert_ui_to_api(dict(original_ui))
-    cand_api = convert_ui_to_api(dict(candidate_ui))
+    orig_api = _guard_api_view(dict(original_ui))
+    cand_api = _guard_api_view(dict(candidate_ui))
 
     diff: dict[str, dict[str, Any]] = {}
     for uid in scope_uids:

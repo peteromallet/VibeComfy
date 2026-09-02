@@ -5641,8 +5641,13 @@ def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> N
     assert calls[1]["profiling_context"]["json_retry_count"] == 1
 
 
-def test_handle_agent_edit_batch_python_query_feeds_render_to_next_turn(tmp_path: Path) -> None:
-    from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
+def test_handle_agent_edit_batch_python_query_feeds_render_to_next_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import edit
+
+    monkeypatch.setattr(edit, "run_model_turn", lambda **_kwargs: {"json": {}})
 
     class Provider:
         def __init__(self) -> None:
@@ -5699,7 +5704,7 @@ def test_handle_agent_edit_batch_python_query_feeds_render_to_next_turn(tmp_path
         calls.append(messages)
         return next(responses)
 
-    result = handle_agent_edit(
+    result = edit.handle_agent_edit(
         {
             "task": "What is in this workflow?",
             "graph": graph,
@@ -5721,6 +5726,30 @@ def test_handle_agent_edit_batch_python_query_feeds_render_to_next_turn(tmp_path
     first_turn = result["batch_turns"][0]
     assert first_turn["statements"][0]["detail"]["query"] == "python"
     assert "loadimage = LoadImage(image='example.png')" in first_turn["report"]
+
+
+def test_named_ingest_door_defaults_to_offline_converter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent/executor ingress must not import the optional ComfyUI converter."""
+    from vibecomfy.ingest import normalize
+
+    converter_flags: list[bool] = []
+    original_from_ui = normalize.from_ui
+
+    def capture_converter_flag(raw: dict[str, Any], **kwargs: Any) -> VibeWorkflow:
+        converter_flags.append(bool(kwargs.get("use_comfy_converter")))
+        return original_from_ui(raw, **kwargs)
+
+    monkeypatch.setattr(normalize, "from_ui", capture_converter_flag)
+    normalize.ingest_workflow_and_ui(
+        {
+            "nodes": [
+                {"id": 1, "type": "LoadImage", "widgets_values": ["example.png"]}
+            ],
+            "links": [],
+        }
+    )
+
+    assert converter_flags == [False]
 
 
 def test_batch_report_does_not_truncate_python_query_output() -> None:

@@ -117,6 +117,47 @@ models:
     assert report["summary"]["diagnostics"] == 0
 
 
+def test_default_migration_allowlist_has_one_active_auditable_deadline() -> None:
+    assert traceability.DEFAULT_MIGRATION_ALLOWLIST
+    assert {
+        entry.expires for entry in traceability.DEFAULT_MIGRATION_ALLOWLIST
+    } == {traceability.MIGRATION_ALLOWLIST_EXPIRES}
+    assert traceability.MIGRATION_ALLOWLIST_EXPIRES == "2027-03-01"
+
+
+def test_expired_allowlist_entry_does_not_suppress_matching_diagnostic() -> None:
+    entry = traceability.AllowlistEntry(
+        target="ready_templates/**/*.py",
+        code="template_source_sha_missing",
+        owner="test",
+        reason="test",
+        expires="2000-01-01",
+        removal_condition="test",
+    )
+
+    result = traceability._apply_allowlist(
+        {
+            "code": "template_source_sha_missing",
+            "target": "ready_templates/image/example.py",
+        },
+        (entry,),
+    )
+
+    assert result["allowlisted"] is False
+
+
+def test_diagnostic_code_not_in_allowlist_remains_unsuppressed() -> None:
+    result = traceability._apply_allowlist(
+        {
+            "code": "new_traceability_diagnostic",
+            "target": "ready_templates/image/example.py",
+        },
+        traceability.DEFAULT_MIGRATION_ALLOWLIST,
+    )
+
+    assert result["allowlisted"] is False
+
+
 def test_source_sha_mismatch_is_unallowlisted(monkeypatch, tmp_path: Path) -> None:
     _template, index, lockfile = _write_project_files(tmp_path, source_body=b"old")
     (tmp_path / "ready_templates/sources" / "official" / "image" / "example.json").write_bytes(b"new")
