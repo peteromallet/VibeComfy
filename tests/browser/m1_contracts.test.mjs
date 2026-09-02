@@ -569,7 +569,10 @@ test("Sol B2-R4 repro: Python _transaction() fixture validates in the browser", 
   const result = spawnSync(python, ["-c", script], {
     encoding: "utf8",
     cwd: root,
-    env: { ...process.env, PYTHONPATH: root },
+    // This subprocess exercises pure transaction hashing only. Keep it out
+    // of ComfyUI's custom-node startup path so CI's installed PromptServer
+    // cannot make the fixture depend on an initialized HTTP app.
+    env: { ...process.env, PYTHONPATH: root, VIBECOMFY_HEADLESS: "1" },
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const tx = JSON.parse(result.stdout);
