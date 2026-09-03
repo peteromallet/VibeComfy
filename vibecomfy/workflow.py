@@ -191,6 +191,31 @@ def litegraph_to_mode(mode: Any) -> NodeMode:
     return NodeMode.ENABLED
 
 
+def _normalize_native_port_names(
+    value: list[str | None] | tuple[str | None, ...] | None,
+    *,
+    field_name: str,
+) -> list[str | None] | None:
+    """Validate and detach an exact instance socket-name roster."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{field_name} must be a list or tuple")
+    result: list[str | None] = []
+    seen: set[str] = set()
+    for index, name in enumerate(value):
+        if name is not None:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(
+                    f"{field_name}[{index}] must be a nonblank string or null"
+                )
+            if name in seen:
+                raise ValueError(f"{field_name} contains duplicate name {name!r}")
+            seen.add(name)
+        result.append(name)
+    return result
+
+
 @dataclass(slots=True)
 class VibeNode:
     id: str
@@ -204,6 +229,16 @@ class VibeNode:
     mode: "NodeMode" = NodeMode.ENABLED
     pos: list[float] | None = None
     size: list[float] | None = None
+    native_input_names: list[str | None] | None = None
+    native_output_names: list[str | None] | None = None
+
+    def __post_init__(self) -> None:
+        self.native_input_names = _normalize_native_port_names(
+            self.native_input_names, field_name="native_input_names"
+        )
+        self.native_output_names = _normalize_native_port_names(
+            self.native_output_names, field_name="native_output_names"
+        )
 
     @property
     def provenance(self) -> str:
@@ -618,6 +653,8 @@ class VibeWorkflow:
                     "widgets": copy.deepcopy(node.widgets),
                     "mode": litegraph_to_mode(node.mode).value,
                     "metadata": self._semantic_node_metadata(node),
+                    "native_input_names": copy.deepcopy(node.native_input_names),
+                    "native_output_names": copy.deepcopy(node.native_output_names),
                 }
             )
         nodes.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
@@ -1595,6 +1632,9 @@ def _node_output_type(node: VibeNode | None, output_slot: int | str) -> str | No
 
 
 def _node_output_names(node: VibeNode) -> list[str | None]:
+    native_output_names = getattr(node, "native_output_names", None)
+    if isinstance(native_output_names, list):
+        return list(native_output_names)
     output_names = node.metadata.get("output_names")
     if isinstance(output_names, (list, tuple)) and output_names:
         return [str(name) if name is not None else None for name in output_names]

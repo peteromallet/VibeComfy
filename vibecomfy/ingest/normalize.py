@@ -257,6 +257,8 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
                 )
             ),
             _door_freeze(node.raw_widgets),
+            _door_freeze(node.native_input_names),
+            _door_freeze(node.native_output_names),
             str(node.provenance),
             _door_schema_status(node.metadata),
         )
@@ -569,6 +571,42 @@ def _unique_input_name(used: set[str], name: str) -> str:
     return unique
 
 
+def _native_port_names(node: Mapping[str, Any], field_name: str) -> list[str | None] | None:
+    """Capture only the exact serialized LiteGraph socket-name roster."""
+    if field_name not in node:
+        return None
+    raw = node[field_name]
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"UI node {node.get('id')!r} {field_name} must be a list")
+    names: list[str | None] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        if item is None:
+            names.append(None)
+            continue
+        if not isinstance(item, Mapping):
+            raise ValueError(
+                f"UI node {node.get('id')!r} {field_name}[{index}] must be an object or null"
+            )
+        name = item.get("name")
+        # LiteGraph serializes an unnamed socket as an empty-name row.  It is
+        # a positional hole in the canonical roster, not a usable address.
+        if name == "":
+            name = None
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise ValueError(
+                f"UI node {node.get('id')!r} {field_name}[{index}].name must be a nonblank string or null"
+            )
+        if isinstance(name, str):
+            if name in seen:
+                raise ValueError(
+                    f"UI node {node.get('id')!r} {field_name} contains duplicate name {name!r}"
+                )
+            seen.add(name)
+        names.append(name)
+    return names
+
+
 def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider | None = None) -> dict[str, Any]:
     nodes = {str(node["id"]): node for node in raw.get("nodes", []) if isinstance(node, dict) and "id" in node}
     links = raw.get("links", [])
@@ -642,6 +680,8 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
             "inputs": inputs,
             "_ui": node,
             "_input_provenance": input_provenance,
+            "native_input_names": _native_port_names(node, "inputs"),
+            "native_output_names": _native_port_names(node, "outputs"),
         }
         if widgets_present:
             api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
@@ -787,6 +827,8 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                     if _f in matched:
                         slim[_f] = matched[_f]
                 node_data["_ui"] = slim
+                node_data["native_input_names"] = _native_port_names(matched, "inputs")
+                node_data["native_output_names"] = _native_port_names(matched, "outputs")
             else:
                 node_data["_ui"] = {}
     else:
@@ -811,6 +853,8 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                     if _f in raw_node:
                         slim[_f] = raw_node[_f]
                 node_data["_ui"] = slim
+                node_data["native_input_names"] = _native_port_names(raw_node, "inputs")
+                node_data["native_output_names"] = _native_port_names(raw_node, "outputs")
             else:
                 node_data["_ui"] = {}
 
@@ -1132,6 +1176,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
         node_mode = _decode_envelope_node_mode(entry, node_metadata)
         node_pos = _decode_envelope_geometry(entry, node_metadata, "pos", node_id)
         node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
+        native_input_names = entry.get("native_input_names")
+        native_output_names = entry.get("native_output_names")
         workflow.nodes[str(key)] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -1144,6 +1190,8 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
             mode=node_mode,
             pos=node_pos,
             size=node_size,
+            native_input_names=deepcopy(native_input_names),
+            native_output_names=deepcopy(native_output_names),
         )
 
     integrity_issues = _graph_integrity_issues(workflow.nodes, [])
@@ -1462,6 +1510,8 @@ def _from_api_impl(
                 "_raw_widgets",
                 "raw_widgets",
                 "_input_provenance",
+                "native_input_names",
+                "native_output_names",
             }
         }
         # ── retain control_after_generate (UI-only) into metadata ──
@@ -1522,6 +1572,8 @@ def _from_api_impl(
             mode=_node_mode_from_metadata(metadata),
             pos=_geometry_pair(_ui_node.get("pos")) if isinstance(_ui_raw, dict) else None,
             size=_geometry_pair(_ui_node.get("size")) if isinstance(_ui_raw, dict) else None,
+            native_input_names=deepcopy(node.get("native_input_names")),
+            native_output_names=deepcopy(node.get("native_output_names")),
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:

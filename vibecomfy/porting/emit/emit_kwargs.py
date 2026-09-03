@@ -1078,7 +1078,12 @@ def _node_kwargs(
     out: list[tuple[str, str]] = []
     extras: list[tuple[str, str]] = []
     output_names = _declared_output_names_for_call_metadata(node)
-    if output_names and not (omit_single_output_metadata and _is_schema_confirmed_single_output(cls, output_names)):
+    native_output_names = getattr(node, "native_output_names", None)
+    if (
+        output_names
+        and native_output_names is None
+        and not (omit_single_output_metadata and _is_schema_confirmed_single_output(cls, output_names))
+    ):
         out.append(("_outputs", _format_value(tuple(output_names))))
     for key in ordered_static_keys:
         if key in incoming or key in incoming_exprs:

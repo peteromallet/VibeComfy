@@ -1259,7 +1259,20 @@ def _emit_build_function(
         else:
             _uid_str = f", _uid={node.uid!r}" if node.uid else ""
             mode_str = f", _mode={node_mode_expr}" if node_mode_expr is not None else ""
-            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}{mode_str}"
+            input_ports_str = (
+                f", _input_ports={_format_value(node.native_input_names)}"
+                if getattr(node, "native_input_names", None) is not None
+                else ""
+            )
+            output_ports_str = (
+                f", _output_ports={_format_value(node.native_output_names)}"
+                if getattr(node, "native_output_names", None) is not None
+                else ""
+            )
+            head = (
+                f"    {var} = _node(wf, {node.class_type!r}, {nid!r}"
+                f"{_uid_str}{mode_str}{input_ports_str}{output_ports_str}"
+            )
             if not kwargs:
                 out_lines.append(f"{head})")
             else:
@@ -1712,6 +1725,8 @@ def _node(
     _id: str,
     _extras: dict | None = None,
     _outputs: tuple[str, ...] | None = None,
+    _input_ports: list[str | None] | tuple[str | None, ...] | None = None,
+    _output_ports: list[str | None] | tuple[str | None, ...] | None = None,
     _uid: str | None = None,
     _mode: int | str | None = None,
     **kwargs,
@@ -1731,6 +1746,16 @@ def _node(
         builder.node.mode = litegraph_to_mode(_mode)
     if _outputs is not None:
         builder.node.metadata["output_names"] = list(_outputs)
+    if _input_ports is not None or _output_ports is not None:
+        from vibecomfy.workflow import _normalize_native_port_names
+        if _input_ports is not None:
+            builder.node.native_input_names = _normalize_native_port_names(
+                _input_ports, field_name="native_input_names"
+            )
+        if _output_ports is not None:
+            builder.node.native_output_names = _normalize_native_port_names(
+                _output_ports, field_name="native_output_names"
+            )
     if _extras:
         for key, value in _extras.items():
             if isinstance(value, Handle):

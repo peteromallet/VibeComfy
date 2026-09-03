@@ -201,8 +201,12 @@ def _strict_sidecar(workflow: VibeWorkflow) -> dict:
 
 def _connected_workflow() -> VibeWorkflow:
     workflow = _workflow("strict")
-    workflow.nodes["a"] = VibeNode("a", "Source", uid="source")
-    workflow.nodes["b"] = VibeNode("b", "Target", uid="target")
+    workflow.nodes["a"] = VibeNode(
+        "a", "Source", uid="source", native_output_names=["out"]
+    )
+    workflow.nodes["b"] = VibeNode(
+        "b", "Target", uid="target", native_input_names=["in"]
+    )
     workflow.edges.append(VibeEdge("a", "0", "b", "0"))
     return workflow
 
@@ -478,6 +482,47 @@ def test_real_converter_backed_public_capture_roundtrips_pair(tmp_path: Path) ->
     assert reloaded.ui_digest == bundle.ui_digest
     assert destination.is_file()
     assert destination.with_suffix(".vibe.json").is_file()
+
+
+def test_native_port_rosters_are_semantic_not_execution_data() -> None:
+    from vibecomfy.porting.emit.entrypoints import emit_scratchpad_python
+
+    workflow = _connected_workflow()
+    api_before = workflow.compile("api")
+    digest_before = workflow.semantic_digest()
+    workflow.nodes["a"].native_output_names = ["changed"]
+    assert workflow.semantic_digest() != digest_before
+    assert workflow.compile("api") == api_before
+
+    source = emit_scratchpad_python(workflow)
+    assert "_input_ports=" in source
+    assert "_output_ports=" in source
+    assert "_ui=" not in source
+    namespace: dict[str, object] = {"__file__": "generated.py"}
+    exec(source, namespace)
+    loaded = namespace["build"]()
+    assert loaded.nodes["a"].native_output_names == ["changed"]
+    assert loaded.nodes["b"].native_input_names == ["in"]
+    restored = VibeWorkflow.from_envelope(workflow.to_envelope())
+    assert restored.nodes["a"].native_output_names == ["changed"]
+    assert restored.semantic_digest() == workflow.semantic_digest()
+
+
+def test_native_port_rosters_validate_holes_duplicates_and_missing_sidecar_evidence() -> None:
+    with pytest.raises(ValueError, match="duplicate"):
+        VibeNode("x", "Source", native_output_names=["out", "out"])
+    with pytest.raises(ValueError, match="nonblank"):
+        VibeNode("x", "Source", native_output_names=[""])
+    node = VibeNode("x", "Source", native_output_names=["out", None, "tail"])
+    assert node.native_output_names == ["out", None, "tail"]
+
+    workflow = _workflow("missing-roster")
+    workflow.nodes["a"] = VibeNode("a", "Source", uid="source")
+    workflow.nodes["b"] = VibeNode("b", "Target", uid="target")
+    workflow.edges.append(VibeEdge("a", "0", "b", "0"))
+    sidecar = _strict_sidecar(workflow)
+    with pytest.raises(WorkflowBundleError, match="native output roster"):
+        validate_sidecar(sidecar, workflow)
 
 
 def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids() -> None:

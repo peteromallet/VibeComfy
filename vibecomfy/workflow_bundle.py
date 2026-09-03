@@ -98,41 +98,29 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
     by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
 
     def port(node: Any, value: Any, direction: str) -> int:
-        if type(value) is int and value >= 0:
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
-        ui = getattr(node, "metadata", {}).get("_ui", {})
-        sockets = ui.get("outputs" if direction == "from" else "inputs") if isinstance(ui, Mapping) else None
-        if isinstance(sockets, list):
-            for index, socket in enumerate(sockets):
-                if isinstance(socket, Mapping) and socket.get("name") == value:
-                    return index
-        # Converter-backed imports retain named semantic ports but may not
-        # retain the raw UI socket list. Reuse Comfy's existing class schema
-        # to recover the native input ordinal; never invent a port index.
-        try:
-            from comfy.nodes_context import get_nodes
-
-            node_class = get_nodes().NODE_CLASS_MAPPINGS.get(node.class_type)
-            input_types = node_class.INPUT_TYPES() if node_class is not None else {}
-            names: list[str] = []
-            for section in ("required", "optional", "hidden"):
-                values = input_types.get(section, {}) if isinstance(input_types, Mapping) else {}
-                if isinstance(values, Mapping):
-                    names.extend(
-                        str(name)
-                        for name, spec in values.items()
-                        if isinstance(spec, (list, tuple))
-                        and spec
-                        and isinstance(spec[0], str)
-                        and str(spec[0]).upper() not in {"INT", "FLOAT", "STRING", "BOOLEAN"}
-                    )
-            if value in names:
-                return names.index(value)
-        except (ImportError, AttributeError, KeyError, TypeError, ValueError):
-            pass
-        raise WorkflowBundleError(f"cannot derive {direction} port {value!r} from Python workflow")
+        roster = getattr(node, f"native_{'output' if direction == 'from' else 'input'}_names", None)
+        if type(value) is int:
+            index = value
+        elif isinstance(value, str) and value.isdigit():
+            index = int(value)
+        elif isinstance(roster, list):
+            try:
+                index = roster.index(value)
+            except ValueError as exc:
+                raise WorkflowBundleError(
+                    f"cannot derive {direction} port {value!r} from native Python roster"
+                ) from exc
+        else:
+            raise WorkflowBundleError(
+                f"cannot derive {direction} port {value!r}: native Python roster is missing"
+            )
+        if index < 0:
+            raise WorkflowBundleError(f"{direction} port {index} must be nonnegative")
+        if isinstance(roster, list) and (index >= len(roster) or roster[index] is None):
+            raise WorkflowBundleError(
+                f"{direction} port {index} is outside or a hole in the native Python roster"
+            )
+        return index
 
     result: set[tuple[str, str, int, str, int]] = set()
     for edge in workflow.edges:
@@ -309,6 +297,9 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         for item in projection.get("nodes", ())
         if isinstance(item, Mapping)
     }
+    workflow_nodes_by_uid = {
+        str(node.uid): node for node in workflow.nodes.values() if node.uid
+    }
     for uid, entry in nodes.items():
         if not isinstance(uid, str) or not uid.strip():
             raise WorkflowBundleError("workflow sidecar node UID must be a nonblank string")
@@ -357,7 +348,25 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
             for field in ("from_uid", "to_uid"):
                 try: validate_local_uid(ref[field], field=f"sidecar link {index} {field}")
                 except (KeyError, ValueError) as exc: raise WorkflowBundleError(str(exc)) from exc
-            key = (scope, ref["from_uid"], _integer(ref.get("from_port"), f"sidecar link {index} from_port"), ref["to_uid"], _integer(ref.get("to_port"), f"sidecar link {index} to_port"))
+            from_port = _integer(ref.get("from_port"), f"sidecar link {index} from_port")
+            to_port = _integer(ref.get("to_port"), f"sidecar link {index} to_port")
+            if scope == "":
+                source_node = workflow_nodes_by_uid.get(ref["from_uid"])
+                target_node = workflow_nodes_by_uid.get(ref["to_uid"])
+                for node, port_index, direction in (
+                    (source_node, from_port, "output"),
+                    (target_node, to_port, "input"),
+                ):
+                    roster = getattr(node, f"native_{direction}_names", None) if node is not None else None
+                    if roster is None:
+                        raise WorkflowBundleError(
+                            f"sidecar link {index} requires a native {direction} roster"
+                        )
+                    if port_index >= len(roster) or roster[port_index] is None:
+                        raise WorkflowBundleError(
+                            f"sidecar link {index} {direction} port {port_index} is outside or a hole in the native roster"
+                        )
+            key = (scope, ref["from_uid"], from_port, ref["to_uid"], to_port)
             if key not in expected: raise WorkflowBundleError(f"sidecar link {index} edge_ref does not match a Python semantic edge")
         else:
             if not isinstance(ref.get("name"), str) or not ref["name"].strip(): raise WorkflowBundleError(f"sidecar link {index} virtual wire name must be nonblank")

@@ -64,6 +64,32 @@ def _workflow_from_node(node: dict, node_id: str = "1"):  # type: ignore[return]
     return from_api({node_id: node})
 
 
+def test_ui_ingest_captures_exact_native_socket_rosters() -> None:
+    workflow = from_ui(
+        {
+            "last_node_id": 1,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "RosterNode",
+                    "inputs": [{"name": "first"}, None, {"name": "third"}],
+                    "outputs": [{"name": "result"}, None],
+                    "widgets_values": [],
+                }
+            ],
+            "links": [],
+            "groups": [],
+        },
+        use_comfy_converter=False,
+    )
+    node = workflow.nodes["1"]
+    assert node.native_input_names == ["first", None, "third"]
+    assert node.native_output_names == ["result", None]
+    assert "_ui" in node.metadata
+    assert "inputs" not in node.native_input_names
+
+
 # ── Case 1a: 'randomize' captured from named inputs dict ─────────────────────
 
 
