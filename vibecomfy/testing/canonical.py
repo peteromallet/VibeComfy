@@ -26,7 +26,68 @@ from __future__ import annotations
 
 import hashlib
 import json
+import dataclasses
+import math
+from enum import Enum
+from collections.abc import Mapping
 from typing import Any
+
+
+def _canonical_value(value: Any) -> Any:
+    """Convert JSON-shaped values to a strict, deterministic representation."""
+    if isinstance(value, Enum):
+        return _canonical_value(value.value)
+    if dataclasses.is_dataclass(value):
+        return _canonical_value(
+            {
+                field.name: getattr(value, field.name)
+                for field in dataclasses.fields(value)
+                if not field.name.startswith("_")
+            }
+        )
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("canonical JSON does not permit NaN or infinity")
+        return value
+    if isinstance(value, Mapping):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("canonical JSON object keys must be strings")
+            if key in result:
+                raise ValueError(f"duplicate canonical object key {key!r}")
+            result[key] = _canonical_value(item)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(item) for item in value]
+    raise TypeError(f"value of type {type(value).__name__} is not canonical JSON")
+
+
+def canonical_json(value: Any) -> str:
+    """Return compact canonical JSON used by every semantic digest."""
+    return json.dumps(
+        _canonical_value(value),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def canonical_bytes(value: Any) -> bytes:
+    """Return UTF-8 bytes for :func:`canonical_json`."""
+    return canonical_json(value).encode("utf-8")
+
+
+def canonical_digest(value: Any) -> str:
+    """Return SHA-256 of canonical UTF-8 JSON bytes."""
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+# Short name used by the workflow/bundle contract.
+digest = canonical_digest
 
 
 def _stable_json(obj: Any) -> str:
@@ -181,4 +242,11 @@ def canonical_equal(api_a: dict, api_b: dict) -> bool:
     return _stable_json(canonical_form(api_a)) == _stable_json(canonical_form(api_b))
 
 
-__all__ = ["canonical_form", "canonical_equal"]
+__all__ = [
+    "canonical_form",
+    "canonical_equal",
+    "canonical_json",
+    "canonical_bytes",
+    "canonical_digest",
+    "digest",
+]

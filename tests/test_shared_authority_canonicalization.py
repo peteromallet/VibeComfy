@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 
 _R5_FIXTURES = Path(__file__).parent / "fixtures" / "workflow_execution_spine_r5"
 
@@ -16,6 +18,8 @@ from vibecomfy.comfy_nodes.agent.authority_receipts import (
 from vibecomfy.porting.edit.ops import canonical_op_to_dict
 from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.testing.canonical import canonical_bytes, canonical_digest, canonical_json
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
 class _Provider:
@@ -24,6 +28,51 @@ class _Provider:
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)
+
+
+def test_shared_canonical_hash_leaf_is_order_independent_and_exact() -> None:
+    left = {"z": [2, 1], "a": {"β": "é", "n": 1}}
+    right = {"a": {"n": 1, "β": "é"}, "z": [2, 1]}
+    assert canonical_json(left) == '{"a":{"n":1,"β":"é"},"z":[2,1]}'
+    assert canonical_bytes(left) == canonical_json(right).encode("utf-8")
+    assert canonical_digest(left) == canonical_digest(right)
+
+
+def test_semantic_projection_derives_edge_identity_and_excludes_ui_metadata() -> None:
+    workflow = VibeWorkflow("canonical", WorkflowSource("canonical"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", uid="src", metadata={"semantic": {"role": "input"}, "presentation": {"x": 1}}
+    )
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", uid="dst")
+    workflow.connect("source.0", "sink.image")
+    projection = workflow.semantic_projection()
+    assert projection["edges"] == [{
+        "scope_path": "", "from_uid": "src", "from_port": "0", "to_uid": "dst", "to_port": "image"
+    }]
+    source_projection = next(node for node in projection["nodes"] if node["uid"] == "src")
+    assert source_projection["metadata"] == {"role": "input"}
+    assert "presentation" not in repr(projection)
+
+
+def test_variant_selection_changes_execution_without_changing_semantic_definition() -> None:
+    workflow = VibeWorkflow("variants", WorkflowSource("variants"))
+    workflow.nodes["1"] = VibeNode("1", "Prompt", uid="prompt", inputs={"text": "base"})
+    workflow.variants = {"bright": {"prompt.text": "bright"}}
+    before = workflow.semantic_digest()
+    assert workflow.compile(variant="bright")["1"]["inputs"]["text"] == "bright"
+    assert workflow.semantic_digest() == before
+
+
+def test_identity_validation_rejects_blank_duplicate_and_qualified_uids() -> None:
+    workflow = VibeWorkflow("identity", WorkflowSource("identity"))
+    workflow.nodes["1"] = VibeNode("1", "A", uid="")
+    workflow.nodes["2"] = VibeNode("2", "B", uid="same")
+    workflow.nodes["3"] = VibeNode("3", "C", uid="same")
+    issues = workflow.identity_issues()
+    assert {issue.code for issue in issues} == {"invalid_node_uid", "duplicate_node_uid"}
+    workflow.nodes["1"].uid = "scope#qualified"
+    with pytest.raises(ValueError, match="qualified"):
+        workflow.semantic_projection()
 
 
 def _single_widget_graph(class_type: str, *, uid: str = "133") -> dict:

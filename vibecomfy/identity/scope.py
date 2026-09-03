@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Callable, Mapping, Sequence
 
 from .uid import SCOPE_CHAIN_JOIN, SCOPE_LOCAL_SEP, make_uid
@@ -107,7 +108,18 @@ def compose_scope_path(sg_keys: Sequence[str]) -> str:
 
     Returns "" for an empty chain (top level → degrades to the M1.5 scalar uid).
     """
-    return SCOPE_CHAIN_JOIN.join(sg_keys)
+    if isinstance(sg_keys, str):
+        raise ValueError("scope keys must be supplied as a sequence, not one string")
+    normalized: list[str] = []
+    for key in sg_keys:
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("scope keys must be nonblank strings")
+        if SCOPE_CHAIN_JOIN in key or SCOPE_LOCAL_SEP in key:
+            raise ValueError(f"scope key {key!r} contains a reserved UID separator")
+        if re.fullmatch(r"sg\d+", key):
+            raise ValueError(f"ordinal scope key {key!r} is not a stable sg_key")
+        normalized.append(key)
+    return SCOPE_CHAIN_JOIN.join(normalized)
 
 
 def mint_inner_uid(scope_path: str, mint_local: Callable[[], str]) -> str:

@@ -47,7 +47,17 @@ def _to_plain(obj: Any) -> Any:
         for field_info in dataclasses.fields(obj):
             if field_info.name.startswith("_"):
                 continue
-            result[field_info.name] = _to_plain(getattr(obj, field_info.name))
+            value = getattr(obj, field_info.name)
+            # New semantic extensions are optional.  Omitting their empty
+            # defaults keeps older envelopes byte-compatible while authored
+            # recursive/variant data is serialized normally.
+            if field_info.name in {
+                "definitions", "interfaces", "boundary_ports", "virtual_wires", "variants"
+            } and not value:
+                continue
+            if field_info.name == "default_variant" and value is None:
+                continue
+            result[field_info.name] = _to_plain(value)
         return result
     if isinstance(obj, dict):
         return {str(key): _to_plain(value) for key, value in obj.items()}
@@ -335,6 +345,14 @@ class VibeWorkflow:
     metadata: dict[str, Any] = field(default_factory=dict)
     strict_types: bool = False
     groups: list[dict[str, Any]] = field(default_factory=list)
+    # Recursive semantics stay on the existing IR.  These are deliberately
+    # plain JSON-shaped values, not a second model hierarchy.
+    definitions: dict[str, Any] = field(default_factory=dict)
+    interfaces: dict[str, Any] = field(default_factory=dict)
+    boundary_ports: list[dict[str, Any]] = field(default_factory=list)
+    virtual_wires: dict[str, Any] = field(default_factory=dict)
+    variants: dict[str, dict[str, object]] = field(default_factory=dict)
+    default_variant: str | None = None
     _id_map: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _manual_input_names: set[str] = field(default_factory=set, init=False, repr=False)
     _uid_counter: int = field(default=0, init=False, repr=False)
@@ -401,6 +419,299 @@ class VibeWorkflow:
         memo = {id(self._workflow_context_token): None}
         return copy.deepcopy(self, memo=memo)
 
+    def identity_issues(self) -> list[ValidationIssue]:
+        """Return fail-closed authored identity defects without mutating the IR."""
+        from vibecomfy.identity.uid import UIDValidationError, validate_local_uid
+
+        issues: list[ValidationIssue] = []
+        if not isinstance(self.id, str) or not self.id.strip():
+            issues.append(ValidationIssue("invalid_workflow_id", "workflow id must be a nonblank string"))
+        if not isinstance(self.source.id, str) or not self.source.id.strip():
+            issues.append(ValidationIssue("invalid_source_id", "source id must be a nonblank string"))
+        elif self.source.id != self.id:
+            issues.append(
+                ValidationIssue(
+                    "workflow_identity_mismatch",
+                    f"source identity {self.source.id!r} must equal workflow id {self.id!r}",
+                    detail={"workflow_id": self.id, "source_id": self.source.id},
+                )
+            )
+        seen: dict[str, str] = {}
+        for node_id, node in self.nodes.items():
+            try:
+                uid = validate_local_uid(node.uid, field=f"node {node_id!r} uid")
+            except UIDValidationError as exc:
+                issues.append(ValidationIssue("invalid_node_uid", str(exc), detail={"node_id": str(node_id)}))
+                continue
+            if uid in seen:
+                issues.append(
+                    ValidationIssue(
+                        "duplicate_node_uid",
+                        f"duplicate node uid {uid!r} for nodes {seen[uid]!r} and {node_id!r}",
+                        detail={"uid": uid, "first_node_id": seen[uid], "node_id": str(node_id)},
+                    )
+                )
+            else:
+                seen[uid] = str(node_id)
+        return issues
+
+    def validate_identity(self) -> ValidationReport:
+        """Validate the durable identity boundary as a standalone gate."""
+        issues = self.identity_issues()
+        return ValidationReport(ok=not issues, issues=issues)
+
+    def _semantic_source(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Read recursive data from the extension fields, with legacy fallback."""
+        metadata = self.metadata if isinstance(self.metadata, dict) else {}
+        definitions = self.definitions or metadata.get("definitions") or {}
+        virtual_wires = self.virtual_wires or metadata.get("virtual_wires") or {}
+        return definitions, virtual_wires
+
+    @staticmethod
+    def _semantic_node_metadata(node: VibeNode) -> dict[str, Any]:
+        metadata = node.metadata if isinstance(node.metadata, dict) else {}
+        rejected = metadata.get("rejected")
+        if rejected:
+            raise ValueError(f"node {node.id!r} contains rejected metadata")
+        semantic = metadata.get("semantic", metadata.get("semantic_metadata", {}))
+        if semantic is None:
+            return {}
+        if not isinstance(semantic, dict):
+            raise ValueError(f"node {node.id!r} semantic metadata must be a mapping")
+        return copy.deepcopy(semantic)
+
+    def _semantic_edge_records(self) -> list[dict[str, Any]]:
+        """Derive edge identity from scoped endpoints; never mint edge UIDs."""
+        from vibecomfy.identity.uid import validate_local_uid
+
+        by_id = {str(node_id): node for node_id, node in self.nodes.items()}
+        by_uid = {node.uid: node for node in self.nodes.values() if node.uid}
+        records: set[tuple[str, str, str, str, str]] = set()
+        for edge in self.edges:
+            source = str(edge.from_node)
+            target = str(edge.to_node)
+            if "#" in source or "/" in source or "#" in target or "/" in target:
+                raise ValueError("qualified or cross-scope ordinary edge endpoints are not allowed")
+            source_node = by_id.get(source) or by_uid.get(source)
+            target_node = by_id.get(target) or by_uid.get(target)
+            if source_node is None or target_node is None:
+                raise ValueError(f"ordinary edge endpoint {source!r}/{target!r} is not local to root scope")
+            from_uid = validate_local_uid(source_node.uid, field="edge.from_uid")
+            to_uid = validate_local_uid(target_node.uid, field="edge.to_uid")
+            record = ("", from_uid, str(edge.from_output), to_uid, str(edge.to_input))
+            records.add(record)
+        return [
+            {
+                "scope_path": scope,
+                "from_uid": source,
+                "from_port": output,
+                "to_uid": target,
+                "to_port": input_name,
+            }
+            for scope, source, output, target, input_name in sorted(records)
+        ]
+
+    @staticmethod
+    def _strip_recursive_presentation(value: Any) -> Any:
+        if isinstance(value, dict):
+            presentation = {"pos", "size", "properties", "graphUuid", "flags", "order", "color", "bgcolor"}
+            return {
+                str(key): VibeWorkflow._strip_recursive_presentation(item)
+                for key, item in value.items()
+                if key not in presentation and not str(key).startswith("_")
+            }
+        if isinstance(value, list):
+            return [VibeWorkflow._strip_recursive_presentation(item) for item in value]
+        return value
+
+    def _semantic_definitions(self, raw: Any, parent_scope: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        from vibecomfy.identity.scope import compose_scope_path, sg_key
+        if not raw:
+            return []
+        if isinstance(raw, dict) and isinstance(raw.get("subgraphs"), (list, tuple)):
+            entries = list(raw["subgraphs"])
+        elif isinstance(raw, dict):
+            entries = list(raw.values())
+        elif isinstance(raw, (list, tuple)):
+            entries = list(raw)
+        else:
+            raise ValueError("definitions must be a JSON-shaped mapping or sequence")
+        result: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("each definition must be a mapping")
+            key = entry.get("sg_key")
+            derived = sg_key(entry)
+            if key is not None and key != derived:
+                raise ValueError(f"definition sg_key {key!r} does not match its structural identity")
+            key = derived
+            scope = compose_scope_path((*parent_scope, key))
+            clean = self._strip_recursive_presentation(entry)
+            clean["sg_key"] = key
+            clean["scope_path"] = scope
+            nested = entry.get("definitions")
+            if nested:
+                clean["definitions"] = self._semantic_definitions(nested, (*parent_scope, key))
+            result.append(clean)
+        result.sort(key=lambda item: (str(item["scope_path"]), str(item["sg_key"])))
+        return result
+
+    def _semantic_definition_nodes(self, raw: Any, parent_scope: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        """Flatten definition-local nodes into the same scoped node view."""
+        from vibecomfy.identity.scope import compose_scope_path, sg_key
+        from vibecomfy.identity.uid import validate_local_uid
+        if not raw:
+            return []
+        if isinstance(raw, dict) and isinstance(raw.get("subgraphs"), (list, tuple)):
+            entries = list(raw["subgraphs"])
+        elif isinstance(raw, dict):
+            entries = list(raw.values())
+        elif isinstance(raw, (list, tuple)):
+            entries = list(raw)
+        else:
+            raise ValueError("definitions must be a JSON-shaped mapping or sequence")
+        result: list[dict[str, Any]] = []
+        for definition in entries:
+            if not isinstance(definition, dict):
+                continue
+            key = definition.get("sg_key") or sg_key(definition)
+            scope = compose_scope_path((*parent_scope, key))
+            raw_nodes = definition.get("nodes", [])
+            node_entries = list(raw_nodes.values()) if isinstance(raw_nodes, dict) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
+            for entry in node_entries:
+                if not isinstance(entry, dict):
+                    continue
+                local = entry.get("uid", entry.get("id"))
+                uid = validate_local_uid(str(local) if local is not None else "", field="definition node uid")
+                result.append({
+                    "scope_path": scope,
+                    "uid": uid,
+                    "class_type": str(entry.get("class_type", entry.get("type", "Unknown"))),
+                    "inputs": copy.deepcopy(entry.get("inputs", {})) if isinstance(entry.get("inputs", {}), dict) else {},
+                    "widgets": copy.deepcopy(entry.get("widgets", entry.get("widgets_values", {}))),
+                    "mode": litegraph_to_mode(entry.get("mode", NodeMode.ENABLED)).value,
+                    "metadata": copy.deepcopy(entry.get("semantic", {})) if isinstance(entry.get("semantic", {}), dict) else {},
+                })
+            nested = definition.get("definitions")
+            if nested:
+                result.extend(self._semantic_definition_nodes(nested, (*parent_scope, key)))
+        result.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
+        return result
+
+    def semantic_projection(self) -> dict[str, Any]:
+        """Return the deterministic Python-owned semantic projection."""
+        from vibecomfy.identity.uid import validate_local_uid
+
+        issues = self.identity_issues()
+        if issues:
+            raise ValueError(issues[0].message)
+        definitions, virtual_wires = self._semantic_source()
+        nodes = []
+        for node in self.nodes.values():
+            uid = validate_local_uid(node.uid, field=f"node {node.id!r} uid")
+            nodes.append(
+                {
+                    "scope_path": "",
+                    "uid": uid,
+                    "class_type": node.class_type,
+                    "inputs": copy.deepcopy(node.inputs),
+                    "widgets": copy.deepcopy(node.widgets),
+                    "mode": litegraph_to_mode(node.mode).value,
+                    "metadata": self._semantic_node_metadata(node),
+                }
+            )
+        nodes.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
+        nodes.extend(self._semantic_definition_nodes(definitions))
+        nodes.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
+        node_keys = [(item["scope_path"], item["uid"]) for item in nodes]
+        if len(node_keys) != len(set(node_keys)):
+            raise ValueError("duplicate or colliding scoped node UID")
+        semantic_definitions = self._semantic_definitions(definitions)
+        definition_keys = [item["scope_path"] for item in semantic_definitions]
+        if len(definition_keys) != len(set(definition_keys)):
+            raise ValueError("duplicate or colliding subgraph definition identity")
+        requirements = {
+            field_name: sorted(str(value) for value in getattr(self.requirements, field_name))
+            for field_name in ("models", "custom_nodes", "missing_models", "missing_nodes", "unsupported")
+        }
+        inputs = [
+            {
+                "name": item.name, "node_id": item.node_id, "field": item.field,
+                "type": item.type, "default": copy.deepcopy(item.default),
+                "required": item.required, "range": copy.deepcopy(item.range),
+                "aliases": sorted(item.aliases), "media_semantics": item.media_semantics,
+            }
+            for item in self.inputs.values()
+        ]
+        inputs.sort(key=lambda item: item["name"])
+        outputs = [_to_plain(item) for item in self.outputs]
+        outputs.sort(key=lambda item: (str(item.get("name") or ""), str(item.get("node_id")), str(item.get("output_type"))))
+        variants: dict[str, dict[str, object]] = {}
+        for name, overrides in self.variants.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(overrides, dict):
+                raise ValueError("variants must be a flat mapping of names to override maps")
+            variants[name] = {str(key): copy.deepcopy(overrides[key]) for key in sorted(overrides)}
+        if self.default_variant is not None and self.default_variant not in variants:
+            raise ValueError(f"default_variant {self.default_variant!r} is not defined")
+        projection = {
+            "id": self.id,
+            "version": FORMAT_VERSION,
+            "nodes": nodes,
+            "edges": self._semantic_edge_records(),
+            "definitions": semantic_definitions,
+            "interfaces": copy.deepcopy(self.interfaces),
+            "boundary_ports": copy.deepcopy(self.boundary_ports),
+            "virtual_wires": copy.deepcopy(virtual_wires),
+            "variants": variants,
+            "default_variant": self.default_variant,
+            "requirements": requirements,
+            "inputs": inputs,
+            "outputs": outputs,
+        }
+        return projection
+
+    def semantic_digest(self) -> str:
+        from vibecomfy.testing.canonical import canonical_digest
+        return canonical_digest(self.semantic_projection())
+
+    # Private spelling retained for callers that treat the projection as an
+    # internal compiler leaf; both names intentionally delegate to one source.
+    def _semantic_projection(self) -> dict[str, Any]:
+        return self.semantic_projection()
+
+    def canonical_semantic_bytes(self) -> bytes:
+        from vibecomfy.testing.canonical import canonical_bytes
+        return canonical_bytes(self.semantic_projection())
+
+    def _with_selection(self, variant: str | None, run_inputs: dict[str, Any] | None) -> "VibeWorkflow":
+        selected = self.default_variant if variant is None else variant
+        if selected is None and not run_inputs:
+            return self
+        if selected is not None and selected not in self.variants:
+            raise ValueError(f"unknown workflow variant {selected!r}")
+        result = self.copy()
+        if selected is not None:
+            by_uid = {node.uid: node for node in result.nodes.values()}
+            for key, value in result.variants[selected].items():
+                if "." not in key:
+                    raise ValueError(f"variant override {key!r} must be node_uid.widget")
+                uid, field_name = key.rsplit(".", 1)
+                node = by_uid.get(uid)
+                if node is None:
+                    raise ValueError(f"variant override references unknown node UID {uid!r}")
+                if field_name in {"__mode__", "mode"}:
+                    node.mode = litegraph_to_mode(value)
+                elif field_name in {"enabled", "enable", "disabled", "disable"}:
+                    node.mode = NodeMode.ENABLED if bool(value) else NodeMode.MUTED
+                elif field_name in node.widgets:
+                    node.widgets[field_name] = copy.deepcopy(value)
+                else:
+                    node.inputs[field_name] = copy.deepcopy(value)
+        if run_inputs:
+            for name, value in run_inputs.items():
+                result.set_input(name, value)
+        return result
+
     def to_envelope(self) -> dict[str, Any]:
         """Serialize this IR as the stored vibe envelope.
 
@@ -454,7 +765,14 @@ class VibeWorkflow:
         """
         from vibecomfy.ingest.normalize import _decode_serialized_vibe
 
-        return _decode_serialized_vibe(raw)
+        workflow = _decode_serialized_vibe(raw)
+        # The ingest door owns legacy decoding, but the semantic extensions
+        # are plain top-level IR fields and can be restored here without
+        # teaching that compatibility boundary a second recursive model.
+        for field_name in ("definitions", "interfaces", "boundary_ports", "virtual_wires", "variants", "default_variant"):
+            if field_name in raw:
+                setattr(workflow, field_name, copy.deepcopy(raw[field_name]))
+        return workflow
 
     def clone(self) -> "VibeWorkflow":
         return self.copy()
@@ -989,23 +1307,40 @@ class VibeWorkflow:
             for diagnostic in workflow_helpers.collect_helper_diagnostics(self.nodes, self.edges)
         ]
 
-    def compile(self, backend: str = "api") -> dict[str, Any]:
+    def _execution_projection(
+        self,
+        *,
+        variant: str | None = None,
+        run_inputs: dict[str, Any] | None = None,
+    ) -> "_ExecutionProjection":
+        """Return the one execution projection for all runtime backends."""
+        selected = self._with_selection(variant, run_inputs)
+        return _execution_projection(selected.nodes, selected.edges)
+
+    def compile(
+        self,
+        backend: str = "api",
+        *,
+        variant: str | None = None,
+        run_inputs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         _raise_embedded_api_links(self, surface=f"{backend} compilation")
         if backend == "graphbuilder":
-            return self._compile_graphbuilder()
+            return self._compile_graphbuilder(variant=variant, run_inputs=run_inputs)
         if backend != "api":
             raise ValueError(f"Unknown compile backend: {backend}")
-        projection = _execution_projection(self.nodes, self.edges)
-        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, projection.edges)
+        selected = self._with_selection(variant, run_inputs)
+        projection = selected._execution_projection()
+        broadcast_sources = workflow_helpers.collect_broadcast_sources(selected.nodes, projection.edges)
         api: dict[str, Any] = {}
         for node_id, node in projection.nodes.items():
             if _is_compile_stripped_node(node):
                 continue
-            inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
+            inputs = _rewrite_broadcast_links(_compile_node_inputs(node), selected.nodes, broadcast_sources)
             inputs.update(_compile_intent_runtime_inputs(node))
             api[str(node_id)] = {"class_type": node.class_type, "inputs": inputs}
         edge_inputs = _compile_resolved_edge_inputs(
-            self.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
+            selected.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
         )
         for target_node_id, inputs in edge_inputs.items():
             if target_node_id not in api:
@@ -1138,23 +1473,29 @@ class VibeWorkflow:
             "model_assets": model_assets,
         }
 
-    def _compile_graphbuilder(self) -> dict[str, Any]:
+    def _compile_graphbuilder(
+        self,
+        *,
+        variant: str | None = None,
+        run_inputs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         try:
             from comfy_execution.graph_utils import GraphBuilder
         except ImportError as exc:
             raise RuntimeError("GraphBuilder backend requires the installed HiddenSwitch ComfyUI runtime.") from exc
 
-        projection = _execution_projection(self.nodes, self.edges)
-        broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, projection.edges)
+        selected = self._with_selection(variant, run_inputs)
+        projection = selected._execution_projection()
+        broadcast_sources = workflow_helpers.collect_broadcast_sources(selected.nodes, projection.edges)
         edge_inputs = _compile_resolved_edge_inputs(
-            self.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
+            selected.nodes, projection.edges, broadcast_sources, dropped_ids=projection.dropped_ids
         )
 
         builder = GraphBuilder(prefix="")
         for node_id, node in projection.nodes.items():
             if _is_compile_stripped_node(node):
                 continue
-            inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
+            inputs = _rewrite_broadcast_links(_compile_node_inputs(node), selected.nodes, broadcast_sources)
             inputs.update(_compile_intent_runtime_inputs(node))
             inputs.update(edge_inputs.get(str(node_id), {}))
             builder.node(node.class_type, id=str(node_id), **inputs)
