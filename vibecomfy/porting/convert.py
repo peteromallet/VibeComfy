@@ -155,52 +155,6 @@ class PortConvertResult:
         }
 
 
-# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes whose
-# stable channel name (not the edge) is the routing key. PrimitiveNode is a value
-# helper, not a wire, so it is intentionally excluded here.
-_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
-
-
-def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
-    """Snapshot Get/Set/Reroute virtual-wire nodes BEFORE helper resolution.
-
-    Captures uid, type, channel name, pos/size, and the routed endpoints for each
-    virtual-wire node, keyed by uid. This must run before both
-    ``resolve_subgraph_helpers`` and ``resolve_helpers`` (which delete these nodes
-    in place). Returns ``{}`` when the graph has no virtual-wire nodes.
-    """
-    from vibecomfy._compile._helpers import (
-        BROADCAST_HELPER_CLASS_TYPES,
-        broadcast_name,
-    )
-
-    captured: dict[str, dict[str, Any]] = {}
-    for node_id, node in workflow.nodes.items():
-        if node.class_type not in _VIRTUAL_WIRE_CLASS_TYPES:
-            continue
-        uid = node.uid or str(node_id)
-        pos = copy.deepcopy(node.pos)
-        size = copy.deepcopy(node.size)
-        channel = (
-            broadcast_name(node)
-            if node.class_type in BROADCAST_HELPER_CLASS_TYPES
-            else None
-        )
-        endpoints = [
-            [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
-            for edge in workflow.edges
-            if str(edge.from_node) == str(node_id) or str(edge.to_node) == str(node_id)
-        ]
-        captured[uid] = {
-            "type": node.class_type,
-            "channel": channel,
-            "pos": pos,
-            "size": size,
-            "endpoints": endpoints,
-        }
-    return captured
-
-
 def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, ObjectInfoIdentity]:
     """Derive a node_id -> ObjectInfoIdentity map from raw workflow provenance."""
     from vibecomfy.porting.provenance import extract_provenance

@@ -163,7 +163,24 @@ def _phase_a_broadcasts(nodes: Mapping[str, Any], edges: list[Any], make_error: 
     if not get_node_ids and not set_node_ids:
         return False
 
-    broadcast_sources = collect_broadcast_sources(nodes, edges)
+    producers: dict[str, str] = {}
+    for node_id in sorted(set_node_ids, key=_node_sort_key):
+        name = broadcast_name(nodes[node_id])
+        if not name:
+            continue
+        key = _broadcast_key(node_id, name)
+        scope = key.split("\0", 1)[0]
+        scoped_name = f"{scope}\0{name}"
+        if scoped_name in producers and producers[scoped_name] != str(node_id):
+            raise make_error(
+                HelperResolveErrorSpec(
+                    f"SetNode broadcast {name!r} has multiple producers in scope {scope!r}",
+                    next_action="Keep exactly one SetNode producer per scoped channel.",
+                )
+            )
+        producers[scoped_name] = str(node_id)
+
+    broadcast_sources = _collect_scoped_broadcast_sources(nodes, edges)
     changed = False
 
     for edge in _sorted_edges(edges):
@@ -177,7 +194,8 @@ def _phase_a_broadcasts(nodes: Mapping[str, Any], edges: list[Any], make_error: 
                         next_action=f"check node {edge.from_node} (GetNode)",
                     )
                 )
-            if name not in broadcast_sources:
+            source_key = _broadcast_key(edge.from_node, name)
+            if source_key not in broadcast_sources:
                 raise make_error(
                     HelperResolveErrorSpec(
                         f"GetNode {edge.from_node!r} references unresolved broadcast {name!r}; "
@@ -185,16 +203,17 @@ def _phase_a_broadcasts(nodes: Mapping[str, Any], edges: list[Any], make_error: 
                         next_action=f"check node {edge.from_node} (GetNode)",
                     )
                 )
-            source = broadcast_sources[name]
+            source = broadcast_sources[source_key]
             edge.from_node = str(source[0])
             edge.from_output = str(source[1])
             changed = True
         elif edge.from_node in set_node_ids:
             node = nodes[edge.from_node]
             name = broadcast_name(node)
-            if not name or name not in broadcast_sources:
+            source_key = _broadcast_key(edge.from_node, name) if name else ""
+            if not name or source_key not in broadcast_sources:
                 continue
-            source = broadcast_sources[name]
+            source = broadcast_sources[source_key]
             edge.from_node = str(source[0])
             edge.from_output = str(source[1])
             changed = True
@@ -299,16 +318,17 @@ def _phase_c_value_primitives(
     if not value_prim_ids:
         return False
 
-    broadcast_sources = collect_broadcast_sources(nodes, edges)
+    broadcast_sources = _collect_scoped_broadcast_sources(nodes, edges)
     source_to_broadcast_name: dict[str, str] = {}
-    for name in sorted(broadcast_sources.keys()):
-        source = broadcast_sources[name]
+    for key in sorted(broadcast_sources.keys()):
+        source = broadcast_sources[key]
         source_id = str(source[0])
         if source_id not in value_prim_ids:
             continue
         prim_node = nodes.get(source_id)
         if prim_node is None:
             continue
+        name = key.rsplit("\0", 1)[-1]
         if not _is_valid_broadcast_name(name, prim_node.class_type):
             continue
         if source_id not in source_to_broadcast_name:
@@ -438,6 +458,40 @@ def _is_valid_broadcast_name(name: str, primitive_class_type: str) -> bool:
     if name == primitive_class_type:
         return False
     return True
+
+
+def _broadcast_key(node_id: Any, name: str) -> str:
+    return f"{str(node_id).rpartition('#')[0]}\0{name}"
+
+
+def _collect_scoped_broadcast_sources(
+    nodes: Mapping[str, Any], edges: Sequence[Any]
+) -> dict[str, list[Any]]:
+    """Collect SetNode sources without allowing same-named scopes to cross-talk."""
+    sources: dict[str, list[Any]] = {}
+    edge_sources_by_target: dict[str, list[Any]] = {}
+    for edge in edges:
+        target_id = str(edge.to_node)
+        target_node = nodes.get(target_id)
+        if target_node is None or target_node.class_type != "SetNode" or edge.to_input == "widget_0":
+            continue
+        edge_sources_by_target[target_id] = [str(edge.from_node), _numeric_or_name(edge.from_output)]
+    for node_id, node in nodes.items():
+        if node.class_type != "SetNode":
+            continue
+        name = broadcast_name(node)
+        if not name:
+            continue
+        direct_source = None
+        for key, value in node.inputs.items():
+            if key != "widget_0" and is_api_link(value):
+                direct_source = [str(value[0]), _numeric_or_name(value[1])]
+                break
+        if direct_source is None:
+            direct_source = edge_sources_by_target.get(str(node_id))
+        if direct_source is not None:
+            sources[_broadcast_key(node_id, name)] = direct_source
+    return sources
 
 
 def _extract_raw_primitive_value(node: Any, diagnostics: list[HelperDiagnostic]) -> Any:

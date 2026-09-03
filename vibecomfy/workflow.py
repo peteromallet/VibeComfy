@@ -1379,6 +1379,7 @@ class VibeWorkflow:
             projection_edges.extend(nested_edges)
             _validate_interface_boundary_contract(selected, projection_nodes)
         _validate_public_io_for_projection(selected, projection_nodes)
+        _bind_public_input_values(selected, projection_nodes)
         return _execution_projection(
             projection_nodes,
             projection_edges,
@@ -1611,74 +1612,51 @@ def _validate_public_io_for_projection(
                     detail={"node_id": str(public_input.node_id), "field": public_input.field},
                     next_action="Bind the public input to a declared node input or widget.",
                 )
+
+
         target_type = _node_input_socket_type(target, public_input.field)
         if public_input.type is not None and target_type is not None and not _types_match(public_input.type, target_type):
-            raise WorkflowCompileError(
-                "public_input_incompatible",
-                f"public input {name!r} type {public_input.type!r} is incompatible with {target_type!r}",
-                detail={"node_id": str(public_input.node_id), "field": public_input.field},
-                next_action="Bind the public input to a compatible socket type.",
-            )
+            raise WorkflowCompileError("public_input_incompatible", f"public input {name!r} type {public_input.type!r} is incompatible with {target_type!r}", detail={"node_id": str(public_input.node_id), "field": public_input.field}, next_action="Bind the public input to a compatible socket type.")
         if public_input.type is not None and target_type is None:
-            raise WorkflowCompileError(
-                "public_input_untyped",
-                f"public input {name!r} has no proven target socket type",
-                detail={"node_id": str(public_input.node_id), "field": public_input.field},
-                next_action="Declare the target socket type before exposing it publicly.",
-            )
+            raise WorkflowCompileError("public_input_untyped", f"public input {name!r} has no proven target socket type", detail={"node_id": str(public_input.node_id), "field": public_input.field}, next_action="Declare the target socket type before exposing it publicly.")
 
     for output in workflow.outputs:
         node_id = str(output.node_id)
         node = nodes.get(node_id)
         if node is None:
-            raise WorkflowCompileError(
-                "public_output_missing",
-                f"public output targets missing node {node_id!r}",
-                next_action="Bind the public output to a node in the workflow.",
-            )
+            raise WorkflowCompileError("public_output_missing", f"public output targets missing node {node_id!r}", next_action="Bind the public output to a node in the workflow.")
         if output.name:
             if output.name in seen_outputs:
-                raise WorkflowCompileError(
-                    "public_output_duplicate",
-                    f"duplicate public output name {output.name!r}",
-                )
+                raise WorkflowCompileError("public_output_duplicate", f"duplicate public output name {output.name!r}")
             seen_outputs.add(output.name)
         output_index: int | None = None
         if output.name is not None:
             declared_names = getattr(node, "native_output_names", None) or node.metadata.get("output_names")
-            output_index = _socket_index(
-                declared_names,
-                output.name,
-            )
+            output_index = _socket_index(declared_names, output.name)
             if output_index is None and declared_names:
-                raise WorkflowCompileError(
-                    "public_output_missing",
-                    f"public output name {output.name!r} is not declared by node {node_id!r}",
-                    next_action="Bind the public output to a declared output name.",
-                )
+                raise WorkflowCompileError("public_output_missing", f"public output name {output.name!r} is not declared by node {node_id!r}", next_action="Bind the public output to a declared output name.")
         source_type = _node_output_socket_type(node, output_index if output_index is not None else 0)
         if output.output_type and source_type is not None and not _types_match(output.output_type, source_type):
-            raise WorkflowCompileError(
-                "public_output_incompatible",
-                f"public output type {output.output_type!r} is incompatible with {source_type!r}",
-                detail={"node_id": node_id, "output": output.name},
-                next_action="Bind the public output to a compatible socket type.",
-            )
+            raise WorkflowCompileError("public_output_incompatible", f"public output type {output.output_type!r} is incompatible with {source_type!r}", detail={"node_id": node_id, "output": output.name}, next_action="Bind the public output to a compatible socket type.")
         if output.expected_cardinality is not None:
             declared_cardinality = node.metadata.get("output_cardinality") if isinstance(node.metadata, dict) else None
-            if declared_cardinality is None:
-                if output.expected_cardinality not in ("one", 1):
-                    raise WorkflowCompileError(
-                        "public_output_cardinality",
-                        f"public output {output.name or node_id!r} has unproven cardinality {output.expected_cardinality!r}",
-                        next_action="Declare the output cardinality in the existing node contract.",
-                    )
-            elif str(declared_cardinality).lower() != str(output.expected_cardinality).lower():
-                raise WorkflowCompileError(
-                    "public_output_cardinality",
-                    f"public output cardinality {output.expected_cardinality!r} does not match {declared_cardinality!r}",
-                    next_action="Bind the public output with its declared cardinality.",
-                )
+            if declared_cardinality is None and output.expected_cardinality not in ("one", 1):
+                raise WorkflowCompileError("public_output_cardinality", f"public output {output.name or node_id!r} has unproven cardinality {output.expected_cardinality!r}", next_action="Declare the output cardinality in the existing node contract.")
+            if declared_cardinality is not None and str(declared_cardinality).lower() != str(output.expected_cardinality).lower():
+                raise WorkflowCompileError("public_output_cardinality", f"public output cardinality {output.expected_cardinality!r} does not match {declared_cardinality!r}", next_action="Bind the public output with its declared cardinality.")
+def _bind_public_input_values(workflow: VibeWorkflow, nodes: Mapping[str, VibeNode]) -> None:
+    """Apply declared runtime values/defaults to the detached execution view."""
+    for public_input in workflow.inputs.values():
+        value = public_input.value if public_input.value is not None else public_input.default
+        if value is None and public_input.required:
+            raise WorkflowCompileError("public_input_required", f"required public input {public_input.name!r} has no runtime value or default", next_action="Supply the required public input before compiling.")
+        node = nodes.get(str(public_input.node_id))
+        if node is None:
+            continue
+        if public_input.field in node.widgets:
+            node.widgets[public_input.field] = copy.deepcopy(value)
+        else:
+            node.inputs[public_input.field] = copy.deepcopy(value)
 
 
 def _validate_interface_boundary_contract(
