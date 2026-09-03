@@ -71,6 +71,37 @@ def test_comfy_nodes_ping_handler_defined_when_server_absent() -> None:
     assert hasattr(mod, "NODE_CLASS_MAPPINGS")
 
 
+def test_official_pip_prompt_stub_defers_routes_without_headless(monkeypatch) -> None:
+    import vibecomfy.comfy_nodes as mod
+    from vibecomfy.comfy_nodes._server_compat import is_official_import_only_stub
+
+    monkeypatch.delenv("VIBECOMFY_HEADLESS", raising=False)
+    instance = mod._resolve_prompt_server_instance()
+    stub_type = type(instance)
+    assert is_official_import_only_stub(instance)
+    _reset_route_state(mod, instance)
+    calls = []
+    monkeypatch.setattr(mod, "_resolve_prompt_server_instance", lambda: instance)
+    monkeypatch.setattr(mod, "_register_routes_once", lambda *_: calls.append(True))
+    mod._ensure_routes_registered()
+    assert calls == []
+    assert mod._route_state == mod._ROUTES_UNINITIALIZED
+    assert isinstance(mod.NODE_CLASS_MAPPINGS, dict) and mod.NODE_CLASS_MAPPINGS
+
+
+def test_same_name_fake_stub_does_not_bypass_live_security() -> None:
+    from types import SimpleNamespace
+    from vibecomfy.comfy_nodes._server_compat import is_official_import_only_stub
+    from vibecomfy.comfy_nodes.http_security import install_http_namespace_middleware
+
+    FakePromptServerStub = type("_PromptServerStub", (), {})
+    instance = FakePromptServerStub()
+    instance.app = SimpleNamespace()
+    assert not is_official_import_only_stub(instance)
+    with pytest.raises(RuntimeError, match="middleware registry"):
+        install_http_namespace_middleware(instance)
+
+
 def _reload_comfy_nodes_with_fake_server(monkeypatch, startup_audit_error=None):
     registered: dict[str, object] = {}
 

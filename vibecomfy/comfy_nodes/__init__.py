@@ -407,6 +407,11 @@ def _ensure_routes_registered() -> None:
             _route_condition.notify_all()
         raise
     owner = _route_registration_owner(instance)
+    from ._server_compat import is_official_import_only_stub
+
+    if is_official_import_only_stub(instance):
+        _LOGGER.info("Deferring VibeComfy route registration for pip Comfy import-only PromptServer stub.")
+        return
     with owner.condition:
         while True:
             _mirror_route_owner(owner)

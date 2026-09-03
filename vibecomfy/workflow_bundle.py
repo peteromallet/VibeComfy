@@ -108,6 +108,30 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
             for index, socket in enumerate(sockets):
                 if isinstance(socket, Mapping) and socket.get("name") == value:
                     return index
+        # Converter-backed imports retain named semantic ports but may not
+        # retain the raw UI socket list. Reuse Comfy's existing class schema
+        # to recover the native input ordinal; never invent a port index.
+        try:
+            from comfy.nodes_context import get_nodes
+
+            node_class = get_nodes().NODE_CLASS_MAPPINGS.get(node.class_type)
+            input_types = node_class.INPUT_TYPES() if node_class is not None else {}
+            names: list[str] = []
+            for section in ("required", "optional", "hidden"):
+                values = input_types.get(section, {}) if isinstance(input_types, Mapping) else {}
+                if isinstance(values, Mapping):
+                    names.extend(
+                        str(name)
+                        for name, spec in values.items()
+                        if isinstance(spec, (list, tuple))
+                        and spec
+                        and isinstance(spec[0], str)
+                        and str(spec[0]).upper() not in {"INT", "FLOAT", "STRING", "BOOLEAN"}
+                    )
+            if value in names:
+                return names.index(value)
+        except (ImportError, AttributeError, KeyError, TypeError, ValueError):
+            pass
         raise WorkflowBundleError(f"cannot derive {direction} port {value!r} from Python workflow")
 
     result: set[tuple[str, str, int, str, int]] = set()

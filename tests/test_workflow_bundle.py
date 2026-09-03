@@ -465,6 +465,21 @@ def test_api_capture_separates_identity_envelope(tmp_path: Path, monkeypatch: py
     assert bundle.ui_sidecar is None
 
 
+def test_real_converter_backed_public_capture_roundtrips_pair(tmp_path: Path) -> None:
+    import json
+
+    fixture = Path("tests/characterization/fixtures/agent_edit/case_01_widget_set/input_ui.json")
+    graph = json.loads(fixture.read_text(encoding="utf-8"))
+    graph["workflow_id"] = "07824bbb-6672-4bb0-ac36-4313a519e35b"
+    destination = tmp_path / "captured.py"
+    bundle = capture_bundle(graph, destination, {"operation": "captured"})
+    reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+    assert reloaded.semantic_digest == bundle.semantic_digest
+    assert reloaded.ui_digest == bundle.ui_digest
+    assert destination.is_file()
+    assert destination.with_suffix(".vibe.json").is_file()
+
+
 def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids() -> None:
     from vibecomfy.identity.scope import compose_scope_path, sg_key
     from vibecomfy.identity.uid import make_uid
