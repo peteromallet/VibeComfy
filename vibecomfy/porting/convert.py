@@ -16,7 +16,7 @@ from vibecomfy.porting.emitter import (
     emit_scratchpad_python,
 )
 from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
-from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
+from vibecomfy._compile._resolve import ResolveDiagnostics
 from vibecomfy.porting.parity import (
     class_type_counter,
     compile_equivalent,
@@ -245,14 +245,9 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
 ) -> PortConvertResult:
-    # Capture the virtual-wire display/diagnostic sidecar before cloning, but
-    # publish it to the caller only after conversion reaches its successful
-    # return. Conversion must not mutate caller topology, nodes, or metadata
-    # when a resolver/emitter/parity step raises.
-    caller_workflow = workflow
-    _virtual_wires = _capture_virtual_wires(workflow)
-
-    # Conversion resolves helpers and annotates metadata in place. Work on a
+    # Keep conversion as an import/emission surface. Helper semantics are
+    # lowered only by the shared detached execution projection.
+    # Conversion keeps a private snapshot so callers can safely reuse the
     # private snapshot so callers can safely reuse the ingested IR (and raw UI
     # evidence) after conversion, including when conversion raises midway.
     workflow = workflow.copy()
@@ -260,63 +255,12 @@ def port_convert_workflow(
 
     emission_diagnostics: list[EmissionDiagnostic] = []
 
-    # ── Resolve helper nodes before emission ────────────────────────────
-    # Normalise the caller-owned dict so the resolver can populate it with
-    # name -> (consumer_node_id, consumer_field) entries for named
-    # single-consumer primitives promoted to public inputs.
     registered_inputs = dict(registered_inputs or {})
-
-    # Collect broadcast sources *before* the top-level resolver strips
-    # SetNode nodes.  Subgraph helpers (GetNode inside UUID subgraph
-    # definitions) need the original top-level broadcast map to resolve
-    # their sources.  Capturing this snapshot avoids a use-after-delete
-    # race between resolve_helpers (which deletes SetNode) and
-    # resolve_subgraph_helpers (which needs SetNode broadcast data).
-    from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
-    _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
-
-    # ── M2 Step 8: retain the furniture snapshot before helper resolution ─
-    # resolve_subgraph_helpers (below) and resolve_helpers (further down)
-    # both delete Get/Set/Reroute and subgraph-inner nodes in place. Snapshot
-    # above is copied into the private workflow metadata before that deletion.
-    # This is metadata-only — nothing reaches the execution API graph, so
-    # compile('api') stays byte-identical.
-    if _virtual_wires:
-        workflow.metadata["virtual_wires"] = _virtual_wires
-
-    # Resolve helper nodes inside UUID subgraph definitions FIRST, using
-    # the pre-resolve broadcast snapshot.  Subgraph helpers reference
-    # top-level SetNode broadcasts; if we resolve top-level helpers first,
-    # SetNode nodes are deleted and the subgraph resolver finds nothing.
     if raw_workflow is not None:
-        # Deep-copy the raw subgraph definitions before resolution mutates the
-        # graph. Graceful absence: store nothing when 'definitions' is missing.
         _definitions = raw_workflow.get("definitions")
         if _definitions is not None:
             workflow.metadata["definitions"] = copy.deepcopy(_definitions)
-
-        from vibecomfy.ingest.normalize import resolve_subgraph_helpers
-        resolve_subgraph_helpers(
-            raw_workflow,
-            workflow.nodes,
-            workflow.edges,
-            _pre_resolve_broadcasts,
-        )
-
-    # resolve_helpers mutates workflow.nodes/workflow.edges in place and
-    # populates *registered_inputs*.  This runs *before* the compile('api')
-    # parity capture at line ~203, so both source_api and the emitted
-    # module's build() compile the post-resolution graph.  Parity therefore
-    # validates emission fidelity of the resolved graph, not semantic
-    # preservation against the raw source.  Resolver-vs-source correctness
-    # is guaranteed by the Step 3.6 hard error and the Step 9 runexx oracle.
-    #
-    # When keep_virtual_wires=True, skip resolution so GetNode/SetNode/Reroute
-    # pass through to the emitter as explicit wf.node(...) calls.
-    if keep_virtual_wires:
-        resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
-    else:
-        resolve_diagnostics = resolve_helpers(workflow, registered_inputs)
+    resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
 
     # Surface ResolveDiagnostics into the existing emission_diagnostics
     # channel (FG-005): convert each HelperDiagnostic into an
@@ -356,7 +300,10 @@ def port_convert_workflow(
             provenance=complete_provenance,
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
-            keep_virtual_wires=keep_virtual_wires,
+            # Helper nodes remain authored source.  The shared execution
+            # projection lowers them for runtime; emission must not require a
+            # separate conversion-time resolver.
+            keep_virtual_wires=True,
             prune_dead_branches=prune_dead_branches,
         )
         mode: PortConvertMode = "scratchpad"
@@ -499,8 +446,6 @@ def port_convert_workflow(
                 if result.validation.error is None:
                     result.validation.error = f"parity check failed: {parity_error}"
 
-    if _virtual_wires:
-        caller_workflow.metadata["virtual_wires"] = copy.deepcopy(_virtual_wires)
     return result
 
 

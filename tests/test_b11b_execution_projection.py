@@ -10,7 +10,9 @@ from vibecomfy.porting.emit import emit_ready_template_python, emit_scratchpad_p
 from vibecomfy.workflow import (
     NodeMode,
     VibeEdge,
+    VibeInput,
     VibeNode,
+    VibeOutput,
     VibeWorkflow,
     WorkflowCompileError,
     WorkflowSource,
@@ -247,8 +249,70 @@ def test_scoped_variant_and_explicit_virtual_wire_are_projection_inputs() -> Non
     workflow.definitions = {"subgraphs": [definition]}
     workflow.variants = {"alt": {f"{scope}#n.x": 9}}
     assert workflow._with_selection("alt", None).definitions["subgraphs"][0]["nodes"][0]["inputs"]["x"] == 9
-    workflow.virtual_wires = {"route": {"legs": [{"from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"}]}}
+    workflow.virtual_wires = {"route": {"legs": [{"leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"}]}}
     assert workflow.compile()["sink"]["inputs"]["x"] == ["source", 0]
+
+
+def test_virtual_wire_contract_rejects_legacy_and_noncontiguous_occurrences() -> None:
+    workflow = VibeWorkflow("wire-contract", WorkflowSource("wire-contract"))
+    workflow.nodes["source"] = VibeNode("source", "Source")
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    workflow.virtual_wires = {
+        "route": {
+            "legs": [
+                {"leg_index": 0, "occurrence_index": 0, "from_node": "source", "to_node": "sink", "to_input": "x"},
+                {"leg_index": 2, "occurrence_index": 2, "from_node": "source", "to_node": "sink", "to_input": "x"},
+            ]
+        }
+    }
+    with pytest.raises(WorkflowCompileError, match="contiguous"):
+        workflow.compile()
+    workflow.virtual_wires = {"route": {"channel": "route", "endpoints": []}}
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "legacy_virtual_wire"
+
+
+def test_public_io_type_and_cardinality_are_closed_over_declared_sockets() -> None:
+    workflow = VibeWorkflow("public-contract", WorkflowSource("public-contract"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", metadata={"output_names": ["image"], "output_types": ["IMAGE"]}
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"image": None}, metadata={"input_types": {"image": "IMAGE"}}
+    )
+    workflow.inputs["bad"] = VibeInput(
+        "bad", "sink", "image", type="AUDIO"
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_input_incompatible"
+    workflow.inputs.clear()
+    workflow.outputs.append(
+        VibeOutput(
+            "source", "IMAGE", name="image", expected_cardinality=3
+        )
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_output_cardinality"
+
+
+def test_ui_mode_evidence_does_not_change_execution_projection() -> None:
+    workflow = _chain(NodeMode.ENABLED)
+    workflow.nodes["2"].metadata["_ui"] = {"mode": 4, "widgets_values": ["misleading"]}
+    assert set(workflow.compile("api")) == {"1", "2", "3"}
+
+
+def test_native_boundary_sentinel_fails_at_projection_boundary() -> None:
+    workflow = VibeWorkflow("boundary", WorkflowSource("boundary"))
+    workflow.nodes["root"] = VibeNode("root", "Source")
+    workflow.definitions = {
+        "subgraphs": [{"name": "inner", "nodes": [{"id": "n", "type": "Sink"}], "links": [[1, "-10", 0, "n", 0, "IMAGE"]]}]
+    }
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "unsupported_boundary_encoding"
 
 
 @pytest.mark.parametrize("emitter", [emit_scratchpad_python, emit_ready_template_python])

@@ -43,7 +43,8 @@ ErrorFactory = Callable[[HelperResolveErrorSpec], Exception]
 
 
 def resolve_helpers(
-    workflow: Any,
+    nodes: MutableMapping[str, Any],
+    edges: list[Any],
     registered_inputs: MutableMapping[str, tuple[str, str]],
     *,
     primitive_value_extractor: PrimitiveValueExtractor | None = None,
@@ -55,26 +56,36 @@ def resolve_helpers(
     independent of Python-template emission.  Callers inject conversion-specific
     primitive coercion and exception types when needed.
     """
+    # This function intentionally accepts only detached projection data.  The
+    # authored workflow never crosses the helper-lowering boundary.
+    edge_list = edges
+    replace_edges = lambda value: edge_list.__setitem__(slice(None), value)
+    register_input = None
+    allow_legacy_ui_widget_update = False
+
     diagnostics: list[HelperDiagnostic] = []
     make_error = error_factory or (lambda spec: HelperResolveError(spec))
     extract_primitive_value = primitive_value_extractor or _extract_raw_primitive_value
 
     for _ in range(10_000):
         changed = False
-        changed |= _phase_a_broadcasts(workflow, make_error)
-        changed |= _phase_b_passthroughs(workflow, make_error)
+        changed |= _phase_a_broadcasts(nodes, edge_list, make_error)
+        changed |= _phase_b_passthroughs(nodes, edge_list, make_error)
         changed |= _phase_c_value_primitives(
-            workflow,
+            nodes,
+            edge_list,
             registered_inputs,
             diagnostics,
             extract_primitive_value,
             make_error,
+            register_input,
+            allow_legacy_ui_widget_update,
         )
         if not changed:
             break
 
-    for edge in workflow.edges:
-        node = workflow.nodes.get(edge.from_node)
+    for edge in edge_list:
+        node = nodes.get(edge.from_node)
         if node is not None and node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
             raise make_error(
                 HelperResolveErrorSpec(
@@ -85,16 +96,16 @@ def resolve_helpers(
 
     resolved_ids = frozenset(
         nid
-        for nid, node in workflow.nodes.items()
+        for nid, node in nodes.items()
         if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
     )
     for nid in resolved_ids:
-        workflow.nodes.pop(nid)
-    workflow.edges = [
+        nodes.pop(nid)
+    replace_edges([
         edge
-        for edge in workflow.edges
+        for edge in edge_list
         if edge.from_node not in resolved_ids and edge.to_node not in resolved_ids
-    ]
+    ])
 
     return ResolveDiagnostics(diagnostics=diagnostics)
 
@@ -142,22 +153,22 @@ def _numeric_or_name(value: Any) -> int | str:
         return str(value)
 
 
-def _phase_a_broadcasts(workflow: Any, make_error: ErrorFactory) -> bool:
+def _phase_a_broadcasts(nodes: Mapping[str, Any], edges: list[Any], make_error: ErrorFactory) -> bool:
     get_node_ids = frozenset(
-        nid for nid, node in workflow.nodes.items() if node.class_type == "GetNode"
+        nid for nid, node in nodes.items() if node.class_type == "GetNode"
     )
     set_node_ids = frozenset(
-        nid for nid, node in workflow.nodes.items() if node.class_type == "SetNode"
+        nid for nid, node in nodes.items() if node.class_type == "SetNode"
     )
     if not get_node_ids and not set_node_ids:
         return False
 
-    broadcast_sources = collect_broadcast_sources(workflow.nodes, workflow.edges)
+    broadcast_sources = collect_broadcast_sources(nodes, edges)
     changed = False
 
-    for edge in _sorted_edges(workflow.edges):
+    for edge in _sorted_edges(edges):
         if edge.from_node in get_node_ids:
-            node = workflow.nodes[edge.from_node]
+            node = nodes[edge.from_node]
             name = broadcast_name(node)
             if not name:
                 raise make_error(
@@ -179,7 +190,7 @@ def _phase_a_broadcasts(workflow: Any, make_error: ErrorFactory) -> bool:
             edge.from_output = str(source[1])
             changed = True
         elif edge.from_node in set_node_ids:
-            node = workflow.nodes[edge.from_node]
+            node = nodes[edge.from_node]
             name = broadcast_name(node)
             if not name or name not in broadcast_sources:
                 continue
@@ -191,29 +202,29 @@ def _phase_a_broadcasts(workflow: Any, make_error: ErrorFactory) -> bool:
     return changed
 
 
-def _phase_b_passthroughs(workflow: Any, make_error: ErrorFactory) -> bool:
+def _phase_b_passthroughs(nodes: Mapping[str, Any], edges: list[Any], make_error: ErrorFactory) -> bool:
     passthrough_ids = frozenset(
         nid
-        for nid, node in workflow.nodes.items()
+        for nid, node in nodes.items()
         if node.class_type in PASSTHROUGH_HELPER_CLASS_TYPES
     )
     if not passthrough_ids:
         return False
 
     inbound: dict[str, list[Any]] = {}
-    for edge in workflow.edges:
+    for edge in edges:
         inbound.setdefault(edge.to_node, []).append(edge)
 
     changed = False
     folded_edges: list[Any] = []
-    for edge in _sorted_edges(workflow.edges):
+    for edge in _sorted_edges(edges):
         if edge.from_node not in passthrough_ids:
             continue
-        terminal = _resolve_passthrough_terminal(workflow, edge.from_node, inbound, visited=set())
+        terminal = _resolve_passthrough_terminal(nodes, edge.from_node, inbound, visited=set())
         if terminal is None:
-            node = workflow.nodes[edge.from_node]
+            node = nodes[edge.from_node]
             if node.class_type == "PrimitiveNode":
-                _fold_primitive_node_literal(workflow, edge, node)
+                _fold_primitive_node_literal(nodes, edge, node)
                 folded_edges.append(edge)
                 changed = True
                 continue
@@ -229,13 +240,13 @@ def _phase_b_passthroughs(workflow: Any, make_error: ErrorFactory) -> bool:
         changed = True
 
     if folded_edges:
-        workflow.edges = [edge for edge in workflow.edges if edge not in folded_edges]
+        edges[:] = [edge for edge in edges if edge not in folded_edges]
 
     return changed
 
 
 def _resolve_passthrough_terminal(
-    workflow: Any,
+    nodes: Mapping[str, Any],
     node_id: str,
     inbound: Mapping[str, list[Any]],
     visited: set[str],
@@ -253,46 +264,49 @@ def _resolve_passthrough_terminal(
         key=lambda edge: (_node_sort_key(edge.from_node), edge.from_output),
     )
     source_id = inbound_edge.from_node
-    source_node = workflow.nodes.get(source_id)
+    source_node = nodes.get(source_id)
     if source_node is None:
         return None
 
     if source_node.class_type in PASSTHROUGH_HELPER_CLASS_TYPES:
-        return _resolve_passthrough_terminal(workflow, source_id, inbound, visited)
+        return _resolve_passthrough_terminal(nodes, source_id, inbound, visited)
 
     return (source_id, inbound_edge.from_output)
 
 
-def _fold_primitive_node_literal(workflow: Any, edge: Any, node: Any) -> None:
+def _fold_primitive_node_literal(nodes: Mapping[str, Any], edge: Any, node: Any) -> None:
     raw_value = node.inputs.get("value") or node.widgets.get("widget_0")
-    target_node = workflow.nodes.get(edge.to_node)
+    target_node = nodes.get(edge.to_node)
     if target_node is not None:
         _fold_literal_into_consumer(target_node, edge.to_input, raw_value)
 
 
 def _phase_c_value_primitives(
-    workflow: Any,
+    nodes: Mapping[str, Any],
+    edges: list[Any],
     registered_inputs: MutableMapping[str, tuple[str, str]],
     diagnostics: list[HelperDiagnostic],
     extract_primitive_value: PrimitiveValueExtractor,
     make_error: ErrorFactory,
+    register_input: Callable[..., Any] | None,
+    allow_legacy_ui_widget_update: bool,
 ) -> bool:
     value_prim_ids = frozenset(
         nid
-        for nid, node in workflow.nodes.items()
+        for nid, node in nodes.items()
         if node.class_type in VALUE_HELPER_CLASS_TYPES
     )
     if not value_prim_ids:
         return False
 
-    broadcast_sources = collect_broadcast_sources(workflow.nodes, workflow.edges)
+    broadcast_sources = collect_broadcast_sources(nodes, edges)
     source_to_broadcast_name: dict[str, str] = {}
     for name in sorted(broadcast_sources.keys()):
         source = broadcast_sources[name]
         source_id = str(source[0])
         if source_id not in value_prim_ids:
             continue
-        prim_node = workflow.nodes.get(source_id)
+        prim_node = nodes.get(source_id)
         if prim_node is None:
             continue
         if not _is_valid_broadcast_name(name, prim_node.class_type):
@@ -302,41 +316,46 @@ def _phase_c_value_primitives(
 
     changed = False
     for node_id, node in _sorted_nodes(
-        {nid: node for nid, node in workflow.nodes.items() if nid in value_prim_ids}
+        {nid: node for nid, node in nodes.items() if nid in value_prim_ids}
     ):
-        outbound = _sorted_edges([edge for edge in workflow.edges if edge.from_node == node_id])
+        outbound = _sorted_edges([edge for edge in edges if edge.from_node == node_id])
         if not outbound:
             continue
 
-        real_consumer_edges = [
-            edge for edge in outbound if not _is_resolvable_helper_node(workflow, edge.to_node)
-        ]
+        real_consumer_edges = [edge for edge in outbound if not _is_resolvable_helper_node(nodes, edge.to_node)]
         literal = extract_primitive_value(node, diagnostics)
         bname = source_to_broadcast_name.get(node_id)
 
         if bname and len(real_consumer_edges) == 1:
             edge = real_consumer_edges[0]
-            consumer_node = workflow.nodes.get(edge.to_node)
+            consumer_node = nodes.get(edge.to_node)
             if consumer_node is None:
                 raise make_error(_missing_consumer_spec(node_id, node.class_type, edge.to_node))
-            _fold_literal_into_consumer(consumer_node, edge.to_input, literal)
-            workflow.register_input(
-                bname,
-                edge.to_node,
-                edge.to_input,
-                value=literal,
-                default=literal,
+            _fold_literal_into_consumer(
+                consumer_node, edge.to_input, literal,
+                allow_legacy_ui_widget_update=allow_legacy_ui_widget_update,
             )
+            if register_input is not None:
+                register_input(
+                    bname,
+                    edge.to_node,
+                    edge.to_input,
+                    value=literal,
+                    default=literal,
+                )
             registered_inputs[bname] = (edge.to_node, edge.to_input)
         else:
             for edge in real_consumer_edges:
-                consumer_node = workflow.nodes.get(edge.to_node)
+                consumer_node = nodes.get(edge.to_node)
                 if consumer_node is None:
                     raise make_error(_missing_consumer_spec(node_id, node.class_type, edge.to_node))
-                _fold_literal_into_consumer(consumer_node, edge.to_input, literal)
+                _fold_literal_into_consumer(
+                    consumer_node, edge.to_input, literal,
+                    allow_legacy_ui_widget_update=allow_legacy_ui_widget_update,
+                )
 
         outbound_obj_ids = frozenset(id(edge) for edge in outbound)
-        workflow.edges = [edge for edge in workflow.edges if id(edge) not in outbound_obj_ids]
+        edges[:] = [edge for edge in edges if id(edge) not in outbound_obj_ids]
         changed = True
 
     return changed
@@ -350,13 +369,17 @@ def _missing_consumer_spec(node_id: str, class_type: str, consumer_id: str) -> H
     )
 
 
-def _fold_literal_into_consumer(node: Any, field: str, literal: Any) -> None:
+def _fold_literal_into_consumer(
+    node: Any, field: str, literal: Any, *, allow_legacy_ui_widget_update: bool = False
+) -> None:
     field_name = str(field)
     node.inputs[field_name] = literal
-    _update_raw_widget_value(node, field_name, literal)
+    _update_raw_widget_value(node, field_name, literal, allow_legacy_ui_widget_update=allow_legacy_ui_widget_update)
 
 
-def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
+def _update_raw_widget_value(
+    node: Any, field: str, literal: Any, *, allow_legacy_ui_widget_update: bool = False
+) -> None:
     """Keep IR widget defaults aligned after folding linked widgets.
 
     ComfyUI represents widget-as-link fields in ``inputs`` but still carries the
@@ -373,6 +396,10 @@ def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
         values[index] = literal
     elif isinstance(values, dict):
         values[field] = literal
+    if allow_legacy_ui_widget_update:
+        ui = getattr(node, "metadata", {}).get("_ui")
+        if isinstance(ui, Mapping) and isinstance(ui.get("widgets_values"), list) and index < len(ui["widgets_values"]):
+            ui["widgets_values"][index] = literal
 
 
 def _widget_index_for_field(node: Any, field: str) -> int | None:
@@ -395,26 +422,11 @@ def _widget_index_for_field(node: Any, field: str) -> int | None:
     if isinstance(aliases, (list, tuple)) and field in aliases:
         return list(aliases).index(field)
 
-    raw_ui = getattr(node, "metadata", {}).get("_ui")
-    inputs = raw_ui.get("inputs") if isinstance(raw_ui, dict) else None
-    if isinstance(inputs, list):
-        widget_fields: list[str] = []
-        for item in inputs:
-            if not isinstance(item, Mapping):
-                continue
-            widget = item.get("widget")
-            if not isinstance(widget, Mapping):
-                continue
-            name = widget.get("name") or item.get("name")
-            if isinstance(name, str):
-                widget_fields.append(name)
-        if field in widget_fields:
-            return widget_fields.index(field)
     return None
 
 
-def _is_resolvable_helper_node(workflow: Any, node_id: str) -> bool:
-    node = workflow.nodes.get(node_id)
+def _is_resolvable_helper_node(nodes: Mapping[str, Any], node_id: str) -> bool:
+    node = nodes.get(node_id)
     return node is not None and node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
 
 
