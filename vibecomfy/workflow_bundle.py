@@ -95,6 +95,7 @@ def _rectangle(value: Any, where: str) -> list[float]:
 def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int]]:
     """Derive sidecar foreign keys from Python-owned edges only."""
     by_id = {str(node_id): node for node_id, node in workflow.nodes.items()}
+    by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
 
     def port(node: Any, value: Any, direction: str) -> int:
         if type(value) is int and value >= 0:
@@ -111,8 +112,8 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
 
     result: set[tuple[str, str, int, str, int]] = set()
     for edge in workflow.edges:
-        source = by_id.get(str(edge.from_node))
-        target = by_id.get(str(edge.to_node))
+        source = by_id.get(str(edge.from_node)) or by_uid.get(str(edge.from_node))
+        target = by_id.get(str(edge.to_node)) or by_uid.get(str(edge.to_node))
         if source is None or target is None:
             continue
         source_uid = str(source.uid or source.id)
@@ -146,8 +147,13 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
             for node in entries:
                 if not isinstance(node, Mapping): continue
                 local = node.get("uid", node.get("id"))
-                if local is not None: by_local[str(local)] = node
-            for link in definition.get("links", []) if isinstance(definition.get("links"), list) else []:
+                if local is not None:
+                    by_local[str(local)] = node
+                if node.get("id") is not None:
+                    by_local[str(node["id"])] = node
+            raw_links = definition.get("links", [])
+            link_values = raw_links.values() if isinstance(raw_links, Mapping) else raw_links if isinstance(raw_links, (list, tuple)) else []
+            for link in link_values:
                 if isinstance(link, Mapping):
                     from_id, from_port = link.get("from_uid", link.get("origin_id")), link.get("from_port", link.get("origin_slot"))
                     to_id, to_port = link.get("to_uid", link.get("target_id")), link.get("to_port", link.get("target_slot"))
@@ -155,7 +161,9 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
                     _, from_id, from_port, to_id, to_port = link[:5]
                 else: continue
                 if str(from_id) not in by_local or str(to_id) not in by_local: continue
-                result.add((scope, str(from_id), _integer(from_port, "definition from_port", nonnegative=True), str(to_id), _integer(to_port, "definition to_port", nonnegative=True)))
+                from_uid = str(by_local[str(from_id)].get("uid", by_local[str(from_id)].get("id")))
+                to_uid = str(by_local[str(to_id)].get("uid", by_local[str(to_id)].get("id")))
+                result.add((scope, from_uid, _integer(from_port, "definition from_port", nonnegative=True), to_uid, _integer(to_port, "definition to_port", nonnegative=True)))
             walk(definition.get("definitions"), (*parent, key))
 
     walk(workflow.definitions or getattr(workflow, "metadata", {}).get("definitions", {}), ())
@@ -168,33 +176,64 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
     No Comfy ``-10/-20`` meaning is inferred.  Such an encoding is accepted
     only when a caller has provided explicit, ordinary endpoint legs.
     """
-    raw = workflow.virtual_wires or getattr(workflow, "metadata", {}).get("virtual_wires", {}) or {}
-    if not isinstance(raw, Mapping):
-        return {}
     result: dict[tuple[str, str], tuple[tuple[str, str, int, str, int], ...]] = {}
-    for name, wire in raw.items():
-        if not isinstance(name, str) or not name.strip() or not isinstance(wire, Mapping):
-            continue
-        scope = wire.get("scope_path", "")
-        legs = wire.get("legs")
-        if legs is None:
-            # B0S has not proven a native realization in this process.
-            if any(value in (-10, -20, "-10", "-20") for value in wire.values()):
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+
+    def definition_entries(raw: Any) -> list[Mapping[str, Any]]:
+        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
+            return [x for x in raw["subgraphs"] if isinstance(x, Mapping)]
+        if isinstance(raw, Mapping): return [x for x in raw.values() if isinstance(x, Mapping)]
+        if isinstance(raw, (list, tuple)): return [x for x in raw if isinstance(x, Mapping)]
+        return []
+
+    def read_wires(raw: Any, scope: str, node_map: Mapping[str, Any]) -> None:
+        if not isinstance(raw, Mapping): return
+        aliases: dict[str, str] = {}
+        for key, value in node_map.items():
+            if isinstance(value, Mapping):
+                canonical = value.get("uid", value.get("id", key))
+            else:
+                canonical = getattr(value, "uid", None) or getattr(value, "id", key)
+            aliases[str(key)] = str(canonical)
+            aliases.setdefault(str(canonical), str(canonical))
+        for name, wire in raw.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(wire, Mapping): continue
+            declared_scope = str(wire.get("scope_path", scope))
+            if declared_scope != scope: raise WorkflowBundleError(f"virtual wire {name!r} scope does not match structural definition path")
+            legs = wire.get("legs")
+            if legs is None:
+                # Native-only encodings, including -10/-20, have no Python
+                # meaning and must never be inferred at this boundary. Keep
+                # the name unresolved so unrelated presentation can survive;
+                # a sidecar reference below rejects it explicitly.
+                result[(scope, name)] = None  # type: ignore[assignment]
                 continue
-            continue
-        parsed: list[tuple[str, str, int, str, int]] = []
-        for leg in legs:
-            if not isinstance(leg, Mapping):
-                raise WorkflowBundleError(f"virtual wire {name!r} has malformed Python leg")
-            try:
-                leg_scope = leg.get("scope_path", scope)
-                fu, tu = str(leg["from_uid"]), str(leg["to_uid"])
-                validate_local_uid(fu, field="virtual wire from_uid")
-                validate_local_uid(tu, field="virtual wire to_uid")
-                parsed.append((str(leg_scope), fu, _integer(leg["from_port"], "virtual wire from_port", nonnegative=True), tu, _integer(leg["to_port"], "virtual wire to_port", nonnegative=True)))
-            except KeyError as exc:
-                raise WorkflowBundleError(f"virtual wire {name!r} has incomplete Python leg") from exc
-        result[(str(scope), name)] = tuple(sorted(set(parsed)))
+            parsed: list[tuple[str, str, int, str, int]] = []
+            for leg in legs:
+                if not isinstance(leg, Mapping): raise WorkflowBundleError(f"virtual wire {name!r} has malformed Python leg")
+                try:
+                    fu_raw = leg.get("from_uid", leg.get("origin_id")); tu_raw = leg.get("to_uid", leg.get("target_id"))
+                    fu, tu = aliases.get(str(fu_raw), str(fu_raw)), aliases.get(str(tu_raw), str(tu_raw))
+                    validate_local_uid(fu, field="virtual wire from_uid"); validate_local_uid(tu, field="virtual wire to_uid")
+                    leg_scope = str(leg.get("scope_path", scope))
+                    if leg_scope != scope:
+                        raise WorkflowBundleError(f"virtual wire {name!r} leg scope does not match structural definition path")
+                    parsed.append((leg_scope, fu, _integer(leg.get("from_port", leg.get("origin_slot")), "virtual wire from_port", nonnegative=True), tu, _integer(leg.get("to_port", leg.get("target_slot")), "virtual wire to_port", nonnegative=True)))
+                except (KeyError, TypeError) as exc: raise WorkflowBundleError(f"virtual wire {name!r} has incomplete Python leg") from exc
+            result[(scope, name)] = tuple(sorted(set(parsed)))
+
+    def walk(defs: Any, parent: tuple[str, ...]) -> None:
+        for definition in definition_entries(defs):
+            key = sg_key(definition); scope = compose_scope_path((*parent, key))
+            raw_nodes = definition.get("nodes", [])
+            node_values = raw_nodes if isinstance(raw_nodes, list) else raw_nodes.values() if isinstance(raw_nodes, Mapping) else []
+            node_map = {str(n.get("id", n.get("uid"))): n for n in node_values if isinstance(n, Mapping)}
+            read_wires(definition.get("virtual_wires", {}), scope, node_map)
+            walk(definition.get("definitions"), (*parent, key))
+
+    root = workflow.virtual_wires or getattr(workflow, "metadata", {}).get("virtual_wires", {}) or {}
+    read_wires(root, "", {str(k): v for k, v in workflow.nodes.items()} | {str(v.uid): v for v in workflow.nodes.values() if v.uid})
+    walk(workflow.definitions or getattr(workflow, "metadata", {}).get("definitions", {}), ())
     return result
 
 
@@ -253,6 +292,11 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         canonical_nodes[uid] = out
     expected = _semantic_edges(workflow)
     virtual = _virtual_legs(workflow)
+    valid_scopes = {""}
+    try:
+        valid_scopes.update(str(item["scope_path"]) for item in workflow.semantic_projection().get("nodes", ()) if isinstance(item, Mapping))
+    except (KeyError, TypeError, ValueError):
+        pass
     raw_links = sidecar["links"]
     if not isinstance(raw_links, list):
         raise WorkflowBundleError("workflow sidecar links must be a list")
@@ -270,6 +314,8 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         _closed_keys(ref, allowed, f"sidecar link {index} reference")
         scope = ref.get("scope_path")
         if not isinstance(scope, str): raise WorkflowBundleError(f"sidecar link {index} scope_path must be a string")
+        if scope not in valid_scopes or any(part in {"sg0", "sg1"} for part in scope.split("/")):
+            raise WorkflowBundleError(f"sidecar link {index} scope_path is not a structural definition path")
         if has_edge:
             for field in ("from_uid", "to_uid"):
                 try: validate_local_uid(ref[field], field=f"sidecar link {index} {field}")
@@ -303,19 +349,28 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     groups = sidecar["groups"]
     if not isinstance(groups, list): raise WorkflowBundleError("workflow sidecar groups must be a list")
     canonical_groups: list[dict[str, Any]] = []
+    group_ids: set[tuple[str, str]] = set()
     for index, group in enumerate(groups):
         if not isinstance(group, Mapping): raise WorkflowBundleError(f"sidecar group {index} must be an object")
         _closed_keys(group, _GROUP_KEYS, f"sidecar group {index}")
         if not isinstance(group.get("scope_path"), str) or not isinstance(group.get("presentation_id"), str) or not group["presentation_id"]: raise WorkflowBundleError(f"sidecar group {index} has invalid identity")
+        group_key = (group["scope_path"], group["presentation_id"])
+        if group_key in group_ids:
+            raise WorkflowBundleError(f"duplicate scoped group presentation id {group_key!r}")
+        group_ids.add(group_key)
         if "bounds" in group: _rectangle(group["bounds"], f"sidecar group {index} bounds")
         for field in ("title", "color"):
             if field in group and not isinstance(group[field], str): raise WorkflowBundleError(f"sidecar group {index} {field} must be a string")
         if "z_order" in group: _integer(group["z_order"], f"sidecar group {index} z_order")
-        canonical_groups.append(dict(group))
+        normalized_group = dict(group)
+        if "bounds" in normalized_group:
+            normalized_group["bounds"] = _rectangle(normalized_group["bounds"], f"sidecar group {index} bounds")
+        canonical_groups.append(normalized_group)
+    canonical_groups.sort(key=lambda item: (item["scope_path"], item["presentation_id"]))
     canvas = sidecar["canvas"]
     if not isinstance(canvas, Mapping): raise WorkflowBundleError("workflow sidecar canvas must be an object")
     _closed_keys(canvas, _CANVAS_KEYS, "workflow sidecar canvas")
-    if "zoom" in canvas and (isinstance(canvas["zoom"], bool) or not isinstance(canvas["zoom"], (int, float))): raise WorkflowBundleError("sidecar canvas zoom must be numeric")
+    if "zoom" in canvas and (isinstance(canvas["zoom"], bool) or not isinstance(canvas["zoom"], (int, float)) or not math.isfinite(float(canvas["zoom"]))): raise WorkflowBundleError("sidecar canvas zoom must be finite numeric")
     if "pan" in canvas: _pair(canvas["pan"], "sidecar canvas pan")
     return {"format_version": 1, "bind": dict(bind), "nodes": canonical_nodes, "links": canonical_links, "groups": canonical_groups, "canvas": dict(canvas)}
 
@@ -485,6 +540,8 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
         raise WorkflowBundleError("captured candidate is not a strict sidecar or LiteGraph UI envelope")
     ids: dict[str, str] = {}
     nodes: dict[str, Any] = {}
+    workflow_by_id = {str(key): node for key, node in workflow.nodes.items()}
+    workflow_by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
     for node in raw_nodes:
         if not isinstance(node, Mapping) or node.get("id") is None:
             continue
@@ -492,31 +549,85 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
         uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
         if not isinstance(uid, str) or not uid:
             continue
-        ids[str(node["id"])] = uid
-        entry = {key: node[key] for key in _NODE_KEYS if key in node}
-        if "type" in node:
-            # Node type is semantic authority and is intentionally not copied.
-            entry.pop("type", None)
+        native_id = str(node["id"])
+        if native_id in ids:
+            raise WorkflowBundleError(f"duplicate captured native node id {native_id}")
+        if uid in nodes:
+            raise WorkflowBundleError(f"duplicate captured node UID {uid!r}")
+        ids[native_id] = uid
+        owner = workflow_by_id.get(native_id) or workflow_by_uid.get(uid)
+        known_owner = owner is not None and str(getattr(owner, "class_type", "")).casefold() not in {"unknown", "unknownnode"}
+        if known_owner:
+            extra = set(properties) - {"vibecomfy_uid"} if isinstance(properties, Mapping) else set()
+            rejected = properties.get("rejected") if isinstance(properties, Mapping) else None
+            if extra or rejected:
+                raise WorkflowBundleError(f"known node {uid!r} contains unclassified/rejected raw metadata")
+        entry: dict[str, Any] = {}
+        for key in ("id", "pos", "size", "color", "bgcolor", "title", "z_order"):
+            if key in node:
+                entry[key] = copy.deepcopy(node[key])
+        flags = node.get("flags")
+        if isinstance(flags, Mapping) and "collapsed" in flags:
+            entry["collapsed"] = flags["collapsed"]
+        elif "collapsed" in node:
+            entry["collapsed"] = node["collapsed"]
+        group = node.get("group", node.get("group_id"))
+        if group is not None:
+            entry["group"] = str(group)
         nodes[uid] = entry
     links: list[dict[str, Any]] = []
     for link in candidate.get("links", ()) if isinstance(candidate.get("links"), list) else ():
         if not isinstance(link, (list, tuple)) or len(link) < 5:
-            continue
+            raise WorkflowBundleError("captured link is malformed")
         source, target = ids.get(str(link[1])), ids.get(str(link[3]))
         if source is None or target is None:
-            continue
-        links.append({
-            "edge_ref": {"scope_path": "", "from_uid": source, "from_port": link[2], "to_uid": target, "to_port": link[4]},
-            "occurrence_index": sum(1 for item in links if item["edge_ref"] == {"scope_path": "", "from_uid": source, "from_port": link[2], "to_uid": target, "to_port": link[4]}),
-            **({"id": link[0]} if type(link[0]) is int else {}),
-        })
+            raise WorkflowBundleError("captured link endpoint does not match a captured node")
+        ref = {"scope_path": "", "from_uid": source, "from_port": link[2], "to_uid": target, "to_port": link[4]}
+        item: dict[str, Any] = {
+            "edge_ref": ref,
+            "occurrence_index": sum(1 for prior in links if prior["edge_ref"] == ref),
+        }
+        if type(link[0]) is int:
+            item["id"] = link[0]
+        if len(link) > 5 and isinstance(link[5], list):
+            item["reroute"] = copy.deepcopy(link[5])
+        links.append(item)
+    groups: list[dict[str, Any]] = []
+    raw_groups = candidate.get("groups", [])
+    if not isinstance(raw_groups, list):
+        raise WorkflowBundleError("captured groups must be a list")
+    for group in raw_groups:
+        if not isinstance(group, Mapping):
+            raise WorkflowBundleError("captured group is malformed")
+        presentation_id = group.get("presentation_id", group.get("id", group.get("title")))
+        if presentation_id is None:
+            raise WorkflowBundleError("captured group has no stable presentation id")
+        item = {"scope_path": str(group.get("scope_path", "")), "presentation_id": str(presentation_id)}
+        bounds = group.get("bounds", group.get("bounding"))
+        if bounds is not None:
+            item["bounds"] = copy.deepcopy(bounds)
+        for key in ("title", "color", "z_order"):
+            if key in group:
+                item[key] = copy.deepcopy(group[key])
+        groups.append(item)
+    canvas: dict[str, Any] = {}
+    raw_canvas = candidate.get("canvas")
+    if isinstance(raw_canvas, Mapping):
+        for key in ("zoom", "pan"):
+            if key in raw_canvas:
+                canvas[key] = copy.deepcopy(raw_canvas[key])
+    extra = candidate.get("extra")
+    ds = extra.get("ds") if isinstance(extra, Mapping) else None
+    if isinstance(ds, Mapping):
+        canvas.setdefault("zoom", ds.get("scale"))
+        canvas.setdefault("pan", ds.get("offset"))
     return {
         "format_version": 1,
         "bind": {"workflow_identity": workflow.id, "semantic_digest": workflow.semantic_digest()},
         "nodes": nodes,
         "links": links,
-        "groups": [],
-        "canvas": {},
+        "groups": groups,
+        "canvas": canvas,
     }
 
 
@@ -756,21 +867,60 @@ def emit_bundle(
         source_path=str(path),
         provenance=dict(bundle.provenance),
     )
-    _atomic_publish_pair(path, source, bundle.ui_sidecar)
+    _atomic_publish_pair(path, source, bundle.ui_sidecar, expected=bundle)
     return bundle
 
 
-def _atomic_publish_pair(path: Path, source: str, sidecar: Mapping[str, Any] | None) -> None:
-    """Publish a complete candidate pair, rolling back on every replacement error."""
+def _atomic_publish_pair(
+    path: Path,
+    source: str,
+    sidecar: Mapping[str, Any] | None,
+    *,
+    expected: WorkflowBundle | None = None,
+) -> None:
+    """Validate staged bytes, then publish a complete pair with explicit rollback."""
     path.parent.mkdir(parents=True, exist_ok=True)
     staged: list[tuple[Path, Path]] = []
     backups: list[tuple[Path, Path]] = []
+    backup_paths: list[Path] = []
+    backup_contents: dict[Path, bytes] = {}
+    replaced: set[Path] = set()
+    def cleanup(paths: list[Path]) -> list[str]:
+        errors: list[str] = []
+        for item in paths:
+            if not item.exists():
+                continue
+            try:
+                item.unlink()
+            except OSError as exc:
+                errors.append(f"{item}: {exc}")
+        return errors
+
+    def rollback(exc: BaseException) -> None:
+        errors: list[str] = []
+        errors.extend(cleanup([temporary for temporary, _ in staged]))
+        backed = {destination for _, destination in backups}
+        errors.extend(cleanup([destination for _, destination in staged if destination in replaced and destination.exists() and destination not in backed]))
+        for backup, destination in reversed(backups):
+            try:
+                if backup.exists():
+                    os.replace(backup, destination)
+                elif destination in backup_contents:
+                    destination.write_bytes(backup_contents[destination])
+                else:
+                    raise OSError("backup bytes unavailable")
+            except OSError as restore_exc:
+                errors.append(f"restore {destination} from {backup}: {restore_exc}")
+        errors.extend(cleanup(backup_paths))
+        if errors:
+            raise WorkflowBundleError(f"publication failed: {exc}; rollback/cleanup failed: {'; '.join(errors)}") from exc
+
     try:
         members = [(path, source)]
         if sidecar is not None:
             members.append((_sidecar_path(path), canonical_json(sidecar)))
         for destination, payload in members:
-            fd, raw_tmp = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=str(path.parent))
+            fd, raw_tmp = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=destination.suffix or ".tmp", dir=str(path.parent))
             temporary = Path(raw_tmp)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -782,31 +932,44 @@ def _atomic_publish_pair(path: Path, source: str, sidecar: Mapping[str, Any] | N
                 except OSError: pass
                 raise
             staged.append((temporary, destination))
+        # Validate the actual staged Python before the first visible replace.
+        if expected is not None:
+            from vibecomfy.scratchpad_loader import load_scratchpad
+
+            staged_workflow = load_scratchpad(staged[0][0], provenance_override=Provenance.USER_CONFIRMED)
+            staged_semantic = staged_workflow.semantic_digest()
+            if staged_workflow.id != expected.workflow.id or staged_semantic != expected.semantic_digest:
+                raise WorkflowBundleError("staged Python identity or semantic digest differs from intended bundle")
+            staged_sidecar_payload = None
+            if sidecar is not None:
+                staged_sidecar_path = next(item for item, destination in staged if destination == _sidecar_path(path))
+                try:
+                    staged_sidecar_payload = json.loads(staged_sidecar_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as load_exc:
+                    raise WorkflowBundleError(f"could not read staged workflow sidecar: {load_exc}") from load_exc
+            staged_sidecar = validate_sidecar(staged_sidecar_payload, staged_workflow) if sidecar is not None else None
+            staged_ui_digest = canonical_digest(staged_sidecar) if staged_sidecar is not None else ""
+            if staged_ui_digest != expected.ui_digest:
+                raise WorkflowBundleError("staged sidecar digest differs from intended bundle")
+
         # A backup makes a failure after either visible replacement recoverable.
         for _, destination in staged:
             if destination.exists():
                 fd, raw_backup = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".bak", dir=str(path.parent))
                 os.close(fd)
                 backup = Path(raw_backup)
+                backup_paths.append(backup)
                 shutil.copy2(destination, backup)
+                backup_contents[destination] = destination.read_bytes()
                 backups.append((backup, destination))
         for temporary, destination in staged:
             os.replace(temporary, destination)
-        for backup, _ in backups:
-            try: backup.unlink()
-            except OSError: pass
-    except BaseException:
-        for temporary, _ in staged:
-            try: temporary.unlink()
-            except OSError: pass
-        # Remove any newly installed member, then restore the old pair.
-        for _, destination in staged:
-            if destination.exists() and all(destination != old for _, old in backups):
-                try: destination.unlink()
-                except OSError: pass
-        for backup, destination in reversed(backups):
-            try: os.replace(backup, destination)
-            except OSError: pass
+            replaced.add(destination)
+        cleanup_errors = cleanup([temporary for temporary, _ in staged] + backup_paths)
+        if cleanup_errors:
+            raise WorkflowBundleError(f"publication cleanup failed: {'; '.join(cleanup_errors)}")
+    except BaseException as exc:
+        rollback(exc)
         raise
 
 
@@ -837,12 +1000,18 @@ def capture_bundle(
         declared = _import_identity(ui_graph, source_kind=source_kind)
         from vibecomfy.ingest.normalize import _named_import
 
+        import_payload = dict(ui_graph)
+        # Identity is a capture envelope, not part of the API graph shape.
+        import_payload.pop("workflow_id", None)
+        import_payload.pop("workflow_identity", None)
         workflow = _named_import(
-            dict(ui_graph),
+            import_payload,
             source_path=str(destination_path),
             workflow_id=declared,
         )
-        candidate = ui_graph
+        # API-shaped captures carry semantics only; their identity envelope is
+        # not presentation and must not be fed to the sidecar converter.
+        candidate = ui_graph if source_kind in {"ui", "envelope"} else None
     else:
         raise TypeError(f"capture_bundle requires a UI mapping, got {type(ui_graph).__name__}")
     return emit_bundle_with_candidate(
@@ -887,6 +1056,7 @@ def emit_bundle_with_candidate(
             provenance=dict(bundle.provenance),
         ),
         bundle.ui_sidecar,
+        expected=bundle,
     )
     return bundle
 
@@ -896,7 +1066,6 @@ __all__ = [
     "WorkflowBundleError",
     "capture_bundle",
     "emit_bundle",
-    "emit_bundle_with_candidate",
     "filter_provenance",
     "load_bundle",
     "validate_sidecar",

@@ -11,6 +11,7 @@ from vibecomfy.security.provenance import Provenance
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import (
     WorkflowBundleError,
+    capture_bundle,
     emit_bundle,
     emit_bundle_with_candidate,
     filter_provenance,
@@ -264,3 +265,174 @@ def test_atomic_pair_rolls_back_after_second_replacement(tmp_path: Path, monkeyp
         emit_bundle_with_candidate(workflow, tmp_path / "atomic.py", {"operation": "authored"}, sidecar)
     assert before == {(tmp_path / name).read_bytes() for name in ("atomic.py", "atomic.vibe.json")}
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_sidecar_groups_are_sorted_and_duplicate_identity_rejected() -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    sidecar["groups"] = [
+        {"scope_path": "", "presentation_id": "b", "bounds": [1, 2, 3, 4]},
+        {"scope_path": "", "presentation_id": "a", "bounds": [1, 2, 3, 4]},
+    ]
+    normalized = validate_sidecar(sidecar, workflow)
+    assert [item["presentation_id"] for item in normalized["groups"]] == ["a", "b"]
+    sidecar["groups"].append(dict(sidecar["groups"][0]))
+    with pytest.raises(WorkflowBundleError, match="duplicate scoped group"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_sidecar_rejects_nonfinite_canvas_and_recursive_virtual_native_form() -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    sidecar["canvas"]["zoom"] = float("inf")
+    with pytest.raises(WorkflowBundleError, match="finite"):
+        validate_sidecar(sidecar, workflow)
+    workflow.virtual_wires = {"wire": {"endpoints": [["a", -10, "b", 0]]}}
+    sidecar = _strict_sidecar(workflow)
+    sidecar["links"] = [{"virtual_wire_ref": {"scope_path": "", "name": "wire", "leg_index": 0}, "occurrence_index": 0}]
+    with pytest.raises(WorkflowBundleError, match="materialized leg"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _connected_workflow()
+    graph = {
+        "workflow_id": workflow.id,
+        "nodes": [
+            {"id": 1, "type": "Source", "pos": [1, 2], "size": [3, 4], "flags": {"collapsed": True}, "group": 7, "properties": {"vibecomfy_uid": "source"}},
+            {"id": 2, "type": "Target", "pos": [5, 6], "size": [7, 8], "properties": {"vibecomfy_uid": "target"}},
+        ],
+        "links": [[9, 1, 0, 2, 0, [[9, 9], [10, 10]]]],
+        "groups": [{"id": 7, "bounding": [0, 0, 20, 20], "title": "G"}],
+        "extra": {"ds": {"scale": 1.5, "offset": [11, 12]}},
+    }
+    monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
+    bundle = capture_bundle(graph, tmp_path / "capture.py", {"operation": "captured"})
+    assert bundle.ui_sidecar["nodes"]["source"]["collapsed"] is True
+    assert bundle.ui_sidecar["nodes"]["source"]["group"] == "7"
+    assert bundle.ui_sidecar["groups"][0]["presentation_id"] == "7"
+    assert bundle.ui_sidecar["canvas"] == {"zoom": 1.5, "pan": [11.0, 12.0]}
+    assert bundle.ui_sidecar["links"][0]["reroute"] == [[9, 9], [10, 10]]
+    graph["nodes"][0]["properties"]["editor_flag"] = True
+    with pytest.raises(WorkflowBundleError, match="unclassified"):
+        capture_bundle(graph, tmp_path / "bad.py", {"operation": "captured"})
+
+
+def test_capture_unknown_node_keeps_local_fallback_properties_out_of_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _workflow("unknown-capture")
+    workflow.nodes["u"] = VibeNode("u", "Unknown", uid="u")
+    graph = {
+        "workflow_id": workflow.id,
+        "nodes": [{"id": 1, "type": "SomeFutureNode", "properties": {"vibecomfy_uid": "u", "opaque": 3}}],
+        "links": [], "groups": [],
+    }
+    monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
+    bundle = capture_bundle(graph, tmp_path / "unknown.py", {"operation": "captured"})
+    assert bundle.ui_sidecar["nodes"]["u"] == {"id": 1}
+
+
+def test_staged_sidecar_corruption_and_first_replace_failure_preserve_old_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vibecomfy.workflow_bundle as module
+
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    path = tmp_path / "fault.py"
+    emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, sidecar)
+    before = {name: (tmp_path / name).read_bytes() for name in ("fault.py", "fault.vibe.json")}
+    original_read_text = Path.read_text
+
+    def corrupt_staged_sidecar(self: Path, *args, **kwargs):
+        if self.name.startswith(".fault.vibe.json."):
+            return "{"
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", corrupt_staged_sidecar)
+    with pytest.raises(WorkflowBundleError, match="staged workflow sidecar"):
+        emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, sidecar)
+    assert before == {name: (tmp_path / name).read_bytes() for name in before}
+    assert not list(tmp_path.glob(".fault.*.bak"))
+    monkeypatch.setattr(Path, "read_text", original_read_text)
+    original_replace = module.os.replace
+    calls = 0
+
+    def fail_first(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("injected first replacement failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", fail_first)
+    with pytest.raises(OSError, match="first replacement"):
+        emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, sidecar)
+    assert before == {name: (tmp_path / name).read_bytes() for name in before}
+    assert not list(tmp_path.glob(".fault.*.tmp"))
+
+
+def test_rollback_failure_is_explicitly_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vibecomfy.workflow_bundle as module
+
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    path = tmp_path / "rollback.py"
+    emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, sidecar)
+    original_replace = module.os.replace
+    calls = 0
+
+    def fail_publication_and_rollback(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2 or calls == 3:
+            raise OSError("injected rollback failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", fail_publication_and_rollback)
+    with pytest.raises(WorkflowBundleError, match="rollback/cleanup failed"):
+        emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, sidecar)
+
+
+def test_api_capture_separates_identity_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workflow = _workflow("api-capture")
+    api = {"workflow_id": workflow.id, "1": {"class_type": "Integer", "inputs": {"value": 1}}}
+    monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
+    bundle = capture_bundle(api, tmp_path / "api.py", {"operation": "captured"})
+    assert bundle.workflow_identity == workflow.id
+    assert bundle.ui_sidecar is None
+
+
+def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids() -> None:
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    workflow = _workflow("recursive")
+    definition = {
+        "name": "inner",
+        "nodes": [
+            {"id": 10, "uid": "left", "class_type": "A"},
+            {"id": 20, "uid": "right", "class_type": "B"},
+        ],
+        "links": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}],
+        "virtual_wires": {"vw": {"legs": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}]}},
+    }
+    workflow.definitions = {"one": definition}
+    scope = compose_scope_path((sg_key(definition),))
+    sidecar = {
+        "format_version": 1,
+        "bind": {"workflow_identity": workflow.id, "semantic_digest": workflow.semantic_digest()},
+        "nodes": {make_uid(scope, "left"): {}, make_uid(scope, "right"): {}},
+        "links": [
+            {"edge_ref": {"scope_path": scope, "from_uid": "left", "from_port": 0, "to_uid": "right", "to_port": 1}, "occurrence_index": 0},
+            {"virtual_wire_ref": {"scope_path": scope, "name": "vw", "leg_index": 0}, "occurrence_index": 0},
+        ],
+        "groups": [], "canvas": {},
+    }
+    normalized = validate_sidecar(sidecar, workflow)
+    assert len(normalized["links"]) == 2

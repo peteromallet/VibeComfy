@@ -81,34 +81,6 @@ def sidecar_path_for(py_path: Path) -> Path:
     return py_path.with_suffix(".layout.json")
 
 
-def vibe_sidecar_path_for(py_path: Path) -> Path:
-    """Return the approved same-basename presentation sidecar path.
-
-    ``sidecar_path_for`` remains for legacy conversion evidence only; bundle
-    loading never treats that ``.layout.json`` path as authored authority.
-    """
-    return py_path.with_suffix(".vibe.json")
-
-
-def read_vibe_sidecar(py_path: Path, workflow: Any) -> dict[str, Any] | None:
-    """Read/validate an approved sidecar, rejecting legacy layout evidence."""
-    legacy = sidecar_path_for(py_path)
-    if legacy.is_file():
-        raise ValueError(
-            f"legacy layout sidecar {legacy} is not approved; migrate to {vibe_sidecar_path_for(py_path)}"
-        )
-    sidecar = vibe_sidecar_path_for(py_path)
-    if not sidecar.is_file():
-        return None
-    try:
-        data = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"could not read approved workflow sidecar {sidecar}: {exc}") from exc
-    from vibecomfy.workflow_bundle import validate_sidecar
-
-    return validate_sidecar(data, workflow)
-
-
 def _vibecomfy_version() -> str:
     try:
         from importlib.metadata import PackageNotFoundError, version
@@ -532,8 +504,6 @@ __all__ = [
     "read_layout",
     "read_store",
     "sidecar_path_for",
-    "vibe_sidecar_path_for",
-    "read_vibe_sidecar",
     "store_from_ui_json",
     "write_layout",
 ]
