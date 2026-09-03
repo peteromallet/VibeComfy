@@ -292,20 +292,35 @@ def test_sidecar_rejects_nonfinite_canvas_and_recursive_virtual_native_form() ->
     sidecar["links"] = [{"virtual_wire_ref": {"scope_path": "", "name": "wire", "leg_index": 0}, "occurrence_index": 0}]
     with pytest.raises(WorkflowBundleError, match="materialized leg"):
         validate_sidecar(sidecar, workflow)
+    workflow.virtual_wires = {"ghost": {"legs": [{"from_uid": "source", "from_port": 0, "to_uid": "ghost", "to_port": 0}]}}
+    sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
+    sidecar["links"] = [{"virtual_wire_ref": {"scope_path": "", "name": "ghost", "leg_index": 0}, "occurrence_index": 0}]
+    with pytest.raises(WorkflowBundleError, match="not local"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_sidecar_semantic_gate_rejects_malformed_python_edge_without_bind_digest() -> None:
+    workflow = _connected_workflow()
+    workflow.edges.append(VibeEdge("missing", "0", "b", "0"))
+    sidecar = {"format_version": 1, "bind": {"workflow_identity": workflow.id}, "nodes": {"source": {}, "target": {}}, "links": [], "groups": [], "canvas": {}}
+    with pytest.raises(WorkflowBundleError, match="endpoint"):
+        validate_sidecar(sidecar, workflow)
 
 
 def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workflow = _connected_workflow()
+    for node in workflow.nodes.values():
+        node.metadata["schema_source"] = {"provider": "authoritative_object_info"}
     graph = {
         "workflow_id": workflow.id,
         "nodes": [
-            {"id": 1, "type": "Source", "pos": [1, 2], "size": [3, 4], "flags": {"collapsed": True}, "group": 7, "properties": {"vibecomfy_uid": "source"}},
+            {"id": 1, "type": "Source", "pos": [1, 2], "size": [3, 4], "flags": {"collapsed": True}, "properties": {"vibecomfy_uid": "source"}},
             {"id": 2, "type": "Target", "pos": [5, 6], "size": [7, 8], "properties": {"vibecomfy_uid": "target"}},
         ],
-        "links": [[9, 1, 0, 2, 0, [[9, 9], [10, 10]]]],
-        "groups": [{"id": 7, "bounding": [0, 0, 20, 20], "title": "G"}],
+        "links": [[9, 1, 0, 2, 0, "A"]],
+        "groups": [{"id": 7, "nodes": [1], "bounding": [0, 0, 20, 20], "title": "G"}],
         "extra": {"ds": {"scale": 1.5, "offset": [11, 12]}},
     }
     monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
@@ -314,7 +329,7 @@ def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
     assert bundle.ui_sidecar["nodes"]["source"]["group"] == "7"
     assert bundle.ui_sidecar["groups"][0]["presentation_id"] == "7"
     assert bundle.ui_sidecar["canvas"] == {"zoom": 1.5, "pan": [11.0, 12.0]}
-    assert bundle.ui_sidecar["links"][0]["reroute"] == [[9, 9], [10, 10]]
+    assert "reroute" not in bundle.ui_sidecar["links"][0]
     graph["nodes"][0]["properties"]["editor_flag"] = True
     with pytest.raises(WorkflowBundleError, match="unclassified"):
         capture_bundle(graph, tmp_path / "bad.py", {"operation": "captured"})
@@ -324,7 +339,7 @@ def test_capture_unknown_node_keeps_local_fallback_properties_out_of_sidecar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workflow = _workflow("unknown-capture")
-    workflow.nodes["u"] = VibeNode("u", "Unknown", uid="u")
+    workflow.nodes["u"] = VibeNode("u", "FutureCustomNode", uid="u")
     graph = {
         "workflow_id": workflow.id,
         "nodes": [{"id": 1, "type": "SomeFutureNode", "properties": {"vibecomfy_uid": "u", "opaque": 3}}],

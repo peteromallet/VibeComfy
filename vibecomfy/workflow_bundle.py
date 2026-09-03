@@ -159,8 +159,10 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
                     to_id, to_port = link.get("to_uid", link.get("target_id")), link.get("to_port", link.get("target_slot"))
                 elif isinstance(link, (list, tuple)) and len(link) >= 5:
                     _, from_id, from_port, to_id, to_port = link[:5]
-                else: continue
-                if str(from_id) not in by_local or str(to_id) not in by_local: continue
+                else:
+                    raise WorkflowBundleError(f"malformed definition edge in {scope!r}")
+                if str(from_id) not in by_local or str(to_id) not in by_local:
+                    raise WorkflowBundleError(f"definition edge endpoint {from_id!r}/{to_id!r} is not local to {scope!r}")
                 from_uid = str(by_local[str(from_id)].get("uid", by_local[str(from_id)].get("id")))
                 to_uid = str(by_local[str(to_id)].get("uid", by_local[str(to_id)].get("id")))
                 result.add((scope, from_uid, _integer(from_port, "definition from_port", nonnegative=True), to_uid, _integer(to_port, "definition to_port", nonnegative=True)))
@@ -213,7 +215,9 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
                 if not isinstance(leg, Mapping): raise WorkflowBundleError(f"virtual wire {name!r} has malformed Python leg")
                 try:
                     fu_raw = leg.get("from_uid", leg.get("origin_id")); tu_raw = leg.get("to_uid", leg.get("target_id"))
-                    fu, tu = aliases.get(str(fu_raw), str(fu_raw)), aliases.get(str(tu_raw), str(tu_raw))
+                    if str(fu_raw) not in aliases or str(tu_raw) not in aliases:
+                        raise WorkflowBundleError(f"virtual wire {name!r} leg endpoint is not local to {scope!r}")
+                    fu, tu = aliases[str(fu_raw)], aliases[str(tu_raw)]
                     validate_local_uid(fu, field="virtual wire from_uid"); validate_local_uid(tu, field="virtual wire to_uid")
                     leg_scope = str(leg.get("scope_path", scope))
                     if leg_scope != scope:
@@ -241,6 +245,11 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     """Validate and canonically normalize one strict ``.vibe.json`` object."""
     if not isinstance(sidecar, Mapping):
         raise WorkflowBundleError("workflow sidecar must contain a JSON object")
+    try:
+        projection = workflow.semantic_projection()
+    except (TypeError, ValueError, KeyError) as exc:
+        raise WorkflowBundleError(f"Python semantic projection is invalid: {exc}") from exc
+    semantic_digest = canonical_digest(projection)
     _closed_keys(sidecar, _SIDECAR_KEYS, "workflow sidecar")
     if set(sidecar) != _SIDECAR_KEYS:
         raise WorkflowBundleError("workflow sidecar must contain exactly format_version, bind, nodes, links, groups, canvas")
@@ -252,24 +261,18 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     _closed_keys(bind, _BIND_KEYS, "workflow sidecar bind")
     if "workflow_identity" in bind and bind["workflow_identity"] != workflow.id:
         raise WorkflowBundleError("workflow sidecar bind workflow_identity does not match workflow")
-    if "semantic_digest" in bind and bind["semantic_digest"] != workflow.semantic_digest():
+    if "semantic_digest" in bind and bind["semantic_digest"] != semantic_digest:
         raise WorkflowBundleError("workflow sidecar semantic digest does not match Python semantic digest")
     nodes = sidecar["nodes"]
     if not isinstance(nodes, Mapping):
         raise WorkflowBundleError("workflow sidecar nodes must be a UID-keyed object")
     canonical_nodes: dict[str, Any] = {}
-    native_node_ids: set[int] = set()
-    workflow_uids = {str(node.uid or node.id) for node in workflow.nodes.values()}
-    try:
-        workflow_uids.update(
-            make_uid(str(item.get("scope_path", "")), str(item["uid"]))
-            for item in workflow.semantic_projection().get("nodes", ())
-            if isinstance(item, Mapping) and item.get("scope_path", "")
-        )
-    except (KeyError, TypeError, ValueError):
-        # The semantic gate already ran before sidecar validation; retain the
-        # root set here so the validator reports its own actionable mismatch.
-        pass
+    native_node_ids: set[tuple[str, int]] = set()
+    workflow_uids = {
+        make_uid(str(item.get("scope_path", "")), str(item["uid"]))
+        for item in projection.get("nodes", ())
+        if isinstance(item, Mapping)
+    }
     for uid, entry in nodes.items():
         if not isinstance(uid, str) or not uid.strip():
             raise WorkflowBundleError("workflow sidecar node UID must be a nonblank string")
@@ -281,8 +284,10 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         out = dict(entry)
         if "id" in out:
             native_id = _integer(out["id"], f"node {uid} id")
-            if native_id in native_node_ids: raise WorkflowBundleError(f"duplicate native node id {native_id}")
-            native_node_ids.add(native_id)
+            node_scope, _ = parse_uid(uid)
+            native_key = (node_scope, native_id)
+            if native_key in native_node_ids: raise WorkflowBundleError(f"duplicate native node id {native_key!r}")
+            native_node_ids.add(native_key)
         for field in ("pos", "size"):
             if field in out: out[field] = _pair(out[field], f"node {uid} {field}")
         if "collapsed" in out and type(out["collapsed"]) is not bool: raise WorkflowBundleError(f"node {uid} collapsed must be boolean")
@@ -292,17 +297,13 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         canonical_nodes[uid] = out
     expected = _semantic_edges(workflow)
     virtual = _virtual_legs(workflow)
-    valid_scopes = {""}
-    try:
-        valid_scopes.update(str(item["scope_path"]) for item in workflow.semantic_projection().get("nodes", ()) if isinstance(item, Mapping))
-    except (KeyError, TypeError, ValueError):
-        pass
+    valid_scopes = {str(item["scope_path"]) for item in projection.get("nodes", ()) if isinstance(item, Mapping)}
     raw_links = sidecar["links"]
     if not isinstance(raw_links, list):
         raise WorkflowBundleError("workflow sidecar links must be a list")
     canonical_links: list[dict[str, Any]] = []
     seen_occ: dict[Any, list[int]] = {}
-    native_ids: dict[int, Any] = {}
+    native_ids: dict[tuple[str, int], Any] = {}
     for index, entry in enumerate(raw_links):
         if not isinstance(entry, Mapping): raise WorkflowBundleError(f"sidecar link {index} must be an object")
         _closed_keys(entry, _LINK_KEYS, f"sidecar link {index}")
@@ -331,8 +332,9 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         seen_occ.setdefault(key, []).append(occurrence)
         if "id" in entry:
             native = _integer(entry["id"], f"sidecar link {index} id")
-            if native in native_ids: raise WorkflowBundleError(f"duplicate or conflicting native link id {native}")
-            native_ids[native] = key
+            native_key = (scope, native)
+            if native_key in native_ids: raise WorkflowBundleError(f"duplicate or conflicting native link id {native_key!r}")
+            native_ids[native_key] = key
         if "reroute" in entry:
             reroute = entry["reroute"]
             if not isinstance(reroute, list) or any(not isinstance(point, (list, tuple)) or len(point) != 2 for point in reroute):
@@ -517,7 +519,8 @@ def _read_sidecar(path: Path | None) -> dict[str, Any] | None:
     if legacy.is_file():
         raise WorkflowBundleError(
             f"legacy layout sidecar {legacy} is not an approved source; "
-            "migrate its presentation fields to the same-basename .vibe.json"
+            f"run `vibecomfy port convert {path.with_suffix('.json')} --out {path}` "
+            "to migrate its presentation fields to the same-basename .vibe.json"
         )
     candidate = _sidecar_path(path)
     if not candidate.is_file():
@@ -542,43 +545,87 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
     nodes: dict[str, Any] = {}
     workflow_by_id = {str(key): node for key, node in workflow.nodes.items()}
     workflow_by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
+    from vibecomfy.porting.emit.emit_prepare import _schema_status_from_node
+
+    standard_properties = {"vibecomfy_uid", "vibecomfy_id", "Node name for S&R", "cnr_id", "aux_id", "ver"}
+    raw_groups = candidate.get("groups", [])
+    if not isinstance(raw_groups, list):
+        raise WorkflowBundleError("captured groups must be a list")
+    group_for_node: dict[str, str] = {}
+    for group in raw_groups:
+        if not isinstance(group, Mapping):
+            raise WorkflowBundleError("captured group is malformed")
+        group_id = group.get("vibecomfy_group_id", group.get("id"))
+        if group_id is None:
+            raise WorkflowBundleError("captured group has no stable presentation id")
+        members = group.get("nodes", [])
+        if not isinstance(members, list):
+            raise WorkflowBundleError("captured group nodes must be a list")
+        for member in members:
+            member_key = str(member)
+            prior = group_for_node.get(member_key)
+            if prior is not None and prior != str(group_id):
+                raise WorkflowBundleError(f"captured node {member_key!r} has ambiguous group membership")
+            group_for_node[member_key] = str(group_id)
     for node in raw_nodes:
-        if not isinstance(node, Mapping) or node.get("id") is None:
-            continue
+        if not isinstance(node, Mapping) or type(node.get("id")) is not int:
+            raise WorkflowBundleError("captured node must contain an integer native id")
         properties = node.get("properties")
-        uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
-        if not isinstance(uid, str) or not uid:
-            continue
         native_id = str(node["id"])
         if native_id in ids:
             raise WorkflowBundleError(f"duplicate captured native node id {native_id}")
+        explicit_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        owner = workflow_by_uid.get(explicit_uid) if isinstance(explicit_uid, str) else None
+        if explicit_uid is None:
+            owner = workflow_by_id.get(native_id)
+        if owner is None or not owner.uid:
+            raise WorkflowBundleError(f"captured node {native_id!r} cannot be mapped to one Python node")
+        uid = str(owner.uid)
         if uid in nodes:
             raise WorkflowBundleError(f"duplicate captured node UID {uid!r}")
         ids[native_id] = uid
-        owner = workflow_by_id.get(native_id) or workflow_by_uid.get(uid)
-        known_owner = owner is not None and str(getattr(owner, "class_type", "")).casefold() not in {"unknown", "unknownnode"}
-        if known_owner:
-            extra = set(properties) - {"vibecomfy_uid"} if isinstance(properties, Mapping) else set()
-            rejected = properties.get("rejected") if isinstance(properties, Mapping) else None
-            if extra or rejected:
-                raise WorkflowBundleError(f"known node {uid!r} contains unclassified/rejected raw metadata")
+        if isinstance(properties, Mapping):
+            unknown_properties = set(properties) - standard_properties
+            if _schema_status_from_node(owner) != "unknown" and unknown_properties:
+                keys = ", ".join(sorted(str(key) for key in unknown_properties))
+                raise WorkflowBundleError(f"known node {uid!r} property {keys!r} is unclassified; reconcile the node metadata")
+            if properties.get("rejected"):
+                raise WorkflowBundleError(f"known node {uid!r} contains rejected metadata; reconcile the node metadata")
         entry: dict[str, Any] = {}
-        for key in ("id", "pos", "size", "color", "bgcolor", "title", "z_order"):
+        for key in ("id", "pos", "size", "color", "bgcolor", "title"):
             if key in node:
                 entry[key] = copy.deepcopy(node[key])
+        if "order" in node:
+            entry["z_order"] = copy.deepcopy(node["order"])
+        elif "z_order" in node:
+            entry["z_order"] = copy.deepcopy(node["z_order"])
         flags = node.get("flags")
         if isinstance(flags, Mapping) and "collapsed" in flags:
             entry["collapsed"] = flags["collapsed"]
         elif "collapsed" in node:
             entry["collapsed"] = node["collapsed"]
-        group = node.get("group", node.get("group_id"))
+        group = group_for_node.get(native_id)
         if group is not None:
             entry["group"] = str(group)
         nodes[uid] = entry
     links: list[dict[str, Any]] = []
     for link in candidate.get("links", ()) if isinstance(candidate.get("links"), list) else ():
+        if isinstance(link, Mapping):
+            allowed_link = {"id", "origin_id", "origin_slot", "target_id", "target_slot", "type", "reroute"}
+            unknown_link = set(link) - allowed_link
+            if unknown_link:
+                raise WorkflowBundleError(f"captured link contains unsupported field(s): {', '.join(sorted(str(key) for key in unknown_link))}")
+            if type(link.get("id")) is not int:
+                raise WorkflowBundleError("captured link must contain an integer native id")
+            if "reroute" in link:
+                raise WorkflowBundleError("captured link reroute geometry is unsupported; use a Reroute node")
+            link = [link["id"], link.get("origin_id"), link.get("origin_slot"), link.get("target_id"), link.get("target_slot"), link.get("type", "")]
         if not isinstance(link, (list, tuple)) or len(link) < 5:
             raise WorkflowBundleError("captured link is malformed")
+        if type(link[0]) is not int:
+            raise WorkflowBundleError("captured link must contain an integer native id")
+        if len(link) > 5 and not isinstance(link[5], str):
+            raise WorkflowBundleError("captured link sixth member is not a supported presentation field")
         source, target = ids.get(str(link[1])), ids.get(str(link[3]))
         if source is None or target is None:
             raise WorkflowBundleError("captured link endpoint does not match a captured node")
@@ -587,28 +634,23 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
             "edge_ref": ref,
             "occurrence_index": sum(1 for prior in links if prior["edge_ref"] == ref),
         }
-        if type(link[0]) is int:
-            item["id"] = link[0]
-        if len(link) > 5 and isinstance(link[5], list):
-            item["reroute"] = copy.deepcopy(link[5])
+        item["id"] = link[0]
         links.append(item)
     groups: list[dict[str, Any]] = []
-    raw_groups = candidate.get("groups", [])
-    if not isinstance(raw_groups, list):
-        raise WorkflowBundleError("captured groups must be a list")
-    for group in raw_groups:
+    for group_index, group in enumerate(raw_groups):
         if not isinstance(group, Mapping):
             raise WorkflowBundleError("captured group is malformed")
-        presentation_id = group.get("presentation_id", group.get("id", group.get("title")))
+        presentation_id = group.get("presentation_id", group.get("vibecomfy_group_id", group.get("id")))
         if presentation_id is None:
             raise WorkflowBundleError("captured group has no stable presentation id")
         item = {"scope_path": str(group.get("scope_path", "")), "presentation_id": str(presentation_id)}
         bounds = group.get("bounds", group.get("bounding"))
         if bounds is not None:
             item["bounds"] = copy.deepcopy(bounds)
-        for key in ("title", "color", "z_order"):
+        for key in ("title", "color"):
             if key in group:
                 item[key] = copy.deepcopy(group[key])
+        item["z_order"] = copy.deepcopy(group.get("order", group.get("z_order", group_index)))
         groups.append(item)
     canvas: dict[str, Any] = {}
     raw_canvas = candidate.get("canvas")
@@ -927,9 +969,12 @@ def _atomic_publish_pair(
                     handle.write(payload)
                     handle.flush()
                     os.fsync(handle.fileno())
-            except BaseException:
+            except BaseException as write_exc:
                 try: temporary.unlink()
-                except OSError: pass
+                except OSError as cleanup_exc:
+                    raise WorkflowBundleError(
+                        f"staged member write failed: {write_exc}; temporary cleanup failed: {cleanup_exc}"
+                    ) from write_exc
                 raise
             staged.append((temporary, destination))
         # Validate the actual staged Python before the first visible replace.
