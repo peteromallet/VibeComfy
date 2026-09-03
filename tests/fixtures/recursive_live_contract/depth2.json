@@ -1,0 +1,68 @@
+{
+  "schema": "b0s-t01-native-recursive-contract-v1",
+  "capture_status": "undetermined",
+  "capture_note": "The managed execution routes were live, but no supported graph load/edit REST API exists. Native graph mutation is exposed only in the browser canvas; the browser control surface became unavailable before a raw export could be captured. The values below are the source-backed structural contract and are not substituted for live bytes.",
+  "native_contract": {
+    "definition_store": "rootGraph.subgraphs",
+    "serialized_definition_container": "definitions.subgraphs",
+    "instance_identity": "node.type equals the subgraph definition UUID",
+    "scope_paths": ["", "outer", "outer:inner"],
+    "boundary_link_ids": {
+      "subgraph_input": -10,
+      "subgraph_output": -20
+    },
+    "root_graph": {
+      "nodes": [
+        {"id": 1, "type": "sg-outer", "subgraph_instance": true}
+      ],
+      "definitions": ["sg-outer", "sg-inner"]
+    },
+    "definitions": {
+      "sg-outer": {
+        "id": "sg-outer",
+        "nodes": [
+          {"id": 11, "type": "sg-inner", "subgraph_instance": true}
+        ],
+        "links": [
+          [101, -10, 0, 11, 0, "*"],
+          [102, 11, 0, -20, 0, "*"]
+        ]
+      },
+      "sg-inner": {
+        "id": "sg-inner",
+        "nodes": [
+          {"id": 21, "type": "Reroute"}
+        ],
+        "links": [
+          [201, -10, 0, 21, 0, "*"],
+          [202, 21, 0, -20, 0, "*"]
+        ]
+      }
+    }
+  },
+  "operations": {
+    "definition_discovery": "supported_by_native_frontend",
+    "cloned_instance_discovery": "supported_by_native_frontend",
+    "root_mutation": "supported_by_current_adapter",
+    "inner_depth1_mutation": "unsupported_scoped_apply",
+    "inner_depth2_mutation": "unsupported_scoped_apply",
+    "serialize_reload": "not_captured_without_live_graph_export",
+    "rollback": "root_inverse_delta_only; inner_scope_not_supported"
+  },
+  "source_observations": [
+    {
+      "source": "comfyui_frontend_package/static/assets/api-DzWNw5Ki.js.map",
+      "module": "../../src/lib/litegraph/src/LGraph.ts",
+      "observation": "convertToSubgraph builds an ExportedSubgraph with inputNode -10, outputNode -20, cloned nodes, links, and nested definitions"
+    },
+    {
+      "source": "comfyui_frontend_package/static/assets/dialogService-CVq-DX47.js.map",
+      "module": "../../src/composables/graph/useSubgraphOperations.ts",
+      "observation": "browser conversion delegates to (canvas.subgraph or canvas.graph).convertToSubgraph(canvas.selectedItems)"
+    },
+    {
+      "source": "vibecomfy/comfy_nodes/web/comfy_adapter.js",
+      "observation": "requireRootScope rejects every nonempty scope_path with unsupported_scoped_apply"
+    }
+  ]
+}
