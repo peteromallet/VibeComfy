@@ -307,6 +307,48 @@ def test_sidecar_semantic_gate_rejects_malformed_python_edge_without_bind_digest
         validate_sidecar(sidecar, workflow)
 
 
+@pytest.mark.parametrize(
+    "virtual_wires, message",
+    [
+        ([], "must be a mapping"),
+        ({"": {}}, "nonblank"),
+        ({"wire": []}, "must be a mapping"),
+        ({"wire": {"legs": {}}}, "legs must be a list"),
+        ({"wire": {"legs": ["bad"]}}, "malformed Python leg"),
+    ],
+)
+def test_malformed_python_virtual_wire_containers_fail_closed(virtual_wires, message) -> None:
+    workflow = _connected_workflow()
+    workflow.virtual_wires = virtual_wires
+    sidecar = _strict_sidecar(workflow)
+    sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
+    with pytest.raises(WorkflowBundleError, match=message):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_capture_rejects_malformed_properties_and_link_lengths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _connected_workflow()
+    monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
+    base = {
+        "workflow_id": workflow.id,
+        "nodes": [
+            {"id": 1, "properties": {"vibecomfy_uid": "source"}},
+            {"id": 2, "properties": {"vibecomfy_uid": "target"}},
+        ],
+        "links": [], "groups": [],
+    }
+    bad_properties = dict(base)
+    bad_properties["nodes"] = [dict(base["nodes"][0], properties=None), base["nodes"][1]]
+    with pytest.raises(WorkflowBundleError, match="properties must be a mapping"):
+        capture_bundle(bad_properties, tmp_path / "bad-properties.py", {"operation": "captured"})
+    bad_link = dict(base)
+    bad_link["links"] = [[9, 1, 0, 2, 0, "A", "extra"]]
+    with pytest.raises(WorkflowBundleError, match="malformed"):
+        capture_bundle(bad_link, tmp_path / "bad-link.py", {"operation": "captured"})
+
+
 def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

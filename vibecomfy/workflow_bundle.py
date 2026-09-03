@@ -189,7 +189,10 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
         return []
 
     def read_wires(raw: Any, scope: str, node_map: Mapping[str, Any]) -> None:
-        if not isinstance(raw, Mapping): return
+        if raw is None or raw == {}:
+            return
+        if not isinstance(raw, Mapping):
+            raise WorkflowBundleError(f"virtual wires at {scope!r} must be a mapping")
         aliases: dict[str, str] = {}
         for key, value in node_map.items():
             if isinstance(value, Mapping):
@@ -199,7 +202,10 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
             aliases[str(key)] = str(canonical)
             aliases.setdefault(str(canonical), str(canonical))
         for name, wire in raw.items():
-            if not isinstance(name, str) or not name.strip() or not isinstance(wire, Mapping): continue
+            if not isinstance(name, str) or not name.strip():
+                raise WorkflowBundleError(f"virtual wire name at {scope!r} must be a nonblank string")
+            if not isinstance(wire, Mapping):
+                raise WorkflowBundleError(f"virtual wire {name!r} must be a mapping")
             declared_scope = str(wire.get("scope_path", scope))
             if declared_scope != scope: raise WorkflowBundleError(f"virtual wire {name!r} scope does not match structural definition path")
             legs = wire.get("legs")
@@ -210,6 +216,8 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
                 # a sidecar reference below rejects it explicitly.
                 result[(scope, name)] = None  # type: ignore[assignment]
                 continue
+            if not isinstance(legs, list):
+                raise WorkflowBundleError(f"virtual wire {name!r} legs must be a list")
             parsed: list[tuple[str, str, int, str, int]] = []
             for leg in legs:
                 if not isinstance(leg, Mapping): raise WorkflowBundleError(f"virtual wire {name!r} has malformed Python leg")
@@ -235,7 +243,11 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
             read_wires(definition.get("virtual_wires", {}), scope, node_map)
             walk(definition.get("definitions"), (*parent, key))
 
-    root = workflow.virtual_wires or getattr(workflow, "metadata", {}).get("virtual_wires", {}) or {}
+    root = workflow.virtual_wires
+    if root == {}:
+        root = getattr(workflow, "metadata", {}).get("virtual_wires", {})
+    if root is None:
+        root = {}
     read_wires(root, "", {str(k): v for k, v in workflow.nodes.items()} | {str(v.uid): v for v in workflow.nodes.values() if v.uid})
     walk(workflow.definitions or getattr(workflow, "metadata", {}).get("definitions", {}), ())
     return result
@@ -571,6 +583,8 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
         if not isinstance(node, Mapping) or type(node.get("id")) is not int:
             raise WorkflowBundleError("captured node must contain an integer native id")
         properties = node.get("properties")
+        if "properties" in node and not isinstance(properties, Mapping):
+            raise WorkflowBundleError("captured node properties must be a mapping")
         native_id = str(node["id"])
         if native_id in ids:
             raise WorkflowBundleError(f"duplicate captured native node id {native_id}")
@@ -620,7 +634,7 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
             if "reroute" in link:
                 raise WorkflowBundleError("captured link reroute geometry is unsupported; use a Reroute node")
             link = [link["id"], link.get("origin_id"), link.get("origin_slot"), link.get("target_id"), link.get("target_slot"), link.get("type", "")]
-        if not isinstance(link, (list, tuple)) or len(link) < 5:
+        if not isinstance(link, (list, tuple)) or len(link) not in (5, 6):
             raise WorkflowBundleError("captured link is malformed")
         if type(link[0]) is not int:
             raise WorkflowBundleError("captured link must contain an integer native id")
