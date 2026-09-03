@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 import vibecomfy.cli_loader as cli_loader
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle, load_workflow_any
+from vibecomfy.security.provenance import Provenance
 
 
 def test_load_workflow_any_accepts_basename_ready_id() -> None:
@@ -87,3 +88,19 @@ def test_load_workflow_any_missing_id_raises_key_error() -> None:
 def test_load_workflow_any_missing_path_raises_file_not_found(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_workflow_any(str(tmp_path / "missing.json"))
+
+
+def test_load_bundle_is_distinct_from_bare_compatibility_loader(tmp_path: Path) -> None:
+    source = tmp_path / "bundle.py"
+    source.write_text(
+        "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n\n"
+        "def build():\n"
+        "    return VibeWorkflow('bundle', WorkflowSource('bundle'))\n",
+        encoding="utf-8",
+    )
+
+    bundle = load_bundle(source, trust=Provenance.USER_CONFIRMED)
+
+    assert bundle.workflow.id == "bundle"
+    assert bundle.workflow_identity == "bundle"
+    assert bundle.ui_digest == ""

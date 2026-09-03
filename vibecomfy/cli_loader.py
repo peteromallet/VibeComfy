@@ -12,6 +12,7 @@ from vibecomfy.registry.ready import (
     workflow_from_ready,
 )
 from vibecomfy.scratchpad_loader import load_scratchpad
+from vibecomfy.security.provenance import Provenance
 from vibecomfy.workflow import VibeWorkflow
 
 # `get_schema_provider` lives behind `vibecomfy.schema.provider`, which
@@ -40,7 +41,7 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     return _load_workflow_path(Path(path))
 
 
-def _load_workflow_path(path: Path) -> VibeWorkflow:
+def _load_workflow_path(path: Path, *, workflow_id: str | None = None) -> VibeWorkflow:
     suffix = path.suffix.lower()
     if suffix == ".py":
         return load_scratchpad(path, provenance_override="user_confirmed")
@@ -49,7 +50,12 @@ def _load_workflow_path(path: Path) -> VibeWorkflow:
 
         schema_provider = get_schema_provider("auto")
         raw = load_workflow_json(path)
-        return _named_import(raw, source_path=path, schema_provider=schema_provider)
+        return _named_import(
+            raw,
+            source_path=path,
+            workflow_id=workflow_id,
+            schema_provider=schema_provider,
+        )
     raise FileNotFoundError(path)
 
 
@@ -67,4 +73,11 @@ def _looks_like_path(value: str) -> bool:
     return bool(path.suffix) or path.is_absolute() or any(part in value for part in ("/", "\\"))
 
 
-__all__ = ["load_workflow_any"]
+def load_bundle(reference: str | Path, trust: Provenance | None = None):
+    """Load a candidate canonical bundle through the dedicated bundle binding."""
+    from vibecomfy.workflow_bundle import load_bundle as _load_bundle
+
+    return _load_bundle(reference, trust=trust)
+
+
+__all__ = ["load_workflow_any", "load_bundle"]
