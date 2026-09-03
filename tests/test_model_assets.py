@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -334,6 +335,34 @@ def test_attempt_report_serializes_classified_model_references(monkeypatch: pyte
         assert manifest_by_node[node_id]["subdir"] == expected_subdir
         assert manifest_by_node[node_id]["expected_sha256"] is None
         assert manifest_by_node[node_id]["actual_sha256"] is None
+
+
+def test_attempt_model_digest_reuses_fetch_verification_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "large.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"large-model")
+    asset = {
+        "name": path.name,
+        "subdir": "checkpoints",
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    body_reads = 0
+    original_open = Path.open
+
+    def tracked_open(self: Path, *args, **kwargs):
+        nonlocal body_reads
+        if self == path:
+            body_reads += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+
+    assert runtime_attempt._compute_actual_sha256(asset) == asset["sha256"]
+    assert runtime_attempt._compute_actual_sha256(asset) == asset["sha256"]
+    assert body_reads == 1
 
 
 def test_model_install_policy_only_requires_registry_or_authored_downloadables(

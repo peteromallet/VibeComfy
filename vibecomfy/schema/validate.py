@@ -208,16 +208,22 @@ def _field_compatible(class_type: str, input_name: str, code: str) -> bool:
     return code in _FIELD_COMPATIBILITY_INDEX.get((class_type, input_name), ())
 
 
-def validate_against_schema(workflow: VibeWorkflow, provider: SchemaProvider) -> list[ValidationIssue]:
+def validate_against_schema(
+    workflow: VibeWorkflow,
+    provider: SchemaProvider,
+    *,
+    api_dict: dict[str, Any] | None = None,
+) -> list[ValidationIssue]:
     if schema_registry_empty(provider):
         return []
 
     issues: list[ValidationIssue] = []
     schema_by_node: dict[str, Any] = {}
-    try:
-        api_dict = workflow.compile(backend="api")
-    except Exception as exc:
-        return [ValidationIssue("api_compile_failed", str(exc), severity="warning")]
+    if api_dict is None:
+        try:
+            api_dict = workflow.compile(backend="api")
+        except Exception as exc:
+            return [ValidationIssue("api_compile_failed", str(exc), severity="warning")]
 
     return validate_api_against_schema(api_dict, provider)
 
