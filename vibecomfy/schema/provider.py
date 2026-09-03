@@ -323,6 +323,15 @@ def _builtin_schema(class_type: str) -> NodeSchema | None:
 
 
 def schema_registry_empty(provider: object | None) -> bool:
+    # Runtime providers can answer this from the raw object_info mapping.  Do
+    # not force them through ``schemas()`` here: that eagerly parses every
+    # installed node even when validation only touches a handful of classes.
+    is_empty = getattr(provider, "is_empty", None)
+    if callable(is_empty):
+        try:
+            return bool(is_empty())
+        except Exception:
+            return False
     try:
         schemas = schemas_for(provider)
     except Exception:
@@ -1378,21 +1387,44 @@ class RuntimeSchemaProvider:
         self.log_path = log_path
         self._object_info: dict[str, Any] | None = None
         self._schemas: dict[str, NodeSchema] | None = None
+        self._schemas_fully_loaded = False
+        self._schema_misses: set[str] = set()
 
     def get(self, class_type: str) -> NodeSchema | None:
-        return self.schemas().get(class_type)
+        return self.get_schema(class_type)
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.get(class_type)
+        if self._schemas is not None:
+            schema = self._schemas.get(class_type)
+            if schema is not None or class_type in self._schema_misses:
+                return schema
+        info = self.object_info().get(class_type)
+        if self._schemas is None:
+            self._schemas = {}
+        if isinstance(info, dict):
+            schema = _schema_from_object_info(class_type, info)
+            self._schemas[class_type] = schema
+            return schema
+        self._schema_misses.add(class_type)
+        return None
 
     def schemas(self) -> dict[str, NodeSchema]:
-        if self._schemas is None:
+        if not self._schemas_fully_loaded:
             self._schemas = {
                 class_type: _schema_from_object_info(class_type, info)
                 for class_type, info in self.object_info().items()
                 if class_type != CACHE_METADATA_KEY and isinstance(info, dict)
             }
+            self._schema_misses.clear()
+            self._schemas_fully_loaded = True
         return self._schemas
+
+    def is_empty(self) -> bool:
+        """Check registry presence without parsing every node schema."""
+        return not any(
+            class_type != CACHE_METADATA_KEY and isinstance(info, dict)
+            for class_type, info in self.object_info().items()
+        )
 
     def object_info(self) -> dict[str, Any]:
         if self._object_info is None:
@@ -1453,6 +1485,8 @@ class RuntimeSchemaProvider:
             raise SchemaProviderError(None, exc) from exc
         if self._object_info != data:
             self._schemas = None
+            self._schemas_fully_loaded = False
+            self._schema_misses.clear()
         self._object_info = data
 
 

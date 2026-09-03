@@ -963,7 +963,7 @@ class VibeWorkflow:
         if schema_provider is not None:
             from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 
-            issues.extend(validate_against_schema(self, schema_provider))
+            issues.extend(validate_against_schema(self, schema_provider, api_dict=api))
             if api is not None:
                 issues.extend(validate_api_link_shapes(api, schema_provider))
         return ValidationReport(ok=not any(issue.severity == "error" for issue in issues), issues=issues)

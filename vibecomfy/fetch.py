@@ -8,6 +8,7 @@ threat model; descriptor-relative ``openat`` protection is not required here.
 
 from __future__ import annotations
 
+import json
 import hashlib
 import os
 import stat
@@ -185,7 +186,19 @@ def is_present(entry: Mapping[str, Any], *, root: Path | None = None) -> bool:
     return True
 
 
-def verify(entry: Mapping[str, Any], path: Path | None = None, *, root: Path | None = None) -> None:
+def verify(
+    entry: Mapping[str, Any],
+    path: Path | None = None,
+    *,
+    root: Path | None = None,
+    force: bool = False,
+) -> bool:
+    """Verify an asset, returning whether a durable receipt was reused.
+
+    Receipts are only accepted when the expected digest, canonical path, and
+    complete ``stat`` fingerprint all match. A false return means the file
+    body was streamed and a fresh receipt was attempted.
+    """
     resolved = path or local_path(entry, root=root)
     expected_size = entry.get("size_bytes")
     if isinstance(expected_size, int) and resolved.stat().st_size != expected_size:
@@ -194,19 +207,134 @@ def verify(entry: Mapping[str, Any], path: Path | None = None, *, root: Path | N
         )
     expected_sha = entry.get("sha256")
     if entry.get("gated") is True:
-        return
+        return False
     if isinstance(expected_sha, str) and expected_sha:
-        actual_sha = hashlib.sha256(resolved.read_bytes()).hexdigest()
-        if actual_sha.lower() != expected_sha.lower():
+        expected_sha = expected_sha.lower()
+        fingerprint = _model_stat_fingerprint(resolved)
+        receipt_path = _verification_receipt_path(resolved, root=root)
+        if not force and _receipt_matches(
+            receipt_path,
+            path=resolved,
+            expected_sha=expected_sha,
+            expected_size=expected_size,
+            fingerprint=fingerprint,
+        ):
+            return True
+        digest = hashlib.sha256()
+        with resolved.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        actual_sha = digest.hexdigest()
+        if actual_sha.lower() != expected_sha:
             raise RuntimeError(f"sha256 mismatch for {entry['name']}: expected {expected_sha}, got {actual_sha}")
+        after = _model_stat_fingerprint(resolved)
+        if after != fingerprint:
+            raise RuntimeError(f"model changed while hashing {entry['name']}; retry verification")
+        _write_verification_receipt(
+            receipt_path,
+            {
+                "schema_version": 1,
+                "path": str(resolved.resolve(strict=False)),
+                "expected_sha256": expected_sha,
+                "expected_size_bytes": expected_size,
+                "stat": fingerprint,
+                "actual_sha256": actual_sha.lower(),
+            },
+        )
+    return False
 
 
-def download(entry: Mapping[str, Any], *, force: bool = False, client: Any = None, root: Path | None = None) -> Path:
+def _model_stat_fingerprint(path: Path) -> dict[str, int]:
+    stat = path.stat()
+    return {
+        "dev": int(stat.st_dev),
+        "inode": int(stat.st_ino),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+
+
+def _verification_receipt_path(path: Path, *, root: Path | None = None) -> Path:
+    canonical = str(path.resolve(strict=False))
+    cache_root = (root if root is not None else models_root()).expanduser().resolve(strict=False)
+    key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return cache_root / ".vibecomfy" / "model-verification" / f"{key}.json"
+
+
+def _receipt_matches(
+    receipt_path: Path,
+    *,
+    path: Path,
+    expected_sha: str,
+    expected_size: Any,
+    fingerprint: dict[str, int],
+) -> bool:
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    receipt_stat = receipt.get("stat") if isinstance(receipt, dict) else None
+    # ``st_dev`` is not stable for persistent volumes across container/pod
+    # remounts (the same file can report a different device number).  Keep it
+    # in receipts for diagnostics, but use the stable identity fields below
+    # for cache validity so a remount does not trigger a multi-GB rehash.
+    stat_matches = isinstance(receipt_stat, dict) and all(
+        receipt_stat.get(field) == fingerprint.get(field)
+        for field in ("inode", "size", "mtime_ns")
+    )
+    receipt_size = receipt.get("expected_size_bytes") if isinstance(receipt, dict) else None
+    # ``size_bytes`` is optional on workflow/attempt assets.  A receipt made
+    # by model ensure may have it while a later attempt manifest omits it;
+    # the current stat size (and the pre-check above when an expected size is
+    # supplied) still provides the size/mutation guard in either direction.
+    size_metadata_matches = receipt_size is None or receipt_size == fingerprint.get("size")
+    if expected_size is not None and receipt_size is not None:
+        size_metadata_matches = size_metadata_matches and receipt_size == expected_size
+    return (
+        isinstance(receipt, dict)
+        and receipt.get("schema_version") == 1
+        and receipt.get("path") == str(path.resolve(strict=False))
+        and str(receipt.get("expected_sha256", "")).lower() == expected_sha
+        and size_metadata_matches
+        and stat_matches
+        and str(receipt.get("actual_sha256", "")).lower() == expected_sha
+    )
+
+
+def _write_verification_receipt(path: Path, receipt: dict[str, Any]) -> None:
+    """Atomically publish a receipt; verification remains valid if caching fails."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(receipt, handle, sort_keys=True, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    except OSError:
+        # A read-only/shared model mount must not turn a successful hash check
+        # into a failed model ensure merely because its cache is unwritable.
+        return
+
+
+def download(
+    entry: Mapping[str, Any],
+    *,
+    force: bool = False,
+    force_verify: bool = False,
+    client: Any = None,
+    root: Path | None = None,
+) -> Path:
     authorized_root, path, destination_field = _destination_for_entry(entry, root=root)
     name = str(entry["name"])
     if path.is_file() and path.stat().st_size > 0 and not force:
-        verify(entry, path, root=root)
-        print(f"skipped {name}")
+        cached = verify(entry, path, root=root, force=force_verify)
+        print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
         return path
 
     url = _strip_download_true(str(entry["url"]))
@@ -243,18 +371,24 @@ def download(entry: Mapping[str, Any], *, force: bool = False, client: Any = Non
     except BaseException:
         _unlink_owned_temp(tmp, tmp_identity)
         raise
-    verify(entry, path, root=root)
+    verify(entry, path, root=root, force=True)
     return path
 
 
-def download_many(entries: list[dict], *, force: bool = False) -> list[Path]:
+def download_many(
+    entries: list[dict],
+    *,
+    force: bool = False,
+    force_verify: bool = False,
+    root: Path | None = None,
+) -> list[Path]:
     paths: list[Path] = []
     failures = 0
     for entry in entries:
         name = str(entry.get("name", "<unknown>"))
+        was_present = is_present(entry, root=root) and not force
         try:
-            was_present = is_present(entry) and not force
-            path = download(entry, force=force)
+            path = download(entry, force=force, force_verify=force_verify, root=root)
         except Exception as exc:
             failures += 1
             print(f"failed {name}: {exc}")

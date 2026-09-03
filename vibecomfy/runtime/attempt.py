@@ -231,6 +231,21 @@ def _compute_actual_sha256(asset: dict[str, Any], *, config: Any = None) -> str 
         return None
 
     try:
+        expected_sha = asset.get("sha256")
+        if isinstance(expected_sha, str) and expected_sha and asset.get("gated") is not True:
+            # Reuse the same durable verification receipt as model preflight.
+            # This metadata path runs both before queueing and after completion;
+            # direct hashing here used to read every large model repeatedly.
+            from vibecomfy import fetch as fetch_assets
+
+            try:
+                fetch_assets.verify(asset, candidate_path, root=models_root)
+                return expected_sha.lower()
+            except (OSError, RuntimeError):
+                # Preserve the historical metadata behavior for an invalid or
+                # changing file: record the actual digest instead of masking it
+                # behind a verification exception.
+                pass
         sha = hashlib.sha256()
         with open(candidate_path, "rb") as fh:
             for chunk in iter(lambda: fh.read(65536), b""):

@@ -1485,7 +1485,7 @@ def test_validate_keeps_schema_checks_conditional(monkeypatch: pytest.MonkeyPatc
 
     calls: list[str] = []
 
-    def fake_validate_against_schema(workflow, schema_provider):
+    def fake_validate_against_schema(workflow, schema_provider, *, api_dict=None):
         calls.append("schema")
         return []
 
@@ -1507,6 +1507,33 @@ def test_validate_keeps_schema_checks_conditional(monkeypatch: pytest.MonkeyPatc
     provider = _FakeSchemaProvider({})
     assert workflow.validate(schema_provider=provider).ok
     assert calls == ["schema", "links"]
+
+
+def test_validate_reuses_api_compile_for_schema_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    workflow = VibeWorkflow("compile-once", WorkflowSource("compile-once"))
+    workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    provider = _FakeSchemaProvider(
+        {
+            "LoadImage": NodeSchema(
+                "LoadImage",
+                None,
+                {"image": InputSpec("STRING", required=True)},
+                [],
+            )
+        }
+    )
+    original_compile = VibeWorkflow.compile
+    compile_calls = 0
+
+    def counted_compile(self, backend="api"):
+        nonlocal compile_calls
+        compile_calls += 1
+        return original_compile(self, backend=backend)
+
+    monkeypatch.setattr(VibeWorkflow, "compile", counted_compile)
+
+    assert workflow.validate(schema_provider=provider).ok
+    assert compile_calls == 1
 
 
 def test_runtime_views_strip_helper_nodes_without_changing_compile_rewrite() -> None:

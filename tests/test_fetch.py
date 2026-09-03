@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+import hashlib
+import json
+import os
 from pathlib import Path
 from threading import Barrier
 
@@ -107,6 +110,136 @@ def test_download_verifies_present_file_sha256(monkeypatch: pytest.MonkeyPatch, 
 
     with pytest.raises(RuntimeError, match="sha256 mismatch for model.safetensors"):
         fetch.download({**ENTRY, "sha256": "0" * 64})
+
+
+def test_present_model_reuses_receipt_without_reading_body_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"present")
+    entry = {**ENTRY, "sha256": hashlib.sha256(b"present").hexdigest()}
+    body_reads = 0
+    original_open = Path.open
+
+    def tracked_open(self: Path, *args, **kwargs):
+        nonlocal body_reads
+        if self == path:
+            body_reads += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+
+    assert fetch.download(entry) == path
+    assert fetch.download(entry) == path
+    assert body_reads == 1
+    receipt_dir = tmp_path / ".vibecomfy" / "model-verification"
+    receipts = list(receipt_dir.glob("*.json"))
+    assert len(receipts) == 1
+    assert "expected_sha256" in receipts[0].read_text(encoding="utf-8")
+
+
+def test_model_mutation_invalidates_receipt_and_force_verify_bypasses_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"present")
+    entry = {**ENTRY, "sha256": hashlib.sha256(b"present").hexdigest()}
+    body_reads = 0
+    original_open = Path.open
+
+    def tracked_open(self: Path, *args, **kwargs):
+        nonlocal body_reads
+        if self == path:
+            body_reads += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    fetch.download(entry)
+    assert body_reads == 1
+
+    # A stat-only mutation must invalidate the receipt even when bytes stay
+    # identical; force_verify must also stream-hash an unchanged file.
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    assert fetch.download(entry) == path
+    assert body_reads == 2
+    assert fetch.download(entry, force_verify=True) == path
+    assert body_reads == 3
+
+
+def test_model_byte_mutation_cannot_reuse_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"present")
+    entry = {**ENTRY, "sha256": hashlib.sha256(b"present").hexdigest()}
+    fetch.download(entry)
+
+    path.write_bytes(b"changed")
+    with pytest.raises(RuntimeError, match="sha256 mismatch for model.safetensors"):
+        fetch.download(entry)
+
+
+def test_persistent_receipt_survives_mount_device_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RunPod remounts can change st_dev without changing the model file."""
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"present")
+    entry = {**ENTRY, "sha256": hashlib.sha256(b"present").hexdigest()}
+    fetch.download(entry)
+
+    receipt_path = fetch._verification_receipt_path(path, root=tmp_path)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["stat"]["dev"] += 1
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    body_reads = 0
+    original_open = Path.open
+
+    def tracked_open(self: Path, *args, **kwargs):
+        nonlocal body_reads
+        if self == path:
+            body_reads += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    assert fetch.download(entry) == path
+    assert body_reads == 0
+
+
+def test_receipt_with_optional_size_reuses_for_asset_without_size_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"present")
+    digest = hashlib.sha256(b"present").hexdigest()
+    sized_entry = {**ENTRY, "sha256": digest, "size_bytes": len(b"present")}
+    unsized_entry = {**ENTRY, "sha256": digest}
+    fetch.download(sized_entry)
+
+    body_reads = 0
+    original_open = Path.open
+
+    def tracked_open(self: Path, *args, **kwargs):
+        nonlocal body_reads
+        if self == path:
+            body_reads += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    assert fetch.download(unsized_entry) == path
+    assert body_reads == 0
 
 
 def test_gated_present_file_skips_sha256_verification(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
