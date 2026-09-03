@@ -106,7 +106,7 @@ def resolve_compile_edge_source(
 ) -> list[Any] | None:
     source_node = nodes.get(str(edge.from_node))
     if source_node is None:
-        return [str(edge.from_node), int(edge.from_output)]
+        return [str(edge.from_node), _numeric_or_name(edge.from_output)]
     if source_node.class_type in {"GetNode", "SetNode"}:
         name = broadcast_name(source_node)
         if name is None:
@@ -114,7 +114,7 @@ def resolve_compile_edge_source(
         return broadcast_sources.get(name)
     if is_helper_class_type(source_node.class_type):
         return None
-    return [str(edge.from_node), int(edge.from_output)]
+    return [str(edge.from_node), _numeric_or_name(edge.from_output)]
 
 
 def resolve_compile_link_value(
@@ -131,6 +131,15 @@ def resolve_compile_link_value(
     if name is None:
         return value
     return broadcast_sources.get(name, value)
+
+
+def _numeric_or_name(value: Any) -> int | str:
+    if isinstance(value, bool):
+        return str(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _phase_a_broadcasts(workflow: Any, make_error: ErrorFactory) -> bool:

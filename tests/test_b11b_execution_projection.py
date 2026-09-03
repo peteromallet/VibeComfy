@@ -174,6 +174,83 @@ def test_custom_json_socket_values_are_not_reinterpreted() -> None:
     assert workflow.compile("api")["1"]["inputs"]["payload"] == payload
 
 
+def test_bypass_uses_socket_compatibility_and_rejects_no_match() -> None:
+    workflow = VibeWorkflow("typed-bypass", WorkflowSource("typed-bypass"))
+    workflow.nodes["image"] = VibeNode(
+        "image", "Source", metadata={"output_types": ["IMAGE"]}, native_output_names=["image"]
+    )
+    workflow.nodes["mask"] = VibeNode(
+        "mask", "Source", metadata={"output_types": ["MASK"]}, native_output_names=["mask"]
+    )
+    workflow.nodes["bypass"] = VibeNode(
+        "bypass", "Filter", mode=NodeMode.BYPASSED,
+        native_input_names=["mask", "image"], native_output_names=["image"],
+        metadata={"input_types": ["MASK", "IMAGE"], "output_types": ["IMAGE"]},
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"image": None}, metadata={"input_types": {"image": "IMAGE"}}
+    )
+    workflow.edges = [
+        VibeEdge("mask", "0", "bypass", "mask"),
+        VibeEdge("image", "0", "bypass", "image"),
+        VibeEdge("bypass", "0", "sink", "image"),
+    ]
+    assert workflow.compile()["sink"]["inputs"]["image"] == ["image", 0]
+
+    workflow.nodes["sink"].metadata["input_types"] = {"image": "AUDIO"}
+    with pytest.raises(WorkflowCompileError, match="bypass_no_match"):
+        workflow.compile()
+
+
+def test_bypass_cycle_and_dangling_helper_fail_closed() -> None:
+    workflow = VibeWorkflow("cycle", WorkflowSource("cycle"))
+    workflow.nodes["a"] = VibeNode("a", "A", mode=NodeMode.BYPASSED)
+    workflow.nodes["b"] = VibeNode("b", "B", mode=NodeMode.BYPASSED)
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    workflow.edges = [VibeEdge("a", "0", "b", "x"), VibeEdge("b", "0", "a", "x"), VibeEdge("a", "0", "sink", "x")]
+    with pytest.raises(WorkflowCompileError, match="bypass_cycle"):
+        workflow.compile()
+
+    dangling = VibeWorkflow("dangling", WorkflowSource("dangling"))
+    dangling.nodes["r"] = VibeNode("r", "Reroute")
+    dangling.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    dangling.edges = [VibeEdge("r", "0", "sink", "x")]
+    with pytest.raises(WorkflowCompileError, match="helper_edge_unresolved"):
+        dangling.compile()
+
+
+def test_shared_projection_lowers_primitive_and_named_outputs_without_mutation() -> None:
+    workflow = VibeWorkflow("helpers", WorkflowSource("helpers"))
+    workflow.nodes["source"] = VibeNode("source", "Source", native_output_names=["image", "mask"])
+    workflow.nodes["primitive"] = VibeNode("primitive", "PrimitiveInt", inputs={"value": 7})
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"value": None, "image": None})
+    workflow.edges = [
+        VibeEdge("primitive", "0", "sink", "value"),
+        VibeEdge("source", "mask", "sink", "image"),
+    ]
+    before = workflow.copy()
+    api = workflow.compile()
+    assert api["sink"]["inputs"] == {"value": 7, "image": ["source", 1]}
+    assert workflow.nodes["primitive"].class_type == before.nodes["primitive"].class_type
+    assert workflow.nodes["primitive"].inputs == before.nodes["primitive"].inputs
+    assert workflow.edges[1].from_output == before.edges[1].from_output == "mask"
+
+
+def test_scoped_variant_and_explicit_virtual_wire_are_projection_inputs() -> None:
+    workflow = VibeWorkflow("scoped", WorkflowSource("scoped"))
+    workflow.nodes["source"] = VibeNode("source", "Source")
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    definition = {"name": "inner", "nodes": [{"id": "n", "type": "Inner", "inputs": {"x": 1}}], "links": []}
+    from vibecomfy.identity.scope import sg_key
+
+    scope = sg_key(definition)
+    workflow.definitions = {"subgraphs": [definition]}
+    workflow.variants = {"alt": {f"{scope}#n.x": 9}}
+    assert workflow._with_selection("alt", None).definitions["subgraphs"][0]["nodes"][0]["inputs"]["x"] == 9
+    workflow.virtual_wires = {"route": {"legs": [{"from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"}]}}
+    assert workflow.compile()["sink"]["inputs"]["x"] == ["source", 0]
+
+
 @pytest.mark.parametrize("emitter", [emit_scratchpad_python, emit_ready_template_python])
 def test_emitted_python_preserves_mode_and_execution_projection(emitter) -> None:
     workflow = _chain(NodeMode.BYPASSED)
