@@ -1635,6 +1635,14 @@ def _validate_public_io_for_projection(
             output_index = _socket_index(declared_names, output.name)
             if output_index is None and declared_names:
                 raise WorkflowCompileError("public_output_missing", f"public output name {output.name!r} is not declared by node {node_id!r}", next_action="Bind the public output to a declared output name.")
+        else:
+            declared_names = getattr(node, "native_output_names", None) or node.metadata.get("output_names")
+            if isinstance(declared_names, (list, tuple)) and len(declared_names) > 1:
+                raise WorkflowCompileError(
+                    "public_output_ambiguous",
+                    f"public output for {node_id!r} has multiple declared sockets but no trusted name",
+                    next_action="Bind the public output to its declared socket name.",
+                )
         source_type = _node_output_socket_type(node, output_index if output_index is not None else 0)
         if output.output_type and source_type is not None and not _types_match(output.output_type, source_type):
             raise WorkflowCompileError("public_output_incompatible", f"public output type {output.output_type!r} is incompatible with {source_type!r}", detail={"node_id": node_id, "output": output.name}, next_action="Bind the public output to a compatible socket type.")
@@ -1730,6 +1738,13 @@ def _validate_interface_boundary_contract(
             actual = _node_input_socket_type(node, field_name) if direction == "input" else _node_output_socket_type(node, field_name)
             if actual is None or not _types_match(member["type"], actual):
                 raise WorkflowCompileError("boundary_port_incompatible", f"boundary port {key!r} has incompatible socket type")
+    missing_members = sorted(set(declared) - seen_bindings)
+    if missing_members:
+        raise WorkflowCompileError(
+            "interface_unbound",
+            f"interface members have no boundary binding: {missing_members!r}",
+            next_action="Bind every ordered interface member exactly once.",
+        )
 
 
 def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any) -> None:
@@ -1759,6 +1774,12 @@ def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any
         for definition in entries(raw):
             if not isinstance(definition, Mapping):
                 continue
+            if "instances" in definition or "instance" in definition:
+                raise WorkflowCompileError(
+                    "recursive_instance_unsupported",
+                    "definition instances require an authored structural scope and boundary rewrite",
+                    next_action="Provide an existing unambiguous instance identity or keep the definition out of execution.",
+                )
             links = definition.get("links", [])
             for link in links if isinstance(links, (list, tuple)) else []:
                 if isinstance(link, Mapping):
@@ -1821,6 +1842,12 @@ def _flatten_authored_definitions(definitions: Any) -> tuple[dict[str, VibeNode]
                     raise WorkflowCompileError("duplicate_scoped_node_uid", f"duplicate node UID {local!r} in scope {scope!r}")
                 local_ids.add(local)
                 qualified = make_uid(scope, local)
+                if qualified in nodes:
+                    raise WorkflowCompileError(
+                        "definition_scope_collision",
+                        f"definition node UID {qualified!r} is already materialized; sibling instances need explicit authored identity",
+                        next_action="Give each definition instance a distinct existing structural scope.",
+                    )
                 raw_inputs = raw_node.get("inputs", {})
                 input_values: dict[str, Any] = {}
                 input_names: list[str | None] = []
@@ -1957,9 +1984,8 @@ class _NodeBuilder:
         return self.node.id
 
     def out(self, slot: int | str) -> Handle:
-        try:
-            output_slot = int(str(slot))
-        except ValueError as exc:
+        output_slot = _socket_index(_node_output_names(self.node), slot)
+        if output_slot is None:
             output_names = self.node.metadata.get("output_names")
             if isinstance(output_names, (list, tuple)) and slot in output_names:
                 index = output_names.index(slot)
@@ -1984,7 +2010,7 @@ class _NodeBuilder:
                 f"Named output {slot!r} is not registered for {self.node.class_type} node {self.node.id}; "
                 "register output_names metadata or pass an integer slot. "
                 "Full named-output lookup awaits MP-6 schema integration."
-            ) from exc
+            )
         return Handle(node_id=self.node.id, output_slot=output_slot, output_type=_node_output_type(self.node, output_slot))
 
     def __iter__(self):
@@ -2326,10 +2352,7 @@ def _node_output_socket_type(node: VibeNode | None, output: Any) -> str | None:
     declared = metadata.get("output_types")
     index = _socket_index(getattr(node, "native_output_names", None) or metadata.get("output_names"), output)
     if index is None:
-        try:
-            index = int(output)
-        except (TypeError, ValueError):
-            index = None
+        index = _socket_index(None, output)
     if isinstance(declared, Mapping):
         value = declared.get(str(output), declared.get(output))
         if value is not None:
@@ -2343,10 +2366,10 @@ def _node_output_socket_type(node: VibeNode | None, output: Any) -> str | None:
 def _socket_index(names: Any, value: Any) -> int | None:
     if isinstance(value, bool):
         return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        pass
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
     if isinstance(names, (list, tuple)):
         for index, name in enumerate(names):
             if name is not None and str(name).upper() == str(value).upper():
@@ -2488,7 +2511,7 @@ def _virtual_wire_edges(
         if not isinstance(legs, (list, tuple)):
             raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} legs must be a sequence")
         leg_indexes: list[int] = []
-        occurrence_indexes: list[int] = []
+        occurrences_by_leg: dict[int, list[int]] = {}
         seen_records: set[tuple[int, int, str, str, str, str]] = set()
         for ordinal, leg in enumerate(legs):
             if isinstance(leg, (list, tuple)) and len(leg) == 4:
@@ -2505,7 +2528,7 @@ def _virtual_wire_edges(
             if isinstance(occurrence_index, bool) or not isinstance(occurrence_index, int) or occurrence_index < 0:
                 raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg {ordinal} has invalid occurrence_index")
             leg_indexes.append(leg_index)
-            occurrence_indexes.append(occurrence_index)
+            occurrences_by_leg.setdefault(leg_index, []).append(occurrence_index)
             scope = str(leg.get("scope_path", raw.get("scope_path", "")))
             if any(part.startswith("sg") and part[2:].isdigit() for part in scope.split("/") if part):
                 raise WorkflowCompileError("ordinal_scope_path", f"virtual wire {name!r} uses an ordinal scope path")
@@ -2546,11 +2569,15 @@ def _virtual_wire_edges(
                 raise WorkflowCompileError("virtual_wire_duplicate", f"virtual wire {name!r} repeats an occurrence")
             seen_records.add(record)
             result.append(VibeEdge(source, output, target, input_name))
-        expected_legs = list(range(len(legs)))
-        if sorted(leg_indexes) != expected_legs:
+        expected_legs = list(range(len(set(leg_indexes))))
+        if sorted(set(leg_indexes)) != expected_legs:
             raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg indexes must be contiguous from zero")
-        if sorted(occurrence_indexes) != list(range(len(legs))):
-            raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} occurrence indexes must be contiguous from zero")
+        for leg_index, occurrence_indexes in occurrences_by_leg.items():
+            if sorted(occurrence_indexes) != list(range(len(occurrence_indexes))) or len(occurrence_indexes) != len(set(occurrence_indexes)):
+                raise WorkflowCompileError(
+                    "virtual_wire_index",
+                    f"virtual wire {name!r} occurrence indexes for leg {leg_index} must be unique and contiguous from zero",
+                )
     return result
 
 
@@ -2576,7 +2603,7 @@ def _resolve_projection_helpers(
         helper_resolve.resolve_helpers(nodes, edges, {})
     except helper_resolve.HelperResolveError as exc:
         raise WorkflowCompileError(
-            "helper_edge_unresolved",
+            getattr(exc, "code", "helper_edge_unresolved"),
             str(exc),
             next_action=exc.next_action or "Reconnect or remove the unresolved helper chain.",
         ) from exc
@@ -2690,6 +2717,12 @@ def _execution_projection(
         if key not in existing_edges:
             projected_edges.append(virtual_edge)
             existing_edges.add(key)
+        else:
+            # Explicit Python virtual-wire occurrences are semantic legs, not
+            # a global endpoint set.  Preserve duplicate visual multiplicity
+            # in the detached projection; the consumer's input-cardinality
+            # gate decides whether that graph is executable.
+            projected_edges.append(virtual_edge)
     dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(projected_nodes)
     resolved_edges = _resolve_bypass_edges(
         projected_edges, dropped_ids, bypassed_ids, projected_nodes

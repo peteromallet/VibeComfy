@@ -112,29 +112,20 @@ def _make_virtual_wire_wf() -> tuple[VibeWorkflow, int]:
 
 
 def test_virtual_wire_round_trip_synthetic(tmp_path: Path):
-    """Synthetic fixture: virtual-wire count in == count in store (round-trip parity)."""
-    from vibecomfy.porting.convert import _capture_virtual_wires
-
+    """Conversion keeps helper furniture and authored edges for projection."""
     wf, count_virtual = _make_virtual_wire_wf()
-
-    # Capture virtual wires (simulating pre-resolution capture in port_convert_workflow).
-    vw = _capture_virtual_wires(wf)
-    wf.metadata["virtual_wires"] = vw
+    before_nodes = {key: node.class_type for key, node in wf.nodes.items()}
+    before_edges = list(wf.edges)
+    from vibecomfy.porting.convert import port_convert_workflow
+    result = port_convert_workflow(wf, validate=False, keep_virtual_wires=False)
+    assert result.text
+    assert {key: node.class_type for key, node in wf.nodes.items()} == before_nodes
+    assert wf.edges == before_edges
 
     py_path = tmp_path / "vw_synthetic.py"
-    write_layout(py_path, wf)
-    store = read_store(py_path)
-
-    # Count in (pre-capture) == count out (store virtual_wires).
-    assert len(store["virtual_wires"]) == count_virtual
-    # Each entry has a type field.
-    for uid, wire in store["virtual_wires"].items():
-        assert "type" in wire
-        assert wire["type"] in ("SetNode", "GetNode", "Reroute")
-    # Entries also contain the virtual-wire node geometry.
-    for uid in store["virtual_wires"]:
-        assert uid in store["entries"]
-        assert store["entries"][uid]["pos"] is not None
+    py_path.write_text(result.text, encoding="utf-8")
+    assert py_path.exists()
+    assert sum(1 for node in wf.nodes.values() if node.class_type in {"GetNode", "SetNode", "Reroute"}) == count_virtual
 
 
 # ---------------------------------------------------------------------------
@@ -142,35 +133,13 @@ def test_virtual_wire_round_trip_synthetic(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_virtual_wire_round_trip_vace_corpus(tmp_path: Path):
-    """C8 — wan13b_vace.json: virtual-wire count in == count in store (round-trip parity)."""
-    from vibecomfy.porting.convert import _capture_virtual_wires
-    from vibecomfy.porting.workbench import load_port_source
+def test_conversion_has_no_legacy_virtual_wire_capture_authority() -> None:
+    from vibecomfy.porting.convert import port_convert_workflow
 
-    corpus_path = "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json"
-    source = load_port_source(corpus_path)
-    wf = source.workflow
-
-    # Count the virtual-wire nodes before capture (they will be deleted by resolver).
-    _VW_TYPES = {"GetNode", "SetNode", "Reroute"}
-    vw_count_before = sum(1 for n in wf.nodes.values() if n.class_type in _VW_TYPES)
-    assert vw_count_before > 0, "wan13b_vace.json must have Get/Set/Reroute nodes"
-
-    # Capture virtual wires (pre-resolution snapshot).
-    vw = _capture_virtual_wires(wf)
-    wf.metadata["virtual_wires"] = vw
-    raw = source.raw_workflow or {}
-    wf.groups = raw.get("groups", [])
-    wf.metadata["extra"] = raw.get("extra", {})
-
-    py_path = tmp_path / "vace.py"
-    write_layout(py_path, wf)
-    store = read_store(py_path)
-
-    # count in == count out
-    assert len(store["virtual_wires"]) == vw_count_before, (
-        f"Expected {vw_count_before} virtual wires; got {len(store['virtual_wires'])}"
-    )
+    wf, _ = _make_virtual_wire_wf()
+    result = port_convert_workflow(wf, validate=False, keep_virtual_wires=False)
+    assert "virtual_wires" not in wf.metadata
+    assert result.text
 
 
 # ---------------------------------------------------------------------------

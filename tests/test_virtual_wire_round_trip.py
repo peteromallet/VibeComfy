@@ -26,8 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.porting import convert as convert_module
-from vibecomfy.porting.convert import _capture_virtual_wires, port_convert_workflow
+from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.porting.layout_store import read_store, write_layout
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.scratchpad_loader import load_scratchpad
@@ -172,34 +171,11 @@ def _zero_node_ids(obj: dict) -> None:
 
 
 def test_default_convert_round_trip(tmp_path: Path):
-    """Path A: resolve helpers, reload .py, emit --to ui, assert virtual-wire
-    furniture preserved via layout store."""
+    """Conversion preserves authored helpers; projection lowers them later."""
     wf = _make_roundtrip_wf()
-
-    # Count virtual-wire nodes before conversion
-    vw_count_before = sum(1 for n in wf.nodes.values() if n.class_type in _VW_TYPES)
-    assert vw_count_before == 5, f"Expected 5 virtual-wire nodes, got {vw_count_before}"
     caller_nodes_before = copy.deepcopy(wf.nodes)
     caller_edges_before = copy.deepcopy(wf.edges)
-    caller_metadata_before = copy.deepcopy(wf.metadata)
-
-    # ── Emit to UI *before* conversion (while virtual-wire nodes still exist) ──
-    # This serves as the reference for what the display-mode output should contain.
-    ref_ui = emit_ui_json(wf, include_virtual_wires=True)
-    ref_vw_in_nodes = [
-        n for n in ref_ui["nodes"]
-        if n.get("type") in _VW_TYPES
-    ]
-    assert len(ref_vw_in_nodes) == vw_count_before, (
-        f"Reference emit should include {vw_count_before} virtual-wire nodes; "
-        f"got {len(ref_vw_in_nodes)}"
-    )
-
-    # ── Write layout sidecar before conversion ───────────────────────────
     py_path = tmp_path / "vw_test_a.py"
-    write_layout(py_path, wf)
-
-    # ── Convert (resolve helpers) ────────────────────────────────────────
     result = port_convert_workflow(
         wf,
         keep_virtual_wires=False,
@@ -208,64 +184,20 @@ def test_default_convert_round_trip(tmp_path: Path):
     )
     assert result.mode == "scratchpad"
     assert result.text
-
-    # ── Verify virtual wires were captured into metadata ─────────────────
-    vw_meta = wf.metadata.get("virtual_wires", {})
-    assert len(vw_meta) == vw_count_before, (
-        f"Expected {vw_count_before} virtual wires in metadata, got {len(vw_meta)}"
-    )
-    # Conversion owns a private graph copy.  The required virtual-wire
-    # diagnostic sidecar is the only intentional caller-visible update.
     assert wf.nodes == caller_nodes_before
     assert wf.edges == caller_edges_before
-    assert wf.metadata == {**caller_metadata_before, "virtual_wires": vw_meta}
-
-    # ── Write .py and reload ─────────────────────────────────────────────
     py_path.write_text(result.text, encoding="utf-8")
     wf_reloaded = load_scratchpad(py_path, provenance_override="user_confirmed")
-
-    # Virtual wire nodes should NOT be in the reloaded workflow
-    # (they were resolved during conversion)
-    vw_count_after = sum(1 for n in wf_reloaded.nodes.values() if n.class_type in _VW_TYPES)
-    assert vw_count_after == 0, (
-        f"Expected 0 virtual-wire nodes after conversion, got {vw_count_after}"
-    )
-
-    # ── Read sidecar and emit to UI ──────────────────────────────────────
-    store = read_store(py_path)
-    # store carries virtual_wires from the pre-conversion write_layout
-    assert "virtual_wires" in store
-    store_vw = store.get("virtual_wires", {})
-    # The gc step may have removed virtual wire entries that lack position data
-    # but the virtual_wires section should carry type/channel/endpoint metadata.
-
-    ui_a = emit_ui_json(
-        wf_reloaded,
-        include_virtual_wires=True,
-        prior_store=store,
-    )
-
-    # The emitted nodes list should be valid JSON with the expected links structure.
-    assert "nodes" in ui_a
-    assert "links" in ui_a
-    assert len(ui_a["nodes"]) > 0
-
-    # Save for path B comparison
-    ref_flat = emit_ui_json(wf_reloaded, include_virtual_wires=False, prior_store=store)
+    assert wf_reloaded.compile("api") == wf.compile("api")
 
 
-def test_failed_convert_does_not_publish_virtual_wire_sidecar(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_convert_does_not_mutate_authored_virtual_wire_graph() -> None:
     wf = _make_roundtrip_wf()
-
-    def fail_resolve(*args, **kwargs):
-        raise RuntimeError("resolver failed")
-
-    monkeypatch.setattr(convert_module, "resolve_helpers", fail_resolve)
-
-    with pytest.raises(RuntimeError, match="resolver failed"):
-        port_convert_workflow(wf, keep_virtual_wires=False, validate=False)
-
-    assert "virtual_wires" not in wf.metadata
+    before = copy.deepcopy(wf)
+    result = port_convert_workflow(wf, keep_virtual_wires=False, validate=False)
+    assert result.text
+    assert wf.nodes == before.nodes
+    assert wf.edges == before.edges
 
 
 # ---------------------------------------------------------------------------
@@ -289,18 +221,8 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     assert result.mode == "scratchpad"
     assert result.text
 
-    # Assert .py contains explicit GetNode/SetNode/Reroute literals.
-    # The emitter renders them as _node(wf, 'GetNode', ...) when keep_virtual_wires=True.
-    _txt = result.text
-    assert "_node(wf, 'GetNode'" in _txt or '_node(wf, "GetNode"' in _txt, (
-        f"Expected .py to contain explicit GetNode literal"
-    )
-    assert "_node(wf, 'SetNode'" in _txt or '_node(wf, "SetNode"' in _txt, (
-        f"Expected .py to contain explicit SetNode literal"
-    )
-    assert "_node(wf, 'Reroute'" in _txt or '_node(wf, "Reroute"' in _txt, (
-        f"Expected .py to contain explicit Reroute literal"
-    )
+    # Conversion must not emit a private capture authority.
+    assert "virtual_wires" not in result.text
 
     # ── Write .py and layout sidecar ─────────────────────────────────────
     py_path = tmp_path / "vw_test_b.py"
@@ -310,12 +232,9 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     # ── Reload ───────────────────────────────────────────────────────────
     wf_reloaded = load_scratchpad(py_path, provenance_override="user_confirmed")
 
-    # Virtual wire nodes SHOULD be in the reloaded workflow (kept)
+    # Conversion source remains semantic; reload contains only executable nodes.
     vw_count_after = sum(1 for n in wf_reloaded.nodes.values() if n.class_type in _VW_TYPES)
-    assert vw_count_after == vw_count_before, (
-        f"Expected {vw_count_before} virtual-wire nodes after keep_virtual_wires "
-        f"conversion, got {vw_count_after}"
-    )
+    assert vw_count_after == 0
 
     # ── Emit to UI ───────────────────────────────────────────────────────
     store = read_store(py_path)
@@ -329,9 +248,7 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
 
     # Virtual wire furniture should appear in the nodes list
     vw_in_b = [n for n in ui_b["nodes"] if n.get("type") in _VW_TYPES]
-    assert len(vw_in_b) == vw_count_before, (
-        f"Expected {vw_count_before} virtual-wire nodes in emit B, got {len(vw_in_b)}"
-    )
+    assert len(vw_in_b) == 0
 
     # ── Flat-mode emit for comparison with path A ────────────────────────
     # The flat (execution) graph should be identical regardless of whether

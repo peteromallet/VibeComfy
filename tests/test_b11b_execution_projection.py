@@ -221,6 +221,48 @@ def test_bypass_cycle_and_dangling_helper_fail_closed() -> None:
         dangling.compile()
 
 
+def test_helper_cycles_and_malformed_typed_literals_fail_at_projection() -> None:
+    cycle = VibeWorkflow("primitive-cycle", WorkflowSource("primitive-cycle"))
+    cycle.nodes["p"] = VibeNode("p", "PrimitiveNode", inputs={"value": 1})
+    cycle.nodes["r"] = VibeNode("r", "Reroute")
+    cycle.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    cycle.edges = [VibeEdge("p", "0", "r", "0"), VibeEdge("r", "0", "p", "0"), VibeEdge("r", "0", "sink", "x")]
+    with pytest.raises(WorkflowCompileError) as exc:
+        cycle.compile()
+    assert exc.value.code == "helper_edge_cycle"
+
+    invalid = VibeWorkflow("typed-literal", WorkflowSource("typed-literal"))
+    invalid.nodes["p"] = VibeNode("p", "PrimitiveInt", inputs={"value": "not-an-int"})
+    invalid.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    invalid.edges = [VibeEdge("p", "0", "sink", "x")]
+    with pytest.raises(WorkflowCompileError) as exc:
+        invalid.compile()
+    assert exc.value.code == "primitive_literal_invalid"
+
+
+def test_virtual_wire_occurrences_are_grouped_by_semantic_leg() -> None:
+    workflow = VibeWorkflow("wire-multiplicity", WorkflowSource("wire-multiplicity"))
+    workflow.nodes["source"] = VibeNode("source", "Source")
+    workflow.nodes["left"] = VibeNode("left", "Sink", inputs={"x": None})
+    workflow.nodes["right"] = VibeNode("right", "Sink", inputs={"x": None})
+    workflow.virtual_wires = {
+        "route": {
+            "legs": [
+                {"leg_index": 0, "occurrence_index": 0, "from_node": "source", "to_node": "left", "to_input": "x"},
+                {"leg_index": 0, "occurrence_index": 1, "from_node": "source", "to_node": "left", "to_input": "x"},
+                {"leg_index": 1, "occurrence_index": 0, "from_node": "source", "to_node": "right", "to_input": "x"},
+            ]
+        }
+    }
+    projection = workflow._execution_projection()
+    assert [(edge.to_node, edge.to_input) for edge in projection.edges] == [
+        ("left", "x"), ("left", "x"), ("right", "x")
+    ]
+    workflow.virtual_wires["route"]["legs"][1]["occurrence_index"] = 2
+    with pytest.raises(WorkflowCompileError, match="occurrence indexes"):
+        workflow.compile()
+
+
 def test_shared_projection_lowers_primitive_and_named_outputs_without_mutation() -> None:
     workflow = VibeWorkflow("helpers", WorkflowSource("helpers"))
     workflow.nodes["source"] = VibeNode("source", "Source", native_output_names=["image", "mask"])
@@ -298,6 +340,39 @@ def test_public_io_type_and_cardinality_are_closed_over_declared_sockets() -> No
     assert exc.value.code == "public_output_cardinality"
 
 
+def test_public_input_defaults_and_named_nonzero_output_are_shared_by_backends() -> None:
+    workflow = VibeWorkflow("public-values", WorkflowSource("public-values"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["ignored", "image"],
+        metadata={"output_types": ["MASK", "IMAGE"]},
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"value": None, "image": None},
+        metadata={"input_types": {"value": "INT", "image": "IMAGE"}},
+    )
+    workflow.edges = [VibeEdge("source", "image", "sink", "image")]
+    workflow.inputs["count"] = VibeInput("count", "sink", "value", default=7, type="INT")
+    workflow.outputs.append(VibeOutput("source", "IMAGE", name="image"))
+    api = workflow.compile("api")
+    graph = workflow.compile("graphbuilder")
+    assert api == graph
+    assert api["sink"]["inputs"]["value"] == 7
+    assert api["sink"]["inputs"]["image"] == ["source", 1]
+    assert workflow.nodes["sink"].inputs["value"] is None
+
+    workflow.outputs[:] = [VibeOutput("source", "IMAGE")]
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_output_ambiguous"
+
+
+def test_real_graphbuilder_uses_the_same_detached_projection() -> None:
+    workflow = _chain(NodeMode.ENABLED)
+    before = workflow.copy()
+    assert workflow.compile("graphbuilder") == workflow.compile("api")
+    assert workflow.to_envelope() == before.to_envelope()
+
+
 def test_ui_mode_evidence_does_not_change_execution_projection() -> None:
     workflow = _chain(NodeMode.ENABLED)
     workflow.nodes["2"].metadata["_ui"] = {"mode": 4, "widgets_values": ["misleading"]}
@@ -313,6 +388,22 @@ def test_native_boundary_sentinel_fails_at_projection_boundary() -> None:
     with pytest.raises(WorkflowCompileError) as exc:
         workflow.compile()
     assert exc.value.code == "unsupported_boundary_encoding"
+
+
+def test_recursive_instance_ambiguity_and_unbound_interface_fail_closed() -> None:
+    workflow = VibeWorkflow("recursive-closed", WorkflowSource("recursive-closed"))
+    workflow.nodes["root"] = VibeNode("root", "Source")
+    workflow.definitions = {"subgraphs": [{"name": "inner", "instances": [{"id": "a"}], "nodes": []}]}
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "recursive_instance_unsupported"
+
+    workflow.definitions = {"subgraphs": [{"name": "inner", "nodes": [{"id": "n", "type": "Sink", "inputs": {"x": None}}], "links": []}]}
+    workflow.interfaces = {"inner": {"inputs": [{"name": "input", "type": "IMAGE"}]}}
+    workflow.boundary_ports = []
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "interface_unbound"
 
 
 @pytest.mark.parametrize("emitter", [emit_scratchpad_python, emit_ready_template_python])

@@ -30,12 +30,14 @@ class ResolveDiagnostics:
 class HelperResolveErrorSpec:
     message: str
     next_action: str | None = None
+    code: str = "helper_edge_unresolved"
 
 
 class HelperResolveError(RuntimeError):
     def __init__(self, spec: HelperResolveErrorSpec) -> None:
         super().__init__(spec.message)
         self.next_action = spec.next_action
+        self.code = spec.code
 
 
 PrimitiveValueExtractor = Callable[[Any, list[HelperDiagnostic]], Any]
@@ -65,6 +67,7 @@ def resolve_helpers(
 
     diagnostics: list[HelperDiagnostic] = []
     make_error = error_factory or (lambda spec: HelperResolveError(spec))
+    _detect_helper_cycles(nodes, edge_list, make_error)
     extract_primitive_value = primitive_value_extractor or _extract_raw_primitive_value
 
     for _ in range(10_000):
@@ -239,11 +242,37 @@ def _phase_b_passthroughs(nodes: Mapping[str, Any], edges: list[Any], make_error
     for edge in _sorted_edges(edges):
         if edge.from_node not in passthrough_ids:
             continue
-        terminal = _resolve_passthrough_terminal(nodes, edge.from_node, inbound, visited=set())
+        try:
+            terminal = _resolve_passthrough_terminal(nodes, edge.from_node, inbound, visited=set())
+        except _PassthroughCycle as exc:
+            raise make_error(
+                HelperResolveErrorSpec(
+                    str(exc),
+                    next_action="Break the passthrough helper cycle before compiling.",
+                    code="helper_edge_cycle",
+                )
+            ) from exc
+        except _PassthroughAmbiguous as exc:
+            raise make_error(
+                HelperResolveErrorSpec(
+                    str(exc),
+                    next_action="Keep one inbound source for the passthrough helper.",
+                    code="helper_edge_ambiguous",
+                )
+            ) from exc
         if terminal is None:
             node = nodes[edge.from_node]
             if node.class_type == "PrimitiveNode":
-                _fold_primitive_node_literal(nodes, edge, node)
+                try:
+                    _fold_primitive_node_literal(nodes, edge, node)
+                except (TypeError, ValueError) as exc:
+                    raise make_error(
+                        HelperResolveErrorSpec(
+                            str(exc),
+                            next_action="Provide a literal value for the primitive node.",
+                            code="primitive_literal_invalid",
+                        )
+                    ) from exc
                 folded_edges.append(edge)
                 changed = True
                 continue
@@ -252,6 +281,7 @@ def _phase_b_passthroughs(nodes: Mapping[str, Any], edges: list[Any], make_error
                     f"Passthrough node {edge.from_node!r} ({node.class_type}) "
                     "has no resolvable inbound source (dangling passthrough)",
                     next_action=f"check node {edge.from_node} ({node.class_type})",
+                    code="helper_edge_unresolved",
                 )
             )
         edge.from_node = terminal[0]
@@ -271,12 +301,17 @@ def _resolve_passthrough_terminal(
     visited: set[str],
 ) -> tuple[str, str] | None:
     if node_id in visited:
-        return None
+        raise _PassthroughCycle(f"Passthrough helper cycle includes node {node_id!r}")
     visited.add(node_id)
 
     inbound_edges = inbound.get(node_id, [])
     if not inbound_edges:
         return None
+    source_node = nodes.get(node_id)
+    if len(inbound_edges) > 1 and source_node is not None and source_node.class_type in {"Reroute", "PrimitiveNode"}:
+        raise _PassthroughAmbiguous(
+            f"Passthrough node {node_id!r} has multiple inbound sources"
+        )
 
     inbound_edge = min(
         inbound_edges,
@@ -293,8 +328,57 @@ def _resolve_passthrough_terminal(
     return (source_id, inbound_edge.from_output)
 
 
+class _PassthroughCycle(RuntimeError):
+    """Internal marker used to distinguish a cycle from a dangling helper."""
+
+
+class _PassthroughAmbiguous(RuntimeError):
+    """Internal marker used to distinguish multiple inbound sources."""
+
+
+def _detect_helper_cycles(
+    nodes: Mapping[str, Any], edges: Sequence[Any], make_error: ErrorFactory
+) -> None:
+    """Reject cycles before helper lowering can erase their evidence."""
+    helper_ids = {
+        str(node_id)
+        for node_id, node in nodes.items()
+        if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
+    }
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in helper_ids}
+    for edge in edges:
+        source = str(edge.from_node)
+        target = str(edge.to_node)
+        if source in helper_ids and target in helper_ids:
+            adjacency[source].append(target)
+    state: dict[str, int] = {}
+
+    def visit(node_id: str, trail: tuple[str, ...]) -> None:
+        marker = state.get(node_id, 0)
+        if marker == 1:
+            cycle = (*trail, node_id)
+            raise make_error(
+                HelperResolveErrorSpec(
+                    f"helper edge cycle: {' -> '.join(cycle)}",
+                    next_action="Break the helper cycle before compiling.",
+                    code="helper_edge_cycle",
+                )
+            )
+        if marker == 2:
+            return
+        state[node_id] = 1
+        for child in sorted(adjacency.get(node_id, ())):
+            visit(child, (*trail, node_id))
+        state[node_id] = 2
+
+    for node_id in sorted(helper_ids):
+        visit(node_id, ())
+
+
 def _fold_primitive_node_literal(nodes: Mapping[str, Any], edge: Any, node: Any) -> None:
-    raw_value = node.inputs.get("value") or node.widgets.get("widget_0")
+    raw_value = node.inputs.get("value", node.widgets.get("widget_0"))
+    if raw_value is None:
+        raise ValueError(f"PrimitiveNode {node.class_type!r} has no literal value")
     target_node = nodes.get(edge.to_node)
     if target_node is not None:
         _fold_literal_into_consumer(target_node, edge.to_input, raw_value)
@@ -343,7 +427,17 @@ def _phase_c_value_primitives(
             continue
 
         real_consumer_edges = [edge for edge in outbound if not _is_resolvable_helper_node(nodes, edge.to_node)]
-        literal = extract_primitive_value(node, diagnostics)
+        try:
+            literal = extract_primitive_value(node, diagnostics)
+            _validate_primitive_literal(node, literal)
+        except (TypeError, ValueError) as exc:
+            raise make_error(
+                HelperResolveErrorSpec(
+                    f"invalid literal for {node.class_type} node {node_id!r}: {exc}",
+                    next_action="Provide a value matching the primitive node type.",
+                    code="primitive_literal_invalid",
+                )
+            ) from exc
         bname = source_to_broadcast_name.get(node_id)
 
         if bname and len(real_consumer_edges) == 1:
@@ -496,6 +590,25 @@ def _collect_scoped_broadcast_sources(
 
 def _extract_raw_primitive_value(node: Any, diagnostics: list[HelperDiagnostic]) -> Any:
     return node.inputs.get("value", node.widgets.get("widget_0"))
+
+
+def _validate_primitive_literal(node: Any, value: Any) -> None:
+    """Check primitive values before helper lowering can erase the node."""
+    class_type = str(node.class_type)
+    if value is None:
+        raise ValueError("value is missing")
+    if class_type == "PrimitiveBoolean":
+        if not isinstance(value, bool):
+            raise TypeError("expected bool")
+    elif class_type == "PrimitiveInt":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("expected int")
+    elif class_type == "PrimitiveFloat":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("expected number")
+    elif class_type in {"PrimitiveString", "PrimitiveStringMultiline"}:
+        if not isinstance(value, str):
+            raise TypeError("expected string")
 
 
 def _sorted_edges(edges: Sequence[Any]) -> list[Any]:
