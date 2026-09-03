@@ -169,8 +169,12 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
     if not dry_run and not diff_mode:
         try:
             write_layout(out, loaded.workflow)
-        except Exception:
-            pass  # Sidecar write is best-effort; never block the main convert
+        except Exception as exc:
+            # Legacy .layout.json is transient evidence, never an approval
+            # source.  Do not claim a successful publication when its write
+            # failed; surface the error to the caller.
+            print(f"port convert failed writing legacy layout evidence: {exc}", file=sys.stderr)
+            return 1
 
     payload = {
         "status": "ok" if write_result["written"] or write_result["dry_run"] else "error",

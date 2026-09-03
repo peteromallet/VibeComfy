@@ -12,9 +12,12 @@ from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import (
     WorkflowBundleError,
     emit_bundle,
+    emit_bundle_with_candidate,
     filter_provenance,
     load_bundle,
+    validate_sidecar,
 )
+from vibecomfy.workflow import VibeEdge, VibeNode
 
 
 def _workflow(workflow_id: str = "bundle-test") -> VibeWorkflow:
@@ -150,11 +153,22 @@ def test_load_bundle_hashes_same_basename_presentation_candidate(tmp_path: Path)
         encoding="utf-8",
     )
     sidecar = tmp_path / "canonical.vibe.json"
-    sidecar.write_text('{"canvas":{"zoom":1.0},"bind":{"workflow_identity":"canonical"}}', encoding="utf-8")
+    sidecar.write_text(
+        '{"format_version":1,"bind":{"workflow_identity":"canonical"},'
+        '"nodes":{},"links":[],"groups":[],"canvas":{"zoom":1.0}}',
+        encoding="utf-8",
+    )
 
     bundle = load_bundle(source, trust=Provenance.USER_CONFIRMED)
 
-    assert bundle.ui_sidecar == {"canvas": {"zoom": 1.0}, "bind": {"workflow_identity": "canonical"}}
+    assert bundle.ui_sidecar == {
+        "format_version": 1,
+        "bind": {"workflow_identity": "canonical"},
+        "nodes": {},
+        "links": [],
+        "groups": [],
+        "canvas": {"zoom": 1.0},
+    }
     assert bundle.ui_digest == hashlib.sha256(canonical_json(bundle.ui_sidecar).encode()).hexdigest()
 
 
@@ -171,3 +185,82 @@ def test_load_workflow_any_remains_bare_compatibility_result(tmp_path: Path) -> 
     result = load_workflow_any(source)
     assert isinstance(result, VibeWorkflow)
     assert not hasattr(result, "revision_id")
+
+
+def _strict_sidecar(workflow: VibeWorkflow) -> dict:
+    return {
+        "format_version": 1,
+        "bind": {"workflow_identity": workflow.id, "semantic_digest": workflow.semantic_digest()},
+        "nodes": {"source": {"id": 1, "pos": [0, 0]}, "target": {"id": 2, "pos": [10, 10]}},
+        "links": [{"edge_ref": {"scope_path": "", "from_uid": "source", "from_port": 0, "to_uid": "target", "to_port": 0}, "occurrence_index": 0, "id": 9}],
+        "groups": [],
+        "canvas": {"zoom": 1, "pan": [0, 0]},
+    }
+
+
+def _connected_workflow() -> VibeWorkflow:
+    workflow = _workflow("strict")
+    workflow.nodes["a"] = VibeNode("a", "Source", uid="source")
+    workflow.nodes["b"] = VibeNode("b", "Target", uid="target")
+    workflow.edges.append(VibeEdge("a", "0", "b", "0"))
+    return workflow
+
+
+def test_strict_sidecar_rejects_unknown_nested_fields_and_qualified_refs() -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    sidecar["nodes"]["source"]["properties"] = {}
+    with pytest.raises(WorkflowBundleError, match="unknown field"):
+        validate_sidecar(sidecar, workflow)
+    sidecar = _strict_sidecar(workflow)
+    sidecar["links"][0]["edge_ref"]["from_uid"] = "scope#source"
+    with pytest.raises(WorkflowBundleError, match="qualified UID"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_strict_sidecar_rejects_occurrence_gaps_duplicate_native_ids_and_stale_digest() -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    duplicate = dict(sidecar["links"][0]); duplicate["occurrence_index"] = 2; duplicate["id"] = 10
+    sidecar["links"].append(duplicate)
+    with pytest.raises(WorkflowBundleError, match="contiguous"):
+        validate_sidecar(sidecar, workflow)
+    sidecar = _strict_sidecar(workflow)
+    sidecar["bind"]["semantic_digest"] = "stale"
+    with pytest.raises(WorkflowBundleError, match="semantic digest"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_presentation_digest_isolated_from_semantic_digest_and_legacy_sidecar_rejected(tmp_path: Path) -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    first = emit_bundle_with_candidate(workflow, tmp_path / "strict.py", {"operation": "authored"}, sidecar)
+    sidecar["nodes"]["source"]["pos"] = [99, 100]
+    second = emit_bundle_with_candidate(workflow, tmp_path / "strict.py", {"operation": "authored"}, sidecar)
+    assert first.semantic_digest == second.semantic_digest
+    assert first.ui_digest != second.ui_digest
+    (tmp_path / "strict.layout.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(WorkflowBundleError, match="not an approved source"):
+        emit_bundle(workflow, tmp_path / "strict.py", {"operation": "authored"})
+
+
+def test_atomic_pair_rolls_back_after_second_replacement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    emit_bundle_with_candidate(workflow, tmp_path / "atomic.py", {"operation": "authored"}, sidecar)
+    before = {(tmp_path / name).read_bytes() for name in ("atomic.py", "atomic.vibe.json")}
+    original_replace = __import__("vibecomfy.workflow_bundle", fromlist=["os"]).os.replace
+    calls = 0
+
+    def fail_once(source: str, destination: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected replacement failure")
+        original_replace(source, destination)
+
+    monkeypatch.setattr("vibecomfy.workflow_bundle.os.replace", fail_once)
+    with pytest.raises(OSError, match="injected replacement failure"):
+        emit_bundle_with_candidate(workflow, tmp_path / "atomic.py", {"operation": "authored"}, sidecar)
+    assert before == {(tmp_path / name).read_bytes() for name in ("atomic.py", "atomic.vibe.json")}
+    assert not list(tmp_path.glob(".*.tmp"))
