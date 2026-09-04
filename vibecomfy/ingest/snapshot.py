@@ -197,6 +197,44 @@ def capture_ingest_snapshot(
             "public_input_binding": binding_sig,
             "widget_names_sig": _capture_widget_names(node, node_id, incoming),
         }
+
+    # Recursive definitions are already canonicalized by the ingest boundary;
+    # retain their scoped field evidence in the same existing snapshot map.
+    definitions = getattr(ir_workflow, "definitions", {})
+    if isinstance(definitions, Mapping):
+        from vibecomfy.identity.scope import compose_scope_path, sg_key
+        from vibecomfy.identity.uid import make_uid
+
+        def walk(raw: Any, parent: tuple[str, ...]) -> None:
+            entries = raw.get("subgraphs", []) if isinstance(raw.get("subgraphs"), (list, tuple)) else []
+            for definition in entries:
+                if not isinstance(definition, Mapping):
+                    continue
+                key = str(definition.get("sg_key") or sg_key(definition))
+                scope = compose_scope_path((*parent, key))
+                raw_nodes = definition.get("nodes", [])
+                if isinstance(raw_nodes, Mapping):
+                    raw_nodes = list(raw_nodes.values())
+                for item in raw_nodes if isinstance(raw_nodes, (list, tuple)) else ():
+                    if not isinstance(item, Mapping):
+                        continue
+                    local = str(item.get("uid", item.get("id", "")))
+                    uid = make_uid(scope, local)
+                    values = item.get("widgets", item.get("widgets_values", {}))
+                    if isinstance(values, list):
+                        values = {f"widget_{i}": value for i, value in enumerate(values)}
+                    if not isinstance(values, Mapping):
+                        values = {}
+                    result.setdefault(uid, {
+                        "class_type": str(item.get("class_type", item.get("type", ""))),
+                        "widget_values_sig": tuple(sorted((str(k), repr(v)) for k, v in values.items())),
+                        "incoming_edge_sig": (), "outgoing_edge_sig": (),
+                        "public_input_binding": (), "widget_names_sig": (),
+                    })
+                nested = definition.get("definitions")
+                if isinstance(nested, Mapping):
+                    walk(nested, (*parent, key))
+        walk(definitions, ())
     return result
 
 

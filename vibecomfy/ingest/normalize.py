@@ -87,7 +87,8 @@ from vibecomfy.metadata import (
     _infer_requirements,
     _register_common_inputs,
 )
-from vibecomfy.identity.uid import make_uid, mint_local_uid
+from vibecomfy.identity.scope import compose_scope_path, sg_key
+from vibecomfy.identity.uid import make_uid, mint_local_uid, validate_local_uid
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
@@ -465,6 +466,497 @@ def _ingest_unknown_shape(raw: Mapping[str, Any]) -> "VibeWorkflow":
     raise ValueError("unsupported workflow shape for ingest: unknown")
 
 
+def _validate_json_semantics(value: Any, *, path: str = "value") -> None:
+    """Reject values which cannot be part of canonical JSON semantics."""
+    if value is None or isinstance(value, (str, int, bool)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            # Geometry and raw UI furniture are presentation evidence, not
+            # canonical semantic values; malformed furniture is retained for
+            # diagnostics while semantic payloads fail closed.
+            if "._ui." in path or ".pos" in path or ".size" in path:
+                return
+            raise ValueError(f"nonfinite semantic value at {path}")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"non-string JSON key at {path}: {key!r}")
+            _validate_json_semantics(item, path=f"{path}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _validate_json_semantics(item, path=f"{path}[{index}]")
+        return
+    raise ValueError(f"non-JSON semantic value at {path}: {type(value).__name__}")
+
+
+def _validate_api_shape(api: Any) -> None:
+    if not isinstance(api, Mapping):
+        raise ValueError("API workflow must be a mapping")
+    seen: set[str] = set()
+    nodes_by_id: dict[str, Mapping[str, Any]] = {
+        str(raw_id): node for raw_id, node in api.items()
+        if isinstance(raw_id, (str, int)) and not isinstance(raw_id, bool) and isinstance(node, Mapping)
+    }
+    for raw_id, node in api.items():
+        if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+            raise ValueError(f"node id {raw_id!r} must be an integer or string")
+        node_id = str(raw_id)
+        validate_local_uid(node_id, field="API node id")
+        if node_id in seen:
+            raise ValueError(f"duplicate canonical node id {node_id!r}")
+        seen.add(node_id)
+        if not isinstance(node, Mapping):
+            raise ValueError(f"node {node_id!r} must be a mapping")
+        nodes_by_id[node_id] = node
+        class_type = node.get("class_type")
+        if not isinstance(class_type, str) or not class_type.strip():
+            raise ValueError(f"node {node_id!r} class_type must be a nonblank string")
+        inputs = node.get("inputs", {})
+        if not isinstance(inputs, Mapping):
+            raise ValueError(f"node {node_id!r} inputs must be a mapping")
+        for name, value in inputs.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"node {node_id!r} input names must be nonblank strings")
+            if is_canonical_api_link(value):
+                if (not isinstance(value[0], str) or not value[0].strip()
+                        or "#" in value[0] or "/" in value[0]
+                        or value[0] in {"-10", "-20"}
+                        or isinstance(value[1], bool) or not isinstance(value[1], int)
+                        or value[1] < 0 or value[0] not in nodes_by_id):
+                    raise ValueError(f"node {node_id!r} input {name!r} has malformed API link")
+
+
+def _definition_entries(raw: Any, *, path: str) -> list[dict[str, Any]]:
+    if isinstance(raw, Mapping) and "subgraphs" in raw:
+        entries = raw["subgraphs"]
+        if not isinstance(entries, (list, tuple)):
+            raise ValueError(f"{path}.subgraphs must be a list")
+    elif isinstance(raw, Mapping):
+        entries = list(raw.values())
+    elif isinstance(raw, (list, tuple)):
+        entries = list(raw)
+    else:
+        raise ValueError(f"{path} must be a mapping or list")
+    result: list[dict[str, Any]] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"{path}[{index}] definition must be a mapping")
+        result.append(deepcopy(dict(entry)))
+    return result
+
+
+def _validate_recursive_node(node: Mapping[str, Any], *, scope: str, index: int) -> dict[str, Any]:
+    raw_id = node.get("uid")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        raw_id = node.get("id")
+    if raw_id is None or isinstance(raw_id, bool):
+        raise ValueError(f"definition {scope!r} node {index}: id is required")
+    local = validate_local_uid(str(raw_id), field=f"definition {scope!r} node uid")
+    if "id" in node:
+        validate_local_uid(str(node["id"]), field=f"definition {scope!r} node id")
+    class_type = node.get("class_type", node.get("type"))
+    if not isinstance(class_type, str) or not class_type.strip():
+        raise ValueError(f"definition {scope!r} node {local!r}: class_type is required")
+    normalized = deepcopy(dict(node))
+    normalized["id"] = str(node.get("id", local))
+    normalized["uid"] = local
+    normalized["class_type"] = class_type
+    for roster_name in ("native_input_names", "native_output_names"):
+        if roster_name in normalized:
+            roster = normalized[roster_name]
+            if not isinstance(roster, (list, tuple)):
+                raise ValueError(f"definition {scope!r} node {local!r} {roster_name} must be a list")
+            seen_names: set[str] = set()
+            clean_roster: list[str | None] = []
+            for item in roster:
+                if item is None:
+                    clean_roster.append(None)
+                elif isinstance(item, str) and item.strip() and item not in seen_names:
+                    seen_names.add(item)
+                    clean_roster.append(item)
+                else:
+                    raise ValueError(f"definition {scope!r} node {local!r} has malformed {roster_name}")
+            normalized[roster_name] = clean_roster
+    if "inputs" in normalized and not isinstance(normalized["inputs"], (Mapping, list, tuple)):
+        raise ValueError(f"definition {scope!r} node {local!r}: inputs must be mapping or list")
+    if "outputs" in normalized and not isinstance(normalized["outputs"], (list, tuple)):
+        raise ValueError(f"definition {scope!r} node {local!r}: outputs must be a list")
+    if "inputs" in normalized and isinstance(normalized["inputs"], (list, tuple)):
+        for pos, item in enumerate(normalized["inputs"]):
+            if not isinstance(item, Mapping):
+                raise ValueError(f"definition {scope!r} node {local!r} input {pos} malformed")
+    if "outputs" in normalized:
+        for pos, item in enumerate(normalized["outputs"]):
+            if not isinstance(item, Mapping):
+                raise ValueError(f"definition {scope!r} node {local!r} output {pos} malformed")
+    return normalized
+
+
+def _validate_definition_links(definition: Mapping[str, Any], *, scope: str, node_ids: set[str], allow_legacy_boundary: bool = False) -> None:
+    links = definition.get("links", [])
+    if links is None:
+        links = []
+    if not isinstance(links, (list, tuple)):
+        raise ValueError(f"definition {scope!r} links must be a list")
+    seen: set[int] = set()
+    for index, link in enumerate(links):
+        if isinstance(link, Mapping):
+            required = {"id", "origin_id", "origin_slot", "target_id", "target_slot", "type"}
+            if not required <= set(link):
+                raise ValueError(f"definition {scope!r} link {index} must contain the exact link fields")
+            link_id, origin, origin_slot, target, target_slot = link["id"], link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"]
+        elif isinstance(link, (list, tuple)) and len(link) == 6:
+            link_id, origin, origin_slot, target, target_slot, _type = link
+        else:
+            raise ValueError(f"definition {scope!r} link {index} must be an exact six-field record")
+        if isinstance(link_id, bool) or not isinstance(link_id, int) or link_id < 0 or link_id in seen:
+            raise ValueError(f"definition {scope!r} link {index} has duplicate or invalid id")
+        seen.add(link_id)
+        for endpoint, label in ((origin, "origin"), (target, "target")):
+            text = str(endpoint)
+            if text in {"-10", "-20"} and not allow_legacy_boundary:
+                raise ValueError(f"unsupported_boundary_encoding: definition {scope!r} {label} uses native {text}")
+            if text not in node_ids and not (allow_legacy_boundary and text in {"-10", "-20"}):
+                raise ValueError(f"definition {scope!r} link {label} endpoint {text!r} is unknown")
+        for slot, label in ((origin_slot, "origin_slot"), (target_slot, "target_slot")):
+            if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
+                raise ValueError(f"definition {scope!r} link {label} must be a nonnegative integer")
+
+
+def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
+    """Validate/canonicalize the existing JSON-shaped recursive IR in place."""
+    if raw in (None, {}, []):
+        return {}
+    entries = _definition_entries(raw, path="definitions")
+    result: list[dict[str, Any]] = []
+    all_keys: set[str] = set()
+
+    def walk(source: Mapping[str, Any], parent: tuple[str, ...], path: str) -> dict[str, Any]:
+        key = sg_key(source)
+        supplied = source.get("sg_key")
+        if supplied is not None and supplied != key:
+            raise ValueError(f"definition sg_key {supplied!r} does not match its structural identity")
+        scope = compose_scope_path((*parent, key))
+        if key in all_keys:
+            raise ValueError(f"duplicate or colliding subgraph definition identity {key!r}")
+        all_keys.add(key)
+        values = source.get("nodes", [])
+        if isinstance(values, Mapping):
+            values = list(values.values())
+        if not isinstance(values, (list, tuple)):
+            raise ValueError(f"definition {scope!r} nodes must be a list or mapping")
+        normalized_nodes: list[dict[str, Any]] = []
+        ids: set[str] = set()
+        for index, node in enumerate(values):
+            if not isinstance(node, Mapping):
+                raise ValueError(f"definition {scope!r} node {index} malformed")
+            normalized = _validate_recursive_node(node, scope=scope, index=index)
+            uid = normalized["uid"]
+            if uid in ids:
+                raise ValueError(f"duplicate_scoped_node_uid: {uid!r} in scope {scope!r}")
+            ids.add(uid)
+            normalized_nodes.append(normalized)
+        normalized_nodes.sort(key=lambda item: item["uid"])
+        aliases = set(ids)
+        for node in normalized_nodes:
+            aliases.add(str(node["id"]))
+        _validate_definition_links(
+            source,
+            scope=scope,
+            node_ids=aliases,
+            # Existing imported UI captures may carry native boundary links
+            # as transient evidence. They are never executable canonical
+            # endpoint refs and remain in the detached door payload.
+            allow_legacy_boundary=isinstance(source.get("config"), Mapping)
+            and isinstance(source.get("extra"), Mapping),
+        )
+        out = deepcopy(dict(source))
+        out.update({"sg_key": key, "scope_path": scope, "nodes": normalized_nodes})
+        nested_raw = source.get("definitions")
+        if nested_raw not in (None, {}, []):
+            nested = _definition_entries(nested_raw, path=f"{scope}.definitions")
+            nested_norm = [walk(item, (*parent, key), f"{scope}.definitions[{i}]") for i, item in enumerate(nested)]
+            nested_norm.sort(key=lambda item: item["sg_key"])
+            out["definitions"] = {"subgraphs": nested_norm}
+        if "virtual_wires" in out:
+            out["virtual_wires"] = _normalize_virtual_wires(out["virtual_wires"], scope=scope)
+        return out
+
+    for index, entry in enumerate(entries):
+        result.append(walk(entry, (), f"definitions[{index}]"))
+    result.sort(key=lambda item: item["sg_key"])
+    return {"subgraphs": result}
+
+
+def _normalize_virtual_wires(raw: Any, *, scope: str = "") -> dict[str, Any]:
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"virtual_wires at {scope!r} must be a mapping")
+    result: dict[str, Any] = {}
+    for name, value in sorted(raw.items(), key=lambda item: str(item[0])):
+        if not isinstance(name, str) or not name.strip() or not isinstance(value, Mapping):
+            raise ValueError(f"virtual wire {name!r} is malformed")
+        if "channel" in value or "endpoints" in value:
+            raise ValueError(f"legacy virtual wire {name!r} is not canonical")
+        legs = value.get("legs")
+        if not isinstance(legs, (list, tuple)):
+            raise ValueError(f"virtual wire {name!r} requires explicit legs")
+        normalized_legs: list[dict[str, Any]] = []
+        seen: set[tuple[int, int]] = set()
+        for index, leg in enumerate(legs):
+            if not isinstance(leg, Mapping):
+                raise ValueError(f"virtual wire {name!r} leg {index} is malformed")
+            item = deepcopy(dict(leg))
+            item_scope = item.get("scope_path", scope)
+            if item_scope != scope and scope:
+                raise ValueError(f"virtual wire {name!r} leg {index} crosses scope")
+            item["scope_path"] = str(item_scope)
+            li, oi = item.get("leg_index"), item.get("occurrence_index")
+            if isinstance(li, bool) or not isinstance(li, int) or li < 0 or isinstance(oi, bool) or not isinstance(oi, int) or oi < 0:
+                raise ValueError(f"virtual wire {name!r} leg {index} has invalid indexes")
+            if (li, oi) in seen:
+                raise ValueError(f"virtual wire {name!r} has duplicate leg occurrence {(li, oi)!r}")
+            seen.add((li, oi))
+            for prefix in ("from", "to"):
+                endpoint = item.get(f"{prefix}_node", item.get(f"{prefix}_uid"))
+                if endpoint is None:
+                    endpoint = item.get(prefix, {}).get("uid") if isinstance(item.get(prefix), Mapping) else None
+                if endpoint is None or not isinstance(endpoint, str) or not endpoint.strip() or "#" in endpoint or "/" in endpoint:
+                    raise ValueError(f"virtual wire {name!r} leg {index} has invalid {prefix} endpoint")
+            normalized_legs.append(item)
+        normalized_legs.sort(key=lambda item: (item["leg_index"], item["occurrence_index"]))
+        result[name] = {key: deepcopy(item) for key, item in value.items() if key != "legs"}
+        result[name]["legs"] = normalized_legs
+    return result
+
+
+def _normalize_interfaces(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise ValueError("interfaces must be a mapping")
+    result: dict[str, Any] = {}
+    for scope, value in sorted(raw.items(), key=lambda item: str(item[0])):
+        if not isinstance(scope, str) or not scope.strip() or "sg0" in scope:
+            raise ValueError(f"interface scope {scope!r} is malformed")
+        if isinstance(value, Mapping):
+            normalized = deepcopy(dict(value))
+            for direction in ("inputs", "outputs"):
+                members = normalized.get(direction, [])
+                if not isinstance(members, (list, tuple)):
+                    raise ValueError(f"interface {scope!r} {direction} must be a list")
+                seen: set[str] = set()
+                out: list[dict[str, Any]] = []
+                for index, member in enumerate(members):
+                    if not isinstance(member, Mapping):
+                        raise ValueError(f"interface {scope!r} member {index} is malformed")
+                    name = member.get("name", member.get("port", member.get("interface")))
+                    if not isinstance(name, str) or not name.strip() or name in seen:
+                        raise ValueError(f"interface {scope!r} has invalid or duplicate member {name!r}")
+                    seen.add(name)
+                    item = deepcopy(dict(member))
+                    item["name"] = name
+                    item["direction"] = direction[:-1]
+                    out.append(item)
+                normalized[direction] = out
+            result[scope] = normalized
+        elif isinstance(value, (list, tuple)):
+            result[scope] = deepcopy(list(value))
+        else:
+            raise ValueError(f"interface {scope!r} must be a mapping or list")
+    return result
+
+
+def _normalize_boundary_ports(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("boundary_ports must be a list")
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, value in enumerate(raw):
+        if not isinstance(value, Mapping):
+            raise ValueError(f"boundary port {index} is malformed")
+        scope = value.get("scope_path", "")
+        name = value.get("name", value.get("port_name", value.get("interface")))
+        direction = value.get("direction")
+        node = value.get("node_uid", value.get("node_id", value.get("uid")))
+        field_name = value.get("field", value.get("input", value.get("output", value.get("port"))))
+        if not isinstance(scope, str) or not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+            raise ValueError(f"boundary port {index} has malformed scope/name/direction")
+        if node is None or not isinstance(field_name, str) or not field_name.strip():
+            raise ValueError(f"boundary port {index} requires local node and field")
+        local = validate_local_uid(str(node), field=f"boundary port {index} node")
+        key = (scope, name, direction)
+        if key in seen:
+            raise ValueError(f"duplicate boundary port {key!r}")
+        seen.add(key)
+        item = deepcopy(dict(value))
+        item.update({"scope_path": scope, "name": name, "direction": direction, "node_uid": local, "field": field_name})
+        result.append(item)
+    return sorted(result, key=lambda item: (item["scope_path"], item["name"], item["direction"]))
+
+
+def _capture_import_virtual_wires(workflow: VibeWorkflow) -> None:
+    """Capture proven Set/Get legs without mutating authored helper nodes."""
+
+    def node_channel(node: Any) -> str | None:
+        values = getattr(node, "widgets", {})
+        inputs = getattr(node, "inputs", {})
+        value = inputs.get("widget_0", values.get("widget_0"))
+        if value is None:
+            value = inputs.get("name", values.get("name"))
+        return value if isinstance(value, str) and value.strip() else None
+
+    def capture(nodes: Mapping[str, Any], edges: list[VibeEdge], scope: str) -> dict[str, Any]:
+        helper_types = {"SetNode", "GetNode", "Reroute", "PrimitiveNode"}
+        by_id = {str(key): value for key, value in nodes.items()}
+        incoming: dict[str, list[VibeEdge]] = {key: [] for key in by_id}
+        outgoing: dict[str, list[VibeEdge]] = {key: [] for key in by_id}
+        for edge in edges:
+            if str(edge.from_node) not in by_id or str(edge.to_node) not in by_id:
+                raise ValueError(f"virtual wire {scope!r} has an unknown edge endpoint")
+            incoming[str(edge.to_node)].append(edge)
+            outgoing[str(edge.from_node)].append(edge)
+        sets: dict[str, list[tuple[str, VibeEdge]]] = {}
+        gets: dict[str, list[str]] = {}
+        for node_id, node in by_id.items():
+            class_type = getattr(node, "class_type", "")
+            if class_type not in {"SetNode", "GetNode"}:
+                continue
+            name = node_channel(node)
+            if name is None:
+                raise ValueError(f"{class_type} node {node_id!r} in scope {scope!r} has no named channel")
+            if class_type == "SetNode":
+                producer_edges = [edge for edge in incoming[node_id] if edge.to_input != "widget_0"]
+                if len(producer_edges) != 1:
+                    raise ValueError(f"SetNode {node_id!r} in scope {scope!r} needs exactly one data input")
+                sets.setdefault(name, []).append((node_id, producer_edges[0]))
+            else:
+                gets.setdefault(name, []).append(node_id)
+        wires: dict[str, Any] = {}
+        for name, getters in gets.items():
+            if name not in sets:
+                raise ValueError(f"GetNode channel {name!r} in scope {scope!r} has no matching SetNode")
+            legs: list[dict[str, Any]] = []
+            for _set_id, producer_edge in sets[name]:
+                for get_id in getters:
+                    consumers = [edge for edge in outgoing[get_id] if edge.to_input != "widget_0"]
+                    if not consumers:
+                        # ComfyUI may retain an unconnected GetNode while a user is
+                        # editing.  It is not a capturable virtual-wire leg, but it
+                        # is also not an ambiguous/missing-channel import error.
+                        continue
+                    for consumer in consumers:
+                        source_id, source_output = str(producer_edge.from_node), producer_edge.from_output
+                        target_id, target_input = str(consumer.to_node), consumer.to_input
+                        # Traverse only evidenced helper passthroughs. This is
+                        # capture, not lowering: authored nodes/edges remain.
+                        seen: set[str] = set()
+                        while by_id[source_id].class_type in {"Reroute", "PrimitiveNode"}:
+                            if source_id in seen or len(incoming[source_id]) != 1:
+                                raise ValueError(f"ambiguous virtual-wire source path at {source_id!r}")
+                            seen.add(source_id)
+                            prior = incoming[source_id][0]
+                            source_id, source_output = str(prior.from_node), prior.from_output
+                        seen.clear()
+                        while by_id[target_id].class_type in {"Reroute", "PrimitiveNode"}:
+                            if target_id in seen or len(outgoing[target_id]) != 1:
+                                raise ValueError(f"ambiguous virtual-wire target path at {target_id!r}")
+                            seen.add(target_id)
+                            following = outgoing[target_id][0]
+                            target_id, target_input = str(following.to_node), following.to_input
+                        if by_id[source_id].class_type in helper_types or by_id[target_id].class_type in helper_types:
+                            raise ValueError(f"virtual-wire {name!r} has no real producer/consumer")
+                        legs.append({"scope_path": scope, "leg_index": len(legs), "occurrence_index": 0,
+                                     "from_node": source_id, "from_output": source_output,
+                                     "to_node": target_id, "to_input": target_input})
+            if legs:
+                wires[name] = {"legs": legs}
+        return wires
+
+    root = capture(workflow.nodes, workflow.edges, "")
+    for name, value in root.items():
+        workflow.virtual_wires.setdefault(name, value)
+
+    def recursive(raw: Any, parent: tuple[str, ...]) -> None:
+        for definition in _definition_entries(raw, path="definitions"):
+            key = str(definition.get("sg_key") or sg_key(definition))
+            scope = compose_scope_path((*parent, key))
+            nodes = definition.get("nodes", [])
+            if isinstance(nodes, Mapping):
+                nodes = list(nodes.values())
+            local_nodes: dict[str, VibeNode] = {}
+            for item in nodes:
+                if isinstance(item, Mapping):
+                    local = str(item.get("uid", item.get("id", "")))
+                    raw_widgets = item.get("widgets")
+                    if isinstance(raw_widgets, Mapping):
+                        helper_widgets = dict(raw_widgets)
+                    else:
+                        values = item.get("widgets_values")
+                        helper_widgets = {"widget_0": values[0]} if isinstance(values, list) and values else {}
+                    local_nodes[local] = VibeNode(local, str(item.get("class_type", item.get("type", ""))),
+                                                   inputs=dict(item.get("inputs", {})) if isinstance(item.get("inputs"), Mapping) else {},
+                                                   widgets=helper_widgets)
+            local_edges: list[VibeEdge] = []
+            legacy_boundary = any(
+                isinstance(link, (list, tuple)) and len(link) == 6 and (str(link[1]) in {"-10", "-20"} or str(link[3]) in {"-10", "-20"})
+                or isinstance(link, Mapping) and (str(link.get("origin_id")) in {"-10", "-20"} or str(link.get("target_id")) in {"-10", "-20"})
+                for link in definition.get("links", [])
+            )
+            for link in definition.get("links", []):
+                if legacy_boundary:
+                    break
+                if isinstance(link, (list, tuple)):
+                    local_edges.append(VibeEdge(str(link[1]), str(link[2]), str(link[3]), str(link[4])))
+                elif isinstance(link, Mapping):
+                    local_edges.append(VibeEdge(str(link["origin_id"]), str(link["origin_slot"]), str(link["target_id"]), str(link["target_slot"])))
+            found = {} if legacy_boundary else capture(local_nodes, local_edges, scope)
+            if found:
+                definition["virtual_wires"] = found
+            nested = definition.get("definitions")
+            if nested not in (None, {}, []):
+                recursive(nested, (*parent, key))
+    if workflow.definitions:
+        recursive(workflow.definitions, ())
+
+
+def _validate_virtual_wire_endpoints(workflow: VibeWorkflow) -> None:
+    """Ensure explicit virtual legs reference local authored endpoints."""
+    def check(wires: Any, ids: set[str], scope: str) -> None:
+        if not isinstance(wires, Mapping):
+            return
+        for name, value in wires.items():
+            if not isinstance(value, Mapping):
+                continue
+            for index, leg in enumerate(value.get("legs", ())):
+                if not isinstance(leg, Mapping):
+                    continue
+                for prefix in ("from", "to"):
+                    endpoint = leg.get(f"{prefix}_node", leg.get(f"{prefix}_uid"))
+                    if endpoint is None and isinstance(leg.get(prefix), Mapping):
+                        endpoint = leg[prefix].get("uid", leg[prefix].get("id"))
+                    if str(endpoint) not in ids:
+                        raise ValueError(f"virtual wire {name!r} leg {index} endpoint {endpoint!r} is unknown in scope {scope!r}")
+    check(workflow.virtual_wires, {str(node_id) for node_id in workflow.nodes} | {str(node.uid) for node in workflow.nodes.values()}, "")
+
+    def recursive(raw: Any, parent: tuple[str, ...]) -> None:
+        for definition in _definition_entries(raw, path="definitions"):
+            key = str(definition.get("sg_key") or sg_key(definition))
+            scope = compose_scope_path((*parent, key))
+            values = definition.get("nodes", [])
+            if isinstance(values, Mapping):
+                values = list(values.values())
+            ids = {str(item.get("id", item.get("uid"))) for item in values if isinstance(item, Mapping)} | {str(item.get("uid", item.get("id"))) for item in values if isinstance(item, Mapping)}
+            check(definition.get("virtual_wires"), ids, scope)
+            nested = definition.get("definitions")
+            if nested not in (None, {}, []):
+                recursive(nested, (*parent, key))
+    if workflow.definitions:
+        recursive(workflow.definitions, ())
+
+
 def normalize_to_api(
     raw: dict[str, Any],
     *,
@@ -481,10 +973,17 @@ def normalize_to_api(
     imports or calls the ComfyUI converter; in that mode
     ``comfy_converter_strict`` is ignored.
     """
+    if not isinstance(raw, dict):
+        raise ValueError("workflow source must be a mapping")
+    # Inputs crossing this boundary are untrusted JSON evidence.  Validate and
+    # detach before any converter can retain nested references.
+    raw = deepcopy(raw)
+    _validate_json_semantics(raw, path="workflow")
     shape = detect_workflow_shape(raw)
     if shape == "api":
-        api = raw.get("prompt", raw)
+        api = deepcopy(raw.get("prompt", raw))
         _enforce_exec_source_limits(api, surface="api")
+        _validate_api_shape(api)
         return api
     if shape == "vibe":
         # The rich envelope (nodes mapping + edges list) is the only structural
@@ -608,31 +1107,67 @@ def _native_port_names(node: Mapping[str, Any], field_name: str) -> list[str | N
 
 
 def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider | None = None) -> dict[str, Any]:
-    nodes = {str(node["id"]): node for node in raw.get("nodes", []) if isinstance(node, dict) and "id" in node}
+    _validate_raw_ui_node_identities(raw)
+    raw_nodes = raw.get("nodes")
+    if not isinstance(raw_nodes, list):
+        raise ValueError("UI nodes must be a list")
+    nodes = {str(node["id"]): node for node in raw_nodes}
     links = raw.get("links", [])
-    link_map: dict[int, tuple[str, int]] = {}
-    for link in links:
-        if isinstance(link, list) and len(link) >= 4:
-            link_map[int(link[0])] = (str(link[1]), int(link[2]))
-        elif isinstance(link, dict) and {"id", "origin_id", "origin_slot"} <= set(link):
-            link_map[int(link["id"])] = (str(link["origin_id"]), int(link["origin_slot"]))
+    if not isinstance(links, list):
+        raise ValueError("UI links must be a list")
+    link_map: dict[int, tuple[str, int, str, int]] = {}
+    for index, link in enumerate(links):
+        if isinstance(link, list) and len(link) == 6:
+            link_id, origin, origin_slot, target, target_slot, link_type = link
+            if not isinstance(link_type, str):
+                raise ValueError(f"UI link {index} type must be a string")
+        elif isinstance(link, Mapping) and {"id", "origin_id", "origin_slot", "target_id", "target_slot", "type"} <= set(link):
+            link_id, origin, origin_slot, target, target_slot, link_type = (link[k] for k in ("id", "origin_id", "origin_slot", "target_id", "target_slot", "type"))
+            if link_type is not None and not isinstance(link_type, str):
+                raise ValueError(f"UI link {index} type must be a string or null")
+        else:
+            raise ValueError(f"UI link {index} must be an exact six-field record")
+        if isinstance(link_id, bool) or not isinstance(link_id, int) or link_id in link_map:
+            raise ValueError(f"UI link {index} has duplicate or invalid id")
+        if isinstance(origin, bool) or not isinstance(origin, (str, int)) or isinstance(target, bool) or not isinstance(target, (str, int)):
+            raise ValueError(f"UI link {index} endpoints must be integer or string ids")
+        origin_id, target_id = str(origin), str(target)
+        if origin_id not in nodes or target_id not in nodes:
+            raise ValueError(f"UI link {index} references unknown endpoint {origin_id!r}/{target_id!r}")
+        if isinstance(origin_slot, bool) or not isinstance(origin_slot, int) or origin_slot < 0 or isinstance(target_slot, bool) or not isinstance(target_slot, int) or target_slot < 0:
+            raise ValueError(f"UI link {index} slots must be nonnegative integers")
+        link_map[link_id] = (origin_id, origin_slot, target_id, target_slot)
 
     api: dict[str, Any] = {}
     for node_id, node in nodes.items():
         inputs: dict[str, Any] = {}
         input_provenance: dict[str, str] = {}
-        class_type = str(node.get("type") or node.get("class_type") or "Unknown")
+        class_type = node.get("type") or node.get("class_type")
+        if not isinstance(class_type, str) or not class_type.strip():
+            raise ValueError(f"UI node {node_id!r} class_type is required")
         ui_widget_names: list[str] = []
         used_names: set[str] = set()
-        for input_item in node.get("inputs", []) or []:
-            if not isinstance(input_item, dict):
+        raw_input_items = node.get("inputs", [])
+        if not isinstance(raw_input_items, list):
+            raise ValueError(f"UI node {node_id!r} inputs must be a list")
+        for input_index, input_item in enumerate(raw_input_items):
+            if input_item is None:
                 continue
+            if not isinstance(input_item, dict):
+                raise ValueError(f"UI node {node_id!r} input entry must be a mapping or null hole")
             name = input_item.get("name")
             link_id = input_item.get("link")
             widget = input_item.get("widget")
             if link_id is None and isinstance(name, str) and isinstance(widget, dict):
                 ui_widget_names.append(str(widget.get("name") or name))
-            if link_id is not None and link_id in link_map:
+            if link_id is not None:
+                if isinstance(link_id, bool) or not isinstance(link_id, int) or link_id not in link_map:
+                    raise ValueError(f"UI node {node_id!r} input {name!r} references unknown link {link_id!r}")
+                _origin_id, _origin_slot, target_id, target_slot = link_map[link_id]
+                if target_id != node_id or target_slot != input_item.get("slot_index", input_index):
+                    raise ValueError(
+                        f"UI node {node_id!r} input {name!r} does not match link {link_id!r} target"
+                    )
                 if not name:
                     # Reroute / passthrough nodes may have empty-string input
                     # names — use a stable generated key to preserve the edge.
@@ -783,57 +1318,16 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
     }
     raw_ids = set(raw_nodes_by_id.keys())
     converted_ids = set(converted.keys())
-    ids_diverge = bool(converted_ids - raw_ids)
+    ids_diverge = converted_ids != raw_ids
 
     if ids_diverge:
-        warnings.warn(
-            "convert_ui_to_api produced node ids not present in raw litegraph nodes; "
-            "falling back to class_type+order matching for _ui merge (correctness-2).",
-            stacklevel=4,
+        raise ValueError(
+            "converter_identity_mismatch: converted node ids are not a unique bijection "
+            "with source LiteGraph ids; reconciliation action: reopen with matching converter"
         )
-        # Build a lookup by (class_type, order_index) as a best-effort fallback
-        raw_by_class_order: dict[tuple[str, int], dict] = {}
-        for node in raw.get("nodes", []):
-            if not isinstance(node, dict):
-                continue
-            class_type = str(node.get("type", ""))
-            order = int(node.get("order", -1))
-            raw_by_class_order[(class_type, order)] = node
-
-        for node_id, node_data in converted.items():
-            if not isinstance(node_data, dict) or "_ui" in node_data:
-                continue
-            class_type = str(node_data.get("class_type", ""))
-            # Try to find a match; use first class_type match as a last resort
-            matched = None
-            for (ct, _order), raw_node in raw_by_class_order.items():
-                if ct == class_type:
-                    matched = raw_node
-                    break
-            if matched is not None:
-                slim: dict = {
-                    "id": matched.get("id"),
-                    "pos": matched.get("pos"),
-                    "size": matched.get("size"),
-                    "properties": matched.get("properties", {}),
-                }
-                if "widgets_values" in matched:
-                    slim["widgets_values"] = deepcopy(matched["widgets_values"])
-                    node_data.setdefault(
-                        "_raw_widgets",
-                        _raw_widget_payload_dict(matched["widgets_values"], source="ui.widgets_values"),
-                    )
-                for _f in ("mode", "flags", "color", "bgcolor"):
-                    if _f in matched:
-                        slim[_f] = matched[_f]
-                node_data["_ui"] = slim
-                node_data["native_input_names"] = _native_port_names(matched, "inputs")
-                node_data["native_output_names"] = _native_port_names(matched, "outputs")
-            else:
-                node_data["_ui"] = {}
     else:
         for node_id, node_data in converted.items():
-            if not isinstance(node_data, dict) or "_ui" in node_data:
+            if not isinstance(node_data, dict):
                 continue
             raw_node = raw_nodes_by_id.get(node_id)
             if raw_node is not None:
@@ -852,7 +1346,7 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                 for _f in ("mode", "flags", "color", "bgcolor"):
                     if _f in raw_node:
                         slim[_f] = raw_node[_f]
-                node_data["_ui"] = slim
+                node_data.setdefault("_ui", slim)
                 node_data["native_input_names"] = _native_port_names(raw_node, "inputs")
                 node_data["native_output_names"] = _native_port_names(raw_node, "outputs")
             else:
@@ -885,6 +1379,9 @@ def _validate_raw_ui_node_identities(raw: Mapping[str, Any]) -> None:
             raise ValueError(f"node {index}: id must be an integer or string")
         if isinstance(node_id, str) and not node_id.strip():
             raise ValueError(f"node {index}: id must be a nonblank string")
+        class_type = node.get("type", node.get("class_type"))
+        if not isinstance(class_type, str) or not class_type.strip():
+            raise ValueError(f"node {index}: class_type is required")
         canonical_id = str(node_id)
         prior_index = seen.get(canonical_id)
         if prior_index is not None:
@@ -1346,7 +1843,22 @@ def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
     authority. ``compiled_api`` is ignored. Same decoder as
     :meth:`VibeWorkflow.from_envelope`.
     """
-    return VibeWorkflow.from_envelope(raw)
+    detached = deepcopy(raw)
+    _validate_json_semantics(detached, path="envelope")
+    workflow = VibeWorkflow.from_envelope(detached)
+    report = workflow.validate_identity()
+    if not report.ok:
+        raise ValueError(report.issues[0].message)
+    raw_definitions = detached.get("definitions")
+    if raw_definitions is not None:
+        workflow.definitions = _normalize_recursive_definitions(raw_definitions)
+    if detached.get("interfaces") is not None:
+        workflow.interfaces = _normalize_interfaces(detached["interfaces"])
+    if detached.get("boundary_ports") is not None:
+        workflow.boundary_ports = _normalize_boundary_ports(detached["boundary_ports"])
+    if detached.get("virtual_wires") is not None:
+        workflow.virtual_wires = _normalize_virtual_wires(detached["virtual_wires"])
+    return workflow
 
 
 def from_ui(
@@ -1380,8 +1892,33 @@ def from_ui(
     # the door fingerprint is captured so a later definitions-only edit is
     # distinguishable from the ingest snapshot.
     raw_definitions = raw.get("definitions")
-    if isinstance(raw_definitions, dict):
+    if raw_definitions is not None:
+        workflow.definitions = _normalize_recursive_definitions(raw_definitions)
+        # Retain detached source evidence for the UI door only. Semantic
+        # consumers use the typed ``workflow.definitions`` field above.
         workflow.metadata["definitions"] = deepcopy(raw_definitions)
+        for definition in workflow.definitions.get("subgraphs", []):
+            scope = str(definition["sg_key"])
+            if scope not in workflow.interfaces and ("inputs" in definition or "outputs" in definition):
+                workflow.interfaces[scope] = {
+                    "inputs": [deepcopy(item) for item in definition.get("inputs", []) if isinstance(item, Mapping)],
+                    "outputs": [deepcopy(item) for item in definition.get("outputs", []) if isinstance(item, Mapping)],
+                }
+            for port in definition.get("boundary_ports", []):
+                if isinstance(port, Mapping):
+                    item = deepcopy(dict(port))
+                    item.setdefault("scope_path", scope)
+                    workflow.boundary_ports.append(item)
+    if raw.get("interfaces") is not None:
+        workflow.interfaces = _normalize_interfaces(raw["interfaces"])
+    if raw.get("boundary_ports") is not None:
+        workflow.boundary_ports = _normalize_boundary_ports(raw["boundary_ports"])
+    if raw.get("virtual_wires") is not None:
+        workflow.virtual_wires = _normalize_virtual_wires(raw["virtual_wires"])
+    # Capture authored helper intent before the shared execution projection
+    # lowers it. Helpers remain present as ordinary authored nodes.
+    _capture_import_virtual_wires(workflow)
+    _validate_virtual_wire_endpoints(workflow)
     # Law 1: stash the raw wire bytes at the door.  The emit boundary
     # reproduces them byte-for-byte for an untouched graph
     # (``emit_ui(from_ui(J)) == J``) and prefers them for edited graphs.
@@ -1460,6 +1997,9 @@ def _from_api_impl(
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
     """Ingest a Comfy prompt dict. Caller holds :func:`untrusted_scope`."""
+    api_workflow = deepcopy(api_workflow)
+    _validate_json_semantics(api_workflow, path="api")
+    _validate_api_shape(api_workflow)
     _enforce_exec_source_limits(api_workflow, surface="api.ingest")
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),
@@ -1514,6 +2054,22 @@ def _from_api_impl(
                 "native_output_names",
             }
         }
+        allowed_metadata = {
+            "_ui", "control_after_generate", "flags", "color", "bgcolor",
+            "output_names", "output_types", "input_aliases", "schema_source",
+            "semantic", "semantic_metadata", "rejected", PROVENANCE_KEY,
+            "_meta",
+        }
+        # ``metadata`` is not an opaque import escape hatch. A caller may use
+        # the explicit semantic mapping, but sibling keys are rejected with a
+        # stable reconciliation instruction.
+        unknown_metadata = sorted(str(key) for key in metadata if key not in allowed_metadata)
+        if unknown_metadata:
+            key = unknown_metadata[0]
+            raise ValueError(
+                f"node {node_id!r} metadata key {key!r} is unclassified; "
+                "reconciliation action: remove it or classify it as semantic/presentation"
+            )
         # ── retain control_after_generate (UI-only) into metadata ──
         # Captured here, before the compile-time `_is_ui_only_prompt_input` filter
         # (workflow.py:471) drops it from the compiled API dict, so the emitter can
@@ -1553,8 +2109,8 @@ def _from_api_impl(
         if input_aliases:
             metadata.setdefault("input_aliases", input_aliases)
         schema_source = _schema_source_provenance(schema_provider, class_type)
-        if schema_source is not None:
-            metadata.setdefault("schema_source", schema_source)
+        if not isinstance(metadata.get("schema_source"), Mapping):
+            metadata["schema_source"] = deepcopy(schema_source)
         if class_type == EXEC_CLASS_TYPE:
             _rebuild_exec_reload_metadata(metadata, widgets.get("io"))
         # S4 capability fence: ingest is the external-JSON boundary, so every
@@ -1591,6 +2147,17 @@ def _from_api_impl(
                 workflow.edges.append(VibeEdge(str(value[0]), str(value[1]), str(node_id), name))
 
     workflow.requirements = _infer_requirements(workflow)
+    # Keep unresolved schema state actionable at the existing requirements
+    # boundary; this is node-local provenance, not a global metadata escape
+    # hatch or guessed runtime registry result.
+    missing_nodes = set(str(item) for item in workflow.requirements.missing_nodes)
+    for node in workflow.nodes.values():
+        source = node.metadata.get("schema_source")
+        if isinstance(source, Mapping) and not str(source.get("provider", "") or "").strip():
+            missing_nodes.add(node.class_type)
+    workflow.requirements.missing_nodes = sorted(missing_nodes)
+    _capture_import_virtual_wires(workflow)
+    _validate_virtual_wire_endpoints(workflow)
 
     # Stash an ingest-time snapshot immediately after uid minting and edge setup.
     # Captured once here so downstream delta computation can detect edits.
@@ -1810,7 +2377,16 @@ def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: st
 def _schema_source_provenance(schema_provider: SchemaProvider | None, class_type: str) -> dict[str, Any] | None:
     schema = schema_for(schema_provider, class_type)
     if schema is None:
-        return None
+        return {
+            "provider": "",
+            "path": None,
+            "cache_path": None,
+            "server_url": None,
+            "package": None,
+            "version": None,
+            "hash": None,
+            "confidence": 0.0,
+        }
     return {
         "provider": getattr(schema, "source_provider", "unknown"),
         "path": getattr(schema, "source_path", None),
@@ -1952,7 +2528,13 @@ def resolve_subgraph_helpers(
     top_level_edges: list[Any],
     pre_collected_broadcasts: dict[str, list[Any]] | None = None,
 ) -> None:
-    """Door-owned: fold Get/Set/Reroute/Primitive helpers inside subgraph defs."""
+    """Retired compatibility entry point; helper lowering belongs to T05."""
+    raise RuntimeError(
+        "resolve_subgraph_helpers is retired and uncallable; use authored helpers "
+        "and VibeWorkflow._execution_projection()"
+    )
+    # The historical implementation below is intentionally unreachable and
+    # retained only in this checkpoint for source-level migration context.
     if not raw_workflow:
         return
     defs = raw_workflow.get("definitions")

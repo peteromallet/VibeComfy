@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -106,13 +107,13 @@ def normalize_workflow_source(raw: Any, *, source_path: str | None = None) -> Wo
             severity="error",
         )
 
-    unwrapped, wrapper_path, unwrap_warnings = _unwrap_workflow(raw)
+    unwrapped, wrapper_path, unwrap_warnings = _unwrap_workflow(deepcopy(raw))
     shape = _detect_source_shape(unwrapped)
     if shape == "unknown":
         return WorkflowLoadResult(
             status="unsupported",
             shape="unknown",
-            raw=unwrapped,
+            raw=deepcopy(unwrapped),
             warnings=(
                 *unwrap_warnings,
                 WorkflowLoadWarning(
@@ -134,7 +135,7 @@ def normalize_workflow_source(raw: Any, *, source_path: str | None = None) -> Wo
         return WorkflowLoadResult(
             status="error",
             shape=shape,
-            raw=unwrapped,
+            raw=deepcopy(unwrapped),
             warnings=(
                 *unwrap_warnings,
                 WorkflowLoadWarning(
@@ -152,8 +153,8 @@ def normalize_workflow_source(raw: Any, *, source_path: str | None = None) -> Wo
         return WorkflowLoadResult(
             status="unsupported",
             shape=shape,
-            raw=unwrapped,
-            api=api,
+            raw=deepcopy(unwrapped),
+            api=deepcopy(api),
             warnings=(
                 *unwrap_warnings,
                 WorkflowLoadWarning(
@@ -169,8 +170,8 @@ def normalize_workflow_source(raw: Any, *, source_path: str | None = None) -> Wo
     return WorkflowLoadResult(
         status="loaded",
         shape=shape,
-        raw=unwrapped,
-        api=api,
+        raw=deepcopy(unwrapped),
+        api=deepcopy(api),
         nodes=nodes,
         warnings=unwrap_warnings,
         source_path=source_path,

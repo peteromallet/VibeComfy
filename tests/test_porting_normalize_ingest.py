@@ -26,6 +26,53 @@ from vibecomfy.ingest.normalize import (
 from vibecomfy.porting.emit.ui import emit_ui_json
 
 
+def test_t06_recursive_import_normalizes_scope_and_unresolved_schema() -> None:
+    raw = {
+        "nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],
+        "links": [],
+        "definitions": {"subgraphs": [{
+            "name": "Outer",
+            "nodes": [{"id": "inner", "type": "Inner", "inputs": [], "outputs": []}],
+            "links": [],
+        }]},
+    }
+    workflow = from_ui(raw, use_comfy_converter=False)
+    definition = workflow.definitions["subgraphs"][0]
+    assert definition["sg_key"] in definition["scope_path"]
+    assert definition["nodes"][0]["uid"] == "inner"
+    assert workflow.nodes["1"].metadata["schema_source"] == {
+        "provider": "", "path": None, "cache_path": None, "server_url": None,
+        "package": None, "version": None, "hash": None, "confidence": 0.0,
+    }
+
+
+def test_t06_import_rejects_unclassified_metadata_and_nonfinite_semantics() -> None:
+    with pytest.raises(ValueError, match="node '1'.*metadata key 'summary'.*reconciliation action"):
+        from_api({"1": {"class_type": "Known", "inputs": {}, "summary": "opaque"}})
+    with pytest.raises(ValueError, match="nonfinite semantic value"):
+        from_api({"1": {"class_type": "Known", "inputs": {"value": float("nan")}}})
+
+
+def test_t06_ui_links_are_exact_and_capture_set_get_before_projection() -> None:
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "Source", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": []},
+            {"id": 2, "type": "SetNode", "inputs": [{"name": "value", "link": 1}], "outputs": [], "widgets_values": ["BUS"]},
+            {"id": 3, "type": "GetNode", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": ["BUS"]},
+            {"id": 4, "type": "Sink", "inputs": [{"name": "value", "link": 2}], "outputs": [], "widgets_values": []},
+        ],
+        "links": [[1, 1, 0, 2, 0, "X"], [2, 3, 0, 4, 0, "X"]],
+    }
+    workflow = from_ui(raw, use_comfy_converter=False)
+    assert workflow.virtual_wires["BUS"]["legs"] == [{
+        "scope_path": "", "leg_index": 0, "occurrence_index": 0,
+        "from_node": "1", "from_output": "0", "to_node": "4", "to_input": "value",
+    }]
+    malformed = {**raw, "links": [[1, 1, 0, 2, 0]]}
+    with pytest.raises(ValueError, match="exact six-field"):
+        from_ui(malformed, use_comfy_converter=False)
+
+
 def _ksampler_api_node(*, control: str | None = None) -> dict:
     inputs: dict = {
         "seed": 42,

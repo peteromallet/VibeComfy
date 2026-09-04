@@ -213,7 +213,18 @@ def port_convert_workflow(
     if raw_workflow is not None:
         _definitions = raw_workflow.get("definitions")
         if _definitions is not None:
-            workflow.metadata["definitions"] = copy.deepcopy(_definitions)
+            from vibecomfy.ingest.normalize import _normalize_recursive_definitions
+
+            workflow.definitions = _normalize_recursive_definitions(_definitions)
+        # Preserve authored helper nodes and capture only proven Set/Get intent
+        # before the shared projection lowers it.
+        from vibecomfy.ingest.normalize import (
+            _capture_import_virtual_wires,
+            _validate_virtual_wire_endpoints,
+        )
+
+        _capture_import_virtual_wires(workflow)
+        _validate_virtual_wire_endpoints(workflow)
     resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
 
     # Surface ResolveDiagnostics into the existing emission_diagnostics
