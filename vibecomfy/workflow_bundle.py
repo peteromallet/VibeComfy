@@ -935,14 +935,7 @@ class ApprovedProjectionRecord:
         """Revalidate this record against a current bundle and fresh projections."""
         if not isinstance(bundle, WorkflowBundle):
             raise WorkflowBundleError("approved projection must be bound to a WorkflowBundle")
-        current = _make_bundle(
-            bundle.workflow,
-            python_path=bundle.python_path,
-            ui_sidecar=bundle.ui_sidecar,
-            provenance=bundle.provenance,
-            operation=str(bundle.provenance.get("operation", "authored")),
-            parent_revision=bundle.parent_revision,
-        )
+        current = _rebind_current_bundle(bundle)
         if current.revision_id != bundle.revision_id or current.revision_id != self.revision_id:
             raise WorkflowBundleError("approved projection revision does not match bundle")
         selected_variant = bundle.workflow.default_variant if variant is None else variant
@@ -972,6 +965,27 @@ class ApprovedProjectionRecord:
             raise WorkflowBundleError("approved projection UI projection does not match")
         if self.api_digest != canonical_digest(_thaw_json(self.api_projection)):
             raise WorkflowBundleError("approved projection API digest is invalid")
+
+
+def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
+    """Rebuild current revision state without compiling or changing bindings."""
+    source_provenance = getattr(bundle.workflow.source, "provenance", None)
+    provenance = (
+        dict(source_provenance)
+        if isinstance(source_provenance, Mapping) and source_provenance
+        else dict(bundle.provenance)
+    )
+    # The operation is a bound property of the bundle, not a mutable source
+    # override.  Keep the other bound identity inputs exactly as loaded.
+    provenance["operation"] = str(bundle.provenance.get("operation", "authored"))
+    return _make_bundle(
+        bundle.workflow,
+        python_path=bundle.python_path,
+        ui_sidecar=bundle.ui_sidecar,
+        provenance=provenance,
+        operation=str(bundle.provenance.get("operation", "authored")),
+        parent_revision=bundle.parent_revision,
+    )
 
 
 def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> None:
@@ -1077,6 +1091,38 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
                 if isinstance(source_pack, str):
                     lock_entry = lock_by_name.get(source_pack) or lock_by_slug.get(source_pack)
 
+            explicit_identities: list[Any] = []
+            if isinstance(source, Mapping) and any(
+                key in source
+                for key in ("pack_slug", "pack", "package", "git_commit", "commit", "evidence_identity")
+            ):
+                explicit_identities.append(source)
+            if identity is not None:
+                explicit_identities.append(identity)
+            if lock_entry is not None and explicit_identities:
+                lock_slug = str(lock_entry.slug or lock_entry.name)
+                lock_name = str(lock_entry.name)
+                lock_commit = lock_entry.commit or lock_entry.git_commit_sha
+                for explicit in explicit_identities:
+                    if isinstance(explicit, Mapping):
+                        explicit_pack = explicit.get("pack_slug") or explicit.get("pack") or explicit.get("package")
+                        explicit_commit = explicit.get("git_commit") or explicit.get("commit")
+                        explicit_evidence = explicit.get("evidence_identity")
+                    else:
+                        explicit_pack = getattr(explicit, "pack_slug", None)
+                        explicit_commit = getattr(explicit, "git_commit", None)
+                        explicit_evidence = getattr(explicit, "evidence_identity", None)
+                    if explicit_pack is not None and str(explicit_pack) not in {lock_slug, lock_name}:
+                        raise WorkflowBundleError(
+                            f"object-info identity pack conflicts with lock for {node.class_type} ({node_id})"
+                        )
+                    if lock_commit is not None:
+                        for pin in (explicit_commit, explicit_evidence):
+                            if pin is not None and str(pin) != str(lock_commit):
+                                raise WorkflowBundleError(
+                                    f"object-info identity pin conflicts with lock for {node.class_type} ({node_id})"
+                                )
+
             # A schema_source is provenance, not an identity by itself.  Use
             # only its explicit identity fields or an actual lock commit; do
             # not invent a value from provider/path/hash text.
@@ -1088,7 +1134,7 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
                     identity = {"pack_slug": str(source_pack), "git_commit": str(source_commit)}
                 elif source_pack and source_evidence:
                     identity = {"pack_slug": str(source_pack), "evidence_identity": str(source_evidence)}
-            if identity is None and lock_entry is not None:
+            if lock_entry is not None:
                 commit = lock_entry.commit or lock_entry.git_commit_sha
                 if commit:
                     identity = {
@@ -1228,14 +1274,7 @@ class WorkflowBundle:
         schema_provider: Any = None,
     ) -> ApprovedProjectionRecord:
         """Compile this unchanged candidate into one detached approval record."""
-        current = _make_bundle(
-            self.workflow,
-            python_path=self.python_path,
-            ui_sidecar=self.ui_sidecar,
-            provenance=self.provenance,
-            operation=str(self.provenance.get("operation", "authored")),
-            parent_revision=self.parent_revision,
-        )
+        current = _rebind_current_bundle(self)
         if current.revision_id != self.revision_id:
             raise WorkflowBundleError("workflow bundle revision is stale; reload before approval")
         if not self.workflow.nodes:

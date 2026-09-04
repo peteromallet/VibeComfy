@@ -161,9 +161,15 @@ def test_load_bundle_uses_restricted_build_loader_and_derives_identity(tmp_path:
         "api_digest",
     }
     record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
+    bundle.workflow.source.provenance["author_id"] = "changed"
+    with pytest.raises(WorkflowBundleError, match="revision"):
+        bundle.compile()
+    with pytest.raises(WorkflowBundleError, match="revision"):
+        record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
+    bundle.workflow.source.provenance.clear()
+    assert bundle.compile().to_canonical_bytes() == record.to_canonical_bytes()
     with pytest.raises(WorkflowBundleError, match="input binding"):
         record.assert_matches(bundle, None, {"unexpected": True}, record.api_projection, record.ui_projection)
-    assert bundle.compile().to_canonical_bytes() == record.to_canonical_bytes()
     bundle.workflow.add_node("Integer", uid="changed-after-approval", value=1)
     with pytest.raises(WorkflowBundleError, match="stale"):
         bundle.compile()
@@ -297,7 +303,11 @@ def test_bundle_identity_comes_from_lock_and_schema_source(monkeypatch: pytest.M
 
     workflow = _workflow("locked-identity")
     node = workflow.add_node("LockedNode", uid="locked-node", value=1)
-    node.metadata["schema_source"] = {"provider": "object_info"}
+    node.metadata["schema_source"] = {
+        "provider": "object_info",
+        "pack_slug": "locked-pack",
+        "git_commit": "abc123",
+    }
     pack = CustomNodePack("LockedPack", "local", frozenset({"LockedNode"}))
     lock = LockEntry(name="LockedPack", slug="locked-pack", commit="abc123", source="local", path="packs/locked")
     monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
@@ -333,6 +343,47 @@ def test_bundle_identity_lock_miss_fails_closed(monkeypatch: pytest.MonkeyPatch)
     )
     provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
     with pytest.raises(WorkflowBundleError, match="object-info identity"):
+        _approval_preconditions(workflow, provider)
+
+
+def test_bundle_identity_pack_conflict_with_lock_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("locked-pack-conflict")
+    node = workflow.add_node("LockedNode", uid="locked-node", value=1)
+    node.metadata["schema_source"] = {"pack_slug": "other-pack", "git_commit": "abc123"}
+    pack = CustomNodePack("LockedPack", "local", frozenset({"LockedNode"}))
+    lock = LockEntry(name="LockedPack", slug="locked-pack", commit="abc123", source="local", path="packs/locked")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    monkeypatch.setattr(object_info, "resolve_class_entry", lambda *_args, **_kwargs: pytest.fail("resolver called"))
+    provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
+    with pytest.raises(WorkflowBundleError, match="pack conflicts"):
+        _approval_preconditions(workflow, provider)
+
+
+def test_bundle_identity_commit_conflict_with_lock_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("locked-commit-conflict")
+    node = workflow.add_node("LockedNode", uid="locked-node", value=1)
+    node.metadata["object_info_identity"] = {
+        "pack_slug": "locked-pack",
+        "git_commit": "different-commit",
+    }
+    pack = CustomNodePack("LockedPack", "local", frozenset({"LockedNode"}))
+    lock = LockEntry(name="LockedPack", slug="locked-pack", commit="abc123", source="local", path="packs/locked")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    monkeypatch.setattr(object_info, "resolve_class_entry", lambda *_args, **_kwargs: pytest.fail("resolver called"))
+    provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
+    with pytest.raises(WorkflowBundleError, match="pin conflicts"):
         _approval_preconditions(workflow, provider)
 
 
