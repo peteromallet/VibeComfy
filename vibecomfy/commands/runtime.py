@@ -108,8 +108,7 @@ def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
         # approved-record boundary or compiling a subgraph as a fallback.
         print(
             "eval-node stopped: approved-record eval transport is not available; "
-            f"run `vibecomfy port check {args.path} --json` and use the T16 "
-            "bundle-bound eval route",
+            "use the T16 bundle-bound eval route",
             file=sys.stderr,
         )
         return 2

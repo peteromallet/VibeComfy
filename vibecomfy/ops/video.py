@@ -52,13 +52,14 @@ def _t2v(
     result = pick("video", "t2v", model=model, width=width, height=height, length=length, fps=fps, seed=seed, **overrides)
     bundle = load_bundle(result.template_id)
     workflow = bundle.workflow
-    if workflow.inputs.get("prompt") is None:
-        raise ValueError(f"video.t2v could not bind prompt input on template {result.template_id!r}")
-    run_inputs: dict[str, object] = {"prompt": prompt}
-    if seed is not None:
-        if workflow.inputs.get("seed") is None:
-            raise ValueError(f"video.t2v could not bind seed input on template {result.template_id!r}")
-        run_inputs["seed"] = seed
+    run_inputs = _public_run_inputs(
+        workflow,
+        result.template_id,
+        {"prompt": prompt, "width": width, "height": height, "frames": length, "fps": fps, "seed": seed},
+        overrides,
+        operation="video.t2v",
+        defaults={"fps": 16},
+    )
     candidate = workflow.copy()
     for patch in result.explicit_patches:
         patch.apply(candidate)
@@ -107,15 +108,14 @@ def _i2v(
     result = pick("video", "i2v", model=model, image=image_path, length=length, fps=fps, seed=seed, **overrides)
     bundle = load_bundle(result.template_id)
     workflow = bundle.workflow
-    if workflow.inputs.get("prompt") is None:
-        raise ValueError(f"video.i2v could not bind prompt input on template {result.template_id!r}")
-    if workflow.inputs.get("image") is None:
-        raise ValueError(f"video.i2v could not bind image input on template {result.template_id!r}")
-    run_inputs: dict[str, object] = {"prompt": prompt, "image": image_path}
-    if seed is not None:
-        if workflow.inputs.get("seed") is None:
-            raise ValueError(f"video.i2v could not bind seed input on template {result.template_id!r}")
-        run_inputs["seed"] = seed
+    run_inputs = _public_run_inputs(
+        workflow,
+        result.template_id,
+        {"prompt": prompt, "image": image_path, "frames": length, "fps": fps, "seed": seed},
+        overrides,
+        operation="video.i2v",
+        defaults={"fps": 16},
+    )
     candidate = workflow.copy()
     for patch in result.explicit_patches:
         patch.apply(candidate)
@@ -125,6 +125,45 @@ def _i2v(
         "video.i2v stopped: approved-record runtime transport is not available; "
         "use the T14 runtime boundary before executing this workflow"
     )
+
+
+def _public_run_inputs(
+    workflow: Any,
+    template_id: str,
+    values: dict[str, object],
+    overrides: dict[str, object],
+    *,
+    operation: str,
+    defaults: dict[str, object],
+) -> dict[str, object]:
+    public = workflow.inputs
+    run_inputs: dict[str, object] = {}
+    for name, value in values.items():
+        if value is None:
+            continue
+        target = name
+        if name == "frames":
+            if "frames" in public:
+                target = "frames"
+            elif "length" in public:
+                target = "length"
+        if target not in public:
+            if name in {"prompt", "image"} or name not in defaults or value != defaults[name]:
+                raise ValueError(
+                    f"{operation} override {name!r} is not a public input on template {template_id!r}"
+                )
+            continue
+        run_inputs[target] = value
+    for name, value in overrides.items():
+        if name not in public:
+            raise ValueError(
+                f"{operation} override {name!r} is not a public input on template {template_id!r}"
+            )
+        run_inputs[name] = value
+    required = "image" if operation == "video.i2v" else "prompt"
+    if required not in run_inputs:
+        raise ValueError(f"{operation} could not bind {required} input on template {template_id!r}")
+    return run_inputs
 
 
 def _resolve_i2v_image_path(image: Any) -> str:

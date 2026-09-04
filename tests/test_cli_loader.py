@@ -295,6 +295,7 @@ def test_run_binds_public_inputs_without_mutating_candidate(
 
     assert run_command._cmd_run(args) == 1
     assert calls[0]["run_inputs"] == {"prompt": "new prompt", "seed": 17, "steps": 23}
+    assert set(calls[0]) == {"run_inputs", "schema_provider"}
 
 
 def test_run_preserves_parser_options_and_server_preflight() -> None:
@@ -401,6 +402,28 @@ def test_validation_mints_one_approval_record_and_no_schema_stays_compat(
     assert no_schema_bundle.compiles == 0
 
 
+def test_validation_compile_failure_does_not_fall_back_to_bare_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import validate as validate_command
+
+    class Workflow:
+        def validate(self, **_kwargs):
+            raise AssertionError("approval failure must not authorize with bare validation")
+
+    class Bundle:
+        workflow = Workflow()
+
+        def compile(self, **_kwargs):
+            raise ValueError("approval failed")
+
+    monkeypatch.setattr(validate_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
+    monkeypatch.setattr(validate_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    assert validate_command._cmd_validate(argparse.Namespace(path="x", json=True, no_schema=False)) == 1
+    assert "approval failed" in capsys.readouterr().out
+
+
 def test_image_op_approves_copy_then_fails_without_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
     from vibecomfy.ops import image
     from vibecomfy.router import RouterResult
@@ -436,6 +459,158 @@ def test_image_op_approves_copy_then_fails_without_artifact(monkeypatch: pytest.
         image._t2i("prompt")
     assert approved.compiles[0]["run_inputs"] == {"prompt": "prompt"}
     assert original.workflow.touched is False
+
+
+def test_image_op_rejects_non_public_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.ops import image
+    from vibecomfy.router import RouterResult
+
+    workflow = SimpleNamespace(inputs={"prompt": object()})
+    monkeypatch.setattr(image, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
+    monkeypatch.setattr(image, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=workflow))
+
+    with pytest.raises(ValueError, match="not a public input"):
+        image._t2i("prompt", secret="do-not-bind")
+
+
+def test_video_op_binds_only_public_inputs_before_t14(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.ops import video
+    from vibecomfy.router import RouterResult
+
+    class Workflow:
+        inputs = {"prompt": object(), "frames": object(), "fps": object(), "seed": object()}
+
+        def copy(self):
+            return type(self)()
+
+    class Bundle:
+        workflow = Workflow()
+
+        def compile(self, **kwargs):
+            self.kwargs = kwargs
+            return object()
+
+    original = Bundle()
+    approved = Bundle()
+    monkeypatch.setattr(video, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
+    bundles = iter([original, approved])
+    monkeypatch.setattr(video, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
+        video._t2v("prompt", length=25, fps=24, seed=8)
+    assert approved.kwargs["run_inputs"] == {"prompt": "prompt", "frames": 25, "fps": 24, "seed": 8}
+
+
+def test_inspect_uses_record_without_bare_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.commands import inspect as inspect_command
+
+    class Workflow:
+        id = "inspect-record"
+        nodes = {}
+        edges = []
+        inputs = {}
+        outputs = []
+        requirements = SimpleNamespace(models=[], custom_nodes=[])
+
+        def validate(self, **_kwargs):
+            raise AssertionError("inspect must derive status from the approved record")
+
+    class Bundle:
+        workflow = Workflow()
+
+        def __init__(self):
+            self.compiles = 0
+
+        def compile(self, **_kwargs):
+            self.compiles += 1
+            return object()
+
+    bundle = Bundle()
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(inspect_command, "load_bundle", lambda *_args, **_kwargs: bundle)
+    monkeypatch.setattr(inspect_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(inspect_command, "find_applicable", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(inspect_command, "build_contract", lambda *_args, **_kwargs: SimpleNamespace(to_dict=lambda: {}))
+    monkeypatch.setattr(inspect_command, "build_contract_surface", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(inspect_command, "emit", lambda payload, **_kwargs: captured.append(payload) or 0)
+
+    assert inspect_command._cmd_inspect(argparse.Namespace(workflow="x", json=True)) == 0
+    assert bundle.compiles == 1
+    assert captured[0]["status"] == "runnable"
+
+
+def test_inspect_compile_failure_is_nonzero_without_bare_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import inspect as inspect_command
+
+    class Workflow:
+        def validate(self, **_kwargs):
+            raise AssertionError("failed approval must not fall back to bare validation")
+
+    class Bundle:
+        workflow = Workflow()
+
+        def compile(self, **_kwargs):
+            raise ValueError("approval failed")
+
+    monkeypatch.setattr(inspect_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
+    monkeypatch.setattr(inspect_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+
+    assert inspect_command._cmd_inspect(argparse.Namespace(workflow="x", json=False)) == 1
+    assert "approval failed" in capsys.readouterr().err
+
+
+def test_doctor_compile_failure_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.commands import doctor as doctor_command
+
+    class Bundle:
+        workflow = object()
+
+        def compile(self, **_kwargs):
+            raise ValueError("approval failed")
+
+    monkeypatch.setattr(doctor_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
+    monkeypatch.setattr(doctor_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    assert doctor_command._cmd_doctor(argparse.Namespace(path="x", json=False, lint=False, allow_drift=False)) == 1
+
+
+def test_health_validation_status_comes_from_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.diagnostics import health
+
+    class Workflow:
+        def validate(self, **_kwargs):
+            raise AssertionError("health approval must not call bare validation")
+
+    class Bundle:
+        workflow = Workflow()
+
+        def compile(self, **_kwargs):
+            return object()
+
+    monkeypatch.setattr(health, "load_bundle", lambda *_args, **_kwargs: Bundle())
+    result = health.run_validate("x", schema_provider=object())
+    assert result.ok is True
+    assert result.findings == []
+
+
+def test_canonical_eval_message_is_t16_only(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import runtime
+
+    monkeypatch.setattr(runtime, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=object()))
+    monkeypatch.setattr(runtime, "get_schema_provider", lambda *_args, **_kwargs: object())
+    assert runtime._cmd_runtime_eval_node(
+        argparse.Namespace(path="canonical.py", node="1", server_url=None, runtime="embedded")
+    ) == 2
+    message = capsys.readouterr().err
+    assert message == (
+        "eval-node stopped: approved-record eval transport is not available; "
+        "use the T16 bundle-bound eval route\n"
+    )
+    assert "port check" not in message
 
 
 def test_runtime_eval_and_queue_guards_fail_before_legacy_paths(

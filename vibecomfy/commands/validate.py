@@ -26,7 +26,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         workflow = bundle.workflow
         if not args.no_schema:
             _approved_record = bundle.compile(schema_provider=schema_provider)
-        report = workflow.validate(schema_provider=schema_provider)
+            report = ValidationReport(ok=True, issues=[])
+        else:
+            report = workflow.validate(schema_provider=schema_provider)
         if getattr(args, "check_freshness", False) and report.ok:
             drift = _subgraph_freshness_diagnostics(Path(args.path))
             if drift:
@@ -65,7 +67,9 @@ def build_validate_payload(path: str, *, no_schema: bool = False, check_freshnes
     workflow = bundle.workflow
     if not no_schema:
         _approved_record = bundle.compile(schema_provider=schema_provider)
-    report = workflow.validate(schema_provider=schema_provider)
+        report = ValidationReport(ok=True, issues=[])
+    else:
+        report = workflow.validate(schema_provider=schema_provider)
     issues = [
         {
             "code": issue.code,

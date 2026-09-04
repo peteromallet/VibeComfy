@@ -52,11 +52,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     schema_provider = get_schema_provider("local")
     try:
         _approved_record = bundle.compile(schema_provider=schema_provider)
-    except Exception:
-        # Preserve the existing diagnostic report for unsupported workflows;
-        # only a successfully compiled record can claim runnable status.
-        _approved_record = None
-    report = workflow.validate(schema_provider=schema_provider)
+    except Exception as exc:
+        print(f"inspect failed: {type(exc).__name__}: {exc}", file=__import__("sys").stderr)
+        return 1
     applicable_patches = [
         {"name": patch.name, "rationale": patch.rationale(workflow)}
         for patch in find_applicable(workflow)
@@ -72,7 +70,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         "outputs": [asdict(output) for output in workflow.outputs],
         "models": workflow.requirements.models,
         "custom_nodes": workflow.requirements.custom_nodes,
-        "status": _status_from_report(report),
+        "status": "runnable",
         "applicable_patches": applicable_patches,
         "contract": contract,
         **surface,

@@ -59,7 +59,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
             if memory_profile is not None and session_url is not None:
                 print(_memory_profile_restart_required_message("already-running session"), file=sys.stderr)
                 return 2
-        if ensure_packs and runtime in {"auto", "server"} and session_url is not None:
+        if ensure_packs and (
+            runtime == "server" or (runtime == "auto" and session_url is not None)
+        ):
             print("run failed: --ensure-packs is only supported for embedded runtime", file=sys.stderr)
             return 2
         schema_provider = get_schema_provider("local")
