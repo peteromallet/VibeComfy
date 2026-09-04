@@ -14,7 +14,6 @@ from __future__ import annotations
 import copy
 import keyword
 import re
-import warnings
 from typing import Any, Mapping
 
 from vibecomfy.ingest.normalize import door_nodes
@@ -353,14 +352,20 @@ def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
             if name
         }
     if ui_names and isinstance(metadata_names, (list, tuple)) and len(ui_names) != len(metadata_names):
-        warnings.warn(
+        from vibecomfy.errors import ArityDisagreementError  # noqa: PLC0415
+
+        raise ArityDisagreementError(
             (
-                f"output arity disagreement for {node.class_type}: metadata declares "
-                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
-                "continuing with the UI output names because live/UI object_info "
-                "takes precedence over stale embedded metadata."
+                f"output arity disagreement for {node.class_type}: authored metadata declares "
+                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}; "
+                "refresh the node UI metadata before canonical emission."
             ),
-            stacklevel=2,
+            class_type=str(node.class_type),
+            snapshot_pack=None,
+            snapshot_version=None,
+            snapshot_output_count=len(metadata_names),
+            ui_output_count=len(ui_names),
+            next_action="refresh the vibecomfy.exec node UI",
         )
         return {index: name for index, name in enumerate(ui_names) if name}
     ui_output_count = len(ui_names) if ui_names else None
@@ -471,6 +476,7 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
 
     lines = [
         "# vibecomfy: agent-edit",
+        "# vibecomfy: surface=non-authoritative",
         "# Edit node assignments only; uid comments are the stable identity fallback.",
         "",
     ]

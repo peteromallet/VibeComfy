@@ -60,11 +60,13 @@ def emit_agent_edit_python(
         project_execution_edges=False,
         diagnostics=diagnostics,
     )
-    definitions_source = raw_workflow
-    if definitions_source is None:
-        metadata_definitions = getattr(workflow, "metadata", None) or {}
-        if isinstance(metadata_definitions, Mapping) and metadata_definitions.get("definitions"):
-            definitions_source = {"definitions": metadata_definitions.get("definitions")}
+    # The assignment view is non-authoritative, but any optional recursive
+    # signature display still comes from the Python-owned IR.  Raw/UI payloads
+    # are migration evidence only and cannot alter this view.
+    definitions_source = None
+    authored_definitions = getattr(workflow, "definitions", None)
+    if authored_definitions:
+        definitions_source = {"definitions": authored_definitions}
     if definitions_source is not None:
         subgraph_definitions = _subgraph_definitions_from_raw(definitions_source, source_path=None)
         if subgraph_definitions:

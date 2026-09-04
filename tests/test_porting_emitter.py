@@ -4,13 +4,12 @@ import json
 import subprocess
 import sys
 import tempfile
-import warnings
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from vibecomfy.errors import ArityDisagreementError
+from vibecomfy.errors import ArityDisagreementError, ObjectInfoIdentityAmbiguityError
 from vibecomfy.ingest.normalize import from_api, from_ui, normalize_to_api
 from vibecomfy.porting.convert import ManualTemplateRefusal, _check_manual_refusal, port_convert_workflow
 from vibecomfy.porting.object_info.serialize import build_cache
@@ -22,25 +21,283 @@ from vibecomfy.porting.emitter import (
     READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
     READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
     emit_agent_edit_python,
+    emit_canonical_python,
     emit_ready_template_python,
     emit_scratchpad_python,
+    format_as_python,
+)
+from vibecomfy.security.agent_generated_loader import (
+    AgentGeneratedLoadError,
+    load_agent_generated_scratchpad,
+    scan_agent_generated_python,
 )
 from vibecomfy.utils import find_repo_root
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
-from tools.format_as_python import format_as_python
+from vibecomfy.workflow import (
+    VibeEdge,
+    VibeInput,
+    VibeNode,
+    VibeOutput,
+    VibeWorkflow,
+    WorkflowRequirements,
+    WorkflowSource,
+)
 
 
 def _sample_workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("sample", WorkflowSource("sample", provenance={"origin": "unit"}))
-    workflow.nodes["10"] = VibeNode("10", "LoadImage", inputs={"image": "input.png"})
+    workflow.nodes["10"] = VibeNode("10", "LoadImage", inputs={"image": "input.png"}, uid="load")
     workflow.nodes["20"] = VibeNode(
         "20",
         "SaveImage",
         inputs={"filename_prefix": "out/sample", "resize_type.multiple": 3},
+        uid="save",
     )
     workflow.connect("10.0", "20.images")
     workflow.register_input("prefix", "20", "filename_prefix", "out/sample")
     return workflow
+
+
+def test_canonical_emitter_restricted_round_trip_is_the_same_ir(tmp_path: Path) -> None:
+    workflow = VibeWorkflow("canonical/probe", WorkflowSource("canonical/probe"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "INTConstant",
+        inputs={"value": 3},
+        widgets={"label": "three"},
+        uid="constant",
+        native_input_names=["value", None],
+        native_output_names=["INT"],
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2",
+        "MysterySink",
+        inputs={"value": None},
+        uid="sink",
+        metadata={
+            "unresolved": True,
+            "diagnostics": ["schema missing"],
+            "provenance": {"source": "fixture"},
+            "input_names": ["value"],
+        },
+    )
+    workflow.connect("1.INT", "2.value")
+    workflow.inputs["amount"] = VibeInput(
+        "amount", "1", "value", 3, type="INT", default=2,
+        required=True, range=[0, 9], aliases=("count",),
+    )
+    workflow._manual_input_names.add("amount")
+    workflow.requirements = WorkflowRequirements(
+        models=["model.safetensors"], custom_nodes=["MysteryPack"],
+        missing_models=["missing.safetensors"], missing_nodes=["MysterySink"],
+        unsupported=["unsupported feature"],
+    )
+    workflow.variants = {"high": {"constant.value": 9}}
+    workflow.default_variant = "high"
+
+    source = emit_canonical_python(workflow, ready_metadata={"capability": "unknown"})
+    assert scan_agent_generated_python(source).ok
+    assert "INTConstant(" in source
+    assert source.count("raw_call('MysterySink'") == 1
+    assert "def _node" not in source
+    assert ".add(" not in source
+
+    path = tmp_path / "canonical_probe.py"
+    path.write_text(source, encoding="utf-8")
+    reloaded = load_agent_generated_scratchpad(path)
+    assert reloaded.id == workflow.id
+    assert reloaded.semantic_digest() == workflow.semantic_digest()
+    assert reloaded.compile("api") == workflow.compile("api")
+    assert reloaded.compile("graphbuilder") == workflow.compile("graphbuilder")
+
+
+def test_agent_edit_view_is_rejected_by_restricted_executable_loader(tmp_path: Path) -> None:
+    source = emit_agent_edit_python(_sample_workflow())
+    path = tmp_path / "agent_edit.py"
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises((AgentGeneratedLoadError, NameError)):
+        load_agent_generated_scratchpad(path)
+
+
+def test_agent_edit_recursive_display_ignores_raw_ui_definitions() -> None:
+    workflow = VibeWorkflow("canonical/agent-edit", WorkflowSource("canonical/agent-edit"))
+    workflow.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="root")
+    workflow.definitions = {
+        "subgraphs": [{"id": "authored", "nodes": [], "links": []}],
+    }
+    authored = emit_agent_edit_python(
+        workflow,
+        raw_workflow={"definitions": {"subgraphs": [{"id": "sidecar-only", "nodes": [], "links": []}]}},
+    )
+    clean = emit_agent_edit_python(workflow, raw_workflow={"definitions": {"subgraphs": []}})
+    assert authored == clean
+    assert "authored" in authored
+    assert "sidecar-only" not in authored
+
+
+def test_canonical_emitter_preserves_recursive_fields_and_ignores_raw_ui() -> None:
+    definition = {
+        "id": "inner-definition",
+        "name": "Inner",
+        "nodes": [{"id": "core", "uid": "core", "type": "InnerNode", "inputs": {"x": 1}}],
+        "links": [],
+    }
+    workflow = VibeWorkflow("canonical/recursive", WorkflowSource("canonical/recursive"))
+    workflow.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="root")
+    workflow.definitions = {"subgraphs": [definition]}
+    workflow.interfaces = {"inner-definition": {"inputs": [], "outputs": []}}
+    workflow.boundary_ports = []
+    workflow.virtual_wires = {}
+
+    left = format_as_python(
+        workflow,
+        ready_metadata={"ready_template": workflow.id},
+        ready_requirements={},
+        template_id=workflow.id,
+        raw_workflow={"definitions": {"subgraphs": [{"id": "lie"}]}},
+    )
+    right = format_as_python(
+        workflow,
+        ready_metadata={"ready_template": workflow.id},
+        ready_requirements={},
+        template_id=workflow.id,
+        raw_workflow={"definitions": {"subgraphs": []}},
+    )
+    assert left == right
+    namespace: dict[str, object] = {"__file__": "canonical_recursive.py"}
+    exec(compile(left, "canonical_recursive.py", "exec"), namespace)  # noqa: S102
+    reloaded = namespace["build"]()
+    assert reloaded.semantic_digest() == workflow.semantic_digest()
+    assert reloaded.compile("api") == workflow.compile("api")
+
+
+def test_canonical_depth_two_recursive_helpers_reload_twice_with_parity(tmp_path: Path) -> None:
+    from tests.test_b11b_execution_projection import _depth_two_sibling_workflow
+
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    source = emit_canonical_python(workflow)
+    assert scan_agent_generated_python(source).ok
+    inner_name = "_definition_" + (outer_key + "/" + inner_key).replace(":", "_").replace("/", "_")
+    outer_name = "_definition_" + outer_key.replace(":", "_")
+    assert source.count("def _definition_") == 2
+    assert source.index(f"\ndef {inner_name}(wf: VibeWorkflow, input: Any) -> Any:") < source.index(
+        f"\ndef {outer_name}(wf: VibeWorkflow, input: Any) -> Any:"
+    )
+    assert "-> Any:" in source
+    assert "wf.interfaces =" in source
+    assert "wf.boundary_ports =" in source
+    assert f" = {inner_name}(wf, input)" in source
+    assert "raw_call(wf, 'EchoImage'" in source
+    assert source.count("wf.connect(") == len(workflow.edges)
+    build_source = source[source.index("def build") :]
+    assert inner_name not in build_source
+    assert outer_name not in build_source
+
+    path = tmp_path / "depth_two.py"
+    path.write_text(source, encoding="utf-8")
+    first = load_agent_generated_scratchpad(path)
+    second = load_agent_generated_scratchpad(path)
+    assert first.semantic_digest() == workflow.semantic_digest()
+    assert second.semantic_digest() == first.semantic_digest()
+    assert first.compile("api") == workflow.compile("api")
+    assert first.compile("graphbuilder") == workflow.compile("graphbuilder")
+
+
+def test_canonical_recursive_callable_source_has_known_unknown_local_nodes() -> None:
+    from vibecomfy.identity.scope import sg_key
+
+    definition = {
+        "id": "local-def",
+        "name": "LocalDef",
+        "nodes": [
+            {"id": "known", "type": "INTConstant", "inputs": [{"name": "value", "link": None, "value": 2}]},
+            {"id": "unknown", "type": "MysteryLocal", "inputs": [{"name": "value", "link": None, "value": None}]},
+        ],
+        "links": [[1, "known", 0, "unknown", "value", "INT"]],
+    }
+    key = sg_key(definition)
+    workflow = VibeWorkflow("canonical/typed-local", WorkflowSource("canonical/typed-local"))
+    workflow.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="root")
+    workflow.definitions = {"subgraphs": [definition]}
+    workflow.interfaces = {
+        key: {
+            "inputs": [{"name": "input", "direction": "input", "type": "INT"}],
+            "outputs": [{"name": "output", "direction": "output", "type": "INT"}],
+        }
+    }
+    workflow.boundary_ports = [
+        {"scope_path": key, "name": "input", "direction": "input", "node_uid": "unknown", "field": "value"},
+        {"scope_path": key, "name": "output", "direction": "output", "node_uid": "unknown", "field": "0"},
+    ]
+    source = emit_canonical_python(workflow)
+    definition_name = "_definition_" + key.replace(":", "_")
+    assert f"def {definition_name}(wf: VibeWorkflow, input: int) -> int:" in source
+    assert "INTConstant(wf, _id='known'" in source
+    assert "from vibecomfy.nodes.kjnodes import INTConstant" in source
+    assert "raw_call(wf, 'MysteryLocal', _id='unknown', pass_raw=True" in source
+    assert "wf.connect('known.0', 'unknown.value')" in source
+
+
+def test_canonical_recursive_callable_rejects_malformed_boundary_scope() -> None:
+    workflow, _inner_key, outer_key = __import__(
+        "tests.test_b11b_execution_projection", fromlist=["_depth_two_sibling_workflow"]
+    )._depth_two_sibling_workflow()
+    workflow.boundary_ports[0]["scope_path"] = "missing-scope"
+    with pytest.raises(ValueError, match="boundary_port_malformed"):
+        emit_canonical_python(workflow)
+
+
+def test_canonical_recursive_definition_cycles_and_collisions_fail_closed() -> None:
+    cycle = {"id": "cycle", "nodes": [], "links": []}
+    cycle["definitions"] = {"subgraphs": [cycle]}
+    cyclic = VibeWorkflow("canonical/cycle", WorkflowSource("canonical/cycle"))
+    cyclic.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="root")
+    cyclic.definitions = {"subgraphs": [cycle]}
+    with pytest.raises(ValueError, match="recursive_definition_cycle"):
+        emit_canonical_python(cyclic)
+
+    duplicate = {"id": "same", "nodes": [], "links": []}
+    colliding = VibeWorkflow("canonical/collision", WorkflowSource("canonical/collision"))
+    colliding.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="root")
+    colliding.definitions = {"subgraphs": [duplicate, dict(duplicate)]}
+    with pytest.raises(ValueError, match="duplicate recursive definition helper identity"):
+        emit_canonical_python(colliding)
+
+
+def test_canonical_emitter_does_not_duplicate_imported_link_views(tmp_path: Path) -> None:
+    workflow = VibeWorkflow("canonical/edge", WorkflowSource("canonical/edge"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "INTConstant", inputs={"value": 1}, uid="source"
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2", "MysterySink", inputs={"value": ["1", 0]}, uid="target",
+        metadata={"unresolved": True, "input_names": ["value"]},
+    )
+    workflow.connect("1.0", "2.value")
+
+    source = emit_canonical_python(workflow)
+    assert source.count("wf.connect('1.0', '2.value')") == 1
+    path = tmp_path / "edge.py"
+    path.write_text(source, encoding="utf-8")
+    reloaded = load_agent_generated_scratchpad(path)
+    assert len(reloaded.edges) == 1
+    assert reloaded.semantic_digest() == workflow.semantic_digest()
+
+
+def test_scratchpad_rejects_noncanonical_projection_options() -> None:
+    with pytest.raises(ValueError, match="canonical defaults"):
+        emit_scratchpad_python(_sample_workflow(), keep_virtual_wires=False)
+    with pytest.raises(ValueError, match="canonical defaults"):
+        emit_scratchpad_python(_sample_workflow(), prune_dead_branches=True)
+    diagnostics: list[EmissionDiagnostic] = []
+    emit_scratchpad_python(
+        _sample_workflow(),
+        keep_virtual_wires=False,
+        prune_dead_branches=True,
+        diagnostics=diagnostics,
+    )
+    assert [item.code for item in diagnostics] == [
+        "deprecated_scratchpad_projection_options"
+    ]
 
 
 def _workflow_from_ui_json(path: str) -> tuple[VibeWorkflow, dict[str, Any]]:
@@ -67,29 +324,32 @@ def _emit_ready_from_ui_json(path: str, template_id: str) -> str:
     )
 
 
-def test_emit_scratchpad_python_preserves_ids_extras_inputs_and_provenance() -> None:
+def test_emit_scratchpad_python_is_thin_canonical_migration() -> None:
+    original = _sample_workflow()
+    original.nodes["10"].uid = ""
+    original.nodes["20"].uid = ""
     text = emit_scratchpad_python(
-        _sample_workflow(),
+        original,
         workflow_id="scratch/sample",
         source_path="ready_templates/sources/source.json",
         provenance={"source_hash": "sha256:abc"},
         registered_inputs={"prefix": ("20", "filename_prefix")},
     )
 
-    assert "READY_METADATA" not in text
-    assert "source_type='scratchpad'" in text
-    assert "provenance={'source_hash': 'sha256:abc'}" in text
-    assert "_extras={'resize_type.multiple': 3}" in text
+    assert "READY_METADATA" in text
+    assert "# vibecomfy: surface=canonical" in text
+    assert "'source_hash': 'sha256:abc'" in text
+    assert "**{'resize_type.multiple': 3}" in text
+    assert "def _node" not in text
+    assert not original.nodes["10"].uid
 
     namespace: dict[str, object] = {"__file__": "out/scratchpads/sample.py"}
     exec(compile(text, "scratch emitted", "exec"), namespace)  # noqa: S102 - generated code under test
     workflow = namespace["build"]()
 
     assert isinstance(workflow, VibeWorkflow)
-    assert workflow.id == "scratch/sample"
-    assert workflow.source.source_type == "scratchpad"
-    assert workflow.source.path == "ready_templates/sources/source.json"
-    assert workflow.source.provenance == {"source_hash": "sha256:abc"}
+    assert workflow.id == original.id
+    assert workflow.source.source_type == "ready_template"
     assert sorted(workflow.nodes) == ["10", "20"]
     assert workflow.nodes["20"].inputs["resize_type.multiple"] == 3
     assert workflow.inputs["prefix"].node_id == "20"
@@ -108,36 +368,26 @@ def test_emit_ready_template_python_has_ready_metadata_contract() -> None:
     assert "READY_METADATA =" in text
     assert "READY_REQUIREMENTS =" not in text
     assert "ReadyMetadata.build(" in text
-    assert "template_id='image/sample'" not in text
-    assert "from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow" in text
+    assert "template_id='sample'" in text
+    assert "from vibecomfy.templates import" in text
     assert "from vibecomfy.registry.ready_template import" not in text
     assert "def _node" not in text
-    # Post-revert: emitter uses the flat `wf = new_workflow(...)` form rather
-    # than `with new_workflow(...) as wf:` for ready templates.  The
-    # context-manager form remains supported on VibeWorkflow but is no longer
-    # emitted, so the body sits at 4-space indent.
     assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in text
-    assert "LoadImage(image='input.png')" in text
-    assert "_id='10'" not in text
+    assert "LoadImage(_id='10', image='input.png', _uid='load')" in text
+    assert "_id='10'" in text
     assert "wf.metadata.setdefault('id_map'" not in text
     assert "wf._set_id_map(" not in text
     assert "LoadImage(wf" not in text
     assert "PUBLIC_INPUT_METADATA = {" in text
-    # Post-revert: the parallel `def PUBLIC_INPUTS(**nodes):` factory is gone;
-    # finalize consumes the top-level `PUBLIC_INPUT_METADATA` dict directly.
     assert "def PUBLIC_INPUTS(**nodes):" not in text
-    assert "    return wf.finalize(PUBLIC_INPUT_METADATA" in text
+    assert "    wf = wf.finalize(PUBLIC_INPUT_METADATA" in text
     assert "'prefix': InputSpec(node='20', field='filename_prefix', default='out/sample')" in text
     assert "bind_input(" not in text
     assert "bind_output(" not in text
     assert "artifact_kind='image'" in text
-    # Note: this fixture's source-workflow uses node IDs '10'/'20' but the
-    # emitted build() creates fresh nodes that auto-assign IDs '1'/'2', so the
-    # module-level PUBLIC_INPUT_METADATA's string node='20' will not resolve at
-    # exec time.  Real regenerated ready templates avoid this because their
-    # source-workflow IDs and the emitter's variable-ordering happen to align
-    # (LoadImage gets '1', etc.) — see ``tools/convert_ready_templates.py`` and
-    # the regenerated ``ready_templates/image/basic_image_upscale.py``.
+    namespace: dict[str, object] = {"__file__": "canonical_ready.py"}
+    exec(compile(text, "canonical_ready.py", "exec"), namespace)  # noqa: S102
+    assert namespace["build"]().semantic_digest() == _sample_workflow().semantic_digest()
 
 
 def test_ready_template_provenance_paths_are_repo_relative() -> None:
@@ -180,7 +430,7 @@ def test_emit_ready_template_omits_empty_model_and_input_boilerplate() -> None:
     assert "def PUBLIC_INPUTS" not in text
     assert "    inputs=PUBLIC_INPUTS," not in text
     assert "    models=MODELS," not in text
-    assert "return wf.finalize({}" in text
+    assert "wf = wf.finalize({}" in text
     assert "ModelAsset" not in text
     assert "InputSpec" not in text
 
@@ -395,24 +645,25 @@ def test_model_constant_names_use_known_model_families() -> None:
     assert "CKPT_NAME = 'depth_anything_vitl14.pth'" not in text
 
 
-def test_emitter_resolves_serialized_graph_lookup_prompt_literals() -> None:
+def test_emitter_preserves_authored_string_literals_without_evaluating_them() -> None:
     workflow = VibeWorkflow("sample", WorkflowSource("sample"))
     prompt = "a detailed cinematic prompt that is long enough to hoist"
-    workflow.nodes["11"] = VibeNode("11", "CLIPTextEncode", inputs={"text": prompt})
+    workflow.nodes["11"] = VibeNode("11", "CLIPTextEncode", inputs={"text": prompt}, uid="first")
     workflow.nodes["21"] = VibeNode(
         "21",
         "CLIPTextEncode",
         inputs={"text": "wf.nodes['11'].inputs.get('text', '')"},
+        uid="second",
     )
 
-    text = emit_ready_template_python(
+    text = emit_canonical_python(
         workflow,
         ready_metadata={"ready_template": "image/lookup_prompt", "capability": "image"},
         ready_requirements={},
         template_id="image/lookup_prompt",
     )
 
-    assert "wf.nodes['11'].inputs.get('text', '')" not in text
+    assert "wf.nodes['11'].inputs.get('text', '')" in text
     assert f"DEFAULT_PROMPT = {prompt!r}" in text
 
 
@@ -497,326 +748,35 @@ def test_model_block_rejects_explicit_malformed_subdir(field: str, subdir: Any) 
         )
 
 
-def test_subgraph_materialized_as_bare_function() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_base.json",
-        "edit/flux2_klein_9b_image_edit_base",
-    )
+def test_raw_ui_subgraph_payload_is_not_an_emission_authority() -> None:
+    workflow = VibeWorkflow("canonical/no-sidecar", WorkflowSource("canonical/no-sidecar"))
+    workflow.nodes["1"] = VibeNode("1", "INTConstant", inputs={"value": 1}, uid="one")
 
-    assert "@block" not in text
-    assert "@subgraph" not in text
-    assert "Handles(" not in text
-    assert "def image_edit_flux2_klein_9b(" in text
-    assert "workflow: VibeWorkflow" not in text
-    body = text[text.index("def image_edit_flux2_klein_9b("):text.index("def image_edit_flux2_klein_9b_dual(")]
-    assert "unet_name: str" in body
-    assert "image," in body
-    assert "UNETLoader(" in body
-    assert "unet_name=unet_name" in body
-    assert "return vaedecode" in body
-
-
-def test_subgraph_multi_output_returns_tuple() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json",
-        "edit/flux2_klein_4b_image_edit_distilled",
-    )
-
-    body = text[text.index("def reference_conditioning("):text.index("def reference_conditioning_93041a64(")]
-    assert "return referencelatent_2, referencelatent" in body
-    assert "conditioning, conditioning_1 = reference_conditioning(" in text
-
-
-def test_subgraph_call_site_replaces_raw_call() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_base.json",
-        "edit/flux2_klein_9b_image_edit_base",
-    )
-
-    assert "edited = image_edit_flux2_klein_9b(" in text
-    assert "edited_dual = image_edit_flux2_klein_9b_dual(" in text
-    assert "raw_call('7b34ab90" not in text
-    assert "raw_call('65c22b29" not in text
-
-    workflow = VibeWorkflow("uuid", WorkflowSource("uuid"))
-    workflow.nodes["1"] = VibeNode("1", "11111111-1111-1111-1111-111111111111")
-    fallback = emit_ready_template_python(
-        workflow,
-        ready_metadata={"ready_template": "image/uuid", "capability": "image"},
-        ready_requirements={},
-        template_id="image/uuid",
-        raw_workflow={"definitions": {"subgraphs": []}},
-    )
-    assert "raw_call('11111111-1111-1111-1111-111111111111'" in fallback
-
-
-def test_subgraph_call_site_uses_widget_fed_literals() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/image/flux2_klein_9b_t2i.json",
-        "image/flux2_klein_9b_t2i",
-    )
-
-    assert "def text_to_image_flux2_klein_9b(" in text
-    assert "edited = text_to_image_flux2_klein_9b(" in text
-    assert "raw_call('7b34ab90" not in text
-    call = text[text.index("edited = text_to_image_flux2_klein_9b("):text.index("saveimage = SaveImage(")]
-    assert "width=1024" in call
-    assert "height=1024" in call
-    assert "unet_name='flux-2-klein-base-9b-fp8.safetensors'" in call
-    assert "clip_name='qwen_3_8b_fp8mixed.safetensors'" in call
-    assert "vae_name='full_encoder_small_decoder.safetensors'" in call
-    assert "prompt=''" in call
-
-
-def test_subgraph_call_site_uses_proxy_widget_order_for_z_image() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/image/z_image.json",
-        "image/z_image",
-    )
-
-    call = text[text.index("edited = text_to_image_z_image_base("):text.index("saveimage = SaveImage(")]
-    assert "width=1024" in call
-    assert "height=1024" in call
-    assert "unet_name='z_image_bf16.safetensors'" in call
-    assert "clip_name='qwen_3_4b.safetensors'" in call
-    assert "vae_name='ae.safetensors'" in call
-    assert "steps=25" in call
-    assert "cfg=4" in call
-    assert "width='A fashion photography" not in call
-    assert "steps=770044821593082" not in call
-    assert "cfg='randomize'" not in call
-
-
-def test_subgraph_signature_prefers_meaningful_labels_and_cleans_widgets() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/image/flux2_klein_9b_t2i.json",
-        "image/flux2_klein_9b_t2i",
-    )
-
-    body = text[text.index("def text_to_image_flux2_klein_9b("):text.index("def build()")]
-    signature = body[:body.index("):") + 2]
-    assert "width: int" in signature
-    assert "height: int" in signature
-    assert "prompt: str" in signature
-    assert "value: int" not in signature
-    assert "value_1: int" not in signature
-    assert "value=width" in body
-    assert "value=height" in body
-    assert "control_after_generate='fixed'" in body
-    assert "widget_1=" not in body
-    assert "widget_2=" not in body
-
-
-def test_subgraph_call_site_uses_instance_widget_values_and_warns_when_unbound() -> None:
-    workflow = VibeWorkflow("widget_subgraph", WorkflowSource("widget_subgraph"))
-    workflow.nodes["1"] = VibeNode(
-        "1",
-        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        metadata={
-            "_ui": {
-                "inputs": [
-                    {"name": "value", "type": "INT", "widget": {"name": "value"}, "link": None},
-                ],
-                "widgets_values": [123],
-            }
-        },
-    )
     raw = {
         "definitions": {
-            "subgraphs": [
-                {
-                    "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-                    "name": "Widget Source",
-                    "inputs": [
-                        {"name": "value", "type": "INT"},
-                        {"name": "missing", "type": "STRING"},
-                    ],
-                    "outputs": [],
-                    "nodes": [],
-                    "links": [],
-                }
-            ]
+            "subgraphs": [{
+                "id": "sidecar-only",
+                "name": "Must Not Execute",
+                "nodes": [],
+                "links": [],
+            }]
         }
     }
-    diagnostics: list[EmissionDiagnostic] = []
-
-    text = emit_ready_template_python(
+    source = format_as_python(
         workflow,
-        ready_metadata={"ready_template": "image/widget_subgraph", "capability": "image"},
+        ready_metadata={"ready_template": workflow.id},
         ready_requirements={},
-        template_id="image/widget_subgraph",
-        raw_workflow=raw,
-        diagnostics=diagnostics,
-    )
-
-    assert "def widget_source(" in text
-    assert "value=123" in text
-    assert "missing=None" in text
-    assert any(diag.code == "subgraph_input_unbound" for diag in diagnostics)
-
-
-def test_subgraph_widget_values_ignore_unnamed_input_widget_positions() -> None:
-    workflow = VibeWorkflow("widget_subgraph", WorkflowSource("widget_subgraph"))
-    workflow.nodes["1"] = VibeNode(
-        "1",
-        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        metadata={
-            "_ui": {
-                "inputs": [
-                    {"name": "width", "type": "INT", "widget": {}, "link": None},
-                    {"name": "height", "type": "INT", "widget": {"name": "height"}, "link": None},
-                ],
-                "widgets_values": [768],
-            }
-        },
-    )
-    raw = {
-        "definitions": {
-            "subgraphs": [
-                {
-                    "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-                    "name": "Widget Source",
-                    "inputs": [
-                        {"name": "width", "type": "INT"},
-                        {"name": "height", "type": "INT"},
-                    ],
-                    "outputs": [],
-                    "nodes": [],
-                    "links": [],
-                }
-            ]
-        }
-    }
-
-    text = emit_ready_template_python(
-        workflow,
-        ready_metadata={"ready_template": "image/widget_subgraph", "capability": "image"},
-        ready_requirements={},
-        template_id="image/widget_subgraph",
+        template_id=workflow.id,
         raw_workflow=raw,
     )
 
-    assert "height=768" in text
-    assert "width=768" not in text
-    assert "width=None" in text
+    assert "Must Not Execute" not in source
+    assert "sidecar-only" not in source
+    namespace: dict[str, object] = {"__file__": "canonical_no_sidecar.py"}
+    exec(compile(source, "canonical_no_sidecar.py", "exec"), namespace)  # noqa: S102
+    assert namespace["build"]().semantic_digest() == workflow.semantic_digest()
 
-
-def test_subgraph_widget_values_ignore_curated_ui_only_positions() -> None:
-    workflow = VibeWorkflow("widget_subgraph", WorkflowSource("widget_subgraph"))
-    workflow.nodes["1"] = VibeNode(
-        "1",
-        "KSampler",
-        metadata={
-            "_ui": {
-                "type": "KSampler",
-                "inputs": [],
-                "widgets_values": [123, "randomize", 25, 4.0, "euler", "normal", 1.0],
-            }
-        },
-    )
-    raw = {
-        "definitions": {
-            "subgraphs": [
-                {
-                    "id": "KSampler",
-                    "name": "Widget Source",
-                    "inputs": [
-                        {"name": "seed", "type": "INT"},
-                        {"name": "steps", "type": "INT"},
-                        {"name": "cfg", "type": "FLOAT"},
-                    ],
-                    "outputs": [],
-                    "nodes": [],
-                    "links": [],
-                }
-            ]
-        }
-    }
-
-    text = emit_ready_template_python(
-        workflow,
-        ready_metadata={"ready_template": "image/widget_subgraph", "capability": "image"},
-        ready_requirements={},
-        template_id="image/widget_subgraph",
-        raw_workflow=raw,
-    )
-
-    assert "seed=123" in text
-    assert "steps=25" in text
-    assert "cfg=4.0" in text
-    assert "steps='randomize'" not in text
-    assert "cfg=25" not in text
-
-
-def test_subgraph_slug_collision_disambiguated() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_9b_image_edit_base.json",
-        "edit/flux2_klein_9b_image_edit_base",
-    )
-
-    assert "def image_edit_flux2_klein_9b(" in text
-    assert "def image_edit_flux2_klein_9b_dual(" in text
-
-
-def test_nested_subgraph_emits_function_call() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json",
-        "edit/flux2_klein_4b_image_edit_distilled",
-    )
-
-    outer = text[text.index("def image_edit_flux2_klein_4b_distilled_dual("):text.index("def build()")]
-    assert "reference_conditioning(" in outer
-    assert "reference_conditioning_93041a64(" in outer
-    assert "raw_call('27eacb9f" not in outer
-    assert "raw_call('93041a64" not in outer
-
-
-def test_nested_subgraph_topological_order() -> None:
-    text = _emit_ready_from_ui_json(
-        "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json",
-        "edit/flux2_klein_4b_image_edit_distilled",
-    )
-
-    assert text.index("def reference_conditioning(") < text.index("def image_edit_flux2_klein_4b_distilled_dual(")
-    assert text.index("def reference_conditioning_93041a64(") < text.index("def image_edit_flux2_klein_4b_distilled_dual(")
-
-
-def test_nested_subgraph_circular_raises() -> None:
-    workflow = VibeWorkflow("cycle", WorkflowSource("cycle"))
-    raw = {
-        "definitions": {
-            "subgraphs": [
-                {
-                    "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-                    "name": "Cycle A",
-                    "inputs": [],
-                    "outputs": [],
-                    "nodes": [{"id": 1, "type": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "inputs": [], "outputs": [], "widgets_values": []}],
-                    "links": [],
-                },
-                {
-                    "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-                    "name": "Cycle B",
-                    "inputs": [],
-                    "outputs": [],
-                    "nodes": [{"id": 2, "type": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "inputs": [], "outputs": [], "widgets_values": []}],
-                    "links": [],
-                },
-            ]
-        }
-    }
-
-    with pytest.raises(RuntimeError, match="Circular subgraph reference detected"):
-        emit_ready_template_python(
-            workflow,
-            ready_metadata={"ready_template": "image/cycle", "capability": "image"},
-            ready_requirements={},
-            template_id="image/cycle",
-            raw_workflow=raw,
-        )
-
-
-def test_tools_format_as_python_remains_ready_template_wrapper() -> None:
+def test_tools_format_as_python_delegates_to_canonical_emitter() -> None:
     kwargs = {
         "ready_metadata": {"ready_template": "image/sample", "source_workflow": "ready_templates/sources/source.json"},
         "ready_requirements": {"models": [], "custom_nodes": []},
@@ -824,7 +784,7 @@ def test_tools_format_as_python_remains_ready_template_wrapper() -> None:
         "registered_inputs": {"prefix": ("20", "filename_prefix")},
     }
 
-    assert format_as_python(_sample_workflow(), **kwargs) == emit_ready_template_python(_sample_workflow(), **kwargs)
+    assert format_as_python(_sample_workflow(), **kwargs) == emit_canonical_python(_sample_workflow(), **kwargs)
 
 
 def test_ready_template_id_map_contract_for_representative_emissions() -> None:
@@ -874,7 +834,7 @@ def test_ready_template_ltx_tail_lines_are_inside_workflow_context() -> None:
     assert "    apply_ltx_lowvram(wf)" in text
     assert "    resolution(384, 256, 9).apply(wf)" in text
     assert "    ensure_custom_nodes(wf, READY_METADATA.get(\"requirements\", {}).get(\"custom_nodes\", []))" in text
-    assert "    return wf.finalize(PUBLIC_INPUT_METADATA" in text
+    assert "    wf = wf.finalize(PUBLIC_INPUT_METADATA" in text
 
 
 def test_ready_template_build_spacing_for_multiline_and_packed_simple_calls() -> None:
@@ -898,10 +858,10 @@ def test_ready_template_build_spacing_for_multiline_and_packed_simple_calls() ->
     # Post-revert: emitted body sits at 4-space indent (flat `wf = new_workflow`
     # form) rather than 8-space (legacy `with new_workflow(...) as wf:` form).
     assert "\n    # Inputs\n    LoadImage(" in text
-    assert "\n    LoadImage(\n        image='second_input_image" in text
-    assert "cliptextencode = CLIPTextEncode(text='short positive')\n    cliptextencode_2 = CLIPTextEncode(text='short negative')" in text
+    assert "\n    LoadImage(\n        _id='2',\n        image='second_input_image" in text
+    assert "cliptextencode = CLIPTextEncode(_id='3', text='short positive', _uid='3')\n    cliptextencode_2 = CLIPTextEncode(_id='4', text='short negative', _uid='4')" in text
     assert "\n\n    # Conditioning\n" in text
-    assert "\n\n    return wf.finalize(PUBLIC_INPUT_METADATA" in text
+    assert "\n\n    wf = wf.finalize(PUBLIC_INPUT_METADATA" in text
 
 
 def test_convert_ready_templates_tool_dry_run_remains_compatible() -> None:
@@ -1245,73 +1205,41 @@ def _wan_workflow_with_ui_outputs(output_names: list[str]) -> VibeWorkflow:
 
 
 def test_unique_safe_names_emit_named_out() -> None:
-    """Unique safe output names produce .out('name') in emitted code."""
+    """Unknown-node output schema and authored edge slots remain explicit."""
     text = emit_scratchpad_python(
         _workflow_with_output_names(["image", "latent"]),
         source_path="test.json",
     )
-    # Should use named handles
-    assert ".out('image')" in text
-    assert ".out('latent')" in text
+    assert "wf.connect('1.0', '2.a')" in text
+    assert "wf.connect('1.1', '2.b')" in text
     assert "_outputs=('image', 'latent')" in text
 
 
-def test_duplicate_output_names_fall_back_to_numeric() -> None:
-    """Duplicate output names fall back to .out(n) with diagnostic."""
-    diags: list[EmissionDiagnostic] = []
-    from vibecomfy.porting.emitter import (
-        EmissionDiagnostic,
-        READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
-    )
-
-    text = emit_scratchpad_python(
-        _workflow_with_output_names(["image", "image"]),
-        source_path="test.json",
-        diagnostics=diags,
-    )
-    # Should use numeric handles (duplicate names are unsafe)
-    assert ".out(0)" in text
-    assert ".out(1)" in text
-    # Should NOT use named handles
-    assert ".out('image')" not in text
-    # Should emit _outputs with the partial names (source of truth)
-    assert "_outputs=('image', 'image')" in text
-    # Diagnostic should flag ambiguity
-    ambiguity_codes = [d.code for d in diags if d.code == READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY]
-    assert len(ambiguity_codes) > 0
+def test_duplicate_output_names_reject_without_ordinal_fallback() -> None:
+    """Ambiguous named outputs fail closed instead of selecting an ordinal."""
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_scratchpad_python(
+            _workflow_with_output_names(["image", "image"]),
+            source_path="test.json",
+        )
 
 
-def test_blank_output_names_fall_back_to_numeric() -> None:
-    """Blank output names fall back to .out(n), with named slots where safe."""
-    diags: list[EmissionDiagnostic] = []
-    from vibecomfy.porting.emitter import (
-        READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
-    )
-
-    text = emit_scratchpad_python(
-        _workflow_with_output_names(["image", ""]),
-        source_path="test.json",
-        diagnostics=diags,
-    )
-    # Slot 0 is safe -> .out('image')
-    assert ".out('image')" in text
-    # Slot 1 is blank -> .out(1)
-    assert ".out(1)" in text
-    # _outputs preserves partial evidence
-    assert "_outputs=('image', '')" in text
-    # Should have avoidable_positional_output diagnostic
-    fallback_codes = [d.code for d in diags if d.code == READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT]
-    assert len(fallback_codes) > 0
+def test_blank_output_names_reject_without_ordinal_fallback() -> None:
+    """Blank named outputs fail closed instead of selecting an ordinal."""
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_scratchpad_python(
+            _workflow_with_output_names(["image", ""]),
+            source_path="test.json",
+        )
 
 
 def test_partial_output_evidence_still_emits_outputs_tuple() -> None:
-    """_outputs is emitted even when output_names has blank entries (SC19)."""
-    text = emit_scratchpad_python(
-        _workflow_with_output_names(["image", ""]),
-        source_path="test.json",
-    )
-    # Must contain _outputs with both entries, including the blank
-    assert "_outputs=('image', '')" in text
+    """Partial named output evidence is rejected rather than downgraded."""
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_scratchpad_python(
+            _workflow_with_output_names(["image", ""]),
+            source_path="test.json",
+        )
 
 
 def test_missing_output_names_does_not_emit_outputs() -> None:
@@ -1327,30 +1255,13 @@ def test_missing_output_names_does_not_emit_outputs() -> None:
     assert "_outputs=" not in text
 
 
-def test_ideogram_fixture_never_leaks_bare_tuple_unpack_value_error() -> None:
+def test_ideogram_fixture_native_boundary_fails_closed() -> None:
     fixture = (
         Path("tests/fixtures/node_resolution")
         / "ideogram4_t2i.json"
     )
-    src = load_port_source(str(fixture), use_comfy_converter=False)
-    raw = json.loads(fixture.read_text(encoding="utf-8"))
-
-    try:
-        result = port_convert_workflow(
-            src.workflow,
-            raw_workflow=raw,
-            source_path=src.source_path,
-            source_hash=src.source_hash,
-            ready_id="image/ideogram4_t2i",
-        )
-    except ArityDisagreementError:
-        return
-    except ValueError as exc:
-        assert "not enough values to unpack" not in str(exc)
-        raise
-
-    assert "not enough values to unpack" not in (result.validation.error or "")
-
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        load_port_source(str(fixture), use_comfy_converter=False)
 
 def test_ideogram_fixture_ports_from_cache_without_live_introspection(
     tmp_path: Path,
@@ -1427,13 +1338,13 @@ def test_subgraph_ui_outputs_recover_tuple_arity(
         template_id="image/subgraph",
     )
 
-    assert "raw_call('SubgraphNode', '1', _outputs=('latent', 'mask', 'preview'))" in text
+    assert "raw_call('SubgraphNode', '1', _outputs=('latent', 'mask', 'preview'), _uid='1')" in text
     assert "_outputs=('latent', 'mask', 'preview')" in text
 
 
-def test_subgraph_ui_metadata_arity_disagreement_prefers_ui_names() -> None:
-    with pytest.warns(UserWarning, match="metadata declares 2 outputs but UI declares 3"):
-        text = emit_ready_template_python(
+def test_subgraph_ui_metadata_does_not_override_canonical_output_schema() -> None:
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_ready_template_python(
             _workflow_with_ui_and_metadata_outputs(
                 "SubgraphNode",
                 ["latent", "mask", "preview"],
@@ -1444,10 +1355,8 @@ def test_subgraph_ui_metadata_arity_disagreement_prefers_ui_names() -> None:
             template_id="image/subgraph",
         )
 
-    assert "raw_call('SubgraphNode', '1', _outputs=('latent', 'mask', 'preview'))" in text
 
-
-def test_cache_greater_than_ui_warns_without_inflating_tuple_arity(
+def test_cache_greater_than_ui_rejects_arity_mismatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1458,19 +1367,19 @@ def test_cache_greater_than_ui_warns_without_inflating_tuple_arity(
     )
     _patch_object_info_cache(monkeypatch, cache_root)
 
-    with pytest.warns(UserWarning, match="WanImageToVideo"):
-        text = emit_ready_template_python(
-            _wan_workflow_with_ui_outputs(["positive", "negative", "latent"]),
+    workflow = _wan_workflow_with_ui_outputs(["positive", "negative", "latent"])
+    workflow.nodes["1"].metadata["output_names"] = ["positive", "negative", "latent"]
+    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
+        emit_ready_template_python(
+            workflow,
             ready_metadata={"ready_template": "video/test", "capability": "video"},
             ready_requirements={},
             template_id="video/test",
         )
 
-    assert "positive, negative, latent = WanImageToVideo(" in text
-    assert "unused" not in text
 
 
-def test_agent_edit_aliases_check_ui_before_cached_schema_names(
+def test_agent_edit_aliases_reject_cached_schema_mismatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1485,17 +1394,11 @@ def test_agent_edit_aliases_check_ui_before_cached_schema_names(
         ["FIRST VALUE", "SECOND VALUE"],
     )
 
-    with pytest.warns(UserWarning, match="AgentAliasNode"):
-        text = emit_agent_edit_python(wf)
-
-    # Batch 4 (Law 5): the slots comment carries named typed ports derived
-    # from the UI output names (never the stale cached schema names), each
-    # with its schema status.
-    assert "slots FIRST_VALUE_0='FIRST VALUE' unknown, SECOND_VALUE_1='SECOND VALUE' unknown" in text
-    assert "stale_extra" not in text
+    with pytest.raises(ArityDisagreementError, match="AgentAliasNode"):
+        emit_agent_edit_python(wf)
 
 
-def test_agent_edit_aliases_warn_when_cache_has_too_few_outputs(
+def test_agent_edit_aliases_reject_when_cache_has_too_few_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1506,12 +1409,8 @@ def test_agent_edit_aliases_warn_when_cache_has_too_few_outputs(
         ["FIRST VALUE", "SECOND VALUE"],
     )
 
-    with pytest.warns(UserWarning, match="AgentAliasNode"):
-        text = emit_agent_edit_python(wf)
-
-    # Both UI-named slots survive even though the cache declared too few
-    # outputs; they emit as named typed ports (Law 5).
-    assert "slots FIRST_VALUE_0='FIRST VALUE' unknown, SECOND_VALUE_1='SECOND VALUE' unknown" in text
+    with pytest.raises(ArityDisagreementError, match="AgentAliasNode"):
+        emit_agent_edit_python(wf)
 
 
 def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
@@ -1530,11 +1429,32 @@ def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
         template_id="video/test",
     )
 
-    assert "positive, negative, latent = WanImageToVideo()" in text
-    assert "positive=positive" in text
-    assert "negative=negative" in text
-    assert "latent_image=latent" in text
+    assert "positive, negative, latent = WanImageToVideo(_id='1', _uid='1')" in text
+    assert "wf.connect('1.0', '2.positive')" in text
+    assert "wf.connect('1.1', '2.negative')" in text
+    assert "wf.connect('1.2', '2.latent_image')" in text
     assert "wanimagetovideo.out" not in text
+
+
+def test_named_multi_output_fanout_restricted_reload_preserves_handles(tmp_path: Path) -> None:
+    wf = VibeWorkflow("canonical/fanout", WorkflowSource("canonical/fanout"))
+    wf.nodes["1"] = VibeNode("1", "WanImageToVideo", uid="producer")
+    wf.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
+    wf.nodes["2"] = VibeNode("2", "KSampler", inputs={"positive": None, "negative": None, "latent_image": None}, uid="consumer")
+    wf.connect("1.0", "2.positive")
+    wf.connect("1.1", "2.negative")
+    wf.connect("1.2", "2.latent_image")
+    source = emit_canonical_python(wf)
+    assert source.count("wf.connect(") == 3
+    path = tmp_path / "fanout.py"
+    path.write_text(source, encoding="utf-8")
+    first = load_agent_generated_scratchpad(path)
+    second = load_agent_generated_scratchpad(path)
+    assert len(first.edges) == 3
+    assert first.semantic_digest() == wf.semantic_digest()
+    assert second.semantic_digest() == first.semantic_digest()
+    assert first.compile("api") == wf.compile("api")
+    assert first.compile("graphbuilder") == wf.compile("graphbuilder")
 
 
 def test_ready_template_replaces_dead_unpacked_outputs_with_underscore() -> None:
@@ -1551,29 +1471,30 @@ def test_ready_template_replaces_dead_unpacked_outputs_with_underscore() -> None
         template_id="video/test",
     )
 
-    assert "_, negative, _ = WanImageToVideo()" in text
-    assert "negative=negative" in text
-    assert "positive, negative, latent = WanImageToVideo()" not in text
+    assert "_, negative, _ = WanImageToVideo(_id='1', _uid='1')" in text
+    assert "wf.connect('1.1', '2.negative')" in text
+    assert "positive, negative, latent = WanImageToVideo(_id='1', _uid='1')" not in text
 
 
-def test_ready_template_unpack_checks_ui_arity_before_cache_shortcut(
+def test_ready_template_unpack_rejects_ui_arity_before_cache_shortcut(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache_root = _write_object_info_cache(tmp_path, "WanImageToVideo", ["POSITIVE", "NEGATIVE"])
     _patch_object_info_cache(monkeypatch, cache_root)
 
-    with pytest.warns(UserWarning, match="WanImageToVideo"):
-        text = emit_ready_template_python(
-            _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"]),
+    workflow = _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"])
+    workflow.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
+    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
+        emit_ready_template_python(
+            workflow,
             ready_metadata={"ready_template": "video/test", "capability": "video"},
             ready_requirements={},
             template_id="video/test",
         )
 
-    assert "positive, negative, latent = WanImageToVideo(" in text
 
 
-def test_ready_template_unpack_prefers_ui_names_when_cache_has_extra_outputs(
+def test_ready_template_unpack_rejects_cache_extra_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache_root = _write_object_info_cache(
@@ -1583,18 +1504,16 @@ def test_ready_template_unpack_prefers_ui_names_when_cache_has_extra_outputs(
     )
     _patch_object_info_cache(monkeypatch, cache_root)
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        text = emit_ready_template_python(
-            _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"]),
+    workflow = _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"])
+    workflow.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
+    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
+        emit_ready_template_python(
+            workflow,
             ready_metadata={"ready_template": "video/test", "capability": "video"},
             ready_requirements={},
             template_id="video/test",
         )
 
-    assert any("WanImageToVideo" in str(w.message) for w in caught)
-    assert "positive, negative, latent = WanImageToVideo(" in text
-    assert "string = WanImageToVideo(" not in text
 
 
 def test_ready_template_keeps_dead_multi_output_node_as_bare_call() -> None:
@@ -1609,8 +1528,8 @@ def test_ready_template_keeps_dead_multi_output_node_as_bare_call() -> None:
         template_id="video/test",
     )
 
-    assert "SimpleCalculatorKJ(expression='1')" in text
-    assert " = SimpleCalculatorKJ(expression='1')" not in text
+    assert "SimpleCalculatorKJ(_id='1', expression='1', _uid='1')" in text
+    assert " = SimpleCalculatorKJ(_id='1', expression='1', _uid='1')" not in text
 
 
 def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
@@ -1634,14 +1553,14 @@ def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
     # CLIPTextEncode emits its deterministic class-derived name (no
     # connection-role override), and the WanImageToVideo unpacked outputs
     # keep their collision-suffixed/underscore-dead names.
-    assert "cliptextencode = CLIPTextEncode(text='prompt')" in text
-    assert "_, negative, latent = WanImageToVideo()" in text
-    assert "negative=negative" in text
-    assert "latent_image=latent" in text
+    assert "cliptextencode = CLIPTextEncode(_id='1', text='prompt', _uid='1')" in text
+    assert "_, negative, latent = WanImageToVideo(_id='2', _uid='2')" in text
+    assert "wf.connect('2.1', '3.negative')" in text
+    assert "wf.connect('2.2', '3.latent_image')" in text
 
 
-def test_out_of_range_slot_falls_back_to_numeric() -> None:
-    """An edge with a slot beyond output_names range uses .out(n)."""
+def test_out_of_range_named_slot_rejects_ordinal_fallback() -> None:
+    """An edge beyond a named output roster fails closed."""
     wf = VibeWorkflow("test", WorkflowSource("test", provenance={"origin": "test"}))
     wf.nodes["1"] = VibeNode("1", "SingleOutput")
     wf.nodes["1"].metadata["output_names"] = ["only"]  # only slot 0 named
@@ -1649,14 +1568,12 @@ def test_out_of_range_slot_falls_back_to_numeric() -> None:
     # Connect from slot 5 which is out of range
     wf.edges.append(VibeEdge("1", "5", "2", "a"))
 
-    text = emit_scratchpad_python(wf, source_path="test.json")
-    # Slot 5 is out of range for ["only"] -> .out(5) not .out('only')
-    assert ".out(5)" in text
-    assert ".out('only')" not in text
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_scratchpad_python(wf, source_path="test.json")
 
 
-def test_widget_alias_success_emits_named_field() -> None:
-    """When input_aliases maps widget_N to a name, the emitter uses that name."""
+def test_widget_alias_success_emits_named_field(tmp_path: Path) -> None:
+    """Wrapper aliases stay readable while canonical widget storage survives."""
     from vibecomfy.porting.emitter import EmissionDiagnostic
 
     wf = _workflow_with_widget_aliases(
@@ -1664,14 +1581,37 @@ def test_widget_alias_success_emits_named_field() -> None:
         ["ckpt_name"],  # widget_0 -> ckpt_name
         {"widget_0": "v1-5-pruned.safetensors"},
     )
+    for node_id, node in wf.nodes.items():
+        node.uid = node_id
 
     diags: list[EmissionDiagnostic] = []
     text = emit_scratchpad_python(wf, source_path="test.json", diagnostics=diags)
     # Should use the named field from input_aliases
     assert "ckpt_name=" in text
     assert "'v1-5-pruned.safetensors'" in text
-    # Should NOT use raw widget_0
-    assert "'widget_0'" not in text
+    assert "wf.nodes['1'].widgets = {'widget_0': 'v1-5-pruned.safetensors'}" in text
+    path = tmp_path / "widget_alias.py"
+    path.write_text(text, encoding="utf-8")
+    reloaded = load_agent_generated_scratchpad(path)
+    reloaded_twice = load_agent_generated_scratchpad(path)
+    assert reloaded.nodes["1"].widgets == wf.nodes["1"].widgets
+    assert reloaded.nodes["1"].inputs == wf.nodes["1"].inputs
+    assert reloaded_twice.semantic_digest() == reloaded.semantic_digest() == wf.semantic_digest()
+
+
+def test_input_and_widget_channels_remain_distinct_after_restricted_reload(tmp_path: Path) -> None:
+    wf = VibeWorkflow("canonical/channels", WorkflowSource("canonical/channels"))
+    wf.nodes["1"] = VibeNode(
+        "1", "MysteryChannelNode", inputs={"value": 7}, widgets={"value": "widget"}, uid="channel"
+    )
+    source = emit_canonical_python(wf)
+    path = tmp_path / "channels.py"
+    path.write_text(source, encoding="utf-8")
+    first = load_agent_generated_scratchpad(path)
+    second = load_agent_generated_scratchpad(path)
+    assert first.nodes["1"].inputs == {"value": 7}
+    assert first.nodes["1"].widgets == {"value": "widget"}
+    assert second.semantic_digest() == first.semantic_digest() == wf.semantic_digest()
 
 
 def test_widget_alias_fallback_keeps_positional_widget() -> None:
@@ -1704,13 +1644,12 @@ def test_widget_alias_fallback_keeps_positional_widget() -> None:
 
 
 def test_emitted_outputs_preservation_with_partial_blank() -> None:
-    """SC19: partial output_names ['image', ''] still emits _outputs=('image', '')."""
-    text = emit_scratchpad_python(
-        _workflow_with_output_names(["image", ""]),
-        source_path="test.json",
-    )
-    # Must contain the exact _outputs tuple including the blank
-    assert "_outputs=('image', '')" in text
+    """Partial named output rosters fail closed instead of ordinal fallback."""
+    with pytest.raises(ValueError, match="malformed_named_output_schema"):
+        emit_scratchpad_python(
+            _workflow_with_output_names(["image", ""]),
+            source_path="test.json",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1887,7 +1826,6 @@ def test_flat_scratchpad_contains_uid_in_node_calls() -> None:
     text = emit_scratchpad_python(wf, source_path="tests/fixtures/walking_skeleton/flat.json")
 
     # Every node with a resolvable identity (all in the flat fixture) should have _uid=
-    # The _NODE_HELPER_SOURCE itself contains "_uid: str" and "builder.node.uid = _uid"
     # but those are string literals. The actual calls should be "_uid='<nid>'" etc.
     import re
     call_uids = re.findall(r"_uid='[^']+'", text)
@@ -2142,6 +2080,61 @@ def test_node_local_output_names_identity_miss_falls_back_to_class(
     assert diag.class_type == "MyCustomSampler"
 
 
+def test_node_local_identity_ambiguity_fails_closed_for_output_names_and_arity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ambiguous identity is never downgraded to a class-only schema."""
+    import vibecomfy.porting.object_info as object_info
+
+    def ambiguous_lookup(*args: Any, **kwargs: Any) -> Any:
+        raise ObjectInfoIdentityAmbiguityError(
+            "multiple object_info cache entries matched MyCustomSampler",
+            class_type="MyCustomSampler",
+            pack_slug="MyPack",
+            git_commit="abc123",
+            evidence_identity=None,
+            matches=[{"filename": "one.json"}, {"filename": "two.json"}],
+        )
+
+    monkeypatch.setattr(object_info, "resolve_class_entry", ambiguous_lookup)
+    node = _FakeNode("ambiguous", "MyCustomSampler")
+    identity = ObjectInfoIdentity(pack_slug="MyPack", git_commit="abc123")
+    with _use_object_info_identities({"ambiguous": identity}):
+        with pytest.raises(ObjectInfoIdentityAmbiguityError):
+            _node_local_output_names(node)
+        with pytest.raises(ObjectInfoIdentityAmbiguityError):
+            _node_local_arity_check(node, ui_output_count=2)
+
+
+def test_canonical_emission_preflights_identity_ambiguity_before_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonical emission rejects ambiguity before defaults' legacy catch path."""
+    import vibecomfy.porting.object_info as object_info
+
+    def ambiguous_lookup(*args: Any, **kwargs: Any) -> Any:
+        raise ObjectInfoIdentityAmbiguityError(
+            "multiple object_info cache entries matched SaveImage",
+            class_type="SaveImage",
+            pack_slug="MyPack",
+            git_commit="abc123",
+            evidence_identity=None,
+            matches=[{"filename": "one.json"}, {"filename": "two.json"}],
+        )
+
+    monkeypatch.setattr(object_info, "resolve_class_entry", ambiguous_lookup)
+    workflow = VibeWorkflow("canonical/identity-ambiguity", WorkflowSource("canonical/identity-ambiguity"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "SaveImage", inputs={"filename_prefix": "out/ambiguous"}, uid="save"
+    )
+    identity = ObjectInfoIdentity(pack_slug="MyPack", git_commit="abc123")
+    with pytest.raises(ObjectInfoIdentityAmbiguityError):
+        emit_canonical_python(
+            workflow,
+            object_info_identities={"1": identity},
+        )
+
+
 def test_node_local_arity_check_class_only_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2279,31 +2272,28 @@ def test_identity_context_does_not_leak_between_emits(
     assert _identity_for_node(node) is None
 
 
-def test_emit_ready_template_with_identity_map_produces_valid_python(
+def test_emit_ready_template_with_mismatched_identity_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """emit_ready_template_python with object_info_identities runs without error and produces valid Python."""
+    """A known wrapper may not silently accept mismatched schema provenance."""
     cache_root = _build_temp_cache_for_emitter(tmp_path)
     _patch_consume_paths_emitter(monkeypatch, cache_root)
 
     workflow = VibeWorkflow("sample", WorkflowSource("sample"))
-    workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "out/test"})
+    workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "out/test"}, uid="save")
 
     identity = ObjectInfoIdentity(pack_slug="MyPack", git_commit="abc123")
     diagnostics: list[EmissionDiagnostic] = []
 
-    text = emit_ready_template_python(
-        workflow,
-        ready_metadata={"ready_template": "image/identity_test", "capability": "image"},
-        ready_requirements={"models": [], "custom_nodes": []},
-        template_id="image/identity_test",
-        object_info_identities={"1": identity},
-        diagnostics=diagnostics,
-    )
-
-    assert "READY_METADATA" in text
-    # The produced text should be valid Python
-    compile(text, "<identity_test>", "exec")
+    with pytest.raises(ValueError, match="schema_reconciliation_required"):
+        emit_canonical_python(
+            workflow,
+            ready_metadata={"ready_template": "image/identity_test", "capability": "image"},
+            ready_requirements={"models": [], "custom_nodes": []},
+            template_id="image/identity_test",
+            object_info_identities={"1": identity},
+            diagnostics=diagnostics,
+        )
 
 
 def test_emit_ready_template_identity_miss_sets_low_confidence_on_validation(
@@ -2392,20 +2382,21 @@ def test_emit_ready_template_python_diagnostics_populated_for_miss(
 
     # Build a workflow with a node that has a mis-matched identity in the map
     workflow = VibeWorkflow("diag_test", WorkflowSource("diag_test"))
-    workflow.nodes["5"] = VibeNode("5", "MyCustomSampler", inputs={})
+    workflow.nodes["5"] = VibeNode("5", "MyCustomSampler", inputs={}, uid="sampler")
 
     # Bind an identity that will miss the cache
     bad_identity = ObjectInfoIdentity(pack_slug="MyPack", git_commit="notexist")
     diagnostics: list[EmissionDiagnostic] = []
 
-    emit_ready_template_python(
-        workflow,
-        ready_metadata={"ready_template": "image/diag_test", "capability": "image"},
-        ready_requirements={"models": [], "custom_nodes": []},
-        template_id="image/diag_test",
-        object_info_identities={"5": bad_identity},
-        diagnostics=diagnostics,
-    )
+    with pytest.raises(ValueError, match="schema_reconciliation_required"):
+        emit_canonical_python(
+            workflow,
+            ready_metadata={"ready_template": "image/diag_test", "capability": "image"},
+            ready_requirements={"models": [], "custom_nodes": []},
+            template_id="image/diag_test",
+            object_info_identities={"5": bad_identity},
+            diagnostics=diagnostics,
+        )
 
     # At least one identity-miss diagnostic should have been recorded
     identity_diag_codes = {d.code for d in diagnostics}
