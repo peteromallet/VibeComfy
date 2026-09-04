@@ -1373,13 +1373,16 @@ class VibeWorkflow:
                 _validate_recursive_execution_contract(definitions, selected.boundary_ports)
         projection_nodes = copy.deepcopy(selected.nodes)
         projection_edges = copy.deepcopy(selected.edges)
+        public_input_targets: dict[tuple[str, str], tuple[str, str]] = {}
         if selected.definitions:
-            nested_nodes, nested_edges = _flatten_authored_definitions(definitions)
-            projection_nodes.update(nested_nodes)
-            projection_edges.extend(nested_edges)
+            expanded_nodes, expanded_edges, public_input_targets = _expand_authored_definitions(selected, definitions)
+            projection_nodes = expanded_nodes
+            projection_edges = expanded_edges
+            # This validates the authored interface/boundary roster (including
+            # unused definitions) without treating it as an execution graph.
             _validate_interface_boundary_contract(selected, projection_nodes)
-        _validate_public_io_for_projection(selected, projection_nodes)
-        _bind_public_input_values(selected, projection_nodes)
+        _validate_public_io_for_projection(selected, projection_nodes, public_input_targets)
+        _bind_public_input_values(selected, projection_nodes, public_input_targets)
         return _execution_projection(
             projection_nodes,
             projection_edges,
@@ -1587,12 +1590,17 @@ def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
 
 
 def _validate_public_io_for_projection(
-    workflow: VibeWorkflow, nodes: Mapping[str, VibeNode] | None = None
+    workflow: VibeWorkflow,
+    nodes: Mapping[str, VibeNode] | None = None,
+    public_input_targets: Mapping[tuple[str, str], tuple[str, str]] | None = None,
 ) -> None:
     nodes = nodes if nodes is not None else workflow.nodes
+    public_input_targets = public_input_targets or {}
     seen_outputs: set[str] = set()
     for name, public_input in workflow.inputs.items():
-        target = nodes.get(str(public_input.node_id))
+        resolved_target = public_input_targets.get((str(public_input.node_id), str(public_input.field)))
+        target = nodes.get(resolved_target[0]) if resolved_target is not None else nodes.get(str(public_input.node_id))
+        target_field = resolved_target[1] if resolved_target is not None else public_input.field
         if target is None:
             raise WorkflowCompileError(
                 "public_input_missing",
@@ -1600,21 +1608,21 @@ def _validate_public_io_for_projection(
                 next_action="Bind the public input to a node in the same workflow scope.",
             )
         if (
-            public_input.field not in target.inputs
-            and public_input.field not in target.widgets
-            and public_input.field not in (target.native_input_names or ())
+            target_field not in target.inputs
+            and target_field not in target.widgets
+            and target_field not in (target.native_input_names or ())
             and public_input.field not in (target.metadata.get("input_names", ()) if isinstance(target.metadata, dict) else ())
         ):
             if not workflow._is_valid_missing_target(public_input):
                 raise WorkflowCompileError(
                     "public_input_missing",
-                    f"public input {name!r} targets missing field {public_input.field!r}",
-                    detail={"node_id": str(public_input.node_id), "field": public_input.field},
+                    f"public input {name!r} targets missing field {target_field!r}",
+                    detail={"node_id": str(public_input.node_id), "field": target_field},
                     next_action="Bind the public input to a declared node input or widget.",
                 )
 
 
-        target_type = _node_input_socket_type(target, public_input.field)
+        target_type = _node_input_socket_type(target, target_field)
         if public_input.type is not None and target_type is not None and not _types_match(public_input.type, target_type):
             raise WorkflowCompileError("public_input_incompatible", f"public input {name!r} type {public_input.type!r} is incompatible with {target_type!r}", detail={"node_id": str(public_input.node_id), "field": public_input.field}, next_action="Bind the public input to a compatible socket type.")
         if public_input.type is not None and target_type is None:
@@ -1625,46 +1633,54 @@ def _validate_public_io_for_projection(
         node = nodes.get(node_id)
         if node is None:
             raise WorkflowCompileError("public_output_missing", f"public output targets missing node {node_id!r}", next_action="Bind the public output to a node in the workflow.")
+        if mode_to_litegraph(getattr(node, "mode", NodeMode.ENABLED)) in (_MODE_MUTED, _MODE_BYPASS):
+            raise WorkflowCompileError(
+                "public_output_missing",
+                f"public output target {node_id!r} is not executable because its node is muted or bypassed",
+                detail={"node_id": node_id, "mode": mode_to_litegraph(getattr(node, "mode", NodeMode.ENABLED))},
+                next_action="Expose an enabled producer node as the public output.",
+            )
         if output.name:
             if output.name in seen_outputs:
                 raise WorkflowCompileError("public_output_duplicate", f"duplicate public output name {output.name!r}")
             seen_outputs.add(output.name)
-        output_index: int | None = None
-        if output.name is not None:
-            declared_names = getattr(node, "native_output_names", None) or node.metadata.get("output_names")
-            output_index = _socket_index(declared_names, output.name)
-            if output_index is None and declared_names:
-                raise WorkflowCompileError("public_output_missing", f"public output name {output.name!r} is not declared by node {node_id!r}", next_action="Bind the public output to a declared output name.")
-        else:
-            declared_names = getattr(node, "native_output_names", None) or node.metadata.get("output_names")
-            if isinstance(declared_names, (list, tuple)) and len(declared_names) > 1:
-                raise WorkflowCompileError(
-                    "public_output_ambiguous",
-                    f"public output for {node_id!r} has multiple declared sockets but no trusted name",
-                    next_action="Bind the public output to its declared socket name.",
-                )
-        source_type = _node_output_socket_type(node, output_index if output_index is not None else 0)
-        if output.output_type and source_type is not None and not _types_match(output.output_type, source_type):
-            raise WorkflowCompileError("public_output_incompatible", f"public output type {output.output_type!r} is incompatible with {source_type!r}", detail={"node_id": node_id, "output": output.name}, next_action="Bind the public output to a compatible socket type.")
+        # VibeOutput is an artifact/producer contract.  ``name`` is the
+        # public artifact route and ``output_type`` describes the producer
+        # node, not a Comfy socket.  Socket names/slots belong to Handle and
+        # VibeEdge resolution below and must never be inferred here.
+        if output.output_type and str(output.output_type) != str(node.class_type):
+            raise WorkflowCompileError(
+                "public_output_incompatible",
+                f"public output producer type {output.output_type!r} does not match node {node.class_type!r}",
+                detail={"node_id": node_id, "output": output.name},
+                next_action="Bind the public output to its concrete producer node.",
+            )
         if output.expected_cardinality is not None:
             declared_cardinality = node.metadata.get("output_cardinality") if isinstance(node.metadata, dict) else None
             if declared_cardinality is None and output.expected_cardinality not in ("one", 1):
                 raise WorkflowCompileError("public_output_cardinality", f"public output {output.name or node_id!r} has unproven cardinality {output.expected_cardinality!r}", next_action="Declare the output cardinality in the existing node contract.")
             if declared_cardinality is not None and str(declared_cardinality).lower() != str(output.expected_cardinality).lower():
                 raise WorkflowCompileError("public_output_cardinality", f"public output cardinality {output.expected_cardinality!r} does not match {declared_cardinality!r}", next_action="Bind the public output with its declared cardinality.")
-def _bind_public_input_values(workflow: VibeWorkflow, nodes: Mapping[str, VibeNode]) -> None:
+def _bind_public_input_values(
+    workflow: VibeWorkflow,
+    nodes: Mapping[str, VibeNode],
+    public_input_targets: Mapping[tuple[str, str], tuple[str, str]] | None = None,
+) -> None:
     """Apply declared runtime values/defaults to the detached execution view."""
+    public_input_targets = public_input_targets or {}
     for public_input in workflow.inputs.values():
         value = public_input.value if public_input.value is not None else public_input.default
         if value is None and public_input.required:
             raise WorkflowCompileError("public_input_required", f"required public input {public_input.name!r} has no runtime value or default", next_action="Supply the required public input before compiling.")
-        node = nodes.get(str(public_input.node_id))
+        resolved_target = public_input_targets.get((str(public_input.node_id), str(public_input.field)))
+        node = nodes.get(resolved_target[0]) if resolved_target is not None else nodes.get(str(public_input.node_id))
         if node is None:
             continue
-        if public_input.field in node.widgets:
-            node.widgets[public_input.field] = copy.deepcopy(value)
+        target_field = resolved_target[1] if resolved_target is not None else public_input.field
+        if target_field in node.widgets:
+            node.widgets[target_field] = copy.deepcopy(value)
         else:
-            node.inputs[public_input.field] = copy.deepcopy(value)
+            node.inputs[target_field] = copy.deepcopy(value)
 
 
 def _validate_interface_boundary_contract(
@@ -1725,10 +1741,19 @@ def _validate_interface_boundary_contract(
         seen_bindings.add(key)
         if declared and key not in declared:
             raise WorkflowCompileError("boundary_port_unbound", f"boundary port {key!r} has no declared interface member")
-        qualified = str(local_node) if "#" in str(local_node) else make_uid(scope, str(local_node))
+        if "#" in str(local_node) or "/" in str(local_node):
+            raise WorkflowCompileError(
+                "boundary_port_cross_scope",
+                f"boundary endpoint {local_node!r} must be local to its definition scope",
+            )
+        qualified = make_uid(scope, str(local_node))
         node = nodes.get(qualified)
         if node is None:
-            raise WorkflowCompileError("boundary_port_missing", f"boundary port {key!r} targets missing node {qualified!r}")
+            # Referenced occurrences are expanded under a derived runtime
+            # scope, so their definition-semantic boundary rows cannot be
+            # looked up by the canonical scope here.  Expansion performs the
+            # concrete endpoint check before returning its detached graph.
+            continue
         if direction == "input" and _node_input_socket_type(node, field_name) is None:
             raise WorkflowCompileError("boundary_port_untyped", f"boundary input {key!r} has no proven socket type")
         if direction == "output" and _node_output_socket_type(node, field_name) is None:
@@ -1748,7 +1773,13 @@ def _validate_interface_boundary_contract(
 
 
 def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any) -> None:
-    """Reject ambiguous native boundary encodings before root compilation."""
+    """Validate the JSON-shaped recursive contract before expansion.
+
+    Definition instances are ordinary nodes whose class/type is a definition
+    identity.  ``instances`` was never part of the Python IR; accepting it
+    here would create a second occurrence model.  The actual expansion below
+    uses the node's existing ``uid`` (or validated ``id``) instead.
+    """
     if not isinstance(boundary_ports, (list, tuple)):
         boundary_ports = []
 
@@ -1777,8 +1808,8 @@ def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any
             if "instances" in definition or "instance" in definition:
                 raise WorkflowCompileError(
                     "recursive_instance_unsupported",
-                    "definition instances require an authored structural scope and boundary rewrite",
-                    next_action="Provide an existing unambiguous instance identity or keep the definition out of execution.",
+                    "definition instances are not an authored field; occurrences are definition-typed nodes",
+                    next_action="Represent each occurrence as an existing node whose class/type matches the definition.",
                 )
             links = definition.get("links", [])
             for link in links if isinstance(links, (list, tuple)) else []:
@@ -1808,114 +1839,390 @@ def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any
     walk(definitions)
 
 
-def _flatten_authored_definitions(definitions: Any) -> tuple[dict[str, VibeNode], list[VibeEdge]]:
-    """Create scoped VibeNode/VibeEdge views from authored JSON-shaped defs."""
+def _recursive_entries(raw: Any) -> list[Any]:
+    if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
+        return list(raw["subgraphs"])
+    if isinstance(raw, Mapping):
+        return list(raw.values())
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    return []
+
+
+def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
+    """Decode one JSON-shaped definition node into the existing VibeNode IR."""
+    raw_inputs = raw_node.get("inputs", {})
+    input_values: dict[str, Any] = {}
+    input_names: list[str | None] = []
+    input_types: list[str | None] = []
+    if isinstance(raw_inputs, Mapping):
+        input_values = copy.deepcopy(dict(raw_inputs))
+    elif isinstance(raw_inputs, (list, tuple)):
+        for item in raw_inputs:
+            if not isinstance(item, Mapping):
+                continue
+            input_name = item.get("name")
+            input_names.append(str(input_name) if input_name is not None else None)
+            input_types.append(str(item.get("type")) if item.get("type") is not None else None)
+            if input_name is not None and item.get("link") is None and "value" in item:
+                input_values[str(input_name)] = copy.deepcopy(item["value"])
+    raw_outputs = raw_node.get("outputs", [])
+    output_names: list[str | None] = []
+    output_types: list[str | None] = []
+    if isinstance(raw_outputs, (list, tuple)):
+        for item in raw_outputs:
+            if isinstance(item, Mapping):
+                output_names.append(str(item.get("name")) if item.get("name") is not None else None)
+                output_types.append(str(item.get("type")) if item.get("type") is not None else None)
+    widgets = raw_node.get("widgets")
+    if not isinstance(widgets, Mapping):
+        values = raw_node.get("widgets_values", [])
+        widgets = {
+            f"widget_{i}": copy.deepcopy(value)
+            for i, value in enumerate(values)
+        } if isinstance(values, (list, tuple)) else {}
+    metadata = copy.deepcopy(raw_node.get("metadata", {})) if isinstance(raw_node.get("metadata"), Mapping) else {}
+    if output_names:
+        metadata.setdefault("output_names", output_names)
+    if output_types:
+        metadata.setdefault("output_types", output_types)
+    if input_names:
+        metadata.setdefault("input_names", input_names)
+    if input_types:
+        metadata.setdefault("input_types", input_types)
+    local_uid = raw_node.get("uid", raw_node.get("id", node_id))
+    from vibecomfy.identity.uid import validate_local_uid
+    local_uid = validate_local_uid(str(local_uid), field="definition node uid")
+    return VibeNode(
+        str(node_id),
+        str(raw_node.get("class_type", raw_node.get("type", "Unknown"))),
+        inputs=input_values,
+        widgets=dict(widgets),
+        metadata=metadata,
+        uid=local_uid,
+        mode=litegraph_to_mode(raw_node.get("mode", NodeMode.ENABLED)),
+        native_input_names=input_names or None,
+        native_output_names=output_names or None,
+    )
+
+
+def _expand_authored_definitions(
+    workflow: VibeWorkflow, definitions: Any
+) -> tuple[dict[str, VibeNode], list[VibeEdge], dict[tuple[str, str], tuple[str, str]]]:
+    """Expand only referenced definition occurrences into one detached graph.
+
+    The definition and boundary records remain authored JSON-shaped IR.  The
+    maps created here are ephemeral compiler state: each occurrence receives a
+    derived ``<sg_key>:<uid>`` scope and its shell is replaced by the one
+    Python-owned boundary endpoint for each interface member.
+    """
     from vibecomfy.identity.scope import compose_scope_path, sg_key
     from vibecomfy.identity.uid import make_uid, validate_local_uid
 
-    nodes: dict[str, VibeNode] = {}
-    edges: list[VibeEdge] = []
+    records_by_path: dict[str, dict[str, Any]] = {}
+    root_aliases: dict[str, dict[str, Any]] = {}
 
-    def entries(raw: Any) -> list[Any]:
-        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
-            return list(raw["subgraphs"])
-        if isinstance(raw, Mapping):
-            return list(raw.values())
-        if isinstance(raw, (list, tuple)):
-            return list(raw)
+    def index(raw: Any, parent_keys: tuple[str, ...], parent_aliases: dict[str, dict[str, Any]]) -> None:
+        for definition in _recursive_entries(raw):
+            if not isinstance(definition, Mapping):
+                raise WorkflowCompileError("definition_malformed", "each definition must be a mapping")
+            derived = sg_key(definition)
+            supplied = definition.get("sg_key")
+            if supplied is not None and supplied != derived:
+                raise WorkflowCompileError(
+                    "definition_identity_mismatch",
+                    f"definition sg_key {supplied!r} does not match derived identity {derived!r}",
+                )
+            path = compose_scope_path((*parent_keys, derived))
+            if path in records_by_path:
+                raise WorkflowCompileError("definition_scope_collision", f"duplicate definition identity {path!r}")
+            record: dict[str, Any] = {
+                "definition": definition,
+                "key": derived,
+                "path": path,
+                "aliases": {},
+                "children": {},
+            }
+            aliases = {derived}
+            native_id = definition.get("id")
+            if native_id is not None and str(native_id).strip():
+                aliases.add(str(native_id))
+            for alias in aliases:
+                if alias in parent_aliases and parent_aliases[alias] is not record:
+                    raise WorkflowCompileError("definition_alias_duplicate", f"duplicate definition alias {alias!r}")
+                record["aliases"][alias] = record
+                parent_aliases[alias] = record
+            records_by_path[path] = record
+            index(definition.get("definitions"), (*parent_keys, derived), record["children"])
+
+    index(definitions, (), root_aliases)
+
+    # Interface records are keyed by canonical definition key in the accepted
+    # contract.  Accepting the full structural path/native alias is harmless
+    # for nested definitions and keeps old envelopes readable.
+    interfaces = workflow.interfaces if isinstance(workflow.interfaces, Mapping) else {}
+    interface_by_key: dict[str, list[dict[str, Any]]] = {}
+    for raw_key, raw_interface in interfaces.items():
+        key = str(raw_key)
+        if isinstance(raw_interface, Mapping):
+            members: list[Any] = []
+            for direction in ("inputs", "outputs"):
+                values = raw_interface.get(direction, ())
+                if not isinstance(values, (list, tuple)):
+                    raise WorkflowCompileError("interface_malformed", f"interface {key!r} {direction} must be a sequence")
+                members.extend({"direction": direction[:-1], **member} if isinstance(member, Mapping) else member for member in values)
+        elif isinstance(raw_interface, (list, tuple)):
+            members = list(raw_interface)
+        else:
+            raise WorkflowCompileError("interface_malformed", f"interface {key!r} must be a mapping or sequence")
+        normalized: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for member in members:
+            if not isinstance(member, Mapping):
+                raise WorkflowCompileError("interface_malformed", f"interface {key!r} member must be a mapping")
+            name = member.get("name", member.get("interface", member.get("port")))
+            direction = str(member.get("direction", "")).lower()
+            if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+                raise WorkflowCompileError("interface_malformed", f"interface {key!r} member needs name and direction")
+            pair = (name, direction)
+            if pair in seen:
+                raise WorkflowCompileError("interface_duplicate", f"duplicate interface member {(key, *pair)!r}")
+            seen.add(pair)
+            normalized.append({**dict(member), "name": name, "direction": direction})
+        interface_by_key[key] = normalized
+
+    ports = workflow.boundary_ports
+    if not isinstance(ports, (list, tuple)):
+        raise WorkflowCompileError("boundary_port_malformed", "boundary_ports must be a sequence")
+    ports_by_scope: dict[str, list[Mapping[str, Any]]] = {}
+    seen_ports: set[tuple[str, str, str]] = set()
+    for port in ports:
+        if not isinstance(port, Mapping):
+            raise WorkflowCompileError("boundary_port_malformed", "boundary port must be a mapping")
+        scope = str(port.get("scope_path", ""))
+        name = port.get("name", port.get("interface", port.get("port_name")))
+        direction = str(port.get("direction", "")).lower()
+        if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+            raise WorkflowCompileError("boundary_port_malformed", "boundary port needs scope, name, direction, node, and field")
+        node_ref = port.get("node_uid", port.get("node_id", port.get("uid")))
+        field_name = port.get("field", port.get("input", port.get("output", port.get("port"))))
+        if node_ref is None or field_name is None:
+            raise WorkflowCompileError("boundary_port_malformed", "boundary port needs scope, name, direction, node, and field")
+        identity = (scope, name, direction)
+        if identity in seen_ports:
+            raise WorkflowCompileError("boundary_port_duplicate", f"duplicate boundary binding {identity!r}")
+        seen_ports.add(identity)
+        ports_by_scope.setdefault(scope, []).append(port)
+
+    for interface_key, members in interface_by_key.items():
+        present = {(str(p.get("name", p.get("interface", p.get("port_name")))), str(p.get("direction", "")).lower()) for p in ports_by_scope.get(interface_key, ())}
+        missing = [(interface_key, name, direction) for name, direction in ((m["name"], m["direction"]) for m in members) if (name, direction) not in present]
+        if missing:
+            raise WorkflowCompileError("interface_unbound", f"interface members have no boundary binding: {missing!r}")
+        for port in ports_by_scope.get(interface_key, ()):
+            pair = (str(port.get("name", port.get("interface", port.get("port_name")))), str(port.get("direction", "")).lower())
+            if pair not in {(m["name"], m["direction"]) for m in members}:
+                raise WorkflowCompileError("boundary_port_unbound", f"boundary port {(interface_key, *pair)!r} has no declared interface member")
+
+    def lookup_interface(record: Mapping[str, Any]) -> list[dict[str, Any]]:
+        candidates = [str(record["key"]), str(record["path"])]
+        native_id = record["definition"].get("id")
+        if native_id is not None:
+            candidates.append(str(native_id))
+        for key in candidates:
+            if key in interface_by_key:
+                return interface_by_key[key]
         return []
 
-    def walk(raw: Any, parent: tuple[str, ...]) -> None:
-        for definition in entries(raw):
-            if not isinstance(definition, Mapping):
-                continue
-            key = definition.get("sg_key") or sg_key(definition)
-            scope = compose_scope_path((*parent, key))
-            raw_nodes = definition.get("nodes", [])
-            raw_nodes = list(raw_nodes.values()) if isinstance(raw_nodes, Mapping) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
-            local_ids: set[str] = set()
-            for raw_node in raw_nodes:
-                if not isinstance(raw_node, Mapping):
-                    continue
-                local = validate_local_uid(str(raw_node.get("uid", raw_node.get("id", ""))), field="definition node uid")
-                if local in local_ids:
-                    raise WorkflowCompileError("duplicate_scoped_node_uid", f"duplicate node UID {local!r} in scope {scope!r}")
-                local_ids.add(local)
-                qualified = make_uid(scope, local)
-                if qualified in nodes:
-                    raise WorkflowCompileError(
-                        "definition_scope_collision",
-                        f"definition node UID {qualified!r} is already materialized; sibling instances need explicit authored identity",
-                        next_action="Give each definition instance a distinct existing structural scope.",
-                    )
-                raw_inputs = raw_node.get("inputs", {})
-                input_values: dict[str, Any] = {}
-                input_names: list[str | None] = []
-                input_types: list[str | None] = []
-                if isinstance(raw_inputs, Mapping):
-                    input_values = copy.deepcopy(dict(raw_inputs))
-                elif isinstance(raw_inputs, (list, tuple)):
-                    for item in raw_inputs:
-                        if not isinstance(item, Mapping):
-                            continue
-                        input_name = item.get("name")
-                        input_names.append(str(input_name) if input_name is not None else None)
-                        input_types.append(str(item.get("type")) if item.get("type") is not None else None)
-                        if input_name is not None and item.get("link") is None and "value" in item:
-                            input_values[str(input_name)] = copy.deepcopy(item["value"])
-                raw_outputs = raw_node.get("outputs", [])
-                output_names: list[str | None] = []
-                output_types: list[str | None] = []
-                if isinstance(raw_outputs, (list, tuple)):
-                    for item in raw_outputs:
-                        if isinstance(item, Mapping):
-                            output_names.append(str(item.get("name")) if item.get("name") is not None else None)
-                            output_types.append(str(item.get("type")) if item.get("type") is not None else None)
-                widgets = raw_node.get("widgets")
-                if not isinstance(widgets, Mapping):
-                    values = raw_node.get("widgets_values", [])
-                    widgets = {f"widget_{i}": copy.deepcopy(value) for i, value in enumerate(values)} if isinstance(values, (list, tuple)) else {}
-                metadata = copy.deepcopy(raw_node.get("metadata", {})) if isinstance(raw_node.get("metadata"), Mapping) else {}
-                if output_names:
-                    metadata.setdefault("output_names", output_names)
-                if output_types:
-                    metadata.setdefault("output_types", output_types)
-                if input_types:
-                    metadata.setdefault("input_types", input_types)
-                nodes[qualified] = VibeNode(
-                    qualified,
-                    str(raw_node.get("class_type", raw_node.get("type", "Unknown"))),
-                    inputs=input_values,
-                    widgets=dict(widgets),
-                    metadata=metadata,
-                    uid=local,
-                    mode=litegraph_to_mode(raw_node.get("mode", NodeMode.ENABLED)),
-                    native_input_names=input_names or None,
-                    native_output_names=output_names or None,
-                )
-            raw_links = definition.get("links", [])
-            for link in raw_links if isinstance(raw_links, (list, tuple)) else []:
-                if isinstance(link, Mapping):
-                    origin, origin_slot = link.get("origin_id"), link.get("origin_slot", 0)
-                    target, target_slot = link.get("target_id"), link.get("target_slot", 0)
-                elif isinstance(link, (list, tuple)) and len(link) >= 5:
-                    origin, origin_slot, target, target_slot = link[1], link[2], link[3], link[4]
-                else:
-                    raise WorkflowCompileError("recursive_link_malformed", "definition link must be a mapping or LiteGraph tuple")
-                origin_uid = make_uid(scope, validate_local_uid(str(origin), field="definition link origin"))
-                target_uid = make_uid(scope, validate_local_uid(str(target), field="definition link target"))
-                if origin_uid not in nodes or target_uid not in nodes:
-                    raise WorkflowCompileError("recursive_link_missing_endpoint", f"definition link endpoint is not declared in scope {scope!r}")
-                target_node = nodes[target_uid]
-                if target_node.native_input_names and isinstance(target_slot, int) and target_slot < len(target_node.native_input_names):
-                    target_input = target_node.native_input_names[target_slot] or str(target_slot)
-                else:
-                    target_input = str(target_slot)
-                edges.append(VibeEdge(origin_uid, str(origin_slot), target_uid, target_input))
-            walk(definition.get("definitions"), (*parent, key))
+    def member_for(members: list[dict[str, Any]], value: Any, direction: str) -> dict[str, Any] | None:
+        text = str(value)
+        directional = [member for member in members if member["direction"] == direction]
+        matches = [
+            member
+            for index, member in enumerate(directional)
+            if member["name"] == text or (text.isdigit() and index == int(text))
+        ]
+        if len(matches) != 1:
+            return None
+        return matches[0]
 
-    walk(definitions, ())
-    return nodes, edges
+    def parse_link(link: Any) -> tuple[Any, Any, Any, Any]:
+        if isinstance(link, Mapping):
+            origin = link.get("origin_id", link.get("from_node"))
+            origin_slot = link.get("origin_slot", link.get("from_output", 0))
+            target = link.get("target_id", link.get("to_node"))
+            target_slot = link.get("target_slot", link.get("to_input", 0))
+        elif isinstance(link, (list, tuple)) and len(link) >= 5:
+            origin, origin_slot, target, target_slot = link[1], link[2], link[3], link[4]
+        else:
+            raise WorkflowCompileError("recursive_link_malformed", "definition link must be a mapping or LiteGraph tuple")
+        return origin, origin_slot, target, target_slot
+
+    all_nodes: dict[str, VibeNode] = {}
+    all_edges: list[VibeEdge] = []
+    root_targets: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def endpoint_for_shell(context: dict[str, Any], local: str, field: Any, direction: str) -> tuple[str, str]:
+        child = context["shells"].get(local)
+        if child is None:
+            node_id = context["local_to_runtime"].get(local)
+            if node_id is None:
+                raise WorkflowCompileError("boundary_port_missing", f"boundary endpoint {local!r} is not declared")
+            node = all_nodes[node_id]
+            if direction == "input":
+                if _node_input_socket_type(node, field) is None:
+                    raise WorkflowCompileError("boundary_port_untyped", f"boundary input {local!r}.{field!r} has no proven socket type")
+            elif _node_output_socket_type(node, field) is None:
+                raise WorkflowCompileError("boundary_port_untyped", f"boundary output {local!r}.{field!r} has no proven socket type")
+            return node_id, str(field)
+        member = member_for(child["members"], field, direction)
+        if member is None or (member["name"], direction) not in child["bindings"]:
+            raise WorkflowCompileError("boundary_port_missing", f"nested occurrence {local!r} has no {direction} interface {field!r}")
+        return child["bindings"][(member["name"], direction)]
+
+    def build_bindings(context: dict[str, Any]) -> dict[tuple[str, str], tuple[str, str]]:
+        members = context["members"]
+        bindings: dict[tuple[str, str], tuple[str, str]] = {}
+        raw_scope = context["record"]["key"]
+        scopes = {raw_scope, context["record"]["path"], context["runtime_scope"]}
+        candidate_ports = [p for scope in scopes for p in ports_by_scope.get(scope, ())]
+        for member in members:
+            rows = [p for p in candidate_ports if str(p.get("name", p.get("interface", p.get("port_name")))) == member["name"] and str(p.get("direction", "")).lower() == member["direction"]]
+            if len(rows) != 1:
+                raise WorkflowCompileError("interface_unbound", f"interface member {(raw_scope, member['name'], member['direction'])!r} must bind exactly once")
+            port = rows[0]
+            node_ref = str(port.get("node_uid", port.get("node_id", port.get("uid"))))
+            if "#" in node_ref or "/" in node_ref:
+                raise WorkflowCompileError("boundary_port_cross_scope", f"boundary endpoint {node_ref!r} is not local to its occurrence scope")
+            field_name = port.get("field", port.get("input", port.get("output", port.get("port"))))
+            endpoint = endpoint_for_shell(context, node_ref, field_name, member["direction"])
+            actual = _node_input_socket_type(all_nodes[endpoint[0]], endpoint[1]) if member["direction"] == "input" else _node_output_socket_type(all_nodes[endpoint[0]], endpoint[1])
+            expected = member.get("type")
+            if actual is None:
+                raise WorkflowCompileError("boundary_port_untyped", f"boundary port {(raw_scope, member['name'], member['direction'])!r} has no proven socket type")
+            if expected is not None and not _types_match(expected, actual):
+                raise WorkflowCompileError("boundary_port_incompatible", f"boundary port {(raw_scope, member['name'], member['direction'])!r} has incompatible socket type")
+            bindings[(member["name"], member["direction"])] = endpoint
+        return bindings
+
+    def expand_record(record: dict[str, Any], runtime_segments: tuple[str, ...], canonical_segments: tuple[str, ...], stack: tuple[str, ...]) -> dict[str, Any]:
+        if record["path"] in stack:
+            raise WorkflowCompileError("recursive_definition_cycle", f"recursive definition cycle through {record['path']!r}")
+        runtime_scope = compose_scope_path(runtime_segments)
+        definition = record["definition"]
+        raw_nodes = definition.get("nodes", [])
+        values = list(raw_nodes.values()) if isinstance(raw_nodes, Mapping) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
+        local_to_runtime: dict[str, str] = {}
+        raw_by_local: dict[str, Mapping[str, Any]] = {}
+        for ordinal, raw_node in enumerate(values):
+            if not isinstance(raw_node, Mapping):
+                raise WorkflowCompileError("recursive_node_malformed", f"definition {record['key']!r} node {ordinal} is malformed")
+            raw_id = raw_node.get("id", raw_node.get("uid", ordinal))
+            local = validate_local_uid(str(raw_node.get("uid", raw_id)), field="definition node uid")
+            if local in raw_by_local:
+                raise WorkflowCompileError("duplicate_scoped_node_uid", f"duplicate node UID {local!r} in definition {record['path']!r}")
+            raw_by_local[local] = raw_node
+            for alias in {str(raw_id), local}:
+                if alias in local_to_runtime:
+                    raise WorkflowCompileError("duplicate_scoped_node_uid", f"duplicate node identity {alias!r} in definition {record['path']!r}")
+                local_to_runtime[alias] = make_uid(runtime_scope, local)
+        context: dict[str, Any] = {"record": record, "runtime_scope": runtime_scope, "members": lookup_interface(record), "local_to_runtime": local_to_runtime, "shells": {}, "bindings": {}}
+        occurrence_ids: set[str] = set()
+        for local, raw_node in raw_by_local.items():
+            class_type = str(raw_node.get("class_type", raw_node.get("type", "Unknown")))
+            child = record["children"].get(class_type)
+            if child is None:
+                node = _raw_recursive_node(raw_node, local_to_runtime[local])
+                node.id = local_to_runtime[local]
+                all_nodes[node.id] = node
+                continue
+            occurrence_uid = validate_local_uid(str(raw_node.get("uid", raw_node.get("id", ""))), field="instance occurrence uid")
+            if occurrence_uid in occurrence_ids:
+                raise WorkflowCompileError("occurrence_collision", f"duplicate occurrence identity {occurrence_uid!r} in scope {runtime_scope!r}")
+            occurrence_ids.add(occurrence_uid)
+            segment = f"{child['key']}:{occurrence_uid}"
+            child_context = expand_record(child, (*runtime_segments, segment), (*canonical_segments, child["key"]), (*stack, record["path"]))
+            context["shells"][local] = child_context
+        context["bindings"] = build_bindings(context) if context["members"] else {}
+        for raw_link in definition.get("links", ()) if isinstance(definition.get("links", ()), (list, tuple)) else ():
+            origin, origin_slot, target, target_slot = parse_link(raw_link)
+            origin_local = validate_local_uid(str(origin), field="definition link origin")
+            target_local = validate_local_uid(str(target), field="definition link target")
+            if origin_local in context["shells"]:
+                member = member_for(context["shells"][origin_local]["members"], origin_slot, "output")
+                if member is None:
+                    raise WorkflowCompileError("boundary_port_missing", f"occurrence {origin_local!r} has no output interface {origin_slot!r}")
+                source = context["shells"][origin_local]["bindings"][(member["name"], "output")]
+            else:
+                source_id = context["local_to_runtime"].get(origin_local)
+                if source_id is None:
+                    raise WorkflowCompileError("recursive_link_missing_endpoint", f"definition link endpoint {origin!r} is not declared in scope {record['path']!r}")
+                source = (source_id, str(origin_slot))
+            if target_local in context["shells"]:
+                member = member_for(context["shells"][target_local]["members"], target_slot, "input")
+                if member is None:
+                    raise WorkflowCompileError("boundary_port_missing", f"occurrence {target_local!r} has no input interface {target_slot!r}")
+                target_endpoint = context["shells"][target_local]["bindings"][(member["name"], "input")]
+            else:
+                target_id = context["local_to_runtime"].get(target_local)
+                if target_id is None:
+                    raise WorkflowCompileError("recursive_link_missing_endpoint", f"definition link endpoint {target!r} is not declared in scope {record['path']!r}")
+                target_node = all_nodes[target_id]
+                target_name = target_node.native_input_names[int(target_slot)] if isinstance(target_slot, int) and target_node.native_input_names and 0 <= target_slot < len(target_node.native_input_names) and target_node.native_input_names[target_slot] else str(target_slot)
+                target_endpoint = (target_id, str(target_name))
+            all_edges.append(VibeEdge(source[0], source[1], target_endpoint[0], target_endpoint[1]))
+        return context
+
+    # Root nodes are already VibeNodes.  Only nodes that match a top-level
+    # definition alias recurse; ordinary root nodes stay in their authored ID
+    # scope and are copied into the detached projection.
+    root_occurrences: dict[str, dict[str, Any]] = {}
+    for node_id, authored in workflow.nodes.items():
+        class_type = str(authored.class_type)
+        record = root_aliases.get(class_type)
+        if record is None:
+            all_nodes[str(node_id)] = copy.deepcopy(authored)
+            continue
+        occurrence_uid = validate_local_uid(str(authored.uid or authored.id), field="instance occurrence uid")
+        if occurrence_uid in root_occurrences:
+            raise WorkflowCompileError("occurrence_collision", f"duplicate occurrence identity {occurrence_uid!r} in root scope")
+        segment = f"{record['key']}:{occurrence_uid}"
+        root_occurrences[str(node_id)] = expand_record(record, (segment,), (record["key"],), ())
+
+    # Rewrite root edges through exactly one boundary endpoint.  The authored
+    # occurrence shells are intentionally absent from ``all_nodes``.
+    for edge in workflow.edges:
+        source_id = str(edge.from_node)
+        target_id = str(edge.to_node)
+        if source_id in root_occurrences:
+            ctx = root_occurrences[source_id]
+            member = member_for(ctx["members"], edge.from_output, "output")
+            if member is None:
+                raise WorkflowCompileError("boundary_port_missing", f"occurrence {source_id!r} has no output interface {edge.from_output!r}")
+            source = ctx["bindings"][(member["name"], "output")]
+        else:
+            if source_id not in all_nodes:
+                raise WorkflowCompileError("compiled_edge_missing_endpoint", f"root edge source {source_id!r} is missing")
+            source = (source_id, str(edge.from_output))
+        if target_id in root_occurrences:
+            ctx = root_occurrences[target_id]
+            member = member_for(ctx["members"], edge.to_input, "input")
+            if member is None:
+                raise WorkflowCompileError("boundary_port_missing", f"occurrence {target_id!r} has no input interface {edge.to_input!r}")
+            target = ctx["bindings"][(member["name"], "input")]
+        else:
+            if target_id not in all_nodes:
+                raise WorkflowCompileError("compiled_edge_missing_endpoint", f"root edge target {target_id!r} is missing")
+            target = (target_id, str(edge.to_input))
+        all_edges.append(VibeEdge(source[0], source[1], target[0], target[1]))
+
+    for root_id, context in root_occurrences.items():
+        for member in context["members"]:
+            if member["direction"] == "input":
+                endpoint = context["bindings"].get((member["name"], "input"))
+                if endpoint is not None:
+                    root_targets[(root_id, member["name"])] = endpoint
+    return all_nodes, all_edges, root_targets
 
 
 def _apply_definition_variant(
@@ -2379,10 +2686,27 @@ def _socket_index(names: Any, value: Any) -> int | None:
 
 def _output_slot_for_node(nodes: Mapping[str, VibeNode] | None, node_id: str, output: Any) -> str:
     node = nodes.get(str(node_id)) if nodes is not None else None
-    index = _socket_index(
-        getattr(node, "native_output_names", None) if node is not None else None,
-        output,
-    )
+    names = getattr(node, "native_output_names", None) if node is not None else None
+    if names is None and node is not None:
+        names = node.metadata.get("output_names")
+    index: int | None = None
+    if isinstance(output, str) and not output.strip().isdigit() and isinstance(names, (list, tuple)):
+        matches = [
+            position
+            for position, name in enumerate(names)
+            if name is not None and str(name).casefold() == output.casefold()
+        ]
+        if len(matches) > 1:
+            raise WorkflowCompileError(
+                "ambiguous_output_handle",
+                f"node {node_id!r} has multiple output sockets named {output!r}",
+                detail={"node_id": node_id, "output": output, "matches": matches},
+                next_action="Use the numeric output slot for an unambiguous handle.",
+            )
+        if matches:
+            index = matches[0]
+    if index is None:
+        index = _socket_index(names, output)
     if index is None and node is not None:
         index = _socket_index(node.metadata.get("output_names"), output)
     if index is None:
@@ -2402,9 +2726,6 @@ def _output_slot_for_node(nodes: Mapping[str, VibeNode] | None, node_id: str, ou
             detail={"node_id": node_id, "output": output},
             next_action="Use a non-negative declared output index.",
         )
-    names = (getattr(node, "native_output_names", None) if node is not None else None)
-    if names is None and node is not None:
-        names = node.metadata.get("output_names")
     if isinstance(names, (list, tuple)) and index >= len(names):
         raise WorkflowCompileError(
             "unknown_output_handle",
@@ -2412,6 +2733,15 @@ def _output_slot_for_node(nodes: Mapping[str, VibeNode] | None, node_id: str, ou
             detail={"node_id": node_id, "output": output, "output_count": len(names)},
             next_action="Use an output index present in the node schema.",
         )
+    if names is None and node is not None:
+        declared_types = node.metadata.get("output_types") if isinstance(node.metadata, Mapping) else None
+        if isinstance(declared_types, (list, tuple)) and index >= len(declared_types):
+            raise WorkflowCompileError(
+                "unknown_output_handle",
+                f"node {node_id!r} has no output index {index}",
+                detail={"node_id": node_id, "output": output, "output_count": len(declared_types)},
+                next_action="Use an output index present in the node schema.",
+            )
     return str(index)
 
 
@@ -2512,6 +2842,7 @@ def _virtual_wire_edges(
             raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} legs must be a sequence")
         leg_indexes: list[int] = []
         occurrences_by_leg: dict[int, list[int]] = {}
+        records_by_leg: dict[int, tuple[int, str, str, str, str, str]] = {}
         seen_records: set[tuple[int, int, str, str, str, str]] = set()
         for ordinal, leg in enumerate(legs):
             if isinstance(leg, (list, tuple)) and len(leg) == 4:
@@ -2540,7 +2871,10 @@ def _virtual_wire_edges(
                     port = value.get("port", value.get("output", value.get("input", default_port)))
                 else:
                     node_id = leg.get(f"{prefix}_node", leg.get(f"{prefix}_uid"))
-                    port = leg.get(f"{prefix}_output", leg.get(f"{prefix}_input", default_port))
+                    port = leg.get(
+                        f"{prefix}_output" if prefix == "from" else f"{prefix}_input",
+                        leg.get(f"{prefix}_port", default_port),
+                    )
                 if node_id is None:
                     raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} leg {ordinal} lacks {prefix} endpoint")
                 qualified = str(node_id)
@@ -2568,7 +2902,14 @@ def _virtual_wire_edges(
             if record in seen_records:
                 raise WorkflowCompileError("virtual_wire_duplicate", f"virtual wire {name!r} repeats an occurrence")
             seen_records.add(record)
-            result.append(VibeEdge(source, output, target, input_name))
+            canonical = (leg_index, source, output, target, input_name, scope)
+            prior = records_by_leg.get(leg_index)
+            if prior is not None and prior != canonical:
+                raise WorkflowCompileError(
+                    "virtual_wire_conflict",
+                    f"virtual wire {name!r} occurrences for leg {leg_index} disagree on endpoints",
+                )
+            records_by_leg[leg_index] = canonical
         expected_legs = list(range(len(set(leg_indexes))))
         if sorted(set(leg_indexes)) != expected_legs:
             raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg indexes must be contiguous from zero")
@@ -2578,6 +2919,9 @@ def _virtual_wire_edges(
                     "virtual_wire_index",
                     f"virtual wire {name!r} occurrence indexes for leg {leg_index} must be unique and contiguous from zero",
                 )
+        for leg_index in sorted(records_by_leg):
+            _index, source, output, target, input_name, _scope = records_by_leg[leg_index]
+            result.append(VibeEdge(source, output, target, input_name))
     return result
 
 
@@ -2717,12 +3061,11 @@ def _execution_projection(
         if key not in existing_edges:
             projected_edges.append(virtual_edge)
             existing_edges.add(key)
-        else:
-            # Explicit Python virtual-wire occurrences are semantic legs, not
-            # a global endpoint set.  Preserve duplicate visual multiplicity
-            # in the detached projection; the consumer's input-cardinality
-            # gate decides whether that graph is executable.
-            projected_edges.append(virtual_edge)
+        # ``occurrence_index`` is presentation multiplicity.  Once a complete
+        # semantic leg has been validated, an exact endpoint tuple is one
+        # executable edge even when two semantic legs or an authored edge
+        # point at it.  Ordinary authored VibeEdges remain untouched so their
+        # cardinality diagnostics are still meaningful.
     dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(projected_nodes)
     resolved_edges = _resolve_bypass_edges(
         projected_edges, dropped_ids, bypassed_ids, projected_nodes

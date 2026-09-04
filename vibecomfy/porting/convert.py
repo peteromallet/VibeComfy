@@ -257,7 +257,7 @@ def port_convert_workflow(
             # Helper nodes remain authored source.  The shared execution
             # projection lowers them for runtime; emission must not require a
             # separate conversion-time resolver.
-            keep_virtual_wires=True,
+            keep_virtual_wires=keep_virtual_wires,
             prune_dead_branches=prune_dead_branches,
         )
         mode: PortConvertMode = "scratchpad"

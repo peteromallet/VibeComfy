@@ -24,8 +24,6 @@ import copy
 import json
 from pathlib import Path
 
-import pytest
-
 from vibecomfy.porting.convert import port_convert_workflow
 from vibecomfy.porting.layout_store import read_store, write_layout
 from vibecomfy.porting.emit.ui import emit_ui_json
@@ -232,9 +230,9 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     # ── Reload ───────────────────────────────────────────────────────────
     wf_reloaded = load_scratchpad(py_path, provenance_override="user_confirmed")
 
-    # Conversion source remains semantic; reload contains only executable nodes.
+    # Explicit keep mode preserves the authored helper graph in the source.
     vw_count_after = sum(1 for n in wf_reloaded.nodes.values() if n.class_type in _VW_TYPES)
-    assert vw_count_after == 0
+    assert vw_count_after == vw_count_before
 
     # ── Emit to UI ───────────────────────────────────────────────────────
     store = read_store(py_path)
@@ -246,9 +244,9 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     assert "nodes" in ui_b
     assert len(ui_b["nodes"]) > 0
 
-    # Virtual wire furniture should appear in the nodes list
+    # The authored helper furniture remains visible in explicit keep mode.
     vw_in_b = [n for n in ui_b["nodes"] if n.get("type") in _VW_TYPES]
-    assert len(vw_in_b) == 0
+    assert len(vw_in_b) == vw_count_before
 
     # ── Flat-mode emit for comparison with path A ────────────────────────
     # The flat (execution) graph should be identical regardless of whether

@@ -251,12 +251,15 @@ def test_virtual_wire_occurrences_are_grouped_by_semantic_leg() -> None:
                 {"leg_index": 0, "occurrence_index": 0, "from_node": "source", "to_node": "left", "to_input": "x"},
                 {"leg_index": 0, "occurrence_index": 1, "from_node": "source", "to_node": "left", "to_input": "x"},
                 {"leg_index": 1, "occurrence_index": 0, "from_node": "source", "to_node": "right", "to_input": "x"},
+                # Distinct semantic legs may share endpoints, but the executable
+                # projection collapses the exact endpoint tuple once.
+                {"leg_index": 2, "occurrence_index": 0, "from_node": "source", "to_node": "left", "to_input": "x"},
             ]
         }
     }
     projection = workflow._execution_projection()
     assert [(edge.to_node, edge.to_input) for edge in projection.edges] == [
-        ("left", "x"), ("left", "x"), ("right", "x")
+        ("left", "x"), ("right", "x")
     ]
     workflow.virtual_wires["route"]["legs"][1]["occurrence_index"] = 2
     with pytest.raises(WorkflowCompileError, match="occurrence indexes"):
@@ -332,7 +335,7 @@ def test_public_io_type_and_cardinality_are_closed_over_declared_sockets() -> No
     workflow.inputs.clear()
     workflow.outputs.append(
         VibeOutput(
-            "source", "IMAGE", name="image", expected_cardinality=3
+            "source", "Source", name="image", expected_cardinality=3
         )
     )
     with pytest.raises(WorkflowCompileError) as exc:
@@ -352,7 +355,7 @@ def test_public_input_defaults_and_named_nonzero_output_are_shared_by_backends()
     )
     workflow.edges = [VibeEdge("source", "image", "sink", "image")]
     workflow.inputs["count"] = VibeInput("count", "sink", "value", default=7, type="INT")
-    workflow.outputs.append(VibeOutput("source", "IMAGE", name="image"))
+    workflow.outputs.append(VibeOutput("source", "Source", name="image"))
     api = workflow.compile("api")
     graph = workflow.compile("graphbuilder")
     assert api == graph
@@ -363,7 +366,193 @@ def test_public_input_defaults_and_named_nonzero_output_are_shared_by_backends()
     workflow.outputs[:] = [VibeOutput("source", "IMAGE")]
     with pytest.raises(WorkflowCompileError) as exc:
         workflow.compile()
-    assert exc.value.code == "public_output_ambiguous"
+    assert exc.value.code == "public_output_incompatible"
+
+
+def _depth_two_sibling_workflow() -> tuple[VibeWorkflow, str, str]:
+    """Existing-field recursive fixture: two outer occurrences, one nested."""
+    from vibecomfy.identity.scope import sg_key
+
+    inner = {
+        "id": "native-inner", "name": "InnerEcho",
+        "nodes": [{
+            "id": "inner_core", "type": "EchoImage",
+            "inputs": [{"name": "in", "type": "IMAGE", "link": None, "value": None}],
+            "outputs": [{"name": "out", "type": "IMAGE"}],
+        }],
+        "links": [],
+    }
+    inner_key = sg_key(inner)
+    outer = {
+        "id": "native-outer", "name": "OuterBox",
+        "nodes": [{
+            "id": "inner_a", "type": "native-inner",
+            "inputs": [{"name": "input", "type": "IMAGE", "link": None, "value": None}],
+            "outputs": [{"name": "output", "type": "IMAGE"}],
+        }],
+        "links": [], "definitions": {"subgraphs": [inner]},
+    }
+    outer_key = sg_key(outer)
+
+    def source(node_id: str, value: str) -> VibeNode:
+        return VibeNode(
+            node_id, "Source", inputs={"value": value}, uid=node_id,
+            native_output_names=["out"], metadata={"output_names": ["out"], "output_types": ["IMAGE"]},
+        )
+
+    def instance(node_id: str) -> VibeNode:
+        return VibeNode(
+            node_id, "native-outer", uid=node_id,
+            native_input_names=["input"], native_output_names=["output"],
+            metadata={"input_types": ["IMAGE"], "output_types": ["IMAGE"]},
+        )
+
+    def sink(node_id: str) -> VibeNode:
+        return VibeNode(node_id, "Sink", inputs={"image": None}, uid=node_id, metadata={"input_types": {"image": "IMAGE"}})
+
+    workflow = VibeWorkflow(
+        "t05-depth2-siblings", WorkflowSource("t05-depth2-siblings"),
+        nodes={
+            "source_a": source("source_a", "A"), "outer_a": instance("outer_a"), "sink_a": sink("sink_a"),
+            "source_b": source("source_b", "B"), "outer_b": instance("outer_b"), "sink_b": sink("sink_b"),
+        },
+        edges=[
+            VibeEdge("source_a", "out", "outer_a", "input"), VibeEdge("outer_a", "output", "sink_a", "image"),
+            VibeEdge("source_b", "out", "outer_b", "input"), VibeEdge("outer_b", "output", "sink_b", "image"),
+        ],
+        definitions={"subgraphs": [outer]},
+        interfaces={
+            outer_key: {
+                "inputs": [{"name": "input", "direction": "input", "type": "IMAGE"}],
+                "outputs": [{"name": "output", "direction": "output", "type": "IMAGE"}],
+            },
+            inner_key: {
+                "inputs": [{"name": "input", "direction": "input", "type": "IMAGE"}],
+                "outputs": [{"name": "output", "direction": "output", "type": "IMAGE"}],
+            },
+        },
+        boundary_ports=[
+            {"scope_path": outer_key, "name": "input", "direction": "input", "node_uid": "inner_a", "field": "input"},
+            {"scope_path": outer_key, "name": "output", "direction": "output", "node_uid": "inner_a", "field": "output"},
+            {"scope_path": inner_key, "name": "input", "direction": "input", "node_uid": "inner_core", "field": "in"},
+            {"scope_path": inner_key, "name": "output", "direction": "output", "node_uid": "inner_core", "field": "out"},
+        ],
+    )
+    return workflow, inner_key, outer_key
+
+
+def test_recursive_occurrences_expand_depth_two_and_isolate_siblings() -> None:
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    before = workflow.to_envelope()
+    api = workflow.compile("api")
+    graph = workflow.compile("graphbuilder")
+    a = f"{outer_key}:outer_a/{inner_key}:inner_a#inner_core"
+    b = f"{outer_key}:outer_b/{inner_key}:inner_a#inner_core"
+    assert api == graph
+    assert set(api) == {"source_a", "sink_a", "source_b", "sink_b", a, b}
+    assert "outer_a" not in api and "outer_b" not in api and "native-outer" not in api
+    assert api[a]["inputs"]["in"] == ["source_a", 0]
+    assert api[b]["inputs"]["in"] == ["source_b", 0]
+    assert api["sink_a"]["inputs"]["image"] == [a, 0]
+    assert api["sink_b"]["inputs"]["image"] == [b, 0]
+    assert workflow.to_envelope() == before
+
+
+def test_recursive_occurrence_contract_rejects_collisions_and_bad_bindings() -> None:
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    workflow.nodes["outer_b"].uid = "outer_a"
+    with pytest.raises(WorkflowCompileError, match="occurrence_collision"):
+        workflow.compile()
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    workflow.boundary_ports[0] = {**workflow.boundary_ports[0], "direction": "output"}
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code in {"boundary_port_duplicate", "interface_unbound", "boundary_port_missing"}
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    workflow.boundary_ports[2] = {**workflow.boundary_ports[2], "scope_path": outer_key}
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code in {"interface_unbound", "boundary_port_unbound", "boundary_port_missing", "boundary_port_duplicate"}
+
+
+def test_public_artifact_output_is_outside_prompt_and_handles_are_separate() -> None:
+    from vibecomfy.handles import Handle
+
+    workflow = VibeWorkflow("artifact", WorkflowSource("artifact"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", uid="source", native_output_names=["mask", "image"],
+        metadata={"output_types": ["MASK", "IMAGE"]},
+    )
+    workflow.nodes["sink"] = VibeNode("sink", "Sink", uid="sink", inputs={"image": None}, metadata={"input_types": {"image": "IMAGE"}})
+    workflow.nodes["save"] = VibeNode("save", "SaveImage", uid="save", inputs={"images": None})
+    workflow.connect(Handle("source", 1, name="image"), "sink.image")
+    workflow.edges.append(VibeEdge("sink", "0", "save", "images"))
+    workflow.outputs.append(VibeOutput("save", "SaveImage", name="image", artifact_kind="image", mime_type="image/png"))
+    api = workflow.compile("api")
+    assert workflow.compile("graphbuilder") == api
+    assert api["sink"]["inputs"]["image"] == ["source", 1]
+    assert set(api) == {"source", "sink", "save"}
+    assert "outputs" not in api and "name" not in api
+    workflow.outputs.append(VibeOutput("save", "SaveImage", name="image"))
+    with pytest.raises(WorkflowCompileError, match="public_output_duplicate"):
+        workflow.compile()
+    workflow.outputs[:] = [VibeOutput("save", "SaveImage", name="image")]
+    workflow.nodes["save"].mode = NodeMode.MUTED
+    with pytest.raises(WorkflowCompileError, match="public_output_missing"):
+        workflow.compile()
+
+
+def test_conversion_primitive_parity_uses_coherent_lens() -> None:
+    workflow = VibeWorkflow("primitive-parity", WorkflowSource("primitive-parity"))
+    workflow.nodes["p"] = VibeNode("p", "PrimitiveInt", inputs={"value": 7})
+    workflow.nodes["s"] = VibeNode("s", "Sink", inputs={"x": 1})
+    workflow.edges = [VibeEdge("p", "0", "s", "x")]
+    expected = workflow.compile("api")
+    default = port_convert_workflow(workflow, validate=True, prune_dead_branches=False, keep_virtual_wires=False)
+    assert default.validation and default.validation.parity_ok
+    assert "PrimitiveInt" not in default.text
+    ns: dict[str, object] = {"__file__": "primitive_parity.py"}
+    exec(compile(default.text, "primitive parity", "exec"), ns)  # noqa: S102
+    assert ns["build"]().compile("api") == expected
+
+    kept = port_convert_workflow(workflow, validate=True, prune_dead_branches=False, keep_virtual_wires=True)
+    assert "PrimitiveInt" in kept.text
+    ns = {"__file__": "primitive_parity_keep.py"}
+    exec(compile(kept.text, "primitive parity keep", "exec"), ns)  # noqa: S102
+    assert ns["build"]().compile("api") == expected
+    ready = emit_ready_template_python(workflow, ready_metadata={"ready_template": "test/primitive"}, ready_requirements={}, template_id="test/primitive")
+    assert "PrimitiveInt" not in ready
+    ns = {"__file__": "primitive_parity_ready.py"}
+    exec(compile(ready, "primitive parity ready", "exec"), ns)  # noqa: S102
+    assert ns["build"]().compile("api") == expected
+
+
+def test_conversion_channel_collision_keeps_semantic_input_over_widget_and_ui() -> None:
+    workflow = VibeWorkflow("channel-collision", WorkflowSource("channel-collision"))
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"x": 7}, widgets={"x": 1},
+        metadata={"_ui": {"widgets_values": [99], "x": 100}},
+    )
+    expected = workflow.compile("api")
+    assert expected["sink"]["inputs"]["x"] == 7
+
+    scratchpad = port_convert_workflow(
+        workflow, validate=True, prune_dead_branches=False, keep_virtual_wires=False
+    )
+    assert scratchpad.validation and scratchpad.validation.parity_ok
+    ns: dict[str, object] = {"__file__": "channel_collision.py"}
+    exec(compile(scratchpad.text, "channel collision", "exec"), ns)  # noqa: S102
+    assert ns["build"]().compile("api") == expected
+
+    ready = emit_ready_template_python(
+        workflow,
+        ready_metadata={"ready_template": "test/channel-collision"},
+        ready_requirements={},
+        template_id="test/channel-collision",
+    )
+    ns = {"__file__": "channel_collision_ready.py"}
+    exec(compile(ready, "channel collision ready", "exec"), ns)  # noqa: S102
+    assert ns["build"]().compile("api") == expected
 
 
 def test_real_graphbuilder_uses_the_same_detached_projection() -> None:

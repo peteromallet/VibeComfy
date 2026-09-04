@@ -152,9 +152,17 @@ def _resolved_field_values(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
     aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
     values: dict[str, Any] = {}
-    for key, value in {**getattr(node, "inputs", {}), **getattr(node, "widgets", {})}.items():
+    # ``inputs`` is the semantic channel and wins only after translating both
+    # channels to their canonical field names.  This mirrors direct compile's
+    # widgets-then-inputs precedence without consulting presentation ``_ui`` or
+    # silently selecting widgets for a same-name collision.
+    for key, value in getattr(node, "inputs", {}).items():
         translated = _translate_widget_for_key(str(key), aliases, class_type)
         if translated is not None:
+            values[translated] = value
+    for key, value in getattr(node, "widgets", {}).items():
+        translated = _translate_widget_for_key(str(key), aliases, class_type)
+        if translated is not None and translated not in values:
             values[translated] = value
     return values
 

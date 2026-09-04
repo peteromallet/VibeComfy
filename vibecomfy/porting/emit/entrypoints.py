@@ -51,6 +51,7 @@ def emit_scratchpad_python(
         workflow,
         apply_overrides=apply_overrides,
         keep_virtual_wires=keep_virtual_wires,
+        project_execution_edges=not keep_virtual_wires,
         prune_dead_branches=prune_dead_branches,
         diagnostics=diagnostics,
     )
