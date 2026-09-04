@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from vibecomfy.ingest.normalize import door_nodes
 import ast
+import copy
 import json
 import warnings
 from dataclasses import replace
@@ -150,7 +151,8 @@ def _node_title(node: Any) -> str:
 
 def _resolved_field_values(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
-    aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+    metadata = getattr(node, "metadata", {})
+    aliases = metadata.get("input_aliases") if isinstance(metadata, Mapping) else None
     values: dict[str, Any] = {}
     # ``inputs`` is the semantic channel and wins only after translating both
     # channels to their canonical field names.  This mirrors direct compile's
@@ -324,7 +326,8 @@ def _public_input_specs(
         if field.startswith("widget_") and old_id in workflow_nodes:
             cls = workflow_nodes[old_id].class_type
             node = workflow_nodes[old_id]
-            aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+            metadata = getattr(node, "metadata", {})
+            aliases = metadata.get("input_aliases") if isinstance(metadata, Mapping) else None
             resolved = resolve_widget_key_with_provenance(cls, field, input_aliases=aliases)
             if resolved.name is not None:
                 resolved_field = resolved.name
@@ -1097,8 +1100,16 @@ def _emit_build_function(
             if old_id == nid
         }
         preserve_fields.update(public_preserve_fields.get(nid, set()))
+        # Raw ``_ui`` is presentation evidence.  The kwargs builder also has
+        # legacy compact-widget discovery, so give it a detached semantic copy
+        # with that evidence removed; authored nodes remain untouched.
+        semantic_node = node
+        node_metadata = getattr(node, "metadata", None)
+        if isinstance(node_metadata, Mapping) and "_ui" in node_metadata:
+            semantic_node = copy.deepcopy(node)
+            semantic_node.metadata.pop("_ui", None)
         kwargs = _node_kwargs(
-            node, edges_in, var_names,
+            semantic_node, edges_in, var_names,
             workflow_nodes=workflow_nodes,
             output_var_names=output_var_names,
             diagnostics=diagnostics,
@@ -1311,7 +1322,8 @@ def _emit_build_function(
             if field.startswith("widget_") and old_id in workflow_nodes:
                 cls = workflow_nodes[old_id].class_type
                 node = workflow_nodes[old_id]
-                aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+                metadata = getattr(node, "metadata", {})
+                aliases = metadata.get("input_aliases") if isinstance(metadata, Mapping) else None
                 resolved = resolve_widget_key_with_provenance(cls, field, input_aliases=aliases)
                 if resolved.name is not None:
                     resolved_field = resolved.name

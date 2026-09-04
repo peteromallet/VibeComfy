@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 import types
 
@@ -458,6 +459,134 @@ def test_recursive_occurrences_expand_depth_two_and_isolate_siblings() -> None:
     assert workflow.to_envelope() == before
 
 
+def test_global_definition_alias_expands_sibling_store_and_preserves_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    outer = workflow.definitions["subgraphs"][0]
+    inner = outer["definitions"]["subgraphs"][0]
+    del outer["definitions"]
+    workflow.definitions = {"subgraphs": [outer, inner]}
+    before = copy.deepcopy(workflow.to_envelope())
+
+    api = workflow.compile("api")
+    graph = workflow.compile("graphbuilder")
+    expected_a = f"{outer_key}:outer_a/{inner_key}:inner_a#inner_core"
+    expected_b = f"{outer_key}:outer_b/{inner_key}:inner_a#inner_core"
+    assert api == graph
+    assert {expected_a, expected_b} <= set(api)
+    assert not {"outer_a", "outer_b", "native-inner", "native-outer"} & set(api)
+    assert api[expected_a]["inputs"]["in"] == ["source_a", 0]
+    assert api[expected_b]["inputs"]["in"] == ["source_b", 0]
+    assert api["sink_a"]["inputs"]["image"] == [expected_a, 0]
+    assert api["sink_b"]["inputs"]["image"] == [expected_b, 0]
+    assert workflow.to_envelope() == before
+    assert workflow.compile("api") == api
+    assert workflow.to_envelope() == before
+
+
+def test_nested_blank_uid_falls_back_to_existing_id() -> None:
+    workflow, inner_key, outer_key = _depth_two_sibling_workflow()
+    workflow.definitions["subgraphs"][0]["nodes"][0]["uid"] = ""
+    api = workflow.compile("api")
+    expected = f"{outer_key}:outer_a/{inner_key}:inner_a#inner_core"
+    assert expected in api
+    assert ":/" not in expected
+
+
+@pytest.mark.parametrize("kind", ["self", "mutual"])
+def test_recursive_definition_cycles_fail_closed(kind: str) -> None:
+    first = {"id": "cycle-a", "name": "CycleA", "nodes": []}
+    if kind == "self":
+        first["definitions"] = {"subgraphs": [first]}
+    else:
+        second = {"id": "cycle-b", "name": "CycleB", "nodes": []}
+        first["definitions"] = {"subgraphs": [second]}
+        second["definitions"] = {"subgraphs": [first]}
+    workflow = VibeWorkflow(
+        "recursive-cycle", WorkflowSource("recursive-cycle"),
+        nodes={"root": VibeNode("root", "Source")},
+        definitions={"subgraphs": [first]},
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile("api")
+    assert exc.value.code == "recursive_definition_cycle"
+    if kind == "self":
+        assert first["definitions"]["subgraphs"][0] is first
+    else:
+        second = first["definitions"]["subgraphs"][0]
+        assert second["definitions"]["subgraphs"][0] is first
+
+
+def test_definition_aliases_are_globally_unique() -> None:
+    first = {"id": "duplicate-native", "name": "First", "nodes": []}
+    nested = {"id": "duplicate-native", "name": "Nested", "nodes": [{"id": "n", "type": "Sink"}]}
+    first["definitions"] = {"subgraphs": [nested]}
+    workflow = VibeWorkflow(
+        "duplicate-alias", WorkflowSource("duplicate-alias"),
+        nodes={"root": VibeNode("root", "Source")},
+        definitions={"subgraphs": [first]},
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile("api")
+    assert exc.value.code == "definition_alias_duplicate"
+
+
+def test_unknown_interface_and_boundary_scope_fail_closed() -> None:
+    definition = {"id": "native", "name": "Known", "nodes": []}
+    workflow = VibeWorkflow(
+        "unknown-contract", WorkflowSource("unknown-contract"),
+        nodes={"root": VibeNode("root", "Source")},
+        definitions={"subgraphs": [definition]},
+        interfaces={"not-indexed": {"inputs": []}},
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile("api")
+    assert exc.value.code == "interface_unknown"
+
+    workflow.interfaces = {}
+    workflow.boundary_ports = [{"scope_path": "not-indexed", "name": "x", "direction": "input", "node_uid": "n", "field": "x"}]
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile("api")
+    assert exc.value.code == "boundary_scope_unknown"
+
+
+def test_mapping_socket_descriptor_is_rejected_before_execution() -> None:
+    definition = {
+        "id": "native-sink", "name": "SinkDefinition",
+        "nodes": [{"id": "inner", "type": "Sink", "inputs": {"in": {"type": "IMAGE", "value": None}}}],
+    }
+    workflow = VibeWorkflow(
+        "mapping-socket", WorkflowSource("mapping-socket"),
+        nodes={"root": VibeNode("root", "native-sink", uid="root")},
+        definitions={"subgraphs": [definition]},
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile("api")
+    assert exc.value.code == "boundary_port_untyped"
+
+
+def test_virtual_wires_are_grouped_by_scope_name_and_leg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
+    workflow = VibeWorkflow("scoped-wires", WorkflowSource("scoped-wires"))
+    for scope in ("left", "right"):
+        workflow.nodes[f"{scope}#source"] = VibeNode(f"{scope}#source", "Source", uid="source")
+        workflow.nodes[f"{scope}#sink"] = VibeNode(f"{scope}#sink", "Sink", uid="sink", inputs={"image": None})
+    workflow.virtual_wires = {
+        "route": {"legs": [
+            {"scope_path": "left", "leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "image"},
+            {"scope_path": "right", "leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "image"},
+        ]}
+    }
+    api = workflow.compile("api")
+    assert api == workflow.compile("graphbuilder")
+    assert api["left#sink"]["inputs"]["image"] == ["left#source", 0]
+    assert api["right#sink"]["inputs"]["image"] == ["right#source", 0]
+
+
 def test_recursive_occurrence_contract_rejects_collisions_and_bad_bindings() -> None:
     workflow, inner_key, outer_key = _depth_two_sibling_workflow()
     workflow.nodes["outer_b"].uid = "outer_a"
@@ -543,7 +672,6 @@ def test_conversion_channel_collision_keeps_semantic_input_over_widget_and_ui() 
     ns: dict[str, object] = {"__file__": "channel_collision.py"}
     exec(compile(scratchpad.text, "channel collision", "exec"), ns)  # noqa: S102
     assert ns["build"]().compile("api") == expected
-
     ready = emit_ready_template_python(
         workflow,
         ready_metadata={"ready_template": "test/channel-collision"},
@@ -554,6 +682,29 @@ def test_conversion_channel_collision_keeps_semantic_input_over_widget_and_ui() 
     exec(compile(ready, "channel collision ready", "exec"), ns)  # noqa: S102
     assert ns["build"]().compile("api") == expected
 
+
+def test_ready_emission_ignores_raw_ui_widget_aliases() -> None:
+    def build(ui_names: list[str]) -> tuple[dict[str, dict[str, object]], str]:
+        workflow = VibeWorkflow("ui-independent", WorkflowSource("ui-independent"))
+        workflow.nodes["s"] = VibeNode(
+            "s", "UnknownSink", widgets={"widget_0": 1},
+            metadata={"_ui": {"widget_names": ui_names}},
+        )
+        ready = emit_ready_template_python(
+            workflow,
+            ready_metadata={"ready_template": "test/primitive"},
+            ready_requirements={},
+            template_id="test/primitive",
+        )
+        namespace: dict[str, object] = {"__file__": "ui-independent.py"}
+        exec(compile(ready, "ui-independent", "exec"), namespace)  # noqa: S102
+        return namespace["build"]().compile("api"), ready
+
+    first, first_text = build(["x"])
+    second, second_text = build(["y"])
+    assert first == second == {"s": {"class_type": "UnknownSink", "inputs": {"widget_0": 1}}}
+    assert "widget_0=1" in first_text
+    assert "widget_0=1" in second_text
 
 def test_real_graphbuilder_uses_the_same_detached_projection() -> None:
     workflow = _chain(NodeMode.ENABLED)
@@ -592,7 +743,7 @@ def test_recursive_instance_ambiguity_and_unbound_interface_fail_closed() -> Non
     workflow.boundary_ports = []
     with pytest.raises(WorkflowCompileError) as exc:
         workflow.compile()
-    assert exc.value.code == "interface_unbound"
+    assert exc.value.code == "interface_unknown"
 
 
 @pytest.mark.parametrize("emitter", [emit_scratchpad_python, emit_ready_template_python])

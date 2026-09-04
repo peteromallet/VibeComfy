@@ -559,7 +559,12 @@ class VibeWorkflow:
             return [VibeWorkflow._strip_recursive_presentation(item) for item in value]
         return value
 
-    def _semantic_definitions(self, raw: Any, parent_scope: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    def _semantic_definitions(
+        self,
+        raw: Any,
+        parent_scope: tuple[str, ...] = (),
+        _active_definition_ids: set[int] | None = None,
+    ) -> list[dict[str, Any]]:
         from vibecomfy.identity.scope import compose_scope_path, sg_key
         if not raw:
             return []
@@ -571,27 +576,47 @@ class VibeWorkflow:
             entries = list(raw)
         else:
             raise ValueError("definitions must be a JSON-shaped mapping or sequence")
+        active = _active_definition_ids if _active_definition_ids is not None else set()
         result: list[dict[str, Any]] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError("each definition must be a mapping")
+            identity = id(entry)
+            if identity in active:
+                raise WorkflowCompileError(
+                    "recursive_definition_cycle",
+                    "recursive definition object graph cannot be compiled",
+                )
+            active.add(identity)
             key = entry.get("sg_key")
             derived = sg_key(entry)
             if key is not None and key != derived:
                 raise ValueError(f"definition sg_key {key!r} does not match its structural identity")
             key = derived
             scope = compose_scope_path((*parent_scope, key))
-            clean = self._strip_recursive_presentation(entry)
+            nested = entry.get("definitions")
+            # Exclude recursive children from the presentation scrubber; they
+            # are walked below with the active object-identity guard.
+            clean = self._strip_recursive_presentation(
+                {key: value for key, value in entry.items() if key != "definitions"}
+            )
             clean["sg_key"] = key
             clean["scope_path"] = scope
-            nested = entry.get("definitions")
             if nested:
-                clean["definitions"] = self._semantic_definitions(nested, (*parent_scope, key))
+                clean["definitions"] = self._semantic_definitions(
+                    nested, (*parent_scope, key), active
+                )
             result.append(clean)
+            active.remove(identity)
         result.sort(key=lambda item: (str(item["scope_path"]), str(item["sg_key"])))
         return result
 
-    def _semantic_definition_nodes(self, raw: Any, parent_scope: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    def _semantic_definition_nodes(
+        self,
+        raw: Any,
+        parent_scope: tuple[str, ...] = (),
+        _active_definition_ids: set[int] | None = None,
+    ) -> list[dict[str, Any]]:
         """Flatten definition-local nodes into the same scoped node view."""
         from vibecomfy.identity.scope import compose_scope_path, sg_key
         from vibecomfy.identity.uid import validate_local_uid
@@ -605,10 +630,18 @@ class VibeWorkflow:
             entries = list(raw)
         else:
             raise ValueError("definitions must be a JSON-shaped mapping or sequence")
+        active = _active_definition_ids if _active_definition_ids is not None else set()
         result: list[dict[str, Any]] = []
         for definition in entries:
             if not isinstance(definition, dict):
                 continue
+            identity = id(definition)
+            if identity in active:
+                raise WorkflowCompileError(
+                    "recursive_definition_cycle",
+                    "recursive definition object graph cannot be compiled",
+                )
+            active.add(identity)
             key = definition.get("sg_key") or sg_key(definition)
             scope = compose_scope_path((*parent_scope, key))
             raw_nodes = definition.get("nodes", [])
@@ -616,7 +649,9 @@ class VibeWorkflow:
             for entry in node_entries:
                 if not isinstance(entry, dict):
                     continue
-                local = entry.get("uid", entry.get("id"))
+                local = entry.get("uid")
+                if not isinstance(local, str) or not local.strip():
+                    local = entry.get("id")
                 uid = validate_local_uid(str(local) if local is not None else "", field="definition node uid")
                 result.append({
                     "scope_path": scope,
@@ -629,7 +664,10 @@ class VibeWorkflow:
                 })
             nested = definition.get("definitions")
             if nested:
-                result.extend(self._semantic_definition_nodes(nested, (*parent_scope, key)))
+                result.extend(
+                    self._semantic_definition_nodes(nested, (*parent_scope, key), active)
+                )
+            active.remove(identity)
         result.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
         return result
 
@@ -1856,6 +1894,16 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
     input_names: list[str | None] = []
     input_types: list[str | None] = []
     if isinstance(raw_inputs, Mapping):
+        if any(
+            isinstance(value, Mapping)
+            and ("type" in value or "name" in value)
+            and ("value" in value or "link" in value or "name" in value)
+            for value in raw_inputs.values()
+        ):
+            raise WorkflowCompileError(
+                "boundary_port_untyped",
+                "mapping-form definition inputs are semantic values, not socket descriptors",
+            )
         input_values = copy.deepcopy(dict(raw_inputs))
     elif isinstance(raw_inputs, (list, tuple)):
         for item in raw_inputs:
@@ -1869,6 +1917,11 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
     raw_outputs = raw_node.get("outputs", [])
     output_names: list[str | None] = []
     output_types: list[str | None] = []
+    if isinstance(raw_outputs, Mapping):
+        raise WorkflowCompileError(
+            "boundary_port_untyped",
+            "mapping-form definition outputs are not a typed socket roster",
+        )
     if isinstance(raw_outputs, (list, tuple)):
         for item in raw_outputs:
             if isinstance(item, Mapping):
@@ -1890,7 +1943,9 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
         metadata.setdefault("input_names", input_names)
     if input_types:
         metadata.setdefault("input_types", input_types)
-    local_uid = raw_node.get("uid", raw_node.get("id", node_id))
+    local_uid = raw_node.get("uid")
+    if not isinstance(local_uid, str) or not local_uid.strip():
+        local_uid = raw_node.get("id", node_id)
     from vibecomfy.identity.uid import validate_local_uid
     local_uid = validate_local_uid(str(local_uid), field="definition node uid")
     return VibeNode(
@@ -1920,12 +1975,19 @@ def _expand_authored_definitions(
     from vibecomfy.identity.uid import make_uid, validate_local_uid
 
     records_by_path: dict[str, dict[str, Any]] = {}
-    root_aliases: dict[str, dict[str, Any]] = {}
+    records_by_key: dict[str, dict[str, Any]] = {}
+    records_by_alias: dict[str, dict[str, Any]] = {}
 
-    def index(raw: Any, parent_keys: tuple[str, ...], parent_aliases: dict[str, dict[str, Any]]) -> None:
+    def index(raw: Any, parent_keys: tuple[str, ...], active_definition_ids: set[int]) -> None:
         for definition in _recursive_entries(raw):
             if not isinstance(definition, Mapping):
                 raise WorkflowCompileError("definition_malformed", "each definition must be a mapping")
+            identity = id(definition)
+            if identity in active_definition_ids:
+                raise WorkflowCompileError(
+                    "recursive_definition_cycle",
+                    "recursive definition object graph cannot be compiled",
+                )
             derived = sg_key(definition)
             supplied = definition.get("sg_key")
             if supplied is not None and supplied != derived:
@@ -1936,6 +1998,8 @@ def _expand_authored_definitions(
             path = compose_scope_path((*parent_keys, derived))
             if path in records_by_path:
                 raise WorkflowCompileError("definition_scope_collision", f"duplicate definition identity {path!r}")
+            if derived in records_by_key:
+                raise WorkflowCompileError("definition_scope_collision", f"duplicate definition identity {derived!r}")
             record: dict[str, Any] = {
                 "definition": definition,
                 "key": derived,
@@ -1948,22 +2012,29 @@ def _expand_authored_definitions(
             if native_id is not None and str(native_id).strip():
                 aliases.add(str(native_id))
             for alias in aliases:
-                if alias in parent_aliases and parent_aliases[alias] is not record:
+                if alias in records_by_alias and records_by_alias[alias] is not record:
                     raise WorkflowCompileError("definition_alias_duplicate", f"duplicate definition alias {alias!r}")
                 record["aliases"][alias] = record
-                parent_aliases[alias] = record
+                records_by_alias[alias] = record
             records_by_path[path] = record
-            index(definition.get("definitions"), (*parent_keys, derived), record["children"])
+            records_by_key[derived] = record
+            active_definition_ids.add(identity)
+            index(definition.get("definitions"), (*parent_keys, derived), active_definition_ids)
+            active_definition_ids.remove(identity)
 
-    index(definitions, (), root_aliases)
+    index(definitions, (), set())
 
     # Interface records are keyed by canonical definition key in the accepted
     # contract.  Accepting the full structural path/native alias is harmless
     # for nested definitions and keeps old envelopes readable.
     interfaces = workflow.interfaces if isinstance(workflow.interfaces, Mapping) else {}
     interface_by_key: dict[str, list[dict[str, Any]]] = {}
+    interface_by_owner: dict[str, list[dict[str, Any]]] = {}
     for raw_key, raw_interface in interfaces.items():
         key = str(raw_key)
+        owner = records_by_path.get(key) or records_by_key.get(key) or records_by_alias.get(key)
+        if owner is None:
+            raise WorkflowCompileError("interface_unknown", f"interface {key!r} has no indexed definition owner")
         if isinstance(raw_interface, Mapping):
             members: list[Any] = []
             for direction in ("inputs", "outputs"):
@@ -1989,7 +2060,10 @@ def _expand_authored_definitions(
                 raise WorkflowCompileError("interface_duplicate", f"duplicate interface member {(key, *pair)!r}")
             seen.add(pair)
             normalized.append({**dict(member), "name": name, "direction": direction})
+        if owner["path"] in interface_by_owner:
+            raise WorkflowCompileError("interface_duplicate", f"multiple interfaces identify definition {owner['path']!r}")
         interface_by_key[key] = normalized
+        interface_by_owner[owner["path"]] = normalized
 
     ports = workflow.boundary_ports
     if not isinstance(ports, (list, tuple)):
@@ -2000,6 +2074,9 @@ def _expand_authored_definitions(
         if not isinstance(port, Mapping):
             raise WorkflowCompileError("boundary_port_malformed", "boundary port must be a mapping")
         scope = str(port.get("scope_path", ""))
+        owner = records_by_path.get(scope) or records_by_key.get(scope) or records_by_alias.get(scope)
+        if owner is None:
+            raise WorkflowCompileError("boundary_scope_unknown", f"boundary scope {scope!r} has no indexed definition owner")
         name = port.get("name", port.get("interface", port.get("port_name")))
         direction = str(port.get("direction", "")).lower()
         if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
@@ -2012,27 +2089,22 @@ def _expand_authored_definitions(
         if identity in seen_ports:
             raise WorkflowCompileError("boundary_port_duplicate", f"duplicate boundary binding {identity!r}")
         seen_ports.add(identity)
-        ports_by_scope.setdefault(scope, []).append(port)
+        ports_by_scope.setdefault(owner["path"], []).append(port)
 
     for interface_key, members in interface_by_key.items():
-        present = {(str(p.get("name", p.get("interface", p.get("port_name")))), str(p.get("direction", "")).lower()) for p in ports_by_scope.get(interface_key, ())}
+        owner = records_by_path.get(interface_key) or records_by_key.get(interface_key) or records_by_alias.get(interface_key)
+        owner_path = owner["path"] if owner is not None else interface_key
+        present = {(str(p.get("name", p.get("interface", p.get("port_name")))), str(p.get("direction", "")).lower()) for p in ports_by_scope.get(owner_path, ())}
         missing = [(interface_key, name, direction) for name, direction in ((m["name"], m["direction"]) for m in members) if (name, direction) not in present]
         if missing:
             raise WorkflowCompileError("interface_unbound", f"interface members have no boundary binding: {missing!r}")
-        for port in ports_by_scope.get(interface_key, ()):
+        for port in ports_by_scope.get(owner_path, ()):
             pair = (str(port.get("name", port.get("interface", port.get("port_name")))), str(port.get("direction", "")).lower())
             if pair not in {(m["name"], m["direction"]) for m in members}:
                 raise WorkflowCompileError("boundary_port_unbound", f"boundary port {(interface_key, *pair)!r} has no declared interface member")
 
     def lookup_interface(record: Mapping[str, Any]) -> list[dict[str, Any]]:
-        candidates = [str(record["key"]), str(record["path"])]
-        native_id = record["definition"].get("id")
-        if native_id is not None:
-            candidates.append(str(native_id))
-        for key in candidates:
-            if key in interface_by_key:
-                return interface_by_key[key]
-        return []
+        return interface_by_owner.get(str(record["path"]), [])
 
     def member_for(members: list[dict[str, Any]], value: Any, direction: str) -> dict[str, Any] | None:
         text = str(value)
@@ -2084,8 +2156,7 @@ def _expand_authored_definitions(
         members = context["members"]
         bindings: dict[tuple[str, str], tuple[str, str]] = {}
         raw_scope = context["record"]["key"]
-        scopes = {raw_scope, context["record"]["path"], context["runtime_scope"]}
-        candidate_ports = [p for scope in scopes for p in ports_by_scope.get(scope, ())]
+        candidate_ports = list(ports_by_scope.get(context["record"]["path"], ()))
         for member in members:
             rows = [p for p in candidate_ports if str(p.get("name", p.get("interface", p.get("port_name")))) == member["name"] and str(p.get("direction", "")).lower() == member["direction"]]
             if len(rows) != 1:
@@ -2118,7 +2189,10 @@ def _expand_authored_definitions(
             if not isinstance(raw_node, Mapping):
                 raise WorkflowCompileError("recursive_node_malformed", f"definition {record['key']!r} node {ordinal} is malformed")
             raw_id = raw_node.get("id", raw_node.get("uid", ordinal))
-            local = validate_local_uid(str(raw_node.get("uid", raw_id)), field="definition node uid")
+            uid_candidate = raw_node.get("uid")
+            if not isinstance(uid_candidate, str) or not uid_candidate.strip():
+                uid_candidate = raw_id
+            local = validate_local_uid(str(uid_candidate), field="definition node uid")
             if local in raw_by_local:
                 raise WorkflowCompileError("duplicate_scoped_node_uid", f"duplicate node UID {local!r} in definition {record['path']!r}")
             raw_by_local[local] = raw_node
@@ -2130,13 +2204,16 @@ def _expand_authored_definitions(
         occurrence_ids: set[str] = set()
         for local, raw_node in raw_by_local.items():
             class_type = str(raw_node.get("class_type", raw_node.get("type", "Unknown")))
-            child = record["children"].get(class_type)
+            child = records_by_alias.get(class_type)
             if child is None:
                 node = _raw_recursive_node(raw_node, local_to_runtime[local])
                 node.id = local_to_runtime[local]
                 all_nodes[node.id] = node
                 continue
-            occurrence_uid = validate_local_uid(str(raw_node.get("uid", raw_node.get("id", ""))), field="instance occurrence uid")
+            occurrence_candidate = raw_node.get("uid")
+            if not isinstance(occurrence_candidate, str) or not occurrence_candidate.strip():
+                occurrence_candidate = raw_node.get("id", "")
+            occurrence_uid = validate_local_uid(str(occurrence_candidate), field="instance occurrence uid")
             if occurrence_uid in occurrence_ids:
                 raise WorkflowCompileError("occurrence_collision", f"duplicate occurrence identity {occurrence_uid!r} in scope {runtime_scope!r}")
             occurrence_ids.add(occurrence_uid)
@@ -2179,7 +2256,7 @@ def _expand_authored_definitions(
     root_occurrences: dict[str, dict[str, Any]] = {}
     for node_id, authored in workflow.nodes.items():
         class_type = str(authored.class_type)
-        record = root_aliases.get(class_type)
+        record = records_by_alias.get(class_type)
         if record is None:
             all_nodes[str(node_id)] = copy.deepcopy(authored)
             continue
@@ -2840,9 +2917,8 @@ def _virtual_wire_edges(
             raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} lacks explicit legs")
         if not isinstance(legs, (list, tuple)):
             raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} legs must be a sequence")
-        leg_indexes: list[int] = []
-        occurrences_by_leg: dict[int, list[int]] = {}
-        records_by_leg: dict[int, tuple[int, str, str, str, str, str]] = {}
+        occurrences_by_leg: dict[tuple[str, str, int], list[int]] = {}
+        records_by_leg: dict[tuple[str, str, int], tuple[int, str, str, str, str, str]] = {}
         seen_records: set[tuple[int, int, str, str, str, str]] = set()
         for ordinal, leg in enumerate(legs):
             if isinstance(leg, (list, tuple)) and len(leg) == 4:
@@ -2858,9 +2934,9 @@ def _virtual_wire_edges(
                 raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg {ordinal} has invalid leg_index")
             if isinstance(occurrence_index, bool) or not isinstance(occurrence_index, int) or occurrence_index < 0:
                 raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg {ordinal} has invalid occurrence_index")
-            leg_indexes.append(leg_index)
-            occurrences_by_leg.setdefault(leg_index, []).append(occurrence_index)
             scope = str(leg.get("scope_path", raw.get("scope_path", "")))
+            group = (name, scope, leg_index)
+            occurrences_by_leg.setdefault(group, []).append(occurrence_index)
             if any(part.startswith("sg") and part[2:].isdigit() for part in scope.split("/") if part):
                 raise WorkflowCompileError("ordinal_scope_path", f"virtual wire {name!r} uses an ordinal scope path")
 
@@ -2903,24 +2979,25 @@ def _virtual_wire_edges(
                 raise WorkflowCompileError("virtual_wire_duplicate", f"virtual wire {name!r} repeats an occurrence")
             seen_records.add(record)
             canonical = (leg_index, source, output, target, input_name, scope)
-            prior = records_by_leg.get(leg_index)
+            prior = records_by_leg.get(group)
             if prior is not None and prior != canonical:
                 raise WorkflowCompileError(
                     "virtual_wire_conflict",
                     f"virtual wire {name!r} occurrences for leg {leg_index} disagree on endpoints",
                 )
-            records_by_leg[leg_index] = canonical
-        expected_legs = list(range(len(set(leg_indexes))))
-        if sorted(set(leg_indexes)) != expected_legs:
-            raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg indexes must be contiguous from zero")
-        for leg_index, occurrence_indexes in occurrences_by_leg.items():
+            records_by_leg[group] = canonical
+        for wire_name, scope in sorted({(wire_name, scope) for wire_name, scope, _leg_index in records_by_leg}):
+            scope_indexes = sorted({leg_index for candidate_name, candidate_scope, leg_index in records_by_leg if candidate_name == wire_name and candidate_scope == scope})
+            if scope_indexes != list(range(len(scope_indexes))):
+                raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg indexes must be contiguous from zero in scope {scope!r}")
+        for (_wire_name, scope, leg_index), occurrence_indexes in occurrences_by_leg.items():
             if sorted(occurrence_indexes) != list(range(len(occurrence_indexes))) or len(occurrence_indexes) != len(set(occurrence_indexes)):
                 raise WorkflowCompileError(
                     "virtual_wire_index",
                     f"virtual wire {name!r} occurrence indexes for leg {leg_index} must be unique and contiguous from zero",
                 )
-        for leg_index in sorted(records_by_leg):
-            _index, source, output, target, input_name, _scope = records_by_leg[leg_index]
+        for group in sorted(records_by_leg):
+            _index, source, output, target, input_name, _scope = records_by_leg[group]
             result.append(VibeEdge(source, output, target, input_name))
     return result
 
