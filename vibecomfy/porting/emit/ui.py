@@ -4394,6 +4394,8 @@ def _overlay_validated_presentation(
         if not isinstance(group, Mapping):
             continue
         scope = str(group["scope_path"])
+        if scope != "":
+            continue
         pid = str(group["presentation_id"])
         member_ids: list[int] = []
         for uid, entry in side_nodes.items():

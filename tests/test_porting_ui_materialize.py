@@ -217,18 +217,29 @@ def test_materialize_depth_two_virtual_leg_uses_structural_scope() -> None:
     wf.metadata["definitions"] = {"subgraphs": [{"name": "RAW_WRONG", "nodes": [], "links": []}]}
     scope = compose_scope_path((sg_key(outer), sg_key(inner)))
     ref = {"scope_path": scope, "name": "bus", "leg_index": 0}
+    root_group = {"scope_path": "", "presentation_id": "shared", "bounds": [1, 2, 300, 200], "title": "Root group"}
+    nested_group = {"scope_path": scope, "presentation_id": "shared", "bounds": [11, 12, 130, 140], "title": "Nested group"}
     sidecar = {
         "format_version": 1,
         "bind": {"workflow_identity": wf.id, "semantic_digest": wf.semantic_digest()},
         "nodes": {
+            "root": {"id": 5, "group": "shared"},
             make_uid(scope, "left"): {"id": 77},
-            make_uid(scope, "right"): {"id": 88},
+            make_uid(scope, "right"): {"id": 88, "group": "shared"},
         },
         "links": [{"virtual_wire_ref": ref, "occurrence_index": 0, "id": 91}],
-        "groups": [], "canvas": {},
+        "groups": [root_group, nested_group], "canvas": {},
     }
     result = materialize_ui_json(wf, sidecar)
     nested = result["definitions"]["subgraphs"][0]["definitions"]["subgraphs"][0]
+    assert result["groups"] == [{
+        "id": "shared", "vibecomfy_group_id": "shared", "nodes": [5],
+        "bounding": [1.0, 2.0, 300.0, 200.0], "title": "Root group",
+    }]
+    assert nested["groups"] == [{
+        "id": "shared", "vibecomfy_group_id": "shared", "nodes": [88],
+        "bounding": [11.0, 12.0, 130.0, 140.0], "title": "Nested group",
+    }]
     assert nested["links"][0]["id"] == 91
     assert [node["id"] for node in nested["nodes"]] == [77, 88]
     assert nested["links"][0]["origin_id"] == 77
