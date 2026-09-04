@@ -27,6 +27,12 @@ def _workflow(workflow_id: str = "bundle-test") -> VibeWorkflow:
     return VibeWorkflow(workflow_id, WorkflowSource(workflow_id))
 
 
+def _nonempty_workflow(workflow_id: str = "bundle-test") -> VibeWorkflow:
+    workflow = _workflow(workflow_id)
+    workflow.add_node("Integer", uid="integer-node", value=7)
+    return workflow
+
+
 def test_revision_uses_exact_root_preimage_and_missing_sidecar_is_empty(tmp_path: Path) -> None:
     workflow = _workflow()
     bundle = emit_bundle(workflow, tmp_path / "workflow.py", {"operation": "authored", "timestamp": "drop"})
@@ -133,7 +139,9 @@ def test_load_bundle_uses_restricted_build_loader_and_derives_identity(tmp_path:
     source.write_text(
         "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n"
         "def build():\n"
-        "    return VibeWorkflow('canonical', WorkflowSource('canonical'))\n",
+        "    workflow = VibeWorkflow('canonical', WorkflowSource('canonical'))\n"
+        "    workflow.add_node('Integer', uid='integer-node', value=7)\n"
+        "    return workflow\n",
         encoding="utf-8",
     )
     with pytest.raises(CapabilityFenceError, match="non_interactive_refusal"):
@@ -190,7 +198,7 @@ def test_approved_projection_record_is_detached_immutable_and_canonical() -> Non
 
 
 def test_bundle_compile_rejects_unknown_variant() -> None:
-    bundle = load_bundle(_workflow())
+    bundle = load_bundle(_nonempty_workflow())
 
     with pytest.raises(WorkflowBundleError, match="projection failed"):
         bundle.compile("missing")
@@ -215,7 +223,7 @@ def test_bundle_compile_rejects_unresolved_class_and_identity() -> None:
 def test_bundle_compile_rejects_nested_reconciliation_and_model_presence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reconciliation = _workflow("reconciliation")
+    reconciliation = _nonempty_workflow("reconciliation")
     reconciliation.metadata["reconciliation"] = {
         "diagnostics": [{"severity": "error", "message": "stale"}]
     }
@@ -235,7 +243,119 @@ def test_bundle_compile_rejects_nested_reconciliation_and_model_presence(
     monkeypatch.setattr(models_loader, "resolve_model_entry", lambda *args, **kwargs: object())
     monkeypatch.setattr(fetch, "is_present", lambda *args, **kwargs: False)
     with pytest.raises(WorkflowBundleError, match="not present locally"):
-        load_bundle(_workflow("missing-model")).compile()
+        load_bundle(_nonempty_workflow("missing-model")).compile()
+
+
+def test_bundle_model_gate_checks_picker_metadata_and_requirements(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.fetch as fetch
+    import vibecomfy.model_assets as model_assets
+    import vibecomfy.registry.models_loader as models_loader
+
+    workflow = _nonempty_workflow("all-model-declarations")
+    workflow.metadata["model_assets"] = [{"name": "metadata-model.bin", "subdir": "vae"}]
+    workflow.requirements.models.append("requirements-model.bin")
+    monkeypatch.setattr(
+        model_assets,
+        "_referenced_model_values",
+        lambda _workflow: [{"value": "picker-model.bin", "subdir": "checkpoints"}],
+    )
+    monkeypatch.setattr(models_loader, "load_registry", lambda: (object(),))
+    resolved: list[str] = []
+
+    def resolve(value: str, **_kwargs: object) -> object:
+        resolved.append(value)
+        return type("Entry", (), {"targets": (type("Target", (), {"path": "checkpoints/model.bin"})(),)})()
+
+    monkeypatch.setattr(models_loader, "resolve_model_entry", resolve)
+    monkeypatch.setattr(fetch, "is_present", lambda entry, **_kwargs: True)
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    _approval_preconditions(workflow, type("Provider", (), {"get_schema": lambda _self, _class: object()})())
+    assert resolved == ["picker-model.bin", "metadata-model.bin", "requirements-model.bin"]
+
+
+def test_bundle_model_gate_rejects_metadata_model_not_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.model_assets as model_assets
+    import vibecomfy.registry.models_loader as models_loader
+
+    workflow = _nonempty_workflow("metadata-model-missing")
+    workflow.metadata["model_assets"] = [{"name": "metadata-model.bin", "subdir": "vae"}]
+    monkeypatch.setattr(model_assets, "_referenced_model_values", lambda _workflow: [])
+    monkeypatch.setattr(models_loader, "load_registry", lambda: ())
+    monkeypatch.setattr(models_loader, "resolve_model_entry", lambda *_args, **_kwargs: None)
+    with pytest.raises(WorkflowBundleError, match="not locally registered"):
+        load_bundle(workflow).compile()
+
+
+def test_bundle_identity_comes_from_lock_and_schema_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("locked-identity")
+    node = workflow.add_node("LockedNode", uid="locked-node", value=1)
+    node.metadata["schema_source"] = {"provider": "object_info"}
+    pack = CustomNodePack("LockedPack", "local", frozenset({"LockedNode"}))
+    lock = LockEntry(name="LockedPack", slug="locked-pack", commit="abc123", source="local", path="packs/locked")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    calls: list[tuple[object, object, object]] = []
+
+    def resolve(class_type: str, identity: object, *, allow_class_fallback: bool) -> object:
+        calls.append((class_type, identity, allow_class_fallback))
+        return SimpleNamespace(entry={"class_type": class_type})
+
+    monkeypatch.setattr(object_info, "resolve_class_entry", resolve)
+    provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
+    _approval_preconditions(workflow, provider)
+    assert calls == [("LockedNode", {"pack_slug": "locked-pack", "git_commit": "abc123"}, False)]
+
+
+def test_bundle_identity_lock_miss_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("locked-identity-miss")
+    workflow.add_node("LockedNode", uid="locked-node", value=1)
+    pack = CustomNodePack("LockedPack", "local", frozenset({"LockedNode"}))
+    lock = LockEntry(name="LockedPack", slug="locked-pack", commit="abc123", source="local", path="packs/locked")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    monkeypatch.setattr(
+        object_info,
+        "resolve_class_entry",
+        lambda *_args, **_kwargs: type("Result", (), {"entry": None})(),
+    )
+    provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
+    with pytest.raises(WorkflowBundleError, match="object-info identity"):
+        _approval_preconditions(workflow, provider)
+
+
+def test_bundle_missing_class_gate_is_cwd_independent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.node_packs as node_packs
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    (tmp_path / "node_index.json").write_text("[]", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    workflow = _workflow("cwd-independent")
+    workflow.add_node("BoundNode", uid="bound-node", value=1)
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: ())
+    provider = type("Provider", (), {"get_schema": lambda _self, class_type: object() if class_type == "BoundNode" else None})()
+    _approval_preconditions(workflow, provider)
+
+
+def test_bundle_empty_workflow_rejected_before_compile(monkeypatch: pytest.MonkeyPatch) -> None:
+    workflow = _workflow("empty-rejected")
+    bundle = load_bundle(workflow)
+    monkeypatch.setattr(workflow, "compile", lambda *_args, **_kwargs: pytest.fail("compiler called"))
+    with pytest.raises(WorkflowBundleError, match="workflow is empty"):
+        bundle.compile()
 
 
 def test_load_bundle_hashes_same_basename_presentation_candidate(tmp_path: Path) -> None:

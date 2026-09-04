@@ -986,28 +986,34 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
             )
 
     try:
-        from vibecomfy.node_packs import CORE_COMFY_CLASSES, missing_class_types_for_workflow
+        from vibecomfy.node_packs import CORE_COMFY_CLASSES, get_known_node_packs, read_lockfile
 
-        # The legacy helper reads an authoring provider with its default
-        # on-demand behavior when node_index.json is absent.  Use it only when
-        # a local index exists; otherwise derive the same set from the already
-        # bound offline provider and never open the on-demand path.
-        if Path("node_index.json").exists():
-            missing_classes = sorted(missing_class_types_for_workflow(workflow))
-        else:
-            get_schema = getattr(schema_provider, "get_schema", None)
-            if not callable(get_schema):
-                get_schema = getattr(schema_provider, "get", None)
-            known_classes = {
-                str(node.class_type)
-                for node in workflow.nodes.values()
-                if callable(get_schema) and get_schema(str(node.class_type)) is not None
-            }
-            missing_classes = sorted(
-                {str(node.class_type) for node in workflow.nodes.values()}
-                - known_classes
-                - set(CORE_COMFY_CLASSES)
-            )
+        # Bind both local pack authorities to the repository containing this
+        # implementation.  In particular, never branch on a caller's CWD or
+        # invoke the legacy helper's ambient/on-demand schema path.
+        repo_root = Path(__file__).resolve().parents[1]
+        lock_path = repo_root / "custom_nodes.lock"
+        lock_entries = read_lockfile(lock_path)
+        known_packs = get_known_node_packs(lock_path)
+        known_pack_classes = {
+            str(class_type)
+            for pack in known_packs
+            for class_type in pack.classes
+        }
+        get_schema = getattr(schema_provider, "get_schema", None)
+        if not callable(get_schema):
+            get_schema = getattr(schema_provider, "get", None)
+        schema_classes = {
+            str(node.class_type)
+            for node in workflow.nodes.values()
+            if callable(get_schema) and get_schema(str(node.class_type)) is not None
+        }
+        missing_classes = sorted(
+            {str(node.class_type) for node in workflow.nodes.values()}
+            - schema_classes
+            - known_pack_classes
+            - set(CORE_COMFY_CLASSES)
+        )
     except Exception as exc:
         raise WorkflowBundleError(
             f"local node-pack reconciliation failed: {type(exc).__name__}: {exc}"
@@ -1050,11 +1056,50 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
     try:
         from vibecomfy.porting.object_info import resolve_class_entry
 
+        pack_by_class = {
+            str(class_type): pack
+            for pack in known_packs
+            for class_type in pack.classes
+        }
+        lock_by_name = {str(entry.name): entry for entry in lock_entries}
+        lock_by_slug = {str(entry.slug or entry.name): entry for entry in lock_entries}
+
         for node_id, node in sorted(workflow.nodes.items(), key=lambda item: str(item[0])):
+            source = node.metadata.get("schema_source") if isinstance(node.metadata, Mapping) else None
             identity = node.metadata.get("object_info_identity") if isinstance(node.metadata, Mapping) else None
             if identity is None and isinstance(identity_table, Mapping):
                 identity = identity_table.get(str(node_id), identity_table.get(node_id))
+            pack = pack_by_class.get(str(node.class_type))
+            pack_name = str(pack.name) if pack is not None else None
+            lock_entry = lock_by_name.get(pack_name) if pack_name is not None else None
+            if lock_entry is None and isinstance(source, Mapping):
+                source_pack = source.get("pack_slug") or source.get("pack") or source.get("package")
+                if isinstance(source_pack, str):
+                    lock_entry = lock_by_name.get(source_pack) or lock_by_slug.get(source_pack)
+
+            # A schema_source is provenance, not an identity by itself.  Use
+            # only its explicit identity fields or an actual lock commit; do
+            # not invent a value from provider/path/hash text.
+            if identity is None and isinstance(source, Mapping):
+                source_pack = source.get("pack_slug") or source.get("pack") or source.get("package")
+                source_commit = source.get("git_commit") or source.get("commit")
+                source_evidence = source.get("evidence_identity")
+                if source_pack and source_commit:
+                    identity = {"pack_slug": str(source_pack), "git_commit": str(source_commit)}
+                elif source_pack and source_evidence:
+                    identity = {"pack_slug": str(source_pack), "evidence_identity": str(source_evidence)}
+            if identity is None and lock_entry is not None:
+                commit = lock_entry.commit or lock_entry.git_commit_sha
+                if commit:
+                    identity = {
+                        "pack_slug": str(lock_entry.slug or lock_entry.name),
+                        "git_commit": str(commit),
+                    }
             if identity is None:
+                if pack is not None:
+                    raise WorkflowBundleError(
+                        f"object-info identity is unavailable for {node.class_type} ({node_id})"
+                    )
                 continue
             result = resolve_class_entry(
                 str(node.class_type), identity=identity, allow_class_fallback=False
@@ -1075,19 +1120,64 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
         from vibecomfy.model_assets import _referenced_model_values
         from vibecomfy.registry.models_loader import load_registry, resolve_model_entry
 
-        references = _referenced_model_values(workflow)
+        references: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add_reference(value: Any, subdir: Any = "") -> None:
+            if not isinstance(value, str) or not value.strip():
+                raise WorkflowBundleError("workflow model reference is malformed")
+            if subdir is not None and not isinstance(subdir, str):
+                raise WorkflowBundleError("workflow model reference subdir is malformed")
+            normalized_value = value.replace("\\", "/")
+            normalized_subdir = (subdir or "").replace("\\", "/")
+            key = (normalized_value, normalized_subdir)
+            if key not in seen:
+                seen.add(key)
+                references.append({"value": normalized_value, "subdir": normalized_subdir})
+
+        for reference in _referenced_model_values(workflow):
+            if not isinstance(reference, Mapping):
+                raise WorkflowBundleError("workflow model reference is malformed")
+            add_reference(reference.get("value"), reference.get("subdir", ""))
+
+        if isinstance(metadata, Mapping) and "model_assets" in metadata:
+            assets = metadata["model_assets"]
+            if not isinstance(assets, list):
+                raise WorkflowBundleError("workflow model_assets are malformed")
+            for asset in assets:
+                if not isinstance(asset, Mapping):
+                    raise WorkflowBundleError("workflow model asset is malformed")
+                add_reference(asset.get("name"), asset.get("subdir", asset.get("directory", "")))
+
+        declared_models = getattr(requirements, "models", ()) if requirements is not None else ()
+        if declared_models is None:
+            declared_models = ()
+        for value in declared_models:
+            if not isinstance(value, str):
+                raise WorkflowBundleError("workflow requirements.models contains a malformed entry")
+            add_reference(value)
         if not references:
             return
         registry = load_registry()
         for reference in references:
             value = reference.get("value")
             subdir = reference.get("subdir")
-            if not isinstance(value, str) or not isinstance(subdir, str):
-                raise WorkflowBundleError("workflow model reference is malformed")
-            entry = resolve_model_entry(value, registry=registry, subdir=subdir)
+            entry = resolve_model_entry(value, registry=registry, subdir=subdir or None)
             if entry is None:
                 raise WorkflowBundleError(f"model reference is not locally registered: {value}")
-            if not is_present({"name": value, "subdir": subdir}):
+            effective_subdir = subdir
+            if not effective_subdir and entry.targets:
+                target_path = str(entry.targets[0].path).replace("\\", "/")
+                effective_subdir = target_path.rsplit("/", 1)[0] if "/" in target_path else ""
+            if not effective_subdir:
+                raise WorkflowBundleError(f"model reference has no deterministic local target: {value}")
+            root = None
+            if isinstance(metadata, Mapping) and metadata.get("models_root") is not None:
+                raw_root = metadata["models_root"]
+                if not isinstance(raw_root, (str, Path)) or not Path(raw_root).is_absolute():
+                    raise WorkflowBundleError("workflow models_root must be an absolute path")
+                root = Path(raw_root)
+            if not is_present({"name": value, "subdir": effective_subdir}, root=root):
                 raise WorkflowBundleError(f"registered model is not present locally: {value}")
     except WorkflowBundleError:
         raise
@@ -1148,6 +1238,8 @@ class WorkflowBundle:
         )
         if current.revision_id != self.revision_id:
             raise WorkflowBundleError("workflow bundle revision is stale; reload before approval")
+        if not self.workflow.nodes:
+            raise WorkflowBundleError("workflow is empty; approval requires at least one node")
         if schema_provider is None:
             from vibecomfy.schema import get_authoring_schema_provider
 
