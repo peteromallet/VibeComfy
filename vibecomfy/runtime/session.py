@@ -718,7 +718,11 @@ class EmbeddedSession:
             self._comfy = None
             self._process_configuration = None
 
-    async def reload_for_nodepack_change(self, *, reason: str) -> None:
+    async def reload_for_nodepack_change(
+        self, *, reason: str, server_url: str | None = None
+    ) -> str:
+        if server_url is not None:
+            return _nodepack_reload_status(server_url)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("reload_for_nodepack_change refused: run in flight")
         logger.info("reload_for_nodepack_change: %s", reason)
@@ -736,6 +740,7 @@ class EmbeddedSession:
         self.last_fingerprint = None
         self._process_configuration = None
         await self.start()
+        return "reloaded"
 
 
 class ServerSession:
@@ -972,13 +977,28 @@ class ServerSession:
         self.log_handle = None
         self._process_configuration = None
 
-    async def reload_for_nodepack_change(self, *, reason: str) -> None:
+    async def reload_for_nodepack_change(
+        self, *, reason: str, server_url: str | None = None
+    ) -> str:
+        if server_url is not None:
+            return _nodepack_reload_status(server_url)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("reload_for_nodepack_change refused: run in flight")
-        # NOTE: ServerSession external-mode handling (attach to a server VibeComfy didn't spawn) is deferred to MP-5 alongside session-shared multi-stage orchestration. Current production paths route external server URLs through comfy_server(server_url=...) in vibecomfy/runtime/server.py, which already skips spawn/cleanup for external URLs.
         await self.stop()
         await self.start()
         logger.info("reload_for_nodepack_change: %s", reason)
+        return "reloaded"
+
+
+def _nodepack_reload_status(server_url: str | None) -> str:
+    """Classify URL-only node-pack changes without claiming ownership.
+
+    A supplied URL identifies an externally owned server. This helper is
+    intentionally status-only; it never starts, stops, or attaches a child.
+    """
+    if not isinstance(server_url, str) or not server_url.strip():
+        raise ValueError("external server_url must be a non-empty string")
+    return "restart_required"
 
 
 async def _resolve_inflight_before_stop(session: Any, wait_for_inflight: bool) -> None:

@@ -1103,6 +1103,60 @@ def test_resolve_class_entry_keeps_class_only_helper_apis_unchanged(
     assert check_output_arity_consensus("MissingClass", ui_output_count=5) == 0
 
 
+def test_cache_file_witness_detects_same_size_same_mtime_replacement(tmp_path: Path) -> None:
+    import os
+
+    from vibecomfy.porting.object_info.generation import cache_file_witness
+
+    artifact = tmp_path / "pack.json"
+    artifact.write_text('{"a": 1}', encoding="utf-8")
+    original_mtime_ns = artifact.stat().st_mtime_ns
+    first = cache_file_witness(artifact)
+    artifact.write_text('{"b": 2}', encoding="utf-8")
+    assert artifact.stat().st_size == 8
+    os.utime(artifact, ns=(original_mtime_ns, original_mtime_ns))
+    second = cache_file_witness(artifact)
+
+    assert first is not None and second is not None
+    assert first[:5] == second[:5]
+    assert first[5] != second[5]
+
+
+def test_committed_reader_observes_same_size_same_mtime_current_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    first_source = tmp_path / "first.json"
+    first_source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    second_source = tmp_path / "second.json"
+    second_source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["LATENT"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "committed"
+    build_cache(str(first_source), version="first", cache_dir=str(cache_root), full_pack_refresh=True)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+    marker = cache_root / "CURRENT"
+    first_marker_size = marker.stat().st_size
+    original_mtime_ns = marker.stat().st_mtime_ns
+
+    build_cache(str(second_source), version="second", cache_dir=str(cache_root), full_pack_refresh=True)
+    assert marker.stat().st_size == first_marker_size
+    os.utime(marker, ns=(original_mtime_ns, original_mtime_ns))
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "LATENT"
+
+
 # ---------------------------------------------------------------------------
 # effective_widget_names_for_class (widget_schema tiered lookup)
 # ---------------------------------------------------------------------------

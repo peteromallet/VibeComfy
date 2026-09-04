@@ -193,6 +193,104 @@ def test_known_pack_slug_resolves_known_class() -> None:
     assert wd.known_pack_slug("WanVideoSampler") == "ComfyUI-WanVideoWrapper"
 
 
+def test_discover_all_uses_canonical_lock_entries_without_toml_keys(tmp_path: Path) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        """
+[nodepacks.FirstPack]
+name = "FirstPack"
+commit = "abc"
+url = "https://example.test/first.git"
+
+[nodepacks.SecondPack]
+name = "SecondPack"
+commit = "def"
+url = "https://example.test/second.git"
+""",
+        encoding="utf-8",
+    )
+
+    discovered = wd.discover_all(
+        lockfile=lockfile,
+        sources=("source",),
+        custom_nodes_dir=tmp_path / "custom_nodes",
+        cache_dir=tmp_path / "cache",
+        snapshot_dir=tmp_path / "snapshot",
+    )
+
+    assert list(discovered) == ["FirstPack", "SecondPack"]
+    assert not {"name", "slug", "source", "commit", "url"} & set(discovered)
+
+
+def test_repository_lock_discovery_projects_exact_13_entries() -> None:
+    expected = [
+        "ComfyUI-DepthAnythingV2",
+        "ComfyUI-GGUF",
+        "ComfyUI-KJNodes",
+        "ComfyUI-LTXVideo",
+        "ComfyUI-Qwen3-TTS",
+        "ComfyUI-QwenTTS",
+        "ComfyUI-VideoHelperSuite",
+        "ComfyUI-WanAnimatePreprocess",
+        "ComfyUI-WanVideoWrapper",
+        "ComfyUI-segment-anything-2",
+        "ExamplePack",
+        "comfyui_controlnet_aux",
+        "rgthree-comfy",
+    ]
+
+    assert [entry.name for entry in wd.read_lockfile(Path("custom_nodes.lock"))] == expected
+    assert wd._read_lockfile_pack_slugs(Path("custom_nodes.lock")) == expected
+    assert list(wd.discover_all(lockfile="custom_nodes.lock", sources=())) == expected
+
+
+def test_discover_all_surfaces_malformed_lockfile(tmp_path: Path) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        """
+[nodepacks.Broken]
+source = "git"
+commit = "abc"
+url = "https://example.test/broken.git"
+unterminated = [
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        wd.discover_all(lockfile=lockfile)
+
+
+def test_discover_all_parses_before_discovery_and_rejects_partial_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        """
+[nodepacks.Valid]
+source = "local"
+path = "."
+
+[nodepacks.Broken]
+source = "git"
+commit = ["not-a-string"]
+url = "https://example.test/broken.git"
+""",
+        encoding="utf-8",
+    )
+    called = False
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("discover_pack must not run for a malformed lock")
+
+    monkeypatch.setattr(wd, "discover_pack", fail_if_called)
+    with pytest.raises(ValueError, match="commit must be a string"):
+        wd.discover_all(lockfile=lockfile)
+    assert called is False
+
+
 def test_sha256_of_path_is_stable(tmp_path: Path) -> None:
     p = tmp_path / "x.txt"
     p.write_text("hello")

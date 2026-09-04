@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -37,13 +38,32 @@ def safe_artifact_filename(filename: str) -> bool:
     return filename in {"index.json", "provenance.json"} or safe_cache_filename(filename)
 
 
-def cache_file_witness(path: str | Path) -> tuple[int, int, int, int, int] | None:
-    """Return a bounded identity for a provider-owned file without following links."""
+def cache_file_witness(path: str | Path) -> tuple[int, int, int, int, int, str | None] | None:
+    """Return metadata plus content identity for a provider-owned file.
+
+    ``CURRENT`` and structured provider artifacts can be replaced in place
+    while preserving inode metadata. Hashing regular-file bytes makes the
+    reader witness robust to that replacement. Symlinks and other non-regular
+    files remain metadata-only and are rejected by the existing path guards.
+    """
     try:
-        stat = Path(path).lstat()
+        file_stat = Path(path).lstat()
     except FileNotFoundError:
         return None
-    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_mode)
+    content_sha256: str | None = None
+    if stat.S_ISREG(file_stat.st_mode):
+        try:
+            content_sha256 = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except OSError:
+            content_sha256 = None
+    return (
+        file_stat.st_dev,
+        file_stat.st_ino,
+        file_stat.st_size,
+        file_stat.st_mtime_ns,
+        file_stat.st_mode,
+        content_sha256,
+    )
 
 
 def active_cache_root(cache_root: str | Path) -> Path:

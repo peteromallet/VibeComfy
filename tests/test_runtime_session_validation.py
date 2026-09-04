@@ -197,6 +197,102 @@ def test_server_session_validates_against_started_url(
     assert len(prepared_with) == 1
 
 
+def test_server_reload_reports_external_restart_without_lifecycle_calls() -> None:
+    async def run_case() -> None:
+        session = ServerSession()
+        calls: list[str] = []
+
+        async def fake_stop(wait_for_inflight: bool = True) -> None:
+            calls.append("stop")
+
+        async def fake_start() -> None:
+            calls.append("start")
+
+        session.stop = fake_stop  # type: ignore[method-assign]
+        session.start = fake_start  # type: ignore[method-assign]
+        status = await session.reload_for_nodepack_change(
+            reason="test", server_url="http://external.example:8188"
+        )
+        assert status == "restart_required"
+        assert calls == []
+
+    asyncio.run(run_case())
+
+
+def test_reload_rejects_empty_external_url_without_managed_restart() -> None:
+    async def run_case() -> None:
+        session = ServerSession()
+        calls: list[str] = []
+
+        async def fail_lifecycle(*args, **kwargs):
+            calls.append("lifecycle")
+            raise AssertionError("empty external URL must not manage a child")
+
+        session.stop = fail_lifecycle  # type: ignore[method-assign]
+        session.start = fail_lifecycle  # type: ignore[method-assign]
+        with pytest.raises(ValueError, match="server_url must be a non-empty string"):
+            await session.reload_for_nodepack_change(reason="test", server_url="")
+        assert calls == []
+
+    asyncio.run(run_case())
+
+
+def test_embedded_reload_reports_external_restart_without_lifecycle_calls() -> None:
+    async def run_case() -> None:
+        session = EmbeddedSession()
+        calls: list[str] = []
+
+        async def fail_lifecycle(*args, **kwargs):
+            calls.append("lifecycle")
+            raise AssertionError("external URL must not manage embedded lifecycle")
+
+        session.start = fail_lifecycle  # type: ignore[method-assign]
+        session.stop = fail_lifecycle  # type: ignore[method-assign]
+        status = await session.reload_for_nodepack_change(
+            reason="test", server_url="http://external.example:8188"
+        )
+        assert status == "restart_required"
+        assert calls == []
+
+    asyncio.run(run_case())
+
+
+def test_managed_reload_returns_reloaded_after_owned_lifecycle() -> None:
+    async def run_case() -> None:
+        embedded = EmbeddedSession()
+        embedded_calls: list[str] = []
+
+        class Context:
+            async def __aexit__(self, *args):
+                embedded_calls.append("teardown")
+
+        async def embedded_start() -> None:
+            embedded_calls.append("start")
+            embedded._comfy = object()
+
+        embedded._context = Context()
+        embedded._comfy = object()
+        embedded.start = embedded_start  # type: ignore[method-assign]
+        assert await embedded.reload_for_nodepack_change(reason="test") == "reloaded"
+        assert embedded_calls == ["teardown", "start"]
+
+        server = ServerSession()
+        server_calls: list[str] = []
+
+        async def server_stop(wait_for_inflight: bool = True) -> None:
+            server_calls.append("stop")
+
+        async def server_start() -> None:
+            server_calls.append("start")
+
+        server.stop = server_stop  # type: ignore[method-assign]
+        server.start = server_start  # type: ignore[method-assign]
+        assert await server.reload_for_nodepack_change(reason="test") == "reloaded"
+        assert server_calls == ["stop", "start"]
+
+    asyncio.run(run_case())
+
+
 def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema() -> None:
     provider = _StrictProvider(
         {

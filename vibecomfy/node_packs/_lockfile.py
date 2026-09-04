@@ -203,11 +203,24 @@ def _read_toml_lockfile(text: str) -> list[LockEntry]:
 
 def _entry_from_mapping(name: Any, raw: dict[str, Any]) -> LockEntry:
     entry_name = str(raw.get("name") or name)
-    source = str(raw.get("source") or "git")
-    git_commit_sha = raw.get("git_commit_sha", raw.get("git_sha", raw.get("commit")))
-    commit = raw.get("commit", git_commit_sha)
+    raw_source = raw.get("source")
+    if raw_source is not None and not isinstance(raw_source, str):
+        raise ValueError(f"Lock entry {entry_name!r} source must be a string")
+    source = raw_source or "git"
+    raw_git_commit_sha = raw.get("git_commit_sha", raw.get("git_sha"))
+    raw_commit = raw.get("commit")
+    git_commit_sha = raw_git_commit_sha if raw_git_commit_sha is not None else raw_commit
+    commit = raw_commit if raw_commit is not None else git_commit_sha
     url = raw.get("url")
     path = raw.get("path")
+    if raw_git_commit_sha is not None and not isinstance(raw_git_commit_sha, str):
+        raise ValueError(f"Lock entry {entry_name!r} git_commit_sha must be a string")
+    if raw_commit is not None and not isinstance(raw_commit, str):
+        raise ValueError(f"Lock entry {entry_name!r} commit must be a string")
+    if url is not None and not isinstance(url, str):
+        raise ValueError(f"Lock entry {entry_name!r} url must be a string")
+    if path is not None and not isinstance(path, str):
+        raise ValueError(f"Lock entry {entry_name!r} path must be a string")
     if source == "git" and git_commit_sha is None:
         raise ValueError(f"Lock entry {entry_name!r} is missing git_commit_sha")
     if source == "git" and url is None:

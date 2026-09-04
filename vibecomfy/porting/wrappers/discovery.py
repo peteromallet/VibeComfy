@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from vibecomfy.node_packs import get_known_node_packs
+from vibecomfy.node_packs import get_known_node_packs, read_lockfile
 
 
 logger = logging.getLogger(__name__)
@@ -590,17 +590,10 @@ def _literal_dict(node: ast.AST) -> dict[str, Any] | None:
 
 
 def _read_lockfile_pack_slugs(lockfile: Path) -> list[str]:
-    if not lockfile.exists():
-        return []
-    slugs: list[str] = []
-    for line in lockfile.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        slug = line.split()[0]
-        if slug:
-            slugs.append(slug)
-    return slugs
+    # Keep the canonical lock parser as the only TOML/legacy interpretation
+    # authority. Discovery callers consume a list of pack identifiers, so
+    # project the validated entries without exposing TOML keys or metadata.
+    return [entry.slug or entry.name for entry in read_lockfile(lockfile)]
 
 
 __all__ = [
