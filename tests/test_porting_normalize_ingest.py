@@ -213,6 +213,41 @@ def test_t06_rework_definition_boundary_missing_name_has_stable_error() -> None:
         from_ui(raw, use_comfy_converter=False)
 
 
+@pytest.mark.parametrize(
+    "marker_fields",
+    [
+        {"inputNode": {"id": -10}, "outputNode": {"id": -20}},
+        {"inputNode": {"id": -10}},
+        {"outputNode": {"id": -20}},
+        {"nodes": [{"id": -10, "type": "Input", "inputs": [], "outputs": []}, {"id": -20, "type": "Output", "inputs": [], "outputs": []}]},
+        {"config": {"inputNode": -10, "outputNode": -20}},
+        {"extra": {"inputNode": -10, "outputNode": -20}},
+    ],
+)
+def test_t06_rework_every_native_marker_shape_rejects_from_ui(marker_fields) -> None:
+    raw = _t06_recursive_graph(**marker_fields)
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_nested_native_marker_and_envelope_reject() -> None:
+    inner = _t06_recursive_graph()["definitions"]["subgraphs"][0]
+    outer = _t06_recursive_graph()
+    outer["definitions"]["subgraphs"][0]["definitions"] = {"subgraphs": [{**inner, "inputNode": {"id": -10}}]}
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(outer, use_comfy_converter=False)
+    envelope = {
+        "id": "e", "vibecomfy_format_version": "1.0",
+        "source": {"id": "e", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {"1": {"id": "1", "class_type": "Outer", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"}},
+        "edges": [], "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+        "definitions": {"subgraphs": [{"name": "Outer", "nodes": [{"id": "source", "type": "Source", "inputs": [], "outputs": []}], "links": [], "outputNode": {"id": -20}}]},
+    }
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_envelope(envelope)
+
+
 def test_t06_recursive_import_normalizes_scope_and_unresolved_schema() -> None:
     raw = {
         "nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],

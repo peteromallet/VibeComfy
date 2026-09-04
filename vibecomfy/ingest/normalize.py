@@ -661,7 +661,49 @@ def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
     result: list[dict[str, Any]] = []
     all_keys: set[str] = set()
 
+    def reject_native_boundary(source: Mapping[str, Any], path: str) -> None:
+        if "inputNode" in source or "outputNode" in source:
+            raise ValueError(
+                f"unsupported_boundary_encoding: definition {path!r} contains native inputNode/outputNode markers; "
+                "use an explicit Python-owned boundary mapping"
+            )
+        for field in ("config", "extra"):
+            value = source.get(field)
+            def contains_marker(item: Any) -> bool:
+                if isinstance(item, Mapping):
+                    return any(contains_marker(child) for child in item.values())
+                if isinstance(item, (list, tuple)):
+                    return any(contains_marker(child) for child in item)
+                return item in {-10, -20, "-10", "-20"}
+            if contains_marker(value):
+                raise ValueError(
+                    f"unsupported_boundary_encoding: definition {path!r} {field} contains native -10/-20 markers; "
+                    "use an explicit Python-owned boundary mapping"
+                )
+        nodes = source.get("nodes", ())
+        if isinstance(nodes, Mapping):
+            nodes = nodes.values()
+        for index, node in enumerate(nodes if isinstance(nodes, (list, tuple)) else ()):
+            if isinstance(node, Mapping) and str(node.get("id")) in {"-10", "-20"}:
+                raise ValueError(
+                    f"unsupported_boundary_encoding: definition {path!r} node {index} uses native {node.get('id')!r} marker; "
+                    "use an explicit Python-owned boundary mapping"
+                )
+        links = source.get("links", ())
+        for index, link in enumerate(links if isinstance(links, (list, tuple)) else ()):
+            endpoints = ()
+            if isinstance(link, Mapping):
+                endpoints = (link.get("origin_id"), link.get("target_id"))
+            elif isinstance(link, (list, tuple)) and len(link) == 6:
+                endpoints = (link[1], link[3])
+            if any(str(endpoint) in {"-10", "-20"} for endpoint in endpoints):
+                raise ValueError(
+                    f"unsupported_boundary_encoding: definition {path!r} link {index} uses native -10/-20 endpoint; "
+                    "use an explicit Python-owned boundary mapping"
+                )
+
     def walk(source: Mapping[str, Any], parent: tuple[str, ...], path: str) -> dict[str, Any]:
+        reject_native_boundary(source, path)
         key = sg_key(source)
         supplied = source.get("sg_key")
         if supplied is not None and supplied != key:
