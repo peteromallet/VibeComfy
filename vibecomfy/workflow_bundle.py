@@ -835,7 +835,11 @@ _APPROVED_RECORD_KEYS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class ApprovedProjectionRecord:
-    """Detached, recursively immutable approval evidence for one revision."""
+    """Detached, recursively immutable value, not production authority.
+
+    Construction and decoding only produce a value.  A production consumer
+    must call :meth:`assert_matches` against a current bundle before use.
+    """
 
     revision_id: str
     selected_variant: str | None
@@ -876,6 +880,7 @@ class ApprovedProjectionRecord:
 
     @classmethod
     def from_dict(cls, value: Any) -> "ApprovedProjectionRecord":
+        """Decode a strict value; this does not authorize execution."""
         if not isinstance(value, Mapping) or set(value) != _APPROVED_RECORD_KEYS:
             raise WorkflowBundleError(
                 "approved projection record must contain exactly the six required fields"
@@ -930,7 +935,15 @@ class ApprovedProjectionRecord:
         """Revalidate this record against a current bundle and fresh projections."""
         if not isinstance(bundle, WorkflowBundle):
             raise WorkflowBundleError("approved projection must be bound to a WorkflowBundle")
-        if bundle.revision_id != self.revision_id:
+        current = _make_bundle(
+            bundle.workflow,
+            python_path=bundle.python_path,
+            ui_sidecar=bundle.ui_sidecar,
+            provenance=bundle.provenance,
+            operation=str(bundle.provenance.get("operation", "authored")),
+            parent_revision=bundle.parent_revision,
+        )
+        if current.revision_id != bundle.revision_id or current.revision_id != self.revision_id:
             raise WorkflowBundleError("approved projection revision does not match bundle")
         selected_variant = bundle.workflow.default_variant if variant is None else variant
         if selected_variant != self.selected_variant:
@@ -959,6 +972,129 @@ class ApprovedProjectionRecord:
             raise WorkflowBundleError("approved projection UI projection does not match")
         if self.api_digest != canonical_digest(_thaw_json(self.api_projection)):
             raise WorkflowBundleError("approved projection API digest is invalid")
+
+
+def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> None:
+    """Run local, read-only requirement, schema-identity, and model gates."""
+    requirements = getattr(workflow, "requirements", None)
+    for field_name in ("missing_models", "missing_nodes", "unsupported"):
+        values = getattr(requirements, field_name, ()) if requirements is not None else ()
+        if values:
+            raise WorkflowBundleError(
+                f"workflow requirements contain unresolved {field_name}: "
+                + ", ".join(sorted(str(value) for value in values))
+            )
+
+    try:
+        from vibecomfy.node_packs import CORE_COMFY_CLASSES, missing_class_types_for_workflow
+
+        # The legacy helper reads an authoring provider with its default
+        # on-demand behavior when node_index.json is absent.  Use it only when
+        # a local index exists; otherwise derive the same set from the already
+        # bound offline provider and never open the on-demand path.
+        if Path("node_index.json").exists():
+            missing_classes = sorted(missing_class_types_for_workflow(workflow))
+        else:
+            get_schema = getattr(schema_provider, "get_schema", None)
+            if not callable(get_schema):
+                get_schema = getattr(schema_provider, "get", None)
+            known_classes = {
+                str(node.class_type)
+                for node in workflow.nodes.values()
+                if callable(get_schema) and get_schema(str(node.class_type)) is not None
+            }
+            missing_classes = sorted(
+                {str(node.class_type) for node in workflow.nodes.values()}
+                - known_classes
+                - set(CORE_COMFY_CLASSES)
+            )
+    except Exception as exc:
+        raise WorkflowBundleError(
+            f"local node-pack reconciliation failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if missing_classes:
+        raise WorkflowBundleError(
+            "workflow contains unresolved class types: " + ", ".join(missing_classes)
+        )
+
+    metadata = getattr(workflow, "metadata", {})
+    reconciliation = metadata.get("reconciliation") if isinstance(metadata, Mapping) else None
+    if reconciliation is not None and not isinstance(reconciliation, Mapping):
+        raise WorkflowBundleError("workflow reconciliation evidence is malformed")
+
+    def _reconciliation_blocker(value: Any) -> str | None:
+        if isinstance(value, Mapping):
+            status = value.get("status")
+            if status in {"blocked", "error", "failed", "stale", "unknown", "restart_required"}:
+                return str(status)
+            if value.get("severity") == "error":
+                return "error diagnostic"
+            for item in value.values():
+                blocker = _reconciliation_blocker(item)
+                if blocker:
+                    return blocker
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                blocker = _reconciliation_blocker(item)
+                if blocker:
+                    return blocker
+        return None
+
+    blocker = _reconciliation_blocker(reconciliation)
+    if blocker:
+        raise WorkflowBundleError(f"workflow reconciliation is not approved: {blocker}")
+
+    identity_table = metadata.get("object_info_identities") if isinstance(metadata, Mapping) else None
+    if identity_table is not None and not isinstance(identity_table, Mapping):
+        raise WorkflowBundleError("object-info identity evidence is malformed")
+    try:
+        from vibecomfy.porting.object_info import resolve_class_entry
+
+        for node_id, node in sorted(workflow.nodes.items(), key=lambda item: str(item[0])):
+            identity = node.metadata.get("object_info_identity") if isinstance(node.metadata, Mapping) else None
+            if identity is None and isinstance(identity_table, Mapping):
+                identity = identity_table.get(str(node_id), identity_table.get(node_id))
+            if identity is None:
+                continue
+            result = resolve_class_entry(
+                str(node.class_type), identity=identity, allow_class_fallback=False
+            )
+            if result.entry is None:
+                raise WorkflowBundleError(
+                    f"object-info identity does not resolve for {node.class_type} ({node_id})"
+                )
+    except WorkflowBundleError:
+        raise
+    except Exception as exc:
+        raise WorkflowBundleError(
+            f"local object-info identity check failed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    try:
+        from vibecomfy.fetch import is_present
+        from vibecomfy.model_assets import _referenced_model_values
+        from vibecomfy.registry.models_loader import load_registry, resolve_model_entry
+
+        references = _referenced_model_values(workflow)
+        if not references:
+            return
+        registry = load_registry()
+        for reference in references:
+            value = reference.get("value")
+            subdir = reference.get("subdir")
+            if not isinstance(value, str) or not isinstance(subdir, str):
+                raise WorkflowBundleError("workflow model reference is malformed")
+            entry = resolve_model_entry(value, registry=registry, subdir=subdir)
+            if entry is None:
+                raise WorkflowBundleError(f"model reference is not locally registered: {value}")
+            if not is_present({"name": value, "subdir": subdir}):
+                raise WorkflowBundleError(f"registered model is not present locally: {value}")
+    except WorkflowBundleError:
+        raise
+    except Exception as exc:
+        raise WorkflowBundleError(
+            f"local model reconciliation failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -1016,21 +1152,7 @@ class WorkflowBundle:
             from vibecomfy.schema import get_authoring_schema_provider
 
             schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
-        requirements = getattr(self.workflow, "requirements", None)
-        for field_name in ("missing_models", "missing_nodes", "unsupported"):
-            values = getattr(requirements, field_name, ()) if requirements is not None else ()
-            if values:
-                raise WorkflowBundleError(
-                    f"workflow requirements contain unresolved {field_name}: "
-                    + ", ".join(sorted(str(value) for value in values))
-                )
-        reconciliation = getattr(self.workflow, "metadata", {}).get("reconciliation")
-        if isinstance(reconciliation, Mapping):
-            status = reconciliation.get("status")
-            if status in {"blocked", "error", "failed", "stale", "unknown"}:
-                raise WorkflowBundleError(
-                    f"workflow reconciliation is not approved: {status}"
-                )
+        _approval_preconditions(self.workflow, schema_provider)
         binding = {} if run_inputs is None else run_inputs
         if not isinstance(binding, Mapping):
             raise WorkflowBundleError("run_inputs must be an object")
@@ -1039,9 +1161,14 @@ class WorkflowBundle:
         except WorkflowBundleError as exc:
             raise WorkflowBundleError(f"run_inputs are not JSON-safe: {exc}") from exc
         selected_variant = self.workflow.default_variant if variant is None else variant
-        api_projection = self.workflow.compile(
-            "api", variant=variant, run_inputs=binding_snapshot
-        )
+        try:
+            api_projection = self.workflow.compile(
+                "api", variant=variant, run_inputs=binding_snapshot
+            )
+        except Exception as exc:
+            raise WorkflowBundleError(
+                f"workflow API projection failed: {type(exc).__name__}: {exc}"
+            ) from exc
         try:
             from vibecomfy.schema.validate import (
                 validate_api_against_schema,
@@ -1142,6 +1269,40 @@ def _resolve_reference(reference: str | Path) -> tuple[str | Path, Path | None, 
     return str(reference), None, "authored"
 
 
+def _is_api_node_mapping(value: Any) -> bool:
+    return isinstance(value, Mapping) and isinstance(value.get("class_type"), str) and isinstance(value.get("inputs"), Mapping)
+
+
+def _is_identity_mapping(value: Any) -> bool:
+    if not isinstance(value, Mapping) or _is_api_node_mapping(value):
+        return False
+    return any(isinstance(value.get(key), str) and value[key].strip() for key in ("id", "workflow_id", "workflow_identity"))
+
+
+def _split_import_api(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Separate only positively identified API metadata from node IDs."""
+    prompt = raw.get("prompt")
+    if prompt is not None:
+        if not isinstance(prompt, Mapping) or (prompt and not all(_is_api_node_mapping(item) for item in prompt.values())):
+            raise WorkflowBundleError("ambiguous prompt API envelope")
+        return dict(prompt)
+    payload: dict[str, Any] = {}
+    identity_keys = {"workflow_id", "workflow_identity", "id"}
+    for key, value in raw.items():
+        if key not in identity_keys and key != "source":
+            payload[key] = value
+            continue
+        if _is_api_node_mapping(value):
+            payload[key] = value
+        elif key in identity_keys and (value is None or isinstance(value, str)):
+            continue
+        elif key == "source" and _is_identity_mapping(value):
+            continue
+        else:
+            raise WorkflowBundleError(f"ambiguous API envelope field {key!r}")
+    return payload
+
+
 def _import_identity(raw: Mapping[str, Any], *, source_kind: str) -> str:
     """Extract an authored identity before crossing a JSON import boundary."""
     source = raw.get("source")
@@ -1151,7 +1312,7 @@ def _import_identity(raw: Mapping[str, Any], *, source_kind: str) -> str:
         candidates = (
             _first(raw, "workflow_identity", "workflow_id", "id"),
             _first(source, "id", "workflow_identity", "workflow_id")
-            if isinstance(source, Mapping)
+            if isinstance(source, Mapping) and not _is_api_node_mapping(source)
             else None,
         )
     for value in candidates:
@@ -1217,10 +1378,7 @@ def load_bundle(
             # the API projection and must not reach the normalizer as one.
             from vibecomfy.ingest.normalize import _named_import
 
-            payload = raw.get("prompt") if isinstance(raw.get("prompt"), Mapping) else raw
-            import_payload = dict(payload)
-            for key in ("workflow_id", "workflow_identity", "source"):
-                import_payload.pop(key, None)
+            import_payload = _split_import_api(raw)
             workflow = _named_import(
                 import_payload,
                 source_path=str(resolved),

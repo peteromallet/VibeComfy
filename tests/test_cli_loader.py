@@ -8,6 +8,7 @@ import pytest
 import vibecomfy.cli_loader as cli_loader
 from vibecomfy.cli_loader import load_bundle, load_workflow_any
 from vibecomfy.security.provenance import Provenance
+from vibecomfy.workflow_bundle import WorkflowBundleError
 
 
 def test_load_workflow_any_accepts_basename_ready_id() -> None:
@@ -129,6 +130,54 @@ def test_load_bundle_imported_json_uses_offline_provider(
     bundle = load_bundle(source)
 
     assert bundle.workflow_identity == "imported"
+
+
+def test_load_bundle_imported_api_preserves_reserved_node_ids(tmp_path: Path) -> None:
+    source = tmp_path / "reserved.json"
+    source.write_text(
+        json.dumps(
+            {
+                "workflow_id": "reserved",
+                "source": {"class_type": "Integer", "inputs": {"value": 7}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = load_bundle(source)
+
+    assert "source" in bundle.workflow.nodes
+
+
+def test_load_bundle_prompt_identity_does_not_strip_inner_reserved_node(tmp_path: Path) -> None:
+    source = tmp_path / "prompt.json"
+    source.write_text(
+        json.dumps(
+            {
+                "workflow_id": "prompted",
+                "prompt": {
+                    "source": {"class_type": "Integer", "inputs": {"value": 7}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = load_bundle(source)
+
+    assert bundle.workflow_identity == "prompted"
+    assert "source" in bundle.workflow.nodes
+
+
+def test_load_bundle_rejects_ambiguous_reserved_api_mapping(tmp_path: Path) -> None:
+    source = tmp_path / "ambiguous.json"
+    source.write_text(
+        json.dumps({"workflow_id": "ambiguous", "source": {"not": "an identity"}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorkflowBundleError, match="ambiguous API envelope"):
+        load_bundle(source)
 
 
 def test_load_bundle_accepts_only_explicit_ephemeral_workflow() -> None:

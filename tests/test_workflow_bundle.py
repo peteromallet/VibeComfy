@@ -155,6 +155,12 @@ def test_load_bundle_uses_restricted_build_loader_and_derives_identity(tmp_path:
     record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
     with pytest.raises(WorkflowBundleError, match="input binding"):
         record.assert_matches(bundle, None, {"unexpected": True}, record.api_projection, record.ui_projection)
+    assert bundle.compile().to_canonical_bytes() == record.to_canonical_bytes()
+    bundle.workflow.add_node("Integer", uid="changed-after-approval", value=1)
+    with pytest.raises(WorkflowBundleError, match="stale"):
+        bundle.compile()
+    with pytest.raises(WorkflowBundleError, match="revision"):
+        record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
     with pytest.raises(AttributeError):
         bundle.workflow_identity = "other"  # type: ignore[misc]
 
@@ -181,6 +187,55 @@ def test_approved_projection_record_is_detached_immutable_and_canonical() -> Non
     assert ApprovedProjectionRecord.from_canonical_bytes(encoded) == record
     with pytest.raises(WorkflowBundleError, match="not canonical"):
         ApprovedProjectionRecord.from_canonical_bytes(json.dumps(record.to_dict()).encode())
+
+
+def test_bundle_compile_rejects_unknown_variant() -> None:
+    bundle = load_bundle(_workflow())
+
+    with pytest.raises(WorkflowBundleError, match="projection failed"):
+        bundle.compile("missing")
+
+
+def test_bundle_compile_rejects_unresolved_class_and_identity() -> None:
+    unknown = _workflow("unknown-class")
+    unknown.add_node("NotARealNode", uid="unknown-node", value=1)
+    with pytest.raises(WorkflowBundleError, match="unresolved class types"):
+        load_bundle(unknown).compile()
+
+    identity = _workflow("identity-mismatch")
+    node = identity.add_node("Integer", uid="identity-node", value=1)
+    node.metadata["object_info_identity"] = {
+        "pack_slug": "missing-pack",
+        "git_commit": "missing-commit",
+    }
+    with pytest.raises(WorkflowBundleError, match="object-info identity"):
+        load_bundle(identity).compile()
+
+
+def test_bundle_compile_rejects_nested_reconciliation_and_model_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reconciliation = _workflow("reconciliation")
+    reconciliation.metadata["reconciliation"] = {
+        "diagnostics": [{"severity": "error", "message": "stale"}]
+    }
+    with pytest.raises(WorkflowBundleError, match="reconciliation"):
+        load_bundle(reconciliation).compile()
+
+    import vibecomfy.fetch as fetch
+    import vibecomfy.model_assets as model_assets
+    import vibecomfy.registry.models_loader as models_loader
+
+    monkeypatch.setattr(
+        model_assets,
+        "_referenced_model_values",
+        lambda _workflow: [{"value": "model.bin", "subdir": "checkpoints"}],
+    )
+    monkeypatch.setattr(models_loader, "load_registry", lambda: ())
+    monkeypatch.setattr(models_loader, "resolve_model_entry", lambda *args, **kwargs: object())
+    monkeypatch.setattr(fetch, "is_present", lambda *args, **kwargs: False)
+    with pytest.raises(WorkflowBundleError, match="not present locally"):
+        load_bundle(_workflow("missing-model")).compile()
 
 
 def test_load_bundle_hashes_same_basename_presentation_candidate(tmp_path: Path) -> None:
