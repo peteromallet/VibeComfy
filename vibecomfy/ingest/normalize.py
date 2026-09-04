@@ -682,7 +682,7 @@ def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
                 )
         nodes = source.get("nodes", ())
         if isinstance(nodes, Mapping):
-            nodes = nodes.values()
+            nodes = tuple(nodes.values())
         for index, node in enumerate(nodes if isinstance(nodes, (list, tuple)) else ()):
             if isinstance(node, Mapping) and str(node.get("id")) in {"-10", "-20"}:
                 raise ValueError(

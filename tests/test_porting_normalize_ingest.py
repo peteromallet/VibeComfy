@@ -248,6 +248,28 @@ def test_t06_rework_nested_native_marker_and_envelope_reject() -> None:
         from_envelope(envelope)
 
 
+@pytest.mark.parametrize("marker_id", [-10, "-20"])
+def test_t06_rework_mapped_native_marker_rejects_from_ui_and_envelope(marker_id) -> None:
+    definition = {
+        "name": "MappedOuter",
+        "nodes": {"entry": {"id": marker_id, "type": "Input", "inputs": [], "outputs": []}},
+        "links": [],
+    }
+    ui = {"nodes": [{"id": 1, "type": "MappedOuter", "inputs": [], "outputs": [], "widgets_values": []}], "links": [], "definitions": {"subgraphs": [definition]}}
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(ui, use_comfy_converter=False)
+    envelope = {
+        "id": "mapped", "vibecomfy_format_version": "1.0",
+        "source": {"id": "mapped", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {"1": {"id": "1", "class_type": "MappedOuter", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"}},
+        "edges": [], "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+        "definitions": {"subgraphs": [definition]},
+    }
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_envelope(envelope)
+
+
 def test_t06_recursive_import_normalizes_scope_and_unresolved_schema() -> None:
     raw = {
         "nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],
