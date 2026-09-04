@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -177,6 +178,67 @@ def test_load_bundle_uses_restricted_build_loader_and_derives_identity(tmp_path:
         record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
     with pytest.raises(AttributeError):
         bundle.workflow_identity = "other"  # type: ignore[misc]
+
+
+def test_current_rebind_empty_live_provenance_supports_ephemeral_and_emitted(
+    tmp_path: Path,
+) -> None:
+    ephemeral = load_bundle(_nonempty_workflow("empty-live-ephemeral"))
+    ephemeral_record = ephemeral.compile()
+    ephemeral_record.assert_matches(
+        ephemeral, None, None, ephemeral_record.api_projection, ephemeral_record.ui_projection
+    )
+
+    emitted = emit_bundle(
+        _nonempty_workflow("empty-live-emitted"),
+        tmp_path / "emitted.py",
+        {"operation": "authored"},
+    )
+    emitted_record = emitted.compile()
+    emitted_record.assert_matches(
+        emitted, None, None, emitted_record.api_projection, emitted_record.ui_projection
+    )
+
+
+def test_current_rebind_bound_nested_mutation_rejects_with_empty_live() -> None:
+    bundle = load_bundle(_nonempty_workflow("bound-mutation-empty-live"))
+    record = bundle.compile()
+    bundle.provenance["tool_versions"] = {"compiler": "changed"}
+    with pytest.raises(WorkflowBundleError, match="bound provenance"):
+        bundle.compile()
+    with pytest.raises(WorkflowBundleError, match="bound provenance"):
+        record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
+
+
+def test_current_rebind_bound_nested_mutation_rejects_with_nonempty_live() -> None:
+    from vibecomfy.workflow_bundle import _make_bundle
+
+    workflow = _nonempty_workflow("bound-mutation-nonempty-live")
+    provenance = {"operation": "ephemeral", "tool_versions": {"compiler": "stable"}}
+    workflow.source.provenance = copy.deepcopy(provenance)
+    bundle = _make_bundle(
+        workflow,
+        python_path=None,
+        ui_sidecar=None,
+        provenance=copy.deepcopy(provenance),
+        operation="ephemeral",
+    )
+    record = bundle.compile()
+    bundle.provenance["tool_versions"]["compiler"] = "changed"
+    with pytest.raises(WorkflowBundleError, match="bound provenance"):
+        bundle.compile()
+    with pytest.raises(WorkflowBundleError, match="bound provenance"):
+        record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
+
+
+def test_current_rebind_invalid_live_provenance_rejects_both() -> None:
+    bundle = load_bundle(_nonempty_workflow("invalid-live-provenance"))
+    record = bundle.compile()
+    bundle.workflow.source.provenance = "invalid"  # type: ignore[assignment]
+    with pytest.raises(WorkflowBundleError, match="source provenance"):
+        bundle.compile()
+    with pytest.raises(WorkflowBundleError, match="source provenance"):
+        record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
 
 
 def test_approved_projection_record_is_detached_immutable_and_canonical() -> None:

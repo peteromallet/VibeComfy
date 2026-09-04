@@ -969,23 +969,38 @@ class ApprovedProjectionRecord:
 
 def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
     """Rebuild current revision state without compiling or changing bindings."""
-    source_provenance = getattr(bundle.workflow.source, "provenance", None)
-    provenance = (
-        dict(source_provenance)
-        if isinstance(source_provenance, Mapping) and source_provenance
-        else dict(bundle.provenance)
-    )
-    # The operation is a bound property of the bundle, not a mutable source
-    # override.  Keep the other bound identity inputs exactly as loaded.
-    provenance["operation"] = str(bundle.provenance.get("operation", "authored"))
-    return _make_bundle(
+    operation = str(bundle.provenance.get("operation", "authored"))
+    bound_current = _make_bundle(
         bundle.workflow,
         python_path=bundle.python_path,
         ui_sidecar=bundle.ui_sidecar,
-        provenance=provenance,
-        operation=str(bundle.provenance.get("operation", "authored")),
+        provenance=bundle.provenance,
+        operation=operation,
         parent_revision=bundle.parent_revision,
     )
+    if bound_current.revision_id != bundle.revision_id:
+        raise WorkflowBundleError("workflow bundle revision is stale; bound provenance changed")
+
+    source_provenance = getattr(bundle.workflow.source, "provenance", None)
+    if source_provenance is None or source_provenance == {}:
+        return bound_current
+    if not isinstance(source_provenance, Mapping):
+        raise WorkflowBundleError("workflow source provenance must be a mapping")
+    live_provenance = dict(source_provenance)
+    # The operation is a bound property of the bundle, not a mutable source
+    # override.  Keep the other bound identity inputs exactly as loaded.
+    live_provenance["operation"] = operation
+    live_current = _make_bundle(
+        bundle.workflow,
+        python_path=bundle.python_path,
+        ui_sidecar=bundle.ui_sidecar,
+        provenance=live_provenance,
+        operation=operation,
+        parent_revision=bundle.parent_revision,
+    )
+    if live_current.revision_id != bundle.revision_id:
+        raise WorkflowBundleError("workflow bundle revision is stale; live source provenance differs")
+    return live_current
 
 
 def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> None:
