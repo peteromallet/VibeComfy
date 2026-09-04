@@ -40,7 +40,7 @@ class ComfyClient:
         except httpx.HTTPError:
             return False
 
-    async def queue_prompt(self, prompt: dict[str, Any]) -> dict[str, Any]:
+    async def _post_prompt(self, prompt: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(f"{self.server_url}/prompt", json={"prompt": prompt})
             _raise_for_status_with_body(response)

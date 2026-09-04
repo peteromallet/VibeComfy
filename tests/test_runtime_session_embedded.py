@@ -9,13 +9,51 @@ from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
+from vibecomfy.testing.canonical import canonical_digest
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, load_bundle
 
 from tests._runtime_session_helpers import (
     FakeConfiguration,
-    _patch_fast_runtime_run,
     _workflow,
     fake_comfy,  # noqa: F401 -- pytest fixture imported for use in tests
 )
+
+
+def _approved(workflow):
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"runtime-{node.id}"
+    bundle = load_bundle(workflow)
+    api = workflow.compile(backend="api")
+    record = ApprovedProjectionRecord(
+        bundle.revision_id,
+        workflow.default_variant,
+        {},
+        api,
+        bundle.materialize_ui(),
+        canonical_digest(api),
+    )
+    return record, bundle
+
+
+def _patch_fast_runtime_run(monkeypatch):
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False, normalize_approval=None):
+        return session_module.PreparedPrompt(record.to_dict()["api_projection"])
+
+    async def fake_maybe_flush(_session, _fp):
+        return None
+
+    async def fake_start_watchdog(*, server_url, client_id, api_dict):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        return None
+
+    monkeypatch.setattr(session_module, "_prepare_prompt_async", fake_prepare)
+    monkeypatch.setattr(session_module, "_maybe_flush_for_policy", fake_maybe_flush)
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: object())
 
 
 def test_embedded_session_reuses_single_comfy_context(
@@ -26,8 +64,8 @@ def test_embedded_session_reuses_single_comfy_context(
     async def run_twice() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow())
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -58,7 +96,7 @@ def test_embedded_session_explicit_empty_success_remains_valid(
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", successful_queue)
 
-    result = asyncio.run(EmbeddedSession().run(_workflow()))
+    result = asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert result.prompt_id == "embedded-empty"
     assert result.outputs == []
@@ -96,7 +134,7 @@ def test_embedded_session_status_bearing_list_outputs_remain_valid(
         }
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", successful_queue)
-    result = asyncio.run(EmbeddedSession().run(_workflow()))
+    result = asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert result.outputs == expected
     assert Path(result.metadata_path).is_file()
@@ -112,7 +150,7 @@ def test_embedded_session_preserves_statusless_raw_output_mapping(
         return {"2": {"images": [{"filename": "raw-output.png"}]}}
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", raw_outputs)
-    result = asyncio.run(EmbeddedSession().run(_workflow()))
+    result = asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert result.prompt_id is None
     assert result.outputs == ["raw-output.png"]
@@ -145,7 +183,7 @@ def test_embedded_session_terminal_error_fails_before_metadata(
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", failed_queue)
 
     with pytest.raises(RuntimeNodeError, match="embedded sampler failed"):
-        asyncio.run(EmbeddedSession().run(_workflow()))
+        asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
@@ -162,7 +200,7 @@ def test_embedded_session_malformed_result_fails_before_metadata(
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", malformed_queue)
 
     with pytest.raises(QueueError, match="embedded result is missing outputs"):
-        asyncio.run(EmbeddedSession().run(_workflow()))
+        asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
@@ -228,13 +266,13 @@ def test_auto_flush_unchanged_model_no_flush_changed_model_once(
         nonlocal free_vram
         session = EmbeddedSession(SessionConfig(auto_flush_vram_threshold_gb=2.0))
         try:
-            await session.run(_workflow("model-a.safetensors", seed=1))
-            await session.run(_workflow("model-a.safetensors", seed=2))
+            await session.run(*_approved(_workflow("model-a.safetensors", seed=1)))
+            await session.run(*_approved(_workflow("model-a.safetensors", seed=2)))
             assert fake_comfy.instances[0].clear_cache_calls == 0
-            await session.run(_workflow("model-b.safetensors", seed=2))
+            await session.run(*_approved(_workflow("model-b.safetensors", seed=2)))
             assert fake_comfy.instances[0].clear_cache_calls == 1
             free_vram = 10.0
-            await session.run(_workflow("model-c.safetensors", seed=2))
+            await session.run(*_approved(_workflow("model-c.safetensors", seed=2)))
             assert fake_comfy.instances[0].clear_cache_calls == 1
         finally:
             await session.stop()
@@ -263,16 +301,16 @@ def test_embedded_failed_run_does_not_promote_fingerprint_authority(
         nonlocal free_vram
         session = EmbeddedSession()
         try:
-            await session.run(_workflow("model-a.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
             first_fingerprint = session.last_fingerprint
             assert first_fingerprint is not None
 
             with pytest.raises(QueueError, match="model-b failed"):
-                await session.run(_workflow("model-b.safetensors"))
+                await session.run(*_approved(_workflow("model-b.safetensors")))
             assert session.last_fingerprint == first_fingerprint
 
             free_vram = 0.5
-            await session.run(_workflow("model-b.safetensors"))
+            await session.run(*_approved(_workflow("model-b.safetensors")))
         finally:
             await session.stop()
 
@@ -303,16 +341,16 @@ def test_embedded_output_collection_failure_does_not_promote_fingerprint_authori
         nonlocal free_vram
         session = EmbeddedSession()
         try:
-            await session.run(_workflow("model-a.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
             first_fingerprint = session.last_fingerprint
             assert first_fingerprint is not None
 
             with pytest.raises(RuntimeError, match="output collection failed"):
-                await session.run(_workflow("model-b.safetensors"))
+                await session.run(*_approved(_workflow("model-b.safetensors")))
             assert session.last_fingerprint == first_fingerprint
 
             free_vram = 0.5
-            await session.run(_workflow("model-b.safetensors"))
+            await session.run(*_approved(_workflow("model-b.safetensors")))
         finally:
             await session.stop()
 
@@ -330,8 +368,8 @@ def test_warm_policy_never_flushes_before_every_run(
     async def run_cases() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow("model-a.safetensors"))
-            await session.run(_workflow("model-a.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
         finally:
             await session.stop()
 
@@ -350,8 +388,8 @@ def test_warm_policy_always_never_auto_flushes(
     async def run_cases() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow("model-a.safetensors"))
-            await session.run(_workflow("model-b.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
+            await session.run(*_approved(_workflow("model-b.safetensors")))
         finally:
             await session.stop()
 
@@ -377,7 +415,7 @@ def test_embedded_stop_refuses_inflight_when_not_waiting(
 
         monkeypatch.setattr(fake_comfy, "queue_prompt_api", blocking_queue)
         session = EmbeddedSession()
-        task = asyncio.create_task(session.run(_workflow()))
+        task = asyncio.create_task(session.run(*_approved(_workflow())))
         await started.wait()
         with pytest.raises(RuntimeError, match="session.stop\\(\\) called while a run is in flight"):
             await session.stop(wait_for_inflight=False)
@@ -405,7 +443,7 @@ def test_embedded_stop_waits_for_inflight_run(
 
         monkeypatch.setattr(fake_comfy, "queue_prompt_api", blocking_queue)
         session = EmbeddedSession()
-        task = asyncio.create_task(session.run(_workflow()))
+        task = asyncio.create_task(session.run(*_approved(_workflow())))
         await started.wait()
         stop_task = asyncio.create_task(session.stop(wait_for_inflight=True))
         await asyncio.sleep(0)
@@ -461,7 +499,7 @@ def test_embedded_stop_reraises_inflight_run_exception_before_teardown(
         workflow = _workflow()
         workflow.metadata["id_map"] = {"sampler": "2"}
         workflow.nodes["2"].metadata["source_id"] = "7"
-        task = asyncio.create_task(session.run(workflow))
+        task = asyncio.create_task(session.run(*_approved(workflow)))
         await started.wait()
         stop_task = asyncio.create_task(session.stop(wait_for_inflight=True))
         await asyncio.sleep(0)
@@ -497,10 +535,10 @@ def test_embedded_concurrent_run_is_rejected(
 
         monkeypatch.setattr(fake_comfy, "queue_prompt_api", blocking_queue)
         session = EmbeddedSession()
-        task = asyncio.create_task(session.run(_workflow()))
+        task = asyncio.create_task(session.run(*_approved(_workflow())))
         await started.wait()
         with pytest.raises(RuntimeError, match="session already has a run in flight"):
-            await session.run(_workflow(seed=2))
+            await session.run(*_approved(_workflow(seed=2)))
         release.set()
         await task
         await session.stop()
@@ -550,7 +588,7 @@ def test_embedded_reload_refuses_inflight_run(
 
         monkeypatch.setattr(fake_comfy, "queue_prompt_api", blocking_queue)
         session = EmbeddedSession()
-        task = asyncio.create_task(session.run(_workflow()))
+        task = asyncio.create_task(session.run(*_approved(_workflow())))
         await started.wait()
         with pytest.raises(RuntimeError, match="reload_for_nodepack_change refused: run in flight"):
             await session.reload_for_nodepack_change(reason="test")

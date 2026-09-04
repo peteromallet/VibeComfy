@@ -10,10 +10,11 @@ from typing import Any
 
 from vibecomfy.errors import QueueError
 from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, WorkflowBundleError
 
 from .attempt import build_attempt_bundle, write_attempt_json
 from .client import ComfyClient
-from .execution import normalize_prompt_id
+from .execution import normalize_prompt_id, queue_server_prompt
 from .drift import enforce_strict_drift
 from vibecomfy.utils import atomic_write_json
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
@@ -52,7 +53,8 @@ def _allocate_run_dir(prefix: str) -> tuple[str, Path]:
 
 
 async def run(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     server_url: str | None = None,
     backend: str = "api",
@@ -63,6 +65,9 @@ async def run(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    workflow = bundle.workflow
     run_id, run_dir = _allocate_run_dir("run")
     log_path = run_dir / "comfy.log"
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
@@ -84,20 +89,35 @@ async def run(
             warned["emitted"] = True
 
         api_dict = await _prepare_prompt_async(
-            workflow,
+            record,
+            bundle,
             backend=backend,
             schema_provider=provider,
             on_unavailable=on_unavailable,
         )
         schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+        schema_provenance = dict(getattr(api_dict, "schema_provenance", {}))
         # Write attempt.json BEFORE every queue boundary.
-        attempt_bundle = build_attempt_bundle(workflow, api_dict, backend=backend, config=managed_config)
+        attempt_bundle = build_attempt_bundle(
+            bundle,
+            record,
+            backend=backend,
+            config=managed_config,
+            adapter_kind="server",
+            adapter_endpoint=active_url,
+            schema_provenance=schema_provenance,
+        )
         write_attempt_json(run_dir, attempt_bundle)
         resolved_strict = strict_drift if strict_drift is not None else bool(resolved_config.strict_drift)
         if resolved_strict:
             enforce_strict_drift(workflow)
         try:
-            queued = await ComfyClient(active_url).queue_prompt(api_dict)
+            queued_execution = await queue_server_prompt(
+                record,
+                bundle,
+                client=ComfyClient(active_url),
+            )
+            queued = queued_execution.queued
         except Exception as exc:
             raise QueueError(
                 _workflow_queue_failure_message(workflow, exc),
@@ -137,14 +157,16 @@ async def run(
         )
     metadata = _run_metadata(
         run_id=run_id,
-        workflow=workflow,
-        api_dict=api_dict,
+        bundle=bundle,
+        record=record,
         queued=queued,
         comfy_outputs=comfy_outputs,
         outputs=outputs,
         runtime="server",
         config=managed_config,
         schema_validation_skipped=schema_validation_skipped,
+        schema_provenance=schema_provenance,
+        adapter_endpoint=active_url,
         chain_id=chain_id,
         parent_run_id=parent_run_id,
     )
@@ -159,7 +181,8 @@ async def run(
 
 
 def run_sync(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     server_url: str | None = None,
     backend: str = "api",
@@ -172,7 +195,8 @@ def run_sync(
 ) -> RunResult:
     return asyncio.run(
         run(
-            workflow,
+            record,
+            bundle,
             server_url=server_url,
             backend=backend,
             config=config,
@@ -186,7 +210,8 @@ def run_sync(
 
 
 async def run_embedded(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str = "api",
     config: SessionConfig | None = None,
@@ -196,10 +221,13 @@ async def run_embedded(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
-    session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(workflow))
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(bundle.workflow))
     try:
         return await session.run(
-            workflow,
+            record,
+            bundle,
             backend=backend,
             ensure_packs=ensure_packs,
             ensure_models=ensure_models,
@@ -212,7 +240,8 @@ async def run_embedded(
 
 
 def run_embedded_sync(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str = "api",
     config: SessionConfig | None = None,
@@ -224,7 +253,8 @@ def run_embedded_sync(
 ) -> RunResult:
     return asyncio.run(
         run_embedded(
-            workflow,
+            record,
+            bundle,
             backend=backend,
             config=config,
             ensure_packs=ensure_packs,

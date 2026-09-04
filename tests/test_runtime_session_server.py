@@ -11,6 +11,8 @@ from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import EmbeddedSession, ServerSession, SessionConfig
+from vibecomfy.testing.canonical import canonical_digest
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, load_bundle
 from tests._runtime_session_helpers import (
     FakeAsyncClient,
     FakeProcess,
@@ -18,6 +20,23 @@ from tests._runtime_session_helpers import (
     _workflow,
     fake_server,  # noqa: F401 -- pytest fixture imported for use in tests
 )
+
+
+def _approved(workflow):
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"runtime-{node.id}"
+    bundle = load_bundle(workflow)
+    api = workflow.compile(backend="api")
+    record = ApprovedProjectionRecord(
+        bundle.revision_id,
+        workflow.default_variant,
+        {},
+        api,
+        bundle.materialize_ui(),
+        canonical_digest(api),
+    )
+    return record, bundle
 
 
 def test_server_session_start_translates_config_to_cli_args(fake_server) -> None:
@@ -52,8 +71,8 @@ def test_server_session_two_runs_share_one_subprocess(
     async def run_twice() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -86,7 +105,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
 
     async def run_cases() -> None:
         try:
-            await session.run(_workflow("model-a.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
             first_fingerprint = session.last_fingerprint
             assert first_fingerprint is not None
 
@@ -96,7 +115,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
                 "messages": [["execution_error", {"exception_message": "model-b failed"}]],
             }
             with pytest.raises(RuntimeNodeError, match="model-b failed"):
-                await session.run(_workflow("model-b.safetensors"))
+                await session.run(*_approved(_workflow("model-b.safetensors")))
             assert session.last_fingerprint == first_fingerprint
 
             FakeAsyncClient.history_status = {
@@ -105,7 +124,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
                 "messages": [],
             }
             monkeypatch.setattr(session_module, "_free_vram_gb", lambda: 0.5)
-            await session.run(_workflow("model-b.safetensors"))
+            await session.run(*_approved(_workflow("model-b.safetensors")))
         finally:
             await session.stop()
 
@@ -138,7 +157,7 @@ def test_server_session_concurrent_runs_get_exclusive_roots(
     async def run_both():
         sessions = [ServerSession(SessionConfig(port=8200)), ServerSession(SessionConfig(port=8200))]
         try:
-            return await asyncio.gather(*(session.run(_workflow()) for session in sessions))
+            return await asyncio.gather(*(session.run(*_approved(_workflow())) for session in sessions))
         finally:
             await asyncio.gather(*(session.stop() for session in sessions))
 
@@ -158,14 +177,14 @@ def test_server_session_success_then_failure_same_second_keeps_roots_isolated(
 
     async def run_case():
         try:
-            first = await session.run(_workflow())
+            first = await session.run(*_approved(_workflow()))
             FakeAsyncClient.history_status = {
                 "status_str": "error",
                 "completed": True,
                 "messages": [["execution_error", {"exception_message": "second run failed"}]],
             }
             with pytest.raises(RuntimeNodeError, match="second run failed"):
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
             return first
         finally:
             await session.stop()
@@ -201,7 +220,7 @@ def test_server_session_queue_failure_includes_id_map(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeError, match="Workflow queue failed: queue refused prompt") as exc_info:
-                await session.run(workflow)
+                await session.run(*_approved(workflow))
             message = str(exc_info.value)
             assert "id_map=" in message
             assert "'sampler': '2'" in message
@@ -223,7 +242,7 @@ def test_server_session_waits_for_history_and_records_outputs(
     async def run_case():
         session = ServerSession(SessionConfig(port=8200, extra={"output_directory": str(output_dir)}))
         try:
-            return await session.run(_workflow())
+            return await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -373,7 +392,7 @@ def test_server_session_terminal_error_fails_before_metadata(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeNodeError) as exc_info:
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
             message = str(exc_info.value)
             assert "prompt-1" in message
             assert "execution_error" in message
@@ -410,7 +429,7 @@ def test_server_session_does_not_finalize_watchdog_completed_before_history(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeNodeError, match="history-error"):
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -434,7 +453,7 @@ def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(QueueError, match="did not include a prompt_id"):
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 

@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent import session as S
+from vibecomfy.testing.canonical import canonical_digest
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -103,6 +104,54 @@ def test_prepare_writes_append_only_log_and_receipt_and_index(tmp_path):
         "lease_nonce": "nonce-abc",
         "structural_hash_before": "struct-before",
         "timestamp": event["timestamp"],
+    }
+
+
+def test_lifecycle_log_retains_non_authorizing_approved_projection_evidence(tmp_path):
+    """Existing append-only receipts retain runtime evidence without authorizing it."""
+    _session_dir, turn_dir, turn_id = _make_session(tmp_path)
+    state = _state()
+    plan_hash = "f" * 64
+    approved = {
+        "revision_id": "revision-1",
+        "selected_variant": "default",
+        "input_binding": {},
+        "api_projection": {"1": {"class_type": "Integer", "inputs": {"value": 1}}},
+        "ui_projection": {"nodes": []},
+    }
+    approved["api_digest"] = canonical_digest(approved["api_projection"])
+
+    prepared = S.record_prepared_transaction(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        lease_nonce="nonce-runtime",
+        structural_hash_before="before",
+        candidate_payload={
+            "approved_projection": approved,
+            "adapter": {"kind": "embedded", "backend": "api"},
+        },
+    )
+    finalized = S.record_finalized_transaction(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        generation=prepared["generation"],
+        structural_hash_after="after",
+        applied_payload={
+            "approved_projection": approved,
+            "queue_acceptance": {"status": "accepted", "prompt_id": "prompt-1"},
+        },
+    )
+
+    events = _log_lines(turn_dir, plan_hash)
+    assert events[0]["receipt"]["candidate"]["approved_projection"] == approved
+    assert events[1]["receipt"]["applied"]["approved_projection"] == approved
+    assert finalized["receipt"]["applied"]["queue_acceptance"] == {
+        "status": "accepted",
+        "prompt_id": "prompt-1",
     }
 
 
