@@ -1,178 +1,78 @@
+"""Regression tests proving the former shim generator is retired."""
 from __future__ import annotations
 
-import contextlib
-import io
-import inspect
+import subprocess
+import sys
 from pathlib import Path
 
-import tools.generate_node_shims as generate_node_shims
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.porting.wrappers import codegen
+from vibecomfy.porting.wrappers.discovery import ClassSpec, InputFieldSpec
 
 
-def _workflow() -> VibeWorkflow:
-    return VibeWorkflow("test/shims", WorkflowSource("test/shims", path="ready_templates/test.py"))
+def test_canonical_generated_modules_are_public_and_discoverable() -> None:
+    import vibecomfy.nodes as nodes
+    from vibecomfy.nodes.core import KSampler, UNETLoader
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
-
-def test_generated_core_wrappers_are_importable_and_delegate() -> None:
-    from vibecomfy.nodes.core import CLIPLoader, KSampler, UNETLoader
-
-    wf = _workflow()
+    assert callable(KSampler)
+    assert callable(UNETLoader)
+    assert "KSampler" in nodes.__all__
+    assert "KSampler" in nodes.core.__all__ if hasattr(nodes, "core") else True
+    assert nodes.core.__vibecomfy_class_types__["KSampler"] == "KSampler"
+    wf = VibeWorkflow("test/shims", WorkflowSource("test/shims", path="ready_templates/test.py"))
     unet = UNETLoader(wf, unet_name="model.safetensors", weight_dtype="default")
-    sampler = KSampler(
-        wf,
-        model=unet,
-        sampler_name="euler",
-        scheduler="simple",
-        positive="p",
-        negative="n",
-        latent_image="latent",
-    )
-
+    sampler = KSampler(wf, model=unet, sampler_name="euler", scheduler="simple", positive="p", negative="n", latent_image="latent")
     assert wf.nodes[unet.node.id].class_type == "UNETLoader"
     assert wf.nodes[sampler.node.id].class_type == "KSampler"
     assert any(edge.from_node == unet.node.id and edge.to_node == sampler.node.id and edge.to_input == "model" for edge in wf.edges)
-    assert "Pack:" in (UNETLoader.__doc__ or "")
     assert "Returns:" in (UNETLoader.__doc__ or "")
-    assert "type_" in inspect.signature(CLIPLoader).parameters
 
 
-def test_generated_pack_modules_import_and_exclude_helper_nodes() -> None:
-    import vibecomfy.nodes.controlnet_aux as controlnet_aux
-    import vibecomfy.nodes.depthanythingv2 as depthanythingv2
-    import vibecomfy.nodes.gguf as gguf
-    import vibecomfy.nodes.kjnodes as kjnodes
-    import vibecomfy.nodes.ltxvideo as ltxvideo
-    import vibecomfy.nodes.qwen3tts as qwen3tts
-    import vibecomfy.nodes.qwentts as qwentts
-    import vibecomfy.nodes.rgthree as rgthree
-    import vibecomfy.nodes.sam2 as sam2
-    import vibecomfy.nodes.videohelpersuite as videohelpersuite
-    import vibecomfy.nodes.wananimatepreprocess as wananimatepreprocess
-    import vibecomfy.nodes.wanvideowrapper as wanvideowrapper
-    from vibecomfy.nodes import UNETLoader
-
-    assert UNETLoader.__name__ == "UNETLoader"
-    for module in (
-        controlnet_aux,
-        depthanythingv2,
-        gguf,
-        kjnodes,
-        ltxvideo,
-        qwen3tts,
-        qwentts,
-        rgthree,
-        sam2,
-        videohelpersuite,
-        wananimatepreprocess,
-        wanvideowrapper,
-    ):
-        assert isinstance(module.__all__, list)
-    assert "SetNode" not in kjnodes.__all__
-    assert "GetNode" not in kjnodes.__all__
-    assert "Note" not in kjnodes.__all__
-    assert "MarkdownNote" not in kjnodes.__all__
-    assert "Reroute" not in kjnodes.__all__
-    assert "PrimitiveNode" not in kjnodes.__all__
+def test_every_canonical_module_has_matching_public_exports_and_no_old_abi() -> None:
+    root = Path(__file__).resolve().parents[1] / "vibecomfy" / "nodes"
+    for py_path in sorted(root.glob("*.py")):
+        if py_path.name in {"__init__.py", "index.py"}:
+            continue
+        text = py_path.read_text(encoding="utf-8")
+        assert text.startswith("# vibecomfy:generated"), py_path
+        assert ".add(" not in text
+        assert "_NodeBuilder" not in text
+        assert "wf._node" not in text
+        stub = py_path.with_suffix(".pyi")
+        assert stub.is_file()
+        assert stub.read_text(encoding="utf-8").startswith("# vibecomfy:generated")
 
 
-def test_prune_stale_thin_shims_removes_only_generated_outputs(tmp_path: Path, monkeypatch) -> None:
-    """Prove stale generated files are removed while live targets and hand-authored files survive.
+def test_retired_generator_cannot_write_or_delegate() -> None:
+    source = Path(__file__).resolve().parents[1] / "tools" / "generate_node_shims.py"
+    text = source.read_text(encoding="utf-8")
+    for forbidden in ("_write_module", "_write_stub_module", "_write_nodes_init", "_prune_stale_thin_shims", "GENERATED_HEADER"):
+        assert forbidden not in text
+    proc = subprocess.run([sys.executable, "-m", "tools.generate_node_shims"], text=True, capture_output=True)
+    assert proc.returncode != 0
+    assert "retired" in proc.stderr + proc.stdout
 
-    Scenarios covered:
-    - Stale nodes/<mod>.py with generated marker → pruned
-    - Stale nodes/<mod>.pyi with generated marker → pruned
-    - Live nodes/<mod>.py with generated marker, in target set → preserved
-    - Live nodes/<mod>.pyi with generated marker, in target set → preserved
-    - Hand-authored nodes file without marker → preserved
-    - Rich-wrapper codegen output (not this generator's marker) → preserved
-    """
-    nodes_dir = tmp_path / "nodes"
-    nodes_dir.mkdir()
 
-    monkeypatch.setattr(generate_node_shims, "NODES_DIR", nodes_dir)
+def test_codegen_prune_preserves_hand_authored_files(tmp_path: Path) -> None:
+    generated = tmp_path / "old.py"
+    generated.write_text(codegen.render_pack("old", [], out_dir=tmp_path).source_text, encoding="utf-8")
+    hand_authored = tmp_path / "index.py"
+    hand_authored.write_text("# hand authored\n", encoding="utf-8")
+    codegen.prune_stale_wrappers(tmp_path, live_modules=("live",))
+    assert not generated.exists()
+    assert hand_authored.exists()
 
-    keep_module = "core"
-    stale_module = "stale_pack"
-    hand_authored_module = "hand_authored"
-    rich_wrapper_module = "comfyui_kjnodes"
 
-    # --- Stale generated module (should be pruned) ---
-    (nodes_dir / f"{stale_module}.py").write_text(
-        "\n".join([
-            generate_node_shims.GENERATED_HEADER,
-            '"""Auto-generated thin wrappers for ComfyUI node classes."""',
-            "",
-        ]),
-        encoding="utf-8",
+def test_codegen_retains_sanitized_input_collisions(tmp_path: Path) -> None:
+    spec = ClassSpec(
+        "demo", "Collision", {
+            "a-b": InputFieldSpec("a-b", "INT", required=False),
+            "a.b": InputFieldSpec("a.b", "INT", required=False),
+            "_id": InputFieldSpec("_id", "STRING", required=False),
+        }, ("OUT",), ("ANY",), source_provenance="test",
     )
-    (nodes_dir / f"{stale_module}.pyi").write_text(
-        "\n".join([
-            generate_node_shims.GENERATED_HEADER,
-            '"""Type stubs for generated ComfyUI node wrappers."""',
-            "__all__: list[str]",
-            "",
-        ]),
-        encoding="utf-8",
-    )
-
-    # --- Live target module (should be preserved) ---
-    (nodes_dir / f"{keep_module}.py").write_text(
-        "\n".join([
-            generate_node_shims.GENERATED_HEADER,
-            '"""Auto-generated thin wrappers for ComfyUI node classes."""',
-            "",
-        ]),
-        encoding="utf-8",
-    )
-    (nodes_dir / f"{keep_module}.pyi").write_text(
-        "\n".join([
-            generate_node_shims.GENERATED_HEADER,
-            '"""Type stubs for generated ComfyUI node wrappers."""',
-            "__all__: list[str]",
-            "",
-        ]),
-        encoding="utf-8",
-    )
-
-    # --- Hand-authored files without markers (should be preserved) ---
-    (nodes_dir / f"{hand_authored_module}.py").write_text('print("also keep me")\n', encoding="utf-8")
-
-    # --- Rich-wrapper codegen output (not a thin shim, should be preserved) ---
-    (nodes_dir / f"{rich_wrapper_module}.py").write_text("# vibecomfy:generated rich wrapper\n", encoding="utf-8")
-
-    generate_node_shims._prune_stale_thin_shims((keep_module,), [tmp_path / "ComfyUI-KJNodes@stub.json"])
-
-    # Stale files removed
-    assert not (nodes_dir / f"{stale_module}.py").exists(), "stale generated .py should be pruned"
-    assert not (nodes_dir / f"{stale_module}.pyi").exists(), "stale generated .pyi should be pruned"
-
-    # Live target preserved (including .pyi stubs)
-    assert (nodes_dir / f"{keep_module}.py").exists(), "live generated .py should be preserved"
-    assert (nodes_dir / f"{keep_module}.pyi").exists(), "live generated .pyi should be preserved"
-
-    # Hand-authored files preserved
-    assert (nodes_dir / f"{hand_authored_module}.py").exists(), "hand-authored nodes file should be preserved"
-
-    # Rich-wrapper preserved
-    assert (nodes_dir / f"{rich_wrapper_module}.py").exists(), "rich-wrapper codegen output should be preserved"
-
-
-def test_prune_stale_thin_shims_skips_when_cache_pack_files_missing(tmp_path: Path, monkeypatch) -> None:
-    nodes_dir = tmp_path / "nodes"
-    nodes_dir.mkdir()
-
-    monkeypatch.setattr(generate_node_shims, "NODES_DIR", nodes_dir)
-
-    stale_module = "stale_pack"
-    stale_generated = nodes_dir / f"{stale_module}.py"
-    stale_generated.write_text(
-        f"{generate_node_shims.GENERATED_HEADER}\n",
-        encoding="utf-8",
-    )
-
-    stdout = io.StringIO()
-    with contextlib.redirect_stdout(stdout):
-        generate_node_shims._prune_stale_thin_shims(("core",), [])
-
-    assert stale_generated.exists()
-    assert "skipping thin-shim pruning" in stdout.getvalue()
+    text = codegen.render_pack("demo", [spec], out_dir=tmp_path).source_text
+    assert "a_b: int | _Omitted" in text
+    assert "a_b_2: int | _Omitted" in text
+    assert "_kwargs['a-b']" in text
+    assert "_kwargs['a.b']" in text
