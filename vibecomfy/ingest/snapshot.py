@@ -215,6 +215,47 @@ def capture_ingest_snapshot(
                 raw_nodes = definition.get("nodes", [])
                 if isinstance(raw_nodes, Mapping):
                     raw_nodes = list(raw_nodes.values())
+                node_by_alias: dict[str, Mapping[str, Any]] = {}
+                alias_to_local: dict[str, str] = {}
+                for item in raw_nodes if isinstance(raw_nodes, (list, tuple)) else ():
+                    if isinstance(item, Mapping):
+                        local = str(item.get("uid", item.get("id", "")))
+                        node_by_alias[local] = item
+                        alias = str(item.get("id", local))
+                        node_by_alias[alias] = item
+                        alias_to_local[local] = local
+                        alias_to_local[alias] = local
+                incoming_recursive: dict[str, list[tuple[str, tuple[str, str]]]] = {
+                    local: [] for local in node_by_alias
+                }
+                outgoing_recursive: dict[str, list[tuple[str, tuple[str, str]]]] = {
+                    local: [] for local in node_by_alias
+                }
+                for link in definition.get("links", ()):
+                    if isinstance(link, Mapping):
+                        origin = link.get("origin_id")
+                        origin_slot = link.get("origin_slot")
+                        target = link.get("target_id")
+                        target_slot = link.get("target_slot")
+                    elif isinstance(link, (list, tuple)) and len(link) == 6:
+                        _, origin, origin_slot, target, target_slot, _ = link
+                    else:
+                        continue
+                    origin_key, target_key = str(origin), str(target)
+                    if origin_key not in node_by_alias or target_key not in node_by_alias:
+                        continue
+                    origin_local, target_local = alias_to_local[origin_key], alias_to_local[target_key]
+                    target_node = node_by_alias[target_key]
+                    inputs = target_node.get("inputs", ())
+                    target_name = str(target_slot)
+                    if isinstance(inputs, (list, tuple)) and isinstance(target_slot, int) and target_slot < len(inputs):
+                        entry = inputs[target_slot]
+                        if isinstance(entry, Mapping) and isinstance(entry.get("name"), str):
+                            target_name = entry["name"]
+                    source_uid = make_uid(scope, str(node_by_alias[origin_key].get("uid", origin_key)))
+                    target_uid = make_uid(scope, str(node_by_alias[target_key].get("uid", target_key)))
+                    incoming_recursive[target_local].append((target_name, (source_uid, str(origin_slot))))
+                    outgoing_recursive[origin_local].append((str(origin_slot), (target_uid, target_name)))
                 for item in raw_nodes if isinstance(raw_nodes, (list, tuple)) else ():
                     if not isinstance(item, Mapping):
                         continue
@@ -228,7 +269,8 @@ def capture_ingest_snapshot(
                     result.setdefault(uid, {
                         "class_type": str(item.get("class_type", item.get("type", ""))),
                         "widget_values_sig": tuple(sorted((str(k), repr(v)) for k, v in values.items())),
-                        "incoming_edge_sig": (), "outgoing_edge_sig": (),
+                        "incoming_edge_sig": tuple(sorted(incoming_recursive.get(local, ()))),
+                        "outgoing_edge_sig": tuple(sorted(outgoing_recursive.get(local, ()))),
                         "public_input_binding": (), "widget_names_sig": (),
                     })
                 nested = definition.get("definitions")

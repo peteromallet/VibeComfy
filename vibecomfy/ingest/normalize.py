@@ -595,7 +595,13 @@ def _validate_recursive_node(node: Mapping[str, Any], *, scope: str, index: int)
     return normalized
 
 
-def _validate_definition_links(definition: Mapping[str, Any], *, scope: str, node_ids: set[str], allow_legacy_boundary: bool = False) -> None:
+def _validate_definition_links(
+    definition: Mapping[str, Any],
+    *,
+    scope: str,
+    node_ids: set[str],
+    nodes_by_alias: Mapping[str, Mapping[str, Any]],
+) -> None:
     links = definition.get("links", [])
     if links is None:
         links = []
@@ -605,25 +611,46 @@ def _validate_definition_links(definition: Mapping[str, Any], *, scope: str, nod
     for index, link in enumerate(links):
         if isinstance(link, Mapping):
             required = {"id", "origin_id", "origin_slot", "target_id", "target_slot", "type"}
-            if not required <= set(link):
+            if set(link) != required:
                 raise ValueError(f"definition {scope!r} link {index} must contain the exact link fields")
-            link_id, origin, origin_slot, target, target_slot = link["id"], link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"]
+            link_id, origin, origin_slot, target, target_slot, link_type = (link[k] for k in ("id", "origin_id", "origin_slot", "target_id", "target_slot", "type"))
         elif isinstance(link, (list, tuple)) and len(link) == 6:
-            link_id, origin, origin_slot, target, target_slot, _type = link
+            link_id, origin, origin_slot, target, target_slot, link_type = link
         else:
             raise ValueError(f"definition {scope!r} link {index} must be an exact six-field record")
+        if not isinstance(link_type, str):
+            raise ValueError(f"definition {scope!r} link {index} type must be a string")
         if isinstance(link_id, bool) or not isinstance(link_id, int) or link_id < 0 or link_id in seen:
             raise ValueError(f"definition {scope!r} link {index} has duplicate or invalid id")
         seen.add(link_id)
         for endpoint, label in ((origin, "origin"), (target, "target")):
+            if isinstance(endpoint, bool) or not isinstance(endpoint, (str, int)):
+                raise ValueError(f"definition {scope!r} link {label} endpoint must be a local id")
             text = str(endpoint)
-            if text in {"-10", "-20"} and not allow_legacy_boundary:
+            if text in {"-10", "-20"}:
                 raise ValueError(f"unsupported_boundary_encoding: definition {scope!r} {label} uses native {text}")
-            if text not in node_ids and not (allow_legacy_boundary and text in {"-10", "-20"}):
+            validate_local_uid(text, field=f"definition {scope!r} link {label} endpoint")
+            if text not in node_ids:
                 raise ValueError(f"definition {scope!r} link {label} endpoint {text!r} is unknown")
         for slot, label in ((origin_slot, "origin_slot"), (target_slot, "target_slot")):
             if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
                 raise ValueError(f"definition {scope!r} link {label} must be a nonnegative integer")
+        origin_node = nodes_by_alias[str(origin)]
+        target_node = nodes_by_alias[str(target)]
+        output_roster = origin_node.get("native_output_names", origin_node.get("outputs", []))
+        input_roster = target_node.get("native_input_names", target_node.get("inputs", []))
+        if isinstance(output_roster, (list, tuple)) and origin_slot >= len(output_roster):
+            raise ValueError(f"definition {scope!r} link {index} origin_slot exceeds output roster")
+        if isinstance(input_roster, (list, tuple)) and target_slot >= len(input_roster):
+            raise ValueError(f"definition {scope!r} link {index} target_slot exceeds input roster")
+        if isinstance(origin_node.get("outputs"), (list, tuple)):
+            output = origin_node["outputs"][origin_slot]
+            if not isinstance(output, Mapping) or link_id not in (output.get("links") or []):
+                raise ValueError(f"definition {scope!r} link {index} is orphaned from output record")
+        if isinstance(target_node.get("inputs"), (list, tuple)):
+            target_input = target_node["inputs"][target_slot]
+            if not isinstance(target_input, Mapping) or target_input.get("link") != link_id:
+                raise ValueError(f"definition {scope!r} link {index} does not match target input record")
 
 
 def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
@@ -663,17 +690,44 @@ def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
         aliases = set(ids)
         for node in normalized_nodes:
             aliases.add(str(node["id"]))
+        nodes_by_alias = {}
+        for node in normalized_nodes:
+            nodes_by_alias[str(node["uid"])] = node
+            nodes_by_alias[str(node["id"])] = node
+        legacy_native = (
+            isinstance(source.get("inputNode"), Mapping)
+            and isinstance(source.get("outputNode"), Mapping)
+            and str(source["inputNode"].get("id")) == "-10"
+            and str(source["outputNode"].get("id")) == "-20"
+        )
+        validation_source = source
+        if legacy_native:
+            # Native boundary links are unsupported canonical semantics. Keep
+            # the old UI bytes in the detached door sidecar, but remove these
+            # records from the normalized definition before any consumer sees it.
+            clean_links = [
+                link for link in source.get("links", [])
+                if not (
+                    isinstance(link, Mapping)
+                    and (str(link.get("origin_id")) in {"-10", "-20"} or str(link.get("target_id")) in {"-10", "-20"})
+                )
+                and not (
+                    isinstance(link, (list, tuple))
+                    and len(link) == 6
+                    and (str(link[1]) in {"-10", "-20"} or str(link[3]) in {"-10", "-20"})
+                )
+            ]
+            validation_source = dict(source)
+            validation_source["links"] = clean_links
         _validate_definition_links(
-            source,
+            validation_source,
             scope=scope,
             node_ids=aliases,
-            # Existing imported UI captures may carry native boundary links
-            # as transient evidence. They are never executable canonical
-            # endpoint refs and remain in the detached door payload.
-            allow_legacy_boundary=isinstance(source.get("config"), Mapping)
-            and isinstance(source.get("extra"), Mapping),
+            nodes_by_alias=nodes_by_alias,
         )
         out = deepcopy(dict(source))
+        if legacy_native:
+            out["links"] = deepcopy(validation_source["links"])
         out.update({"sg_key": key, "scope_path": scope, "nodes": normalized_nodes})
         nested_raw = source.get("definitions")
         if nested_raw not in (None, {}, []):
@@ -712,9 +766,9 @@ def _normalize_virtual_wires(raw: Any, *, scope: str = "") -> dict[str, Any]:
                 raise ValueError(f"virtual wire {name!r} leg {index} is malformed")
             item = deepcopy(dict(leg))
             item_scope = item.get("scope_path", scope)
-            if item_scope != scope and scope:
+            if not isinstance(item_scope, str) or item_scope != scope:
                 raise ValueError(f"virtual wire {name!r} leg {index} crosses scope")
-            item["scope_path"] = str(item_scope)
+            item["scope_path"] = item_scope
             li, oi = item.get("leg_index"), item.get("occurrence_index")
             if isinstance(li, bool) or not isinstance(li, int) or li < 0 or isinstance(oi, bool) or not isinstance(oi, int) or oi < 0:
                 raise ValueError(f"virtual wire {name!r} leg {index} has invalid indexes")
@@ -756,6 +810,9 @@ def _normalize_interfaces(raw: Any) -> dict[str, Any]:
                     if not isinstance(name, str) or not name.strip() or name in seen:
                         raise ValueError(f"interface {scope!r} has invalid or duplicate member {name!r}")
                     seen.add(name)
+                    supplied_direction = member.get("direction")
+                    if supplied_direction is not None and supplied_direction != direction[:-1]:
+                        raise ValueError(f"interface {scope!r} member {index} has invalid direction")
                     item = deepcopy(dict(member))
                     item["name"] = name
                     item["direction"] = direction[:-1]
@@ -763,7 +820,16 @@ def _normalize_interfaces(raw: Any) -> dict[str, Any]:
                 normalized[direction] = out
             result[scope] = normalized
         elif isinstance(value, (list, tuple)):
-            result[scope] = deepcopy(list(value))
+            members = []
+            for index, member in enumerate(value):
+                if not isinstance(member, Mapping):
+                    raise ValueError(f"interface {scope!r} member {index} is malformed")
+                name = member.get("name", member.get("port", member.get("interface")))
+                direction = member.get("direction")
+                if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+                    raise ValueError(f"interface {scope!r} member {index} has invalid direction/name")
+                members.append(deepcopy(dict(member)))
+            result[scope] = members
         else:
             raise ValueError(f"interface {scope!r} must be a mapping or list")
     return result
@@ -795,6 +861,108 @@ def _normalize_boundary_ports(raw: Any) -> list[dict[str, Any]]:
         item.update({"scope_path": scope, "name": name, "direction": direction, "node_uid": local, "field": field_name})
         result.append(item)
     return sorted(result, key=lambda item: (item["scope_path"], item["name"], item["direction"]))
+
+
+def _validate_recursive_contract_metadata(
+    definitions: Any,
+    interfaces: Mapping[str, Any],
+    boundary_ports: list[dict[str, Any]],
+) -> None:
+    """Validate recursive interface ownership and local boundary endpoints."""
+    owners: dict[str, tuple[str, dict[str, Mapping[str, Any]]]] = {}
+
+    def walk(raw: Any, parent: tuple[str, ...]) -> None:
+        for definition in _definition_entries(raw, path="definitions"):
+            key = str(definition.get("sg_key") or sg_key(definition))
+            scope = compose_scope_path((*parent, key))
+            by_id: dict[str, Mapping[str, Any]] = {}
+            for node in definition.get("nodes", ()):
+                if not isinstance(node, Mapping):
+                    continue
+                local = str(node.get("uid", node.get("id", "")))
+                by_id[local] = node
+                by_id[str(node.get("id", local))] = node
+            owners[key] = (scope, by_id)
+            owners[scope] = (scope, by_id)
+            nested = definition.get("definitions")
+            if nested not in (None, {}, []):
+                walk(nested, (*parent, key))
+
+    if definitions not in (None, {}, []):
+        walk(definitions, ())
+
+    declared: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    for raw_scope, raw_interface in interfaces.items():
+        scope = str(raw_scope)
+        owner = owners.get(scope)
+        if owner is None:
+            raise ValueError(f"interface {scope!r} has no indexed definition owner")
+        if isinstance(raw_interface, Mapping):
+            members: list[Mapping[str, Any]] = []
+            for direction in ("inputs", "outputs"):
+                values = raw_interface.get(direction, ())
+                if not isinstance(values, (list, tuple)):
+                    raise ValueError(f"interface {scope!r} {direction} must be a list")
+                for member in values:
+                    if not isinstance(member, Mapping):
+                        raise ValueError(f"interface {scope!r} member must be a mapping")
+                    supplied = member.get("direction")
+                    if supplied is not None and supplied != direction[:-1]:
+                        raise ValueError(f"interface {scope!r} member direction is inconsistent")
+                    members.append({**dict(member), "direction": direction[:-1]})
+        elif isinstance(raw_interface, (list, tuple)):
+            members = []
+            for member in raw_interface:
+                if not isinstance(member, Mapping):
+                    raise ValueError(f"interface {scope!r} member must be a mapping")
+                members.append(member)
+        else:
+            raise ValueError(f"interface {scope!r} must be a mapping or list")
+        for member in members:
+            name = member.get("name", member.get("port", member.get("interface")))
+            direction = member.get("direction")
+            if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+                raise ValueError(f"interface {scope!r} member needs name and direction")
+            if "type" in member and member["type"] is not None and not isinstance(member["type"], str):
+                raise ValueError(f"interface {scope!r} member type must be a string")
+            identity = (owner[0], name, direction)
+            if identity in declared:
+                raise ValueError(f"duplicate interface member {identity!r}")
+            declared[identity] = member
+
+    bound: set[tuple[str, str, str]] = set()
+    for index, port in enumerate(boundary_ports):
+        scope = port["scope_path"]
+        owner = owners.get(scope)
+        if owner is None:
+            raise ValueError(f"boundary port {index} scope {scope!r} has no indexed definition owner")
+        local = validate_local_uid(str(port["node_uid"]), field=f"boundary port {index} node")
+        node = owner[1].get(local)
+        if node is None:
+            raise ValueError(f"boundary port {index} endpoint {local!r} is not local to scope {scope!r}")
+        direction = port["direction"]
+        field_name = port["field"]
+        roster_key = "inputs" if direction == "input" else "outputs"
+        roster = node.get(roster_key, ())
+        names = {
+            str(item.get("name"))
+            for item in roster
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+        }
+        if names and field_name not in names:
+            raise ValueError(f"boundary port {index} field {field_name!r} is absent from local {roster_key} roster")
+        identity = (owner[0], port["name"], direction)
+        if identity in bound:
+            raise ValueError(f"duplicate boundary binding {identity!r}")
+        bound.add(identity)
+
+    if bound:
+        for identity in declared:
+            if identity not in bound:
+                raise ValueError(f"interface member {identity!r} has no local boundary binding")
+        for identity in bound:
+            if declared and identity not in declared:
+                raise ValueError(f"boundary binding {identity!r} has no declared interface member")
 
 
 def _capture_import_virtual_wires(workflow: VibeWorkflow) -> None:
@@ -838,6 +1006,8 @@ def _capture_import_virtual_wires(workflow: VibeWorkflow) -> None:
         for name, getters in gets.items():
             if name not in sets:
                 raise ValueError(f"GetNode channel {name!r} in scope {scope!r} has no matching SetNode")
+            if len(sets[name]) != 1:
+                raise ValueError(f"ambiguous virtual wire channel {name!r} in scope {scope!r}: multiple SetNode producers")
             legs: list[dict[str, Any]] = []
             for _set_id, producer_edge in sets[name]:
                 for get_id in getters:
@@ -1858,6 +2028,9 @@ def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
         workflow.boundary_ports = _normalize_boundary_ports(detached["boundary_ports"])
     if detached.get("virtual_wires") is not None:
         workflow.virtual_wires = _normalize_virtual_wires(detached["virtual_wires"])
+    _validate_recursive_contract_metadata(
+        workflow.definitions, workflow.interfaces, workflow.boundary_ports
+    )
     return workflow
 
 
@@ -1915,6 +2088,9 @@ def from_ui(
         workflow.boundary_ports = _normalize_boundary_ports(raw["boundary_ports"])
     if raw.get("virtual_wires") is not None:
         workflow.virtual_wires = _normalize_virtual_wires(raw["virtual_wires"])
+    _validate_recursive_contract_metadata(
+        workflow.definitions, workflow.interfaces, workflow.boundary_ports
+    )
     # Capture authored helper intent before the shared execution projection
     # lowers it. Helpers remain present as ordinary authored nodes.
     _capture_import_virtual_wires(workflow)
@@ -2065,11 +2241,24 @@ def _from_api_impl(
         # stable reconciliation instruction.
         unknown_metadata = sorted(str(key) for key in metadata if key not in allowed_metadata)
         if unknown_metadata:
-            key = unknown_metadata[0]
-            raise ValueError(
-                f"node {node_id!r} metadata key {key!r} is unclassified; "
-                "reconciliation action: remove it or classify it as semantic/presentation"
+            supplied_source = metadata.get("schema_source")
+            supplied_provider = (
+                supplied_source.get("provider", "")
+                if isinstance(supplied_source, Mapping)
+                else ""
             )
+            schema_status = "known" if schema_for(schema_provider, class_type) is not None else (
+                "provisional"
+                if str(supplied_provider) in {"comfy_registry_provisional", "workflow_json_provisional"}
+                else ("known" if str(supplied_provider).strip() else "unknown")
+            )
+            if schema_status != "unknown":
+                key = unknown_metadata[0]
+                raise ValueError(
+                    f"node {node_id!r} metadata key {key!r} is unclassified; "
+                    "reconciliation action: remove it or classify it as semantic/presentation"
+                )
+            metadata = {key: value for key, value in metadata.items() if key in allowed_metadata}
         # ── retain control_after_generate (UI-only) into metadata ──
         # Captured here, before the compile-time `_is_ui_only_prompt_input` filter
         # (workflow.py:471) drops it from the compiled API dict, so the emitter can
@@ -2473,180 +2662,3 @@ def ingest_workflow_and_ui(
         schema_provider=schema_provider,
         guard_original_ui=detached,
     )
-
-
-# ── Door-owned subgraph helper resolution ──────────────────────────────────
-# These helpers inspect and mutate subgraph definition JSON.  They live in
-# the ingest door because that is the only allowed graph-JSON mutation
-# surface besides the emit door.  convert() calls this after snapshotting
-# the unresolved definitions onto the IR.
-
-_SUBGRAPH_RESOLVABLE = frozenset({
-    "GetNode", "SetNode", "Reroute", "PrimitiveNode",
-    "PrimitiveBoolean", "PrimitiveInt", "PrimitiveFloat",
-    "PrimitiveString", "PrimitiveStringMultiline",
-})
-
-
-def _subgraph_link_origin_id(link: Any) -> str:
-    if isinstance(link, dict):
-        return str(link.get("origin_id", ""))
-    return str(link[1])
-
-
-def _subgraph_link_origin_slot(link: Any) -> int:
-    if isinstance(link, dict):
-        return int(link.get("origin_slot", 0))
-    return int(link[2])
-
-
-def _subgraph_link_target_id(link: Any) -> str:
-    if isinstance(link, dict):
-        return str(link.get("target_id", ""))
-    return str(link[3])
-
-
-def _subgraph_set_link_origin(link: Any, node_id: str, slot: int) -> None:
-    if isinstance(link, dict):
-        link["origin_id"] = int(node_id) if node_id.isdigit() else node_id
-        link["origin_slot"] = slot
-    else:
-        link[1] = int(node_id) if node_id.isdigit() else node_id
-        link[2] = slot
-
-
-def _subgraph_widget(node: dict[str, Any], idx: int = 0) -> Any:
-    values = node.get("widgets_values", [])
-    if isinstance(values, list) and idx < len(values):
-        return values[idx]
-    return None
-
-
-def resolve_subgraph_helpers(
-    raw_workflow: dict[str, Any] | None,
-    top_level_nodes: dict[str, Any],
-    top_level_edges: list[Any],
-    pre_collected_broadcasts: dict[str, list[Any]] | None = None,
-) -> None:
-    """Retired compatibility entry point; helper lowering belongs to T05."""
-    raise RuntimeError(
-        "resolve_subgraph_helpers is retired and uncallable; use authored helpers "
-        "and VibeWorkflow._execution_projection()"
-    )
-    # The historical implementation below is intentionally unreachable and
-    # retained only in this checkpoint for source-level migration context.
-    if not raw_workflow:
-        return
-    defs = raw_workflow.get("definitions")
-    if not isinstance(defs, dict):
-        return
-    subgraphs = defs.get("subgraphs")
-    if not isinstance(subgraphs, list):
-        return
-
-    if pre_collected_broadcasts is not None:
-        top_broadcasts = pre_collected_broadcasts
-    else:
-        from vibecomfy._compile._helpers import collect_broadcast_sources
-        top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
-
-    for subgraph in subgraphs:
-        if isinstance(subgraph, dict):
-            _resolve_subgraph_definition(subgraph, top_broadcasts)
-
-
-def _resolve_subgraph_definition(subgraph: dict[str, Any], top_broadcasts: dict[str, Any]) -> None:
-    nodes_list = subgraph.get("nodes")
-    if not isinstance(nodes_list, list):
-        return
-    links_list = subgraph.get("links")
-    if not isinstance(links_list, list):
-        links_list = []
-
-    nodes_dict: dict[str, dict[str, Any]] = {}
-    for node in nodes_list:
-        if isinstance(node, dict) and "id" in node:
-            nodes_dict[str(node["id"])] = node
-
-    for _ in range(100):
-        changed = False
-        helper_ids = [
-            str(node["id"]) for node in nodes_list
-            if isinstance(node, dict) and node.get("type") in _SUBGRAPH_RESOLVABLE
-        ]
-        for node_id in helper_ids:
-            node = nodes_dict.get(node_id)
-            if node is None:
-                continue
-            class_type = node.get("type", "")
-            if class_type == "GetNode":
-                changed |= _resolve_subgraph_getnode(
-                    nodes_dict, nodes_list, links_list, node_id, node, top_broadcasts
-                )
-            elif class_type in ("Reroute", "PrimitiveNode"):
-                changed |= _resolve_subgraph_passthrough(
-                    nodes_dict, nodes_list, links_list, node_id
-                )
-            elif isinstance(class_type, str) and class_type.startswith("Primitive"):
-                changed |= _resolve_subgraph_primitive(
-                    nodes_dict, nodes_list, links_list, node_id
-                )
-        if not changed:
-            break
-
-    subgraph["nodes"] = nodes_list
-    subgraph["links"] = links_list
-
-
-def _resolve_subgraph_getnode(
-    nodes_dict: dict[str, dict[str, Any]],
-    nodes_list: list[Any],
-    links_list: list[Any],
-    node_id: str,
-    node: dict[str, Any],
-    top_broadcasts: dict[str, Any],
-) -> bool:
-    name = _subgraph_widget(node, 0)
-    if not name or str(name) not in top_broadcasts:
-        return False
-    source = top_broadcasts[str(name)]
-    source_id, source_slot = str(source[0]), int(source[1])
-    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
-        _subgraph_set_link_origin(link, source_id, source_slot)
-    nodes_dict.pop(node_id, None)
-    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
-    return True
-
-
-def _resolve_subgraph_passthrough(
-    nodes_dict: dict[str, dict[str, Any]],
-    nodes_list: list[Any],
-    links_list: list[Any],
-    node_id: str,
-) -> bool:
-    inbound = [item for item in links_list if _subgraph_link_target_id(item) == node_id]
-    if not inbound:
-        return False
-    source_id = _subgraph_link_origin_id(inbound[0])
-    source_slot = _subgraph_link_origin_slot(inbound[0])
-    for link in [item for item in links_list if _subgraph_link_origin_id(item) == node_id]:
-        _subgraph_set_link_origin(link, source_id, source_slot)
-    nodes_dict.pop(node_id, None)
-    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
-    links_list[:] = [item for item in links_list if _subgraph_link_target_id(item) != node_id]
-    return True
-
-
-def _resolve_subgraph_primitive(
-    nodes_dict: dict[str, dict[str, Any]],
-    nodes_list: list[Any],
-    links_list: list[Any],
-    node_id: str,
-) -> bool:
-    nodes_dict.pop(node_id, None)
-    nodes_list[:] = [item for item in nodes_list if str(item.get("id", "")) != node_id]
-    links_list[:] = [
-        item for item in links_list
-        if _subgraph_link_origin_id(item) != node_id and _subgraph_link_target_id(item) != node_id
-    ]
-    return True
