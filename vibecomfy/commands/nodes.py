@@ -410,10 +410,22 @@ def build_nodes_reconcile_payload(args: argparse.Namespace) -> dict[str, object]
     diagnostics: list[dict[str, object]] = []
     remediations: list[dict[str, object]] = []
     node_classes = {str(node.class_type) for node in workflow.nodes.values()}
+    schema_enumeration_error: Exception | None = None
     try:
         schema_classes = set(provider.schemas())
-    except Exception:
+    except (OSError, ValueError, SchemaProviderError) as exc:
         schema_classes = set()
+        schema_enumeration_error = exc
+    if schema_enumeration_error is not None:
+        diagnostics.append(
+            _reconcile_diagnostic(
+                "node",
+                "schema_source_error",
+                f"local schema enumeration failed: {type(schema_enumeration_error).__name__}",
+                target="schema",
+                details={"error": str(schema_enumeration_error)},
+            )
+        )
     missing_classes = set(node_classes) - schema_classes - set(node_packs_install.CORE_COMFY_CLASSES)
     # Preserve the existing requirements boundary and the canonical helper for
     # the default lock while avoiding its ambient lock path for explicit locks.
@@ -484,8 +496,17 @@ def build_nodes_reconcile_payload(args: argparse.Namespace) -> dict[str, object]
         class_type = str(node.class_type)
         try:
             schema = provider.get_schema(class_type)
-        except Exception:
+        except (OSError, ValueError, SchemaProviderError) as exc:
             schema = None
+            diagnostics.append(
+                _reconcile_diagnostic(
+                    "node",
+                    "schema_source_error",
+                    f"local schema lookup failed for {class_type!r}: {type(exc).__name__}",
+                    target=class_type,
+                    details={"node_id": str(node_id), "class_type": class_type, "error": str(exc)},
+                )
+            )
         pack = pack_by_class.get(class_type)
         source = node.metadata.get("schema_source") if isinstance(node.metadata, Mapping) else None
         expected_pack = str(pack.name) if pack is not None else None
@@ -531,39 +552,47 @@ def build_nodes_reconcile_payload(args: argparse.Namespace) -> dict[str, object]
                 action, command = _reconcile_refresh_remediation(class_type=class_type, source=source if isinstance(source, Mapping) else None, workflow_command=_reconcile_command(args))
                 remediations.append({"action": action, "command": command, "targets": [class_type]})
 
+    from vibecomfy import fetch as fetch_assets
+    from vibecomfy.registry import models_loader
     try:
-        from vibecomfy import fetch as fetch_assets
-        from vibecomfy.registry import models_loader
-        registry = models_loader.load_registry(getattr(args, "registry", None))
-        model_refs = _reconcile_model_references(workflow)
-        for reference in model_refs:
-            value, subdir = reference["value"], reference["subdir"]
-            entry = models_loader.resolve_model_entry(value, registry=registry, subdir=subdir or None)
-            if entry is None:
-                registry_path = str(getattr(args, "registry", None) or models_loader.DEFAULT_REGISTRY_PATH)
-                diagnostics.append(_reconcile_diagnostic("model", "unknown_model", f"model reference {value!r} is not in the local registry", target=value, details={"value": value, "subdir": subdir, "registry_path": registry_path, "registry_lookup": False, "registration_command_available": False}))
-                rerun = _reconcile_command(args)
-                command = f"add a valid model row to {_reconcile_quote(registry_path)} and rerun {_reconcile_quote(rerun)}"
-                remediations.append({"action": "register", "command": command, "targets": [value]})
-                continue
-            effective_subdir = subdir or (Path(entry.targets[0].path).parent.as_posix() if entry.targets else "")
-            asset = {"name": value, "subdir": effective_subdir}
-            try:
-                present = fetch_assets.is_present(asset, root=Path(args.models_root) if getattr(args, "models_root", None) else None)
-            except (KeyError, OSError, ValueError) as exc:
-                diagnostics.append(_reconcile_diagnostic("model", "model_presence_error", f"cannot inspect model {value!r}: {type(exc).__name__}", target=value, details={"value": value, "subdir": effective_subdir, "error": str(exc)}))
-                continue
-            if not present:
-                diagnostics.append(_reconcile_diagnostic("model", "missing_model", f"model {value!r} is registered but absent locally", target=value, details={"value": value, "model_id": entry.id, "subdir": effective_subdir}))
-                command_parts = ["vibecomfy", "models", "stage", "--ids", _reconcile_quote(entry.id)]
-                if getattr(args, "registry", None):
-                    command_parts.extend(["--registry", _reconcile_quote(args.registry)])
-                if getattr(args, "models_root", None):
-                    command_parts.extend(["--models-root", _reconcile_quote(args.models_root)])
-                remediations.append({"action": "stage", "command": " ".join(command_parts), "targets": [entry.id]})
-    except Exception as exc:
-        diagnostics.append(_reconcile_diagnostic("model", "model_registry_error", f"model registry could not be read: {type(exc).__name__}", target="registry", details={"error": str(exc)}))
+        import yaml
 
+        registry = models_loader.load_registry(getattr(args, "registry", None))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        diagnostics.append(_reconcile_diagnostic("model", "model_registry_error", f"model registry could not be read: {type(exc).__name__}", target="registry", details={"error": str(exc)}))
+        registry = ()
+        model_refs: list[dict[str, str]] = []
+    else:
+        model_refs = _reconcile_model_references(workflow)
+    for reference in model_refs:
+        value, subdir = reference["value"], reference["subdir"]
+        try:
+            entry = models_loader.resolve_model_entry(value, registry=registry, subdir=subdir or None)
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            diagnostics.append(_reconcile_diagnostic("model", "model_resolution_error", f"cannot resolve model {value!r}: {type(exc).__name__}", target=value, details={"value": value, "subdir": subdir, "error": str(exc)}))
+            continue
+        if entry is None:
+            registry_path = str(getattr(args, "registry", None) or models_loader.DEFAULT_REGISTRY_PATH)
+            diagnostics.append(_reconcile_diagnostic("model", "unknown_model", f"model reference {value!r} is not in the local registry", target=value, details={"value": value, "subdir": subdir, "registry_path": registry_path, "registry_lookup": False, "registration_command_available": False}))
+            rerun = _reconcile_command(args)
+            command = f"add a valid model row to {_reconcile_quote(registry_path)} and rerun {rerun}"
+            remediations.append({"action": "register", "command": command, "targets": [value]})
+            continue
+        effective_subdir = subdir or (Path(entry.targets[0].path).parent.as_posix() if entry.targets else "")
+        asset = {"name": value, "subdir": effective_subdir}
+        try:
+            present = fetch_assets.is_present(asset, root=Path(args.models_root) if getattr(args, "models_root", None) else None)
+        except (KeyError, OSError, ValueError) as exc:
+            diagnostics.append(_reconcile_diagnostic("model", "model_presence_error", f"cannot inspect model {value!r}: {type(exc).__name__}", target=value, details={"value": value, "subdir": effective_subdir, "error": str(exc)}))
+            continue
+        if not present:
+            diagnostics.append(_reconcile_diagnostic("model", "missing_model", f"model {value!r} is registered but absent locally", target=value, details={"value": value, "model_id": entry.id, "subdir": effective_subdir}))
+            command_parts = ["vibecomfy", "models", "stage", "--ids", _reconcile_quote(entry.id)]
+            if getattr(args, "registry", None):
+                command_parts.extend(["--registry", _reconcile_quote(args.registry)])
+            if getattr(args, "models_root", None):
+                command_parts.extend(["--models-root", _reconcile_quote(args.models_root)])
+            remediations.append({"action": "stage", "command": " ".join(command_parts), "targets": [entry.id]})
     if getattr(args, "server_url", None) is not None:
         url = str(args.server_url).strip()
         if not url:
@@ -592,6 +621,10 @@ def _cmd_nodes_reconcile(args: argparse.Namespace) -> int:
         payload = build_nodes_reconcile_payload(args)
     except (FileNotFoundError, OSError, ValueError, SchemaProviderError) as exc:
         payload = {"schema_version": _RECONCILE_SCHEMA_VERSION, "status": "blocked", "diagnostics": [_reconcile_diagnostic("runtime", "reconcile_error", f"reconciliation could not be completed: {type(exc).__name__}", target="reconcile", details={"error": str(exc)})], "remediations": []}
+    except Exception as exc:
+        # Keep unexpected programming/fence failures in the command's
+        # fail-closed JSON boundary while preserving their non-success status.
+        payload = {"schema_version": _RECONCILE_SCHEMA_VERSION, "status": "blocked", "diagnostics": [_reconcile_diagnostic("runtime", "reconcile_internal_error", f"reconciliation failed unexpectedly: {type(exc).__name__}", target="reconcile", details={"error": str(exc)})], "remediations": []}
     print(json.dumps(_reconcile_jsonable(payload), indent=2, sort_keys=True))
     return 0 if payload["status"] == "ok" else 1
 

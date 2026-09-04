@@ -185,7 +185,7 @@ def test_reconcile_registered_missing_model_emits_stage_command(
     monkeypatch.setattr(fetch, "is_present", lambda *_args, **_kwargs: False)
     assert nodes_cmd._cmd_nodes_reconcile(_args(tmp_path)) == 1
     payload = json.loads(capsys.readouterr().out)
-    assert any(item["command"] == "vibecomfy models stage --ids model_id --registry '" + str(tmp_path / "models.yaml") + "' --models-root '" + str(tmp_path / "models") + "'" for item in payload["remediations"])
+    assert any(item["command"] == "vibecomfy models stage --ids 'model_id' --registry '" + str(tmp_path / "models.yaml") + "' --models-root '" + str(tmp_path / "models") + "'" for item in payload["remediations"])
 
 
 def test_reconcile_identity_lookup_is_exact_and_fail_closed(
@@ -225,3 +225,43 @@ def test_reconcile_mutation_fence_and_repeat_bytes(isolated_reconcile: Path, mon
     assert nodes_cmd._cmd_nodes_reconcile(args) == 0
     second = capsys.readouterr().out
     assert first == second
+
+
+def test_reconcile_provider_failures_block_core_nodes_instead_of_empty_ok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class FailingProvider:
+        def schemas(self):
+            raise ValueError("broken local schema index")
+
+        def get_schema(self, _class_type):
+            raise ValueError("broken local schema lookup")
+
+    monkeypatch.setattr(nodes_cmd, "get_authoring_schema_provider", lambda **_: FailingProvider())
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(nodes_cmd, "load_workflow_reference", lambda *_args, **_kwargs: _workflow(class_type="KSampler"))
+    from vibecomfy.registry import models_loader
+
+    monkeypatch.setattr(models_loader, "load_registry", lambda *_args, **_kwargs: ())
+    assert nodes_cmd._cmd_nodes_reconcile(_args(tmp_path)) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert any(item["code"] == "schema_source_error" for item in payload["diagnostics"])
+
+
+def test_unknown_model_instruction_keeps_rerun_command_readable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workflow = _workflow(metadata={"model_assets": [{"name": "odd model;$(touch X).safetensors", "subdir": "checkpoints"}]})
+    monkeypatch.setattr(nodes_cmd, "get_authoring_schema_provider", lambda **_: _Provider({"KSampler"}))
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(nodes_cmd, "load_workflow_reference", lambda *_args, **_kwargs: workflow)
+    from vibecomfy.registry import models_loader
+
+    monkeypatch.setattr(models_loader, "load_registry", lambda *_args, **_kwargs: ())
+    args = _args(tmp_path, workflow=str(tmp_path / "workflow with space.json"))
+    assert nodes_cmd._cmd_nodes_reconcile(args) == 1
+    payload = json.loads(capsys.readouterr().out)
+    register = next(item for item in payload["remediations"] if item["action"] == "register")
+    assert "rerun vibecomfy nodes reconcile --workflow '" in register["command"]
+    assert "rerun 'vibecomfy nodes reconcile" not in register["command"]
