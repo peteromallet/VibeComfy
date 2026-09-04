@@ -221,12 +221,14 @@ def _infer_public_input_bindings(
     for node_id, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
         fields = _resolved_field_values(node)
         class_type = str(getattr(node, "class_type", ""))
-        title = _node_title(node).lower()
 
         if class_type in {"CLIPTextEncode", "CLIPTextEncodeFlux", "CLIPTextEncodeSD3", "CLIPTextEncodeSDXL", "TextEncodeQwenImageEdit"}:
             value = _resolve_graph_field_get_string(fields.get("text"), workflow_nodes)
             if isinstance(value, str):
-                if "negative" in title:
+                metadata = getattr(node, "metadata", {})
+                semantic = metadata.get("semantic", metadata.get("semantic_metadata", {})) if isinstance(metadata, Mapping) else {}
+                role = semantic.get("role", semantic.get("prompt_role")) if isinstance(semantic, Mapping) else None
+                if isinstance(role, str) and "negative" in role.lower():
                     negative_candidate = negative_candidate or (str(node_id), "text")
                 elif value.strip():
                     prompt_candidate = prompt_candidate or (str(node_id), "text")

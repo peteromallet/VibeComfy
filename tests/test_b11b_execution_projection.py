@@ -706,6 +706,76 @@ def test_ready_emission_ignores_raw_ui_widget_aliases() -> None:
     assert "widget_0=1" in first_text
     assert "widget_0=1" in second_text
 
+
+def test_ready_public_inputs_ignore_raw_ui_titles() -> None:
+    def build(title: str) -> tuple[list[str], str]:
+        workflow = VibeWorkflow("title-independent", WorkflowSource("title-independent"))
+        workflow.nodes["text"] = VibeNode(
+            "text", "CLIPTextEncode", inputs={"text": "hello"},
+            metadata={"_ui": {"title": title}},
+        )
+        ready = emit_ready_template_python(
+            workflow,
+            ready_metadata={"ready_template": "test/primitive"},
+            ready_requirements={},
+            template_id="test/primitive",
+        )
+        namespace: dict[str, object] = {"__file__": "title-independent.py"}
+        exec(compile(ready, "title-independent", "exec"), namespace)  # noqa: S102
+        rebuilt = namespace["build"]()
+        return sorted(rebuilt.inputs), ready
+
+    positive_inputs, positive_text = build("positive")
+    negative_inputs, negative_text = build("negative")
+    assert positive_inputs == negative_inputs == ["prompt"]
+    assert "'prompt'" in positive_text and "'prompt'" in negative_text
+
+
+@pytest.mark.parametrize("kind", ["self", "mutual", "logical"])
+def test_variant_definition_cycles_fail_closed(kind: str) -> None:
+    from vibecomfy.identity.scope import sg_key
+
+    first = {"id": "variant-a", "name": "VariantA", "nodes": []}
+    if kind == "self":
+        first["definitions"] = {"subgraphs": [first]}
+    elif kind == "mutual":
+        second = {"id": "variant-b", "name": "VariantB", "nodes": []}
+        first["definitions"] = {"subgraphs": [second]}
+        second["definitions"] = {"subgraphs": [first]}
+    else:
+        second = {"id": "variant-a", "name": "VariantA", "nodes": [{"id": "core", "uid": "core", "inputs": {"x": 1}}]}
+        first["definitions"] = {"subgraphs": [second]}
+        logical_key = sg_key(first)
+        first["sg_key"] = logical_key
+        second["sg_key"] = logical_key
+    variant_key = f"{sg_key(first)}#core.x"
+    if kind == "logical":
+        variant_key = f"{logical_key}/{logical_key}#core.x"
+    workflow = VibeWorkflow(
+        "variant-cycle", WorkflowSource("variant-cycle"),
+        definitions={"subgraphs": [first]},
+        variants={"alt": {variant_key: 9}},
+    )
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow._with_selection("alt", None)
+    assert exc.value.code == "recursive_definition_cycle"
+
+
+def test_variant_blank_definition_uid_falls_back_to_id() -> None:
+    from vibecomfy.identity.scope import sg_key
+
+    definition = {
+        "id": "variant-definition", "name": "VariantDefinition",
+        "nodes": [{"id": "core", "uid": "", "inputs": {"x": 1}}],
+    }
+    workflow = VibeWorkflow(
+        "variant-blank-uid", WorkflowSource("variant-blank-uid"),
+        definitions={"subgraphs": [definition]},
+        variants={"alt": {f"{sg_key(definition)}#core.x": 9}},
+    )
+    selected = workflow._with_selection("alt", None)
+    assert selected.definitions["subgraphs"][0]["nodes"][0]["inputs"]["x"] == 9
+
 def test_real_graphbuilder_uses_the_same_detached_projection() -> None:
     workflow = _chain(NodeMode.ENABLED)
     before = workflow.copy()

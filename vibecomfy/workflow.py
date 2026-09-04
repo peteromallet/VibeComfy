@@ -2321,18 +2321,39 @@ def _apply_definition_variant(
             return list(raw)
         return []
 
-    def walk(raw: Any, parent: tuple[str, ...]) -> bool:
+    def walk(
+        raw: Any,
+        parent: tuple[str, ...],
+        active_definition_ids: set[int],
+        active_keys: set[str],
+    ) -> bool:
         for definition in entries(raw):
             if not isinstance(definition, dict):
                 continue
+            identity = id(definition)
+            if identity in active_definition_ids:
+                raise WorkflowCompileError(
+                    "recursive_definition_cycle",
+                    "recursive definition object graph cannot be selected",
+                )
             key = definition.get("sg_key") or sg_key(definition)
+            if key in active_keys:
+                raise WorkflowCompileError(
+                    "recursive_definition_cycle",
+                    f"recursive definition path through {key!r}",
+                )
+            active_definition_ids.add(identity)
+            active_keys.add(str(key))
             scope = compose_scope_path((*parent, key))
             nodes = definition.get("nodes", [])
             node_entries = list(nodes.values()) if isinstance(nodes, dict) else list(nodes) if isinstance(nodes, (list, tuple)) else []
             for node in node_entries:
                 if not isinstance(node, dict):
                     continue
-                local = str(node.get("uid", node.get("id", "")))
+                local = node.get("uid")
+                if not isinstance(local, str) or not local.strip():
+                    local = node.get("id", "")
+                local = str(local)
                 if make_uid(scope, local) != qualified_uid:
                     continue
                 if field_name in {"__mode__", "mode"}:
@@ -2349,13 +2370,21 @@ def _apply_definition_variant(
                         raise ValueError(
                             f"variant override field {field_name!r} is not a declared value or mode field"
                         )
+                active_definition_ids.remove(identity)
+                active_keys.remove(str(key))
                 return True
             nested = definition.get("definitions")
-            if nested and walk(nested, (*parent, key)):
+            if nested and walk(nested, (*parent, key), active_definition_ids, active_keys):
+                active_definition_ids.remove(identity)
+                active_keys.remove(str(key))
                 return True
+            active_definition_ids.remove(identity)
+            active_keys.remove(str(key))
         return False
 
-    return walk(workflow.definitions or workflow.metadata.get("definitions"), ())
+    return walk(
+        workflow.definitions or workflow.metadata.get("definitions"), (), set(), set()
+    )
 
 
 @dataclass(frozen=True)
