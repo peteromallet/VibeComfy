@@ -48,6 +48,16 @@ def test_t06_rework_native_sentinel_never_bypasses_config_extra() -> None:
         from_ui(raw, use_comfy_converter=False)
 
 
+def test_t06_rework_native_sentinel_legacy_definition_is_rejected() -> None:
+    raw = _t06_recursive_graph(
+        links=[[1, "-10", 0, "sink", 0, "X"]],
+        inputNode={"id": -10},
+        outputNode={"id": -20},
+    )
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, use_comfy_converter=False)
+
+
 def test_t06_rework_unknown_metadata_is_stripped_but_known_rejects() -> None:
     unknown = from_api({"1": {"class_type": "MysteryNode", "inputs": {}, "foo": "x", "summary": "y"}})
     assert "foo" not in unknown.nodes["1"].metadata
@@ -144,6 +154,62 @@ def test_t06_rework_root_virtual_leg_scope_must_be_empty_string() -> None:
         }]}}
     }
     with pytest.raises(ValueError, match="scope"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_envelope_captures_authored_set_get_helpers() -> None:
+    envelope = {
+        "id": "helper-envelope",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "helper-envelope", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {
+            "1": {"id": "1", "class_type": "Source", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"},
+            "2": {"id": "2", "class_type": "SetNode", "pack": None, "inputs": {}, "widgets": {"widget_0": "BUS"}, "metadata": {}, "uid": "2"},
+            "3": {"id": "3", "class_type": "GetNode", "pack": None, "inputs": {}, "widgets": {"widget_0": "BUS"}, "metadata": {}, "uid": "3"},
+            "4": {"id": "4", "class_type": "Sink", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "4"},
+        },
+        "edges": [
+            {"from_node": "1", "from_output": "0", "to_node": "2", "to_input": "value"},
+            {"from_node": "3", "from_output": "0", "to_node": "4", "to_input": "value"},
+        ],
+        "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+    }
+    workflow = from_envelope(envelope)
+    assert workflow.virtual_wires["BUS"]["legs"][0]["scope_path"] == ""
+    assert set(workflow.nodes) == {"1", "2", "3", "4"}
+    assert len(workflow.edges) == 2
+
+
+def test_t06_rework_recursive_capture_persists_at_depth_two() -> None:
+    def definition(name: str, nested=None):
+        value = {
+            "name": name,
+            "nodes": [
+                {"id": "source", "type": "Source", "inputs": [], "outputs": [{"name": "out", "links": [1]}]},
+                {"id": "set", "type": "SetNode", "inputs": [{"name": "value", "link": 1}], "outputs": [], "widgets_values": ["BUS"]},
+                {"id": "get", "type": "GetNode", "inputs": [], "outputs": [{"name": "out", "links": [2]}], "widgets_values": ["BUS"]},
+                {"id": "sink", "type": "Sink", "inputs": [{"name": "value", "link": 2}], "outputs": []},
+            ],
+            "links": [[1, "source", 0, "set", 0, "X"], [2, "get", 0, "sink", 0, "X"]],
+        }
+        if nested is not None:
+            value["definitions"] = {"subgraphs": [nested]}
+        return value
+    inner = definition("Inner")
+    outer = definition("Outer", inner)
+    raw = {"nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}], "links": [], "definitions": {"subgraphs": [outer]}}
+    workflow = from_ui(raw, use_comfy_converter=False)
+    outer_norm = workflow.definitions["subgraphs"][0]
+    inner_norm = outer_norm["definitions"]["subgraphs"][0]
+    assert outer_norm["virtual_wires"]["BUS"]["legs"]
+    assert inner_norm["virtual_wires"]["BUS"]["legs"]
+    assert outer_norm["virtual_wires"]["BUS"]["legs"][0]["scope_path"] != inner_norm["virtual_wires"]["BUS"]["legs"][0]["scope_path"]
+
+
+def test_t06_rework_definition_boundary_missing_name_has_stable_error() -> None:
+    raw = _t06_recursive_graph(boundary_ports=[{"scope_path": "Outer", "direction": "input", "node_uid": "sink", "field": "value"}])
+    with pytest.raises(ValueError, match="boundary port 0.*name|boundary.*name"):
         from_ui(raw, use_comfy_converter=False)
 
 
@@ -1614,32 +1680,11 @@ def test_ingest_workflow_and_ui_accepts_api_prompt_dict() -> None:
     assert normalized["links"], "API edges must become canonical UI links"
 
 
-def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
+def test_ir_door_rejects_subgraph_fixture_native_boundary_payloads() -> None:
     path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
     raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
-
-    retained_roots = (workflow.id, workflow.metadata)
-
-    def retained(expected: object, value: object) -> bool:
-        if value == expected:
-            return True
-        if isinstance(value, dict):
-            return any(retained(expected, item) for item in value.values())
-        if isinstance(value, (list, tuple)):
-            return any(retained(expected, item) for item in value)
-        return False
-
-    for key in (
-        "id",
-        "version",
-        "last_node_id",
-        "last_link_id",
-        "links",
-        "extra",
-        "definitions",
-    ):
-        assert retained(raw[key], retained_roots), f"UI door dropped top-level {key!r}"
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, source_path=str(path), use_comfy_converter=False)
 
 
 def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
@@ -1669,6 +1714,10 @@ def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
         if kind == "envelope":
             emitted = from_envelope(raw).to_envelope()
         else:
+            if path.name == "subgraphed_wan_i2v.json":
+                with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+                    from_ui(raw, source_path=str(path), use_comfy_converter=False)
+                continue
             workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
             with _warnings.catch_warnings():
                 _warnings.simplefilter("ignore")

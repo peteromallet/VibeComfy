@@ -694,40 +694,13 @@ def _normalize_recursive_definitions(raw: Any) -> dict[str, Any]:
         for node in normalized_nodes:
             nodes_by_alias[str(node["uid"])] = node
             nodes_by_alias[str(node["id"])] = node
-        legacy_native = (
-            isinstance(source.get("inputNode"), Mapping)
-            and isinstance(source.get("outputNode"), Mapping)
-            and str(source["inputNode"].get("id")) == "-10"
-            and str(source["outputNode"].get("id")) == "-20"
-        )
-        validation_source = source
-        if legacy_native:
-            # Native boundary links are unsupported canonical semantics. Keep
-            # the old UI bytes in the detached door sidecar, but remove these
-            # records from the normalized definition before any consumer sees it.
-            clean_links = [
-                link for link in source.get("links", [])
-                if not (
-                    isinstance(link, Mapping)
-                    and (str(link.get("origin_id")) in {"-10", "-20"} or str(link.get("target_id")) in {"-10", "-20"})
-                )
-                and not (
-                    isinstance(link, (list, tuple))
-                    and len(link) == 6
-                    and (str(link[1]) in {"-10", "-20"} or str(link[3]) in {"-10", "-20"})
-                )
-            ]
-            validation_source = dict(source)
-            validation_source["links"] = clean_links
         _validate_definition_links(
-            validation_source,
+            source,
             scope=scope,
             node_ids=aliases,
             nodes_by_alias=nodes_by_alias,
         )
         out = deepcopy(dict(source))
-        if legacy_native:
-            out["links"] = deepcopy(validation_source["links"])
         out.update({"sg_key": key, "scope_path": scope, "nodes": normalized_nodes})
         nested_raw = source.get("definitions")
         if nested_raw not in (None, {}, []):
@@ -1050,7 +1023,17 @@ def _capture_import_virtual_wires(workflow: VibeWorkflow) -> None:
         workflow.virtual_wires.setdefault(name, value)
 
     def recursive(raw: Any, parent: tuple[str, ...]) -> None:
-        for definition in _definition_entries(raw, path="definitions"):
+        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
+            entries = raw["subgraphs"]
+        elif isinstance(raw, Mapping):
+            entries = list(raw.values())
+        elif isinstance(raw, (list, tuple)):
+            entries = raw
+        else:
+            raise ValueError("definitions must be a mapping or list")
+        for definition in entries:
+            if not isinstance(definition, dict):
+                raise ValueError("definition must be a mapping")
             key = str(definition.get("sg_key") or sg_key(definition))
             scope = compose_scope_path((*parent, key))
             nodes = definition.get("nodes", [])
@@ -2031,6 +2014,8 @@ def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
     _validate_recursive_contract_metadata(
         workflow.definitions, workflow.interfaces, workflow.boundary_ports
     )
+    _capture_import_virtual_wires(workflow)
+    _validate_virtual_wire_endpoints(workflow)
     return workflow
 
 
@@ -2077,11 +2062,16 @@ def from_ui(
                     "inputs": [deepcopy(item) for item in definition.get("inputs", []) if isinstance(item, Mapping)],
                     "outputs": [deepcopy(item) for item in definition.get("outputs", []) if isinstance(item, Mapping)],
                 }
+            definition_ports = []
             for port in definition.get("boundary_ports", []):
                 if isinstance(port, Mapping):
                     item = deepcopy(dict(port))
                     item.setdefault("scope_path", scope)
-                    workflow.boundary_ports.append(item)
+                    definition_ports.append(item)
+                else:
+                    definition_ports.append(port)
+            if definition_ports:
+                workflow.boundary_ports.extend(_normalize_boundary_ports(definition_ports))
     if raw.get("interfaces") is not None:
         workflow.interfaces = _normalize_interfaces(raw["interfaces"])
     if raw.get("boundary_ports") is not None:
