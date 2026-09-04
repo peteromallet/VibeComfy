@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
+from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.runtime.session import active_session_metadata, find_active_session
 from vibecomfy.schema import get_schema_provider
 
 
@@ -37,9 +40,27 @@ def _override_unwired_message(workflow_id: str, flag: str, override: str) -> str
 
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
+        ensure_packs = bool(getattr(args, "ensure_packs", False))
         memory_profile = getattr(args, "memory_profile", None)
-        if memory_profile is not None and args.server_url is not None:
+        runtime = getattr(args, "runtime", "auto")
+        server_url = getattr(args, "server_url", None)
+        session_url = server_url
+        session_metadata = None
+        if memory_profile is not None and server_url is not None:
             print(_memory_profile_restart_required_message("explicit --server-url"), file=sys.stderr)
+            return 2
+        if session_url is None and runtime in {"auto", "server"}:
+            session_metadata = active_session_metadata("default")
+            session_url = (
+                str(session_metadata["url"])
+                if session_metadata
+                else find_active_session("default")
+            )
+            if memory_profile is not None and session_url is not None:
+                print(_memory_profile_restart_required_message("already-running session"), file=sys.stderr)
+                return 2
+        if ensure_packs and runtime in {"auto", "server"} and session_url is not None:
+            print("run failed: --ensure-packs is only supported for embedded runtime", file=sys.stderr)
             return 2
         schema_provider = get_schema_provider("local")
         try:
@@ -49,29 +70,33 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
             workflow = bundle.workflow
         except SyntaxError as exc:
-            print(f"run failed: SyntaxError: {exc}", file=sys.stderr)
+            _print_source_migration_failure(args.path, f"SyntaxError: {exc}")
             return 1
+        except Exception as exc:
+            _print_source_migration_failure(args.path, str(exc))
+            return 1
+        run_inputs: dict[str, object] = {}
         if args.prompt is not None:
             if workflow.inputs.get("prompt") is None:
                 print(_override_unwired_message(workflow.id, "--prompt", "prompt"), file=sys.stderr)
                 return 2
-            workflow.set_prompt(args.prompt)
+            run_inputs["prompt"] = args.prompt
         if args.seed is not None:
             if workflow.inputs.get("seed") is None:
                 print(_override_unwired_message(workflow.id, "--seed", "seed"), file=sys.stderr)
                 return 2
-            workflow.set_seed(args.seed)
+            run_inputs["seed"] = args.seed
         if args.steps is not None:
             if workflow.inputs.get("steps") is None:
                 print(_override_unwired_message(workflow.id, "--steps", "steps"), file=sys.stderr)
                 return 2
-            workflow.set_steps(args.steps)
+            run_inputs["steps"] = args.steps
         # Runtime/receipt transport is T14-owned.  Do not pass this mutable
         # candidate to the legacy bare-workflow runtime while that handoff is
         # unavailable; compile only through the canonical approval seam and
         # fail closed rather than silently authorizing a second path.
         try:
-            bundle.compile(schema_provider=schema_provider)
+            _approved_record = bundle.compile(run_inputs=run_inputs, schema_provider=schema_provider)
         except Exception as exc:
             print(f"run failed: {exc}", file=sys.stderr)
             return 1
@@ -84,7 +109,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"run failed: {exc}", file=sys.stderr)
         return 1
-        return 1
+
+
+def _print_source_migration_failure(path: str, detail: str) -> None:
+    """Give raw/legacy sources the one-way port door, never a runtime fallback."""
+    suffixes = Path(path).suffixes
+    if suffixes and suffixes[-1] in {".json", ".py"}:
+        stem = Path(path).stem
+        quoted_path = shlex.quote(path)
+        quoted_output = shlex.quote(f"out/scratchpads/{stem}.py")
+        print(
+            f"run failed: {detail}\n"
+            f"Next: vibecomfy port check {quoted_path} --json\n"
+            f"Then: vibecomfy port convert {quoted_path} --out {quoted_output}",
+            file=sys.stderr,
+        )
+        return
+    print(f"run failed: {detail}", file=sys.stderr)
 
 
 def _memory_profile_restart_required_message(target: str) -> str:

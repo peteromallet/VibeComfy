@@ -43,12 +43,19 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
             print(_render_tracefield(result))
         return 0
 
-    workflow = load_bundle(args.workflow).workflow
+    bundle = load_bundle(args.workflow)
+    workflow = bundle.workflow
     shape = "api"
     # Inspect is a read-only/schema-only command.  Never boot a managed
     # ComfyUI server just because one happens to be installed: an occupied
     # default port must not make static inspection nondeterministic.
     schema_provider = get_schema_provider("local")
+    try:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+    except Exception:
+        # Preserve the existing diagnostic report for unsupported workflows;
+        # only a successfully compiled record can claim runnable status.
+        _approved_record = None
     report = workflow.validate(schema_provider=schema_provider)
     applicable_patches = [
         {"name": patch.name, "rationale": patch.rationale(workflow)}

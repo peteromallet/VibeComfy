@@ -4,8 +4,6 @@ from typing import Any
 
 from vibecomfy.artifacts import Image
 from vibecomfy.cli_loader import load_bundle
-from vibecomfy.origin import stamp_workflow_origin
-from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
 from vibecomfy.router import pick
@@ -47,18 +45,25 @@ def _t2i(
     result = pick("image", "t2i", model=model, width=width, height=height, steps=steps, seed=seed, **overrides)
     bundle = load_bundle(result.template_id)
     workflow = bundle.workflow
-    stamp_workflow_origin(workflow, "op", "ops/image.py:t2i")
-    set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
+    if workflow.inputs.get("prompt") is None:
+        raise ValueError(f"image.t2i could not bind prompt input on template {result.template_id!r}")
+    run_inputs: dict[str, object] = {"prompt": prompt}
     if seed is not None:
-        workflow.set_seed(seed)
+        if workflow.inputs.get("seed") is None:
+            raise ValueError(f"image.t2i could not bind seed input on template {result.template_id!r}")
+        run_inputs["seed"] = seed
     if steps is not None:
-        workflow.set_steps(steps)
-    output = first_output(workflow, "SaveImage")
-    return Image(
-        workflow=workflow,
-        node_id=output.node_id,
-        output_slot=0,
-        metadata={"template_id": result.template_id, "model": model},
+        if workflow.inputs.get("steps") is None:
+            raise ValueError(f"image.t2i could not bind steps input on template {result.template_id!r}")
+        run_inputs["steps"] = steps
+    candidate = workflow.copy()
+    for patch in result.explicit_patches:
+        patch.apply(candidate)
+    approved_bundle = load_bundle(candidate)
+    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
+    raise RuntimeError(
+        "image.t2i stopped: approved-record runtime transport is not available; "
+        "use the T14 runtime boundary before executing this workflow"
     )
 
 

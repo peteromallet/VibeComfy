@@ -10,7 +10,7 @@ from pathlib import Path
 from vibecomfy.errors import RuntimeNodeError
 from vibecomfy.cli_loader import load_bundle
 from vibecomfy.runtime.client import ComfyClient
-from vibecomfy.runtime.eval import compile_eval_subgraph
+from vibecomfy.runtime.eval import compile_eval_subgraph  # noqa: F401 - T16 handoff symbol
 from vibecomfy.runtime.run import smoke_runtime_sync
 from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
 from vibecomfy.schema import get_schema_provider
@@ -102,11 +102,10 @@ def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
         ).workflow
 
         target_node = args.node
-        subgraph = compile_eval_subgraph(workflow, target_node)
-
+        subgraph = None  # T16 owns eval compilation after this boundary.
         # Eval-node's direct queue transport is T16-owned.  Refuse the legacy
         # bare subgraph here rather than allowing it to bypass the bundle /
-        # approved-record boundary or starting a runtime as a fallback.
+        # approved-record boundary or compiling a subgraph as a fallback.
         print(
             "eval-node stopped: approved-record eval transport is not available; "
             f"run `vibecomfy port check {args.path} --json` and use the T16 "
@@ -191,6 +190,7 @@ def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
 
 async def _queue_embedded(api_dict: dict) -> dict:
     """Queue an eval subgraph through an embedded ComfyUI session."""
+    raise RuntimeError("embedded eval queue is T16-owned and unavailable")
     session = EmbeddedSession(SessionConfig())
     try:
         await session.start()
@@ -203,6 +203,7 @@ async def _queue_embedded(api_dict: dict) -> dict:
 
 async def _queue_server(api_dict: dict, server_url: str) -> dict:
     """Queue an eval subgraph through a server ComfyUI instance."""
+    raise RuntimeError("server eval queue is T16-owned and unavailable")
     client = ComfyClient(server_url)
     return await client.queue_prompt(api_dict)
 

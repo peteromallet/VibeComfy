@@ -6,8 +6,6 @@ from typing import Any, Union
 
 from vibecomfy.artifacts import Artifact, Image, Video
 from vibecomfy.cli_loader import load_bundle
-from vibecomfy.origin import stamp_workflow_origin
-from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
 from vibecomfy.router import pick
@@ -54,16 +52,21 @@ def _t2v(
     result = pick("video", "t2v", model=model, width=width, height=height, length=length, fps=fps, seed=seed, **overrides)
     bundle = load_bundle(result.template_id)
     workflow = bundle.workflow
-    stamp_workflow_origin(workflow, "op", "ops/video.py:t2v")
-    set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
+    if workflow.inputs.get("prompt") is None:
+        raise ValueError(f"video.t2v could not bind prompt input on template {result.template_id!r}")
+    run_inputs: dict[str, object] = {"prompt": prompt}
     if seed is not None:
-        workflow.set_seed(seed)
-    output = first_output(workflow, "SaveVideo")
-    return Video(
-        workflow=workflow,
-        node_id=output.node_id,
-        output_slot=0,
-        metadata={"template_id": result.template_id, "model": model},
+        if workflow.inputs.get("seed") is None:
+            raise ValueError(f"video.t2v could not bind seed input on template {result.template_id!r}")
+        run_inputs["seed"] = seed
+    candidate = workflow.copy()
+    for patch in result.explicit_patches:
+        patch.apply(candidate)
+    approved_bundle = load_bundle(candidate)
+    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
+    raise RuntimeError(
+        "video.t2v stopped: approved-record runtime transport is not available; "
+        "use the T14 runtime boundary before executing this workflow"
     )
 
 
@@ -104,22 +107,23 @@ def _i2v(
     result = pick("video", "i2v", model=model, image=image_path, length=length, fps=fps, seed=seed, **overrides)
     bundle = load_bundle(result.template_id)
     workflow = bundle.workflow
-    stamp_workflow_origin(workflow, "op", "ops/video.py:i2v")
-    set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
-    try:
-        workflow.set_input("image", image_path)
-    except ValueError as exc:
-        raise ValueError(
-            f"video.i2v could not bind image input on template {result.template_id!r}: {exc}"
-        ) from exc
+    if workflow.inputs.get("prompt") is None:
+        raise ValueError(f"video.i2v could not bind prompt input on template {result.template_id!r}")
+    if workflow.inputs.get("image") is None:
+        raise ValueError(f"video.i2v could not bind image input on template {result.template_id!r}")
+    run_inputs: dict[str, object] = {"prompt": prompt, "image": image_path}
     if seed is not None:
-        workflow.set_seed(seed)
-    output = first_output(workflow, "SaveVideo")
-    return Video(
-        workflow=workflow,
-        node_id=output.node_id,
-        output_slot=0,
-        metadata={"template_id": result.template_id, "model": model},
+        if workflow.inputs.get("seed") is None:
+            raise ValueError(f"video.i2v could not bind seed input on template {result.template_id!r}")
+        run_inputs["seed"] = seed
+    candidate = workflow.copy()
+    for patch in result.explicit_patches:
+        patch.apply(candidate)
+    approved_bundle = load_bundle(candidate)
+    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
+    raise RuntimeError(
+        "video.i2v stopped: approved-record runtime transport is not available; "
+        "use the T14 runtime boundary before executing this workflow"
     )
 
 

@@ -48,7 +48,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # server here makes the command depend on the ambient port 8188 state.
     schema_provider = get_schema_provider("local")
     try:
-        workflow = load_bundle(args.path).workflow
+        bundle = load_bundle(args.path)
+        workflow = bundle.workflow
+        try:
+            _approved_record = bundle.compile(schema_provider=schema_provider)
+        except Exception:
+            # Keep the existing local diagnostics for unsupported candidates;
+            # readiness is only claimed when this approval record exists.
+            _approved_record = None
     except Exception as exc:
         print("Layer: Python scratchpad import/build")
         print(f"Error: {type(exc).__name__}: {exc}")

@@ -22,7 +22,10 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     json_output = bool(getattr(args, "json", False))
     try:
         schema_provider = None if args.no_schema else get_schema_provider("auto")
-        workflow = load_bundle(args.path).workflow
+        bundle = load_bundle(args.path)
+        workflow = bundle.workflow
+        if not args.no_schema:
+            _approved_record = bundle.compile(schema_provider=schema_provider)
         report = workflow.validate(schema_provider=schema_provider)
         if getattr(args, "check_freshness", False) and report.ok:
             drift = _subgraph_freshness_diagnostics(Path(args.path))
@@ -58,7 +61,10 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def build_validate_payload(path: str, *, no_schema: bool = False, check_freshness: bool = False) -> dict[str, object]:
     """Block A back-compat: build the validation payload directly without going through the CLI."""
     schema_provider = None if no_schema else get_schema_provider("auto")
-    workflow = load_bundle(path).workflow
+    bundle = load_bundle(path)
+    workflow = bundle.workflow
+    if not no_schema:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
     report = workflow.validate(schema_provider=schema_provider)
     issues = [
         {

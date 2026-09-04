@@ -114,7 +114,9 @@ def run_port_lint(workflow: str) -> SubcheckResult:
 
 def run_validate(workflow: str, *, schema_provider: Any | None = None) -> SubcheckResult:
     try:
-        wf = load_bundle(workflow).workflow
+        bundle = load_bundle(workflow)
+        wf = bundle.workflow
+        _approved_record = bundle.compile(schema_provider=schema_provider or get_schema_provider("auto"))
         report = wf.validate(schema_provider=schema_provider or get_schema_provider("auto"))
     except Exception as exc:
         return _exception_result("validate", exc)
@@ -130,9 +132,11 @@ def run_validate(workflow: str, *, schema_provider: Any | None = None) -> Subche
     return SubcheckResult(name="validate", ok=report.ok, findings=findings)
 
 
-def run_doctor_readiness(workflow: str) -> SubcheckResult:
+def run_doctor_readiness(workflow: str, *, schema_provider: Any | None = None) -> SubcheckResult:
     try:
-        wf = load_bundle(workflow).workflow
+        bundle = load_bundle(workflow)
+        wf = bundle.workflow
+        _approved_record = bundle.compile(schema_provider=schema_provider or get_schema_provider("auto"))
     except Exception as exc:
         return _exception_result("doctor", exc)
     findings: list[SubcheckFinding] = []
@@ -165,7 +169,7 @@ def run_health_checks(workflow: str, *, schema_provider: Any | None = None) -> H
         run_port_check(workflow, schema_provider=provider),
         run_port_lint(workflow),
         run_validate(workflow, schema_provider=provider),
-        run_doctor_readiness(workflow),
+        run_doctor_readiness(workflow, schema_provider=provider),
     ]
     return HealthReport(workflow=workflow, ok=all(item.ok for item in subchecks), subchecks=subchecks)
 

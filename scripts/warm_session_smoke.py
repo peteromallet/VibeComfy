@@ -22,8 +22,8 @@ async def _run(args: argparse.Namespace) -> int:
         second_ref,
         schema_provider=provider,
     )
-    first_bundle.compile(schema_provider=provider)
-    second_bundle.compile(schema_provider=provider)
+    _first_record = first_bundle.compile(schema_provider=provider)
+    _second_record = second_bundle.compile(schema_provider=provider)
     raise RuntimeError(
         "warm session smoke stopped: approved-record runtime transport is not "
         "available; use the T14 runtime boundary before queueing"
@@ -32,7 +32,7 @@ async def _run(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run two workflow references through one EmbeddedSession for manual GPU smoke."
+        description="Check two workflow references through the approved-record boundary."
     )
     parser.add_argument("first", help="First workflow reference or path.")
     parser.add_argument("second", nargs="?", help="Second workflow reference or path; defaults to first.")
