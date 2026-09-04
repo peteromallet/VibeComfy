@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.ingest.loader import load_workflow_json
@@ -41,14 +42,20 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     return _load_workflow_path(Path(path))
 
 
-def _load_workflow_path(path: Path, *, workflow_id: str | None = None) -> VibeWorkflow:
+def _load_workflow_path(
+    path: Path,
+    *,
+    workflow_id: str | None = None,
+    schema_provider: Any = None,
+) -> VibeWorkflow:
     suffix = path.suffix.lower()
     if suffix == ".py":
         return load_scratchpad(path, provenance_override="user_confirmed")
     if suffix == ".json":
-        from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
+        if schema_provider is None:
+            from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 
-        schema_provider = get_schema_provider("auto")
+            schema_provider = get_schema_provider("auto")
         raw = load_workflow_json(path)
         return _named_import(
             raw,
@@ -73,11 +80,16 @@ def _looks_like_path(value: str) -> bool:
     return bool(path.suffix) or path.is_absolute() or any(part in value for part in ("/", "\\"))
 
 
-def load_bundle(reference: str | Path, trust: Provenance | None = None):
+def load_bundle(
+    reference: str | Path | VibeWorkflow,
+    trust: Provenance | None = None,
+    *,
+    schema_provider: Any = None,
+):
     """Load a candidate canonical bundle through the dedicated bundle binding."""
     from vibecomfy.workflow_bundle import load_bundle as _load_bundle
 
-    return _load_bundle(reference, trust=trust)
+    return _load_bundle(reference, trust=trust, schema_provider=schema_provider)
 
 
 __all__ = ["load_workflow_any", "load_bundle"]

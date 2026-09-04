@@ -17,6 +17,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from vibecomfy.security.provenance import Provenance
@@ -28,6 +29,39 @@ from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 class WorkflowBundleError(ValueError):
     """Raised when a bundle cannot be loaded or fails a closed boundary."""
+
+
+def _freeze_json(value: Any) -> Any:
+    """Detach and recursively freeze one strict JSON-shaped value."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise WorkflowBundleError("approved projection cannot contain NaN or infinity")
+        return value
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise WorkflowBundleError("approved projection object keys must be strings")
+            if key in frozen:
+                raise WorkflowBundleError(f"duplicate approved projection key {key!r}")
+            frozen[key] = _freeze_json(item)
+        return MappingProxyType(frozen)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item) for item in value)
+    raise WorkflowBundleError(
+        f"approved projection contains unsupported value {type(value).__name__}"
+    )
+
+
+def _thaw_json(value: Any) -> Any:
+    """Return a detached ordinary JSON-shaped copy of a frozen value."""
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
 
 
 _IDENTITY_KEYS = frozenset(
@@ -45,7 +79,7 @@ _IDENTITY_KEYS = frozenset(
 _CONTAINER_ID_KEYS = frozenset(
     {"source", "bind", "registry", "import", "capture", "lineage", "provenance"}
 )
-_OPERATIONS = frozenset({"authored", "imported", "captured"})
+_OPERATIONS = frozenset({"authored", "imported", "captured", "ephemeral"})
 
 # This is intentionally a small closed schema.  In particular, do not add a
 # catch-all ``properties``/``extra`` member here: those are legacy UI payloads
@@ -787,6 +821,146 @@ def _resolve_parent(workflow: VibeWorkflow, parent_revision: str) -> str:
     raise WorkflowBundleError(f"unknown parent revision {parent_revision!r}")
 
 
+_APPROVED_RECORD_KEYS = frozenset(
+    {
+        "revision_id",
+        "selected_variant",
+        "input_binding",
+        "api_projection",
+        "ui_projection",
+        "api_digest",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovedProjectionRecord:
+    """Detached, recursively immutable approval evidence for one revision."""
+
+    revision_id: str
+    selected_variant: str | None
+    input_binding: Mapping[str, Any]
+    api_projection: Mapping[str, Any]
+    ui_projection: Mapping[str, Any]
+    api_digest: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.revision_id, str) or not self.revision_id.strip():
+            raise WorkflowBundleError("approved projection revision_id must be nonblank")
+        if self.selected_variant is not None and not isinstance(self.selected_variant, str):
+            raise WorkflowBundleError("approved projection selected_variant must be a string or null")
+        for name in ("input_binding", "api_projection", "ui_projection"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping):
+                raise WorkflowBundleError(f"approved projection {name} must be an object")
+            object.__setattr__(self, name, _freeze_json(value))
+        if not isinstance(self.api_digest, str):
+            raise WorkflowBundleError("approved projection api_digest must be a string")
+        actual = canonical_digest(_thaw_json(self.api_projection))
+        if self.api_digest != actual:
+            raise WorkflowBundleError("approved projection api_digest does not match api_projection")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached JSON object with exactly the six record keys."""
+        return {
+            "revision_id": self.revision_id,
+            "selected_variant": self.selected_variant,
+            "input_binding": _thaw_json(self.input_binding),
+            "api_projection": _thaw_json(self.api_projection),
+            "ui_projection": _thaw_json(self.ui_projection),
+            "api_digest": self.api_digest,
+        }
+
+    def to_canonical_bytes(self) -> bytes:
+        return canonical_json(self.to_dict()).encode("utf-8")
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "ApprovedProjectionRecord":
+        if not isinstance(value, Mapping) or set(value) != _APPROVED_RECORD_KEYS:
+            raise WorkflowBundleError(
+                "approved projection record must contain exactly the six required fields"
+            )
+        revision_id = value["revision_id"]
+        selected_variant = value["selected_variant"]
+        input_binding = value["input_binding"]
+        api_projection = value["api_projection"]
+        ui_projection = value["ui_projection"]
+        api_digest = value["api_digest"]
+        if not isinstance(revision_id, str):
+            raise WorkflowBundleError("approved projection revision_id must be a string")
+        if selected_variant is not None and not isinstance(selected_variant, str):
+            raise WorkflowBundleError("approved projection selected_variant must be a string or null")
+        if not isinstance(input_binding, Mapping):
+            raise WorkflowBundleError("approved projection input_binding must be an object")
+        if not isinstance(api_projection, Mapping):
+            raise WorkflowBundleError("approved projection api_projection must be an object")
+        if not isinstance(ui_projection, Mapping):
+            raise WorkflowBundleError("approved projection ui_projection must be an object")
+        if not isinstance(api_digest, str):
+            raise WorkflowBundleError("approved projection api_digest must be a string")
+        return cls(
+            revision_id,
+            selected_variant,
+            input_binding,
+            api_projection,
+            ui_projection,
+            api_digest,
+        )
+
+    @classmethod
+    def from_canonical_bytes(cls, value: bytes) -> "ApprovedProjectionRecord":
+        if not isinstance(value, bytes):
+            raise WorkflowBundleError("approved projection bytes must be bytes")
+        try:
+            decoded = json.loads(value.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise WorkflowBundleError(f"invalid approved projection bytes: {exc}") from exc
+        if canonical_json(decoded).encode("utf-8") != value:
+            raise WorkflowBundleError("approved projection bytes are not canonical")
+        return cls.from_dict(decoded)
+
+    def assert_matches(
+        self,
+        bundle: "WorkflowBundle",
+        variant: str | None = None,
+        run_inputs: Mapping[str, Any] | None = None,
+        api_projection: Mapping[str, Any] | None = None,
+        ui_projection: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Revalidate this record against a current bundle and fresh projections."""
+        if not isinstance(bundle, WorkflowBundle):
+            raise WorkflowBundleError("approved projection must be bound to a WorkflowBundle")
+        if bundle.revision_id != self.revision_id:
+            raise WorkflowBundleError("approved projection revision does not match bundle")
+        selected_variant = bundle.workflow.default_variant if variant is None else variant
+        if selected_variant != self.selected_variant:
+            raise WorkflowBundleError("approved projection variant binding does not match")
+        binding = {} if run_inputs is None else run_inputs
+        if not isinstance(binding, Mapping):
+            raise WorkflowBundleError("run_inputs must be an object")
+        try:
+            binding_snapshot = _thaw_json(_freeze_json(binding))
+        except WorkflowBundleError as exc:
+            raise WorkflowBundleError(f"run_inputs are not JSON-safe: {exc}") from exc
+        if canonical_json(_thaw_json(self.input_binding)) != canonical_json(binding_snapshot):
+            raise WorkflowBundleError("approved projection input binding does not match")
+        if not isinstance(api_projection, Mapping):
+            raise WorkflowBundleError("approved projection API projection is required")
+        if not isinstance(ui_projection, Mapping):
+            raise WorkflowBundleError("approved projection UI projection is required")
+        try:
+            api_snapshot = _thaw_json(_freeze_json(api_projection))
+            ui_snapshot = _thaw_json(_freeze_json(ui_projection))
+        except WorkflowBundleError as exc:
+            raise WorkflowBundleError(f"fresh projections are not JSON-safe: {exc}") from exc
+        if canonical_json(_thaw_json(self.api_projection)) != canonical_json(api_snapshot):
+            raise WorkflowBundleError("approved projection API projection does not match")
+        if canonical_json(_thaw_json(self.ui_projection)) != canonical_json(ui_snapshot):
+            raise WorkflowBundleError("approved projection UI projection does not match")
+        if self.api_digest != canonical_digest(_thaw_json(self.api_projection)):
+            raise WorkflowBundleError("approved projection API digest is invalid")
+
+
 @dataclass(frozen=True)
 class WorkflowBundle:
     """One candidate source revision bound to a :class:`VibeWorkflow`."""
@@ -818,6 +992,81 @@ class WorkflowBundle:
             self.ui_sidecar,
             schema_provider=schema_provider,
             strict=strict,
+        )
+
+    def compile(
+        self,
+        variant: str | None = None,
+        run_inputs: dict[str, Any] | None = None,
+        *,
+        schema_provider: Any = None,
+    ) -> ApprovedProjectionRecord:
+        """Compile this unchanged candidate into one detached approval record."""
+        current = _make_bundle(
+            self.workflow,
+            python_path=self.python_path,
+            ui_sidecar=self.ui_sidecar,
+            provenance=self.provenance,
+            operation=str(self.provenance.get("operation", "authored")),
+            parent_revision=self.parent_revision,
+        )
+        if current.revision_id != self.revision_id:
+            raise WorkflowBundleError("workflow bundle revision is stale; reload before approval")
+        if schema_provider is None:
+            from vibecomfy.schema import get_authoring_schema_provider
+
+            schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
+        requirements = getattr(self.workflow, "requirements", None)
+        for field_name in ("missing_models", "missing_nodes", "unsupported"):
+            values = getattr(requirements, field_name, ()) if requirements is not None else ()
+            if values:
+                raise WorkflowBundleError(
+                    f"workflow requirements contain unresolved {field_name}: "
+                    + ", ".join(sorted(str(value) for value in values))
+                )
+        reconciliation = getattr(self.workflow, "metadata", {}).get("reconciliation")
+        if isinstance(reconciliation, Mapping):
+            status = reconciliation.get("status")
+            if status in {"blocked", "error", "failed", "stale", "unknown"}:
+                raise WorkflowBundleError(
+                    f"workflow reconciliation is not approved: {status}"
+                )
+        binding = {} if run_inputs is None else run_inputs
+        if not isinstance(binding, Mapping):
+            raise WorkflowBundleError("run_inputs must be an object")
+        try:
+            binding_snapshot = _thaw_json(_freeze_json(binding))
+        except WorkflowBundleError as exc:
+            raise WorkflowBundleError(f"run_inputs are not JSON-safe: {exc}") from exc
+        selected_variant = self.workflow.default_variant if variant is None else variant
+        api_projection = self.workflow.compile(
+            "api", variant=variant, run_inputs=binding_snapshot
+        )
+        try:
+            from vibecomfy.schema.validate import (
+                validate_api_against_schema,
+                validate_api_link_shapes,
+            )
+
+            schema_issues = [
+                *validate_api_against_schema(api_projection, schema_provider),
+                *validate_api_link_shapes(api_projection, schema_provider),
+            ]
+        except Exception as exc:
+            raise WorkflowBundleError(
+                f"local schema validation failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        errors = [issue for issue in schema_issues if getattr(issue, "severity", "error") == "error"]
+        if errors:
+            raise WorkflowBundleError(str(errors[0].message))
+        ui_projection = self.materialize_ui(schema_provider=schema_provider)
+        return ApprovedProjectionRecord(
+            revision_id=self.revision_id,
+            selected_variant=selected_variant,
+            input_binding=binding_snapshot,
+            api_projection=api_projection,
+            ui_projection=ui_projection,
+            api_digest=canonical_digest(api_projection),
         )
 
 
@@ -914,8 +1163,25 @@ def _import_identity(raw: Mapping[str, Any], *, source_kind: str) -> str:
     )
 
 
-def load_bundle(reference: str | Path, trust: Provenance | None = None) -> WorkflowBundle:
+def load_bundle(
+    reference: str | Path | VibeWorkflow,
+    trust: Provenance | None = None,
+    *,
+    schema_provider: Any = None,
+) -> WorkflowBundle:
     """Load one canonical Python/compatibility reference as a candidate bundle."""
+    if isinstance(reference, VibeWorkflow):
+        return _make_bundle(
+            reference,
+            python_path=None,
+            ui_sidecar=None,
+            provenance={"operation": "ephemeral"},
+            operation="ephemeral",
+        )
+    if not isinstance(reference, (str, Path)):
+        raise TypeError(
+            f"load_bundle requires a path, workflow id, or VibeWorkflow, got {type(reference).__name__}"
+        )
     resolved, python_path, operation = _resolve_reference(reference)
     declared_identity: str | None = None
     if python_path is not None:
@@ -925,6 +1191,10 @@ def load_bundle(reference: str | Path, trust: Provenance | None = None) -> Workf
         # the actual typed trust value and let the restricted loader decide.
         workflow = load_scratchpad(python_path, provenance_override=trust)
     elif isinstance(resolved, Path) and resolved.suffix.lower() == ".json":
+        if schema_provider is None:
+            from vibecomfy.schema import get_authoring_schema_provider
+
+            schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
         try:
             raw = json.loads(resolved.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -940,19 +1210,54 @@ def load_bundle(reference: str | Path, trust: Provenance | None = None) -> Workf
         else:
             source_kind = "api"
         declared_identity = _import_identity(raw, source_kind=source_kind)
-        from vibecomfy.cli_loader import _load_workflow_path
+        if source_kind == "api":
+            # Imported compatibility JSON may carry the durable identity in a
+            # thin envelope (including Comfy's ``{"prompt": API}`` wrapper).
+            # Keep that identity at the bundle boundary; it is not a node in
+            # the API projection and must not reach the normalizer as one.
+            from vibecomfy.ingest.normalize import _named_import
 
-        workflow = _load_workflow_path(resolved, workflow_id=declared_identity)
+            payload = raw.get("prompt") if isinstance(raw.get("prompt"), Mapping) else raw
+            import_payload = dict(payload)
+            for key in ("workflow_id", "workflow_identity", "source"):
+                import_payload.pop(key, None)
+            workflow = _named_import(
+                import_payload,
+                source_path=str(resolved),
+                workflow_id=declared_identity,
+                schema_provider=schema_provider,
+            )
+        else:
+            from vibecomfy.cli_loader import _load_workflow_path
+
+            workflow = _load_workflow_path(
+                resolved,
+                workflow_id=declared_identity,
+                schema_provider=schema_provider,
+            )
     else:
-        from vibecomfy.cli_loader import load_workflow_any
+        from vibecomfy.registry.ready import (
+            ready_template_discovery,
+            resolve_ready_template,
+            workflow_from_ready,
+        )
 
-        workflow = load_workflow_any(str(resolved))
+        discovery = ready_template_discovery()
         try:
-            from vibecomfy.registry.ready import resolve_ready_template
+            ready_record = resolve_ready_template(str(reference), discovery)
+        except KeyError:
+            if schema_provider is None:
+                from vibecomfy.schema import get_authoring_schema_provider
 
-            declared_identity = resolve_ready_template(str(reference)).template_id
-        except (KeyError, ValueError):
-            declared_identity = None
+                schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
+            from vibecomfy.registry.library import workflow_from_id
+
+            workflow = workflow_from_id(str(reference), schema_provider=schema_provider)
+        else:
+            declared_identity = ready_record.template_id
+            workflow = workflow_from_ready(
+                str(reference), _discovery=discovery
+            )
         source = getattr(workflow, "source", None)
         source_path = getattr(source, "path", None)
         if isinstance(source_path, str) and source_path:
@@ -1213,6 +1518,7 @@ def emit_bundle_with_candidate(
 
 
 __all__ = [
+    "ApprovedProjectionRecord",
     "WorkflowBundle",
     "WorkflowBundleError",
     "capture_bundle",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import (
+    ApprovedProjectionRecord,
     WorkflowBundleError,
     capture_bundle,
     emit_bundle,
@@ -95,12 +97,12 @@ def test_ready_reference_identity_is_checked_before_digest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from types import SimpleNamespace
-    import vibecomfy.cli_loader as cli_loader
     import vibecomfy.registry.ready as ready
 
     workflow = _workflow("actual")
-    monkeypatch.setattr(cli_loader, "load_workflow_any", lambda _: workflow)
     monkeypatch.setattr(ready, "resolve_ready_template", lambda *_: SimpleNamespace(template_id="declared"))
+    monkeypatch.setattr(ready, "workflow_from_ready", lambda *_args, **_kwargs: workflow)
+    monkeypatch.setattr(ready, "ready_template_discovery", lambda: SimpleNamespace())
 
     with pytest.raises(WorkflowBundleError, match="workflow identity mismatch"):
         load_bundle("template-alias")
@@ -140,9 +142,45 @@ def test_load_bundle_uses_restricted_build_loader_and_derives_identity(tmp_path:
     assert bundle.workflow_identity == bundle.workflow.id == "canonical"
     assert bundle.python_path == source
     assert bundle.ui_digest == ""
-    assert not hasattr(bundle, "compile")
+    record = bundle.compile()
+    assert isinstance(record, ApprovedProjectionRecord)
+    assert set(record.to_dict()) == {
+        "revision_id",
+        "selected_variant",
+        "input_binding",
+        "api_projection",
+        "ui_projection",
+        "api_digest",
+    }
+    record.assert_matches(bundle, None, None, record.api_projection, record.ui_projection)
+    with pytest.raises(WorkflowBundleError, match="input binding"):
+        record.assert_matches(bundle, None, {"unexpected": True}, record.api_projection, record.ui_projection)
     with pytest.raises(AttributeError):
         bundle.workflow_identity = "other"  # type: ignore[misc]
+
+
+def test_approved_projection_record_is_detached_immutable_and_canonical() -> None:
+    api = {"1": {"class_type": "Integer", "inputs": {"value": 7}}}
+    ui = {"nodes": [{"id": 1}], "links": []}
+    inputs = {"seed": {"value": 3}}
+    record = ApprovedProjectionRecord(
+        "revision",
+        None,
+        inputs,
+        api,
+        ui,
+        hashlib.sha256(canonical_json(api).encode()).hexdigest(),
+    )
+    inputs["seed"]["value"] = 99
+    api["1"]["inputs"]["value"] = 8
+    assert record.input_binding["seed"]["value"] == 3
+    assert record.api_projection["1"]["inputs"]["value"] == 7
+    with pytest.raises(TypeError):
+        record.api_projection["1"] = {}  # type: ignore[index]
+    encoded = record.to_canonical_bytes()
+    assert ApprovedProjectionRecord.from_canonical_bytes(encoded) == record
+    with pytest.raises(WorkflowBundleError, match="not canonical"):
+        ApprovedProjectionRecord.from_canonical_bytes(json.dumps(record.to_dict()).encode())
 
 
 def test_load_bundle_hashes_same_basename_presentation_candidate(tmp_path: Path) -> None:

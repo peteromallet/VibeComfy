@@ -104,3 +104,38 @@ def test_load_bundle_is_distinct_from_bare_compatibility_loader(tmp_path: Path) 
     assert bundle.workflow.id == "bundle"
     assert bundle.workflow_identity == "bundle"
     assert bundle.ui_digest == ""
+
+
+def test_load_bundle_imported_json_uses_offline_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vibecomfy.schema as schema
+
+    source = tmp_path / "imported.json"
+    source.write_text(
+        json.dumps(
+            {
+                "workflow_id": "imported",
+                "prompt": {"1": {"class_type": "Integer", "inputs": {"value": 7}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_auto(*args, **kwargs):
+        raise AssertionError("auto schema provider must not be used by load_bundle")
+
+    monkeypatch.setattr(schema, "get_schema_provider", fail_auto)
+    bundle = load_bundle(source)
+
+    assert bundle.workflow_identity == "imported"
+
+
+def test_load_bundle_accepts_only_explicit_ephemeral_workflow() -> None:
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("ephemeral", WorkflowSource("ephemeral"))
+    bundle = load_bundle(workflow)
+
+    assert bundle.python_path is None
+    assert bundle.provenance == {"operation": "ephemeral"}
