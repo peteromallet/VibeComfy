@@ -604,6 +604,42 @@ def test_recursive_occurrence_contract_rejects_collisions_and_bad_bindings() -> 
     assert exc.value.code in {"interface_unbound", "boundary_port_unbound", "boundary_port_missing", "boundary_port_duplicate"}
 
 
+def test_root_occurrence_uid_collisions_fail_in_both_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
+    definition = {"id": "native-root", "name": "RootDefinition", "nodes": [{"id": "core", "type": "Sink"}]}
+    workflow = VibeWorkflow(
+        "root-collision", WorkflowSource("root-collision"),
+        nodes={
+            "A": VibeNode("A", "native-root", uid="same"),
+            "B": VibeNode("B", "native-root", uid="same"),
+        },
+        definitions={"subgraphs": [definition]},
+    )
+    before = copy.deepcopy(workflow.to_envelope())
+    for backend in ("api", "graphbuilder"):
+        with pytest.raises(WorkflowCompileError) as exc:
+            workflow.compile(backend)
+        assert exc.value.code == "occurrence_collision"
+        assert workflow.to_envelope() == before
+
+
+def test_root_blank_uids_fall_back_to_distinct_node_ids() -> None:
+    definition = {"id": "native-root", "name": "RootDefinition", "nodes": [{"id": "core", "type": "Sink"}]}
+    workflow = VibeWorkflow(
+        "root-blank-uid", WorkflowSource("root-blank-uid"),
+        nodes={
+            "A": VibeNode("A", "native-root", uid=""),
+            "B": VibeNode("B", "native-root", uid=""),
+        },
+        definitions={"subgraphs": [definition]},
+    )
+    compiled = workflow.compile("api")
+    assert len(compiled) == 2
+    assert "RootDefinition" in next(iter(compiled))
+
+
 def test_public_artifact_output_is_outside_prompt_and_handles_are_separate() -> None:
     from vibecomfy.handles import Handle
 

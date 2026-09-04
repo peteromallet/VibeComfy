@@ -2254,6 +2254,7 @@ def _expand_authored_definitions(
     # definition alias recurse; ordinary root nodes stay in their authored ID
     # scope and are copied into the detached projection.
     root_occurrences: dict[str, dict[str, Any]] = {}
+    root_occurrence_ids: set[str] = set()
     for node_id, authored in workflow.nodes.items():
         class_type = str(authored.class_type)
         record = records_by_alias.get(class_type)
@@ -2261,8 +2262,9 @@ def _expand_authored_definitions(
             all_nodes[str(node_id)] = copy.deepcopy(authored)
             continue
         occurrence_uid = validate_local_uid(str(authored.uid or authored.id), field="instance occurrence uid")
-        if occurrence_uid in root_occurrences:
+        if occurrence_uid in root_occurrence_ids:
             raise WorkflowCompileError("occurrence_collision", f"duplicate occurrence identity {occurrence_uid!r} in root scope")
+        root_occurrence_ids.add(occurrence_uid)
         segment = f"{record['key']}:{occurrence_uid}"
         root_occurrences[str(node_id)] = expand_record(record, (segment,), (record["key"],), ())
 
