@@ -55,7 +55,7 @@ def _t2v(
     run_inputs = _public_run_inputs(
         workflow,
         result.template_id,
-        {"prompt": prompt, "width": width, "height": height, "frames": length, "fps": fps, "seed": seed},
+        {"prompt": prompt, "model": model, "width": width, "height": height, "frames": length, "fps": fps, "seed": seed},
         overrides,
         operation="video.t2v",
         defaults={"fps": 16},
@@ -111,7 +111,7 @@ def _i2v(
     run_inputs = _public_run_inputs(
         workflow,
         result.template_id,
-        {"prompt": prompt, "image": image_path, "frames": length, "fps": fps, "seed": seed},
+        {"prompt": prompt, "model": model, "image": image_path, "frames": length, "fps": fps, "seed": seed},
         overrides,
         operation="video.i2v",
         defaults={"fps": 16},
@@ -140,6 +140,8 @@ def _public_run_inputs(
     run_inputs: dict[str, object] = {}
     for name, value in values.items():
         if value is None:
+            continue
+        if name == "model" and public.get("model") is None:
             continue
         target = name
         if name == "frames":

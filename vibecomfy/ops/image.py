@@ -48,7 +48,7 @@ def _t2i(
     run_inputs = _public_run_inputs(
         workflow,
         result.template_id,
-        {"prompt": prompt, "width": width, "height": height, "steps": steps, "seed": seed},
+        {"prompt": prompt, "model": model, "width": width, "height": height, "steps": steps, "seed": seed},
         overrides,
         defaults={"width": 1024, "height": 1024},
     )
@@ -75,6 +75,8 @@ def _public_run_inputs(
     run_inputs: dict[str, object] = {}
     for name, value in values.items():
         if value is None:
+            continue
+        if name == "model" and public.get("model") is None:
             continue
         if name not in public:
             if name == "prompt" or name not in defaults or value != defaults[name]:

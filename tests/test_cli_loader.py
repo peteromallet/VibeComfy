@@ -473,6 +473,84 @@ def test_image_op_rejects_non_public_override(monkeypatch: pytest.MonkeyPatch) -
         image._t2i("prompt", secret="do-not-bind")
 
 
+@pytest.mark.parametrize("operation", ["image", "t2v", "i2v"])
+def test_ops_bind_model_when_public_input_is_declared(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from vibecomfy.ops import image, video
+    from vibecomfy.router import RouterResult
+
+    module = image if operation == "image" else video
+    function = module._t2i if operation == "image" else module._t2v if operation == "t2v" else module._i2v
+
+    class Workflow:
+        def __init__(self):
+            self.inputs = {"prompt": object(), "model": object()}
+            if operation == "i2v":
+                self.inputs["image"] = object()
+
+        def copy(self):
+            return type(self)()
+
+    class Bundle:
+        def __init__(self):
+            self.workflow = Workflow()
+            self.kwargs = None
+
+        def compile(self, **kwargs):
+            self.kwargs = kwargs
+            return object()
+
+    original, approved = Bundle(), Bundle()
+    monkeypatch.setattr(module, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
+    bundles = iter([original, approved])
+    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    args = ("prompt",) if operation == "image" or operation == "t2v" else ("/tmp/frame.png", "prompt")
+    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
+        function(*args, model="model-id")
+
+    assert approved.kwargs["run_inputs"]["model"] == "model-id"
+
+
+@pytest.mark.parametrize("operation", ["image", "t2v", "i2v"])
+def test_ops_leave_routing_model_out_when_not_public(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from vibecomfy.ops import image, video
+    from vibecomfy.router import RouterResult
+
+    module = image if operation == "image" else video
+    function = module._t2i if operation == "image" else module._t2v if operation == "t2v" else module._i2v
+
+    class Workflow:
+        def __init__(self):
+            self.inputs = {"prompt": object()}
+            if operation == "i2v":
+                self.inputs["image"] = object()
+
+        def copy(self):
+            return type(self)()
+
+    class Bundle:
+        def __init__(self):
+            self.workflow = Workflow()
+            self.kwargs = None
+
+        def compile(self, **kwargs):
+            self.kwargs = kwargs
+            return object()
+
+    original, approved = Bundle(), Bundle()
+    monkeypatch.setattr(module, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
+    bundles = iter([original, approved])
+    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    args = ("prompt",) if operation == "image" or operation == "t2v" else ("/tmp/frame.png", "prompt")
+    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
+        function(*args, model="routing-only")
+
+    assert "model" not in approved.kwargs["run_inputs"]
+
+
 def test_video_op_binds_only_public_inputs_before_t14(monkeypatch: pytest.MonkeyPatch) -> None:
     from vibecomfy.ops import video
     from vibecomfy.router import RouterResult
