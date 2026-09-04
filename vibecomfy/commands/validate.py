@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._output import emit
 from vibecomfy.errors import SubgraphFreshnessError
 from vibecomfy.porting.emitter import _build_subgraph_def, _disambiguated_subgraph_slugs
@@ -22,7 +22,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     json_output = bool(getattr(args, "json", False))
     try:
         schema_provider = None if args.no_schema else get_schema_provider("auto")
-        workflow = load_workflow_any(args.path)
+        workflow = load_bundle(args.path).workflow
         report = workflow.validate(schema_provider=schema_provider)
         if getattr(args, "check_freshness", False) and report.ok:
             drift = _subgraph_freshness_diagnostics(Path(args.path))
@@ -58,7 +58,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def build_validate_payload(path: str, *, no_schema: bool = False, check_freshness: bool = False) -> dict[str, object]:
     """Block A back-compat: build the validation payload directly without going through the CLI."""
     schema_provider = None if no_schema else get_schema_provider("auto")
-    workflow = load_workflow_any(path)
+    workflow = load_bundle(path).workflow
     report = workflow.validate(schema_provider=schema_provider)
     issues = [
         {

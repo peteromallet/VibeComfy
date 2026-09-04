@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Union
 
 from vibecomfy.artifacts import Artifact, Image, Video
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
@@ -52,7 +52,8 @@ def _t2v(
     **overrides: Any,
 ) -> Video:
     result = pick("video", "t2v", model=model, width=width, height=height, length=length, fps=fps, seed=seed, **overrides)
-    workflow = load_workflow_any(result.template_id)
+    bundle = load_bundle(result.template_id)
+    workflow = bundle.workflow
     stamp_workflow_origin(workflow, "op", "ops/video.py:t2v")
     set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
     if seed is not None:
@@ -101,7 +102,8 @@ def _i2v(
 ) -> Video:
     image_path = _resolve_i2v_image_path(image)
     result = pick("video", "i2v", model=model, image=image_path, length=length, fps=fps, seed=seed, **overrides)
-    workflow = load_workflow_any(result.template_id)
+    bundle = load_bundle(result.template_id)
+    workflow = bundle.workflow
     stamp_workflow_origin(workflow, "op", "ops/video.py:i2v")
     set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
     try:

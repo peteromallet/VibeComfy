@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.workbench import analyze_source
 from vibecomfy.schema import get_schema_provider
@@ -114,7 +114,7 @@ def run_port_lint(workflow: str) -> SubcheckResult:
 
 def run_validate(workflow: str, *, schema_provider: Any | None = None) -> SubcheckResult:
     try:
-        wf = load_workflow_any(workflow)
+        wf = load_bundle(workflow).workflow
         report = wf.validate(schema_provider=schema_provider or get_schema_provider("auto"))
     except Exception as exc:
         return _exception_result("validate", exc)
@@ -132,7 +132,7 @@ def run_validate(workflow: str, *, schema_provider: Any | None = None) -> Subche
 
 def run_doctor_readiness(workflow: str) -> SubcheckResult:
     try:
-        wf = load_workflow_any(workflow)
+        wf = load_bundle(workflow).workflow
     except Exception as exc:
         return _exception_result("doctor", exc)
     findings: list[SubcheckFinding] = []

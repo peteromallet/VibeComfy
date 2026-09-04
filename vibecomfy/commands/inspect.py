@@ -8,7 +8,7 @@ from vibecomfy.analysis.fields import trace_public_field
 from vibecomfy.contracts import build_contract
 from vibecomfy.contracts.surface import build_contract_surface
 from vibecomfy.commands._output import emit
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.patches.registry import find_applicable
 from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.schema import get_schema_provider
@@ -43,7 +43,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
             print(_render_tracefield(result))
         return 0
 
-    workflow = load_workflow_any(args.workflow)
+    workflow = load_bundle(args.workflow).workflow
     shape = "api"
     # Inspect is a read-only/schema-only command.  Never boot a managed
     # ComfyUI server just because one happens to be installed: an occupied

@@ -188,3 +188,57 @@ def test_load_bundle_accepts_only_explicit_ephemeral_workflow() -> None:
 
     assert bundle.python_path is None
     assert bundle.provenance == {"operation": "ephemeral"}
+
+
+def test_production_inspection_enters_bundle_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A production inspection helper must not fall back to the bare loader."""
+    from types import SimpleNamespace
+
+    from vibecomfy.commands import analyze
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("inspection", WorkflowSource("inspection"))
+    bundle = SimpleNamespace(workflow=workflow)
+
+    monkeypatch.setattr(analyze, "load_bundle", lambda reference: bundle)
+    monkeypatch.setattr(
+        cli_loader,
+        "load_workflow_any",
+        lambda *_args, **_kwargs: pytest.fail("bare compatibility loader was used"),
+    )
+
+    assert analyze._load_workflow("inspection") is workflow
+
+
+def test_run_command_blocks_bare_runtime_after_bundle_compile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T13 must fail closed until the T14 approved-record transport exists."""
+    from vibecomfy.commands import run as run_command
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("run-boundary", WorkflowSource("run-boundary"))
+    calls: list[str] = []
+
+    class Bundle:
+        def __init__(self) -> None:
+            self.workflow = workflow
+
+        def compile(self, **kwargs):
+            calls.append("compile")
+            return object()
+
+    monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
+    monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    args = run_command.argparse.Namespace(
+        path="run-boundary",
+        runtime="embedded",
+        server_url=None,
+        memory_profile=None,
+        prompt=None,
+        seed=None,
+        steps=None,
+    )
+
+    assert run_command._cmd_run(args) == 1
+    assert calls == ["compile"]

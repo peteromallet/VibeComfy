@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import argparse
 
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._output import emit
 from vibecomfy.contracts import build_contract, doctor_contract
 from vibecomfy.contracts.surface import build_contract_surface
 
 
 def _cmd_contract_inspect(args: argparse.Namespace) -> int:
-    workflow = load_workflow_any(args.workflow)
+    workflow = load_bundle(args.workflow).workflow
     contract = build_contract(workflow)
     payload = contract.to_dict()
     payload.update(build_contract_surface(workflow, contract=payload))
@@ -36,7 +36,7 @@ def _render_contract_inspect(payload: dict) -> str:
 
 
 def _cmd_contract_doctor(args: argparse.Namespace) -> int:
-    workflow = load_workflow_any(args.workflow)
+    workflow = load_bundle(args.workflow).workflow
     contract = build_contract(workflow)
     report = doctor_contract(workflow, contract)
     contract_payload = contract.to_dict()

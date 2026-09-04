@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from vibecomfy.errors import RuntimeNodeError
-from vibecomfy.registry.library import load_workflow_reference
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.eval import compile_eval_subgraph
 from vibecomfy.runtime.run import smoke_runtime_sync
@@ -96,15 +96,24 @@ def _cmd_runtime_smoke(args: argparse.Namespace) -> int:
 def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
     try:
         schema_provider = get_schema_provider("auto", server_url=args.server_url)
-        workflow = load_workflow_reference(
+        workflow = load_bundle(
             args.path,
             schema_provider=schema_provider,
-            allow_scratchpad=True,
-            ready=getattr(args, "ready", False),
-        )
+        ).workflow
 
         target_node = args.node
         subgraph = compile_eval_subgraph(workflow, target_node)
+
+        # Eval-node's direct queue transport is T16-owned.  Refuse the legacy
+        # bare subgraph here rather than allowing it to bypass the bundle /
+        # approved-record boundary or starting a runtime as a fallback.
+        print(
+            "eval-node stopped: approved-record eval transport is not available; "
+            f"run `vibecomfy port check {args.path} --json` and use the T16 "
+            "bundle-bound eval route",
+            file=sys.stderr,
+        )
+        return 2
 
         # Build base result metadata
         node_info = workflow.lookup_id(target_node)

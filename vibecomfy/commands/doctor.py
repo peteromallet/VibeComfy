@@ -11,7 +11,7 @@ import subprocess
 from typing import Any
 
 from vibecomfy._git_utils import git_head
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._model_entries import model_entries_for_workflow
 from vibecomfy.commands._output import emit
 from vibecomfy.contracts import build_contract
@@ -24,8 +24,6 @@ from vibecomfy.diagnostics import (
     patch_suggestions_payload,
 )
 from vibecomfy.environment_diagnostics import metadata_environment_warnings
-from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.model_assets import extract_from_raw_workflow
 from vibecomfy.node_packs import LockEntry, read_lockfile
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.validate import format_issue
@@ -50,7 +48,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # server here makes the command depend on the ambient port 8188 state.
     schema_provider = get_schema_provider("local")
     try:
-        workflow = load_workflow_any(args.path)
+        workflow = load_bundle(args.path).workflow
     except Exception as exc:
         print("Layer: Python scratchpad import/build")
         print(f"Error: {type(exc).__name__}: {exc}")
