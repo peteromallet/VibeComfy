@@ -283,9 +283,13 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     if not isinstance(bind, Mapping):
         raise WorkflowBundleError("workflow sidecar bind must be a mapping")
     _closed_keys(bind, _BIND_KEYS, "workflow sidecar bind")
-    if "workflow_identity" in bind and bind["workflow_identity"] != workflow.id:
+    if set(bind) != _BIND_KEYS:
+        raise WorkflowBundleError(
+            "workflow sidecar bind must contain workflow_identity and semantic_digest"
+        )
+    if bind["workflow_identity"] != workflow.id:
         raise WorkflowBundleError("workflow sidecar bind workflow_identity does not match workflow")
-    if "semantic_digest" in bind and bind["semantic_digest"] != semantic_digest:
+    if bind["semantic_digest"] != semantic_digest:
         raise WorkflowBundleError("workflow sidecar semantic digest does not match Python semantic digest")
     nodes = sidecar["nodes"]
     if not isinstance(nodes, Mapping):
@@ -325,6 +329,11 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     expected = _semantic_edges(workflow)
     virtual = _virtual_legs(workflow)
     valid_scopes = {str(item["scope_path"]) for item in projection.get("nodes", ()) if isinstance(item, Mapping)}
+    valid_scopes.update(
+        str(item["scope_path"])
+        for item in projection.get("definitions", ())
+        if isinstance(item, Mapping) and isinstance(item.get("scope_path"), str)
+    )
     raw_links = sidecar["links"]
     if not isinstance(raw_links, list):
         raise WorkflowBundleError("workflow sidecar links must be a list")
@@ -400,7 +409,11 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     for index, group in enumerate(groups):
         if not isinstance(group, Mapping): raise WorkflowBundleError(f"sidecar group {index} must be an object")
         _closed_keys(group, _GROUP_KEYS, f"sidecar group {index}")
-        if not isinstance(group.get("scope_path"), str) or not isinstance(group.get("presentation_id"), str) or not group["presentation_id"]: raise WorkflowBundleError(f"sidecar group {index} has invalid identity")
+        if not isinstance(group.get("scope_path"), str) or any(part in {"sg0", "sg1"} for part in str(group.get("scope_path", "")).split("/")):
+            raise WorkflowBundleError(f"sidecar group {index} has invalid structural scope path")
+        if str(group.get("scope_path")) not in valid_scopes:
+            raise WorkflowBundleError(f"sidecar group {index} scope path does not match Python definitions")
+        if not isinstance(group.get("presentation_id"), str) or not group["presentation_id"]: raise WorkflowBundleError(f"sidecar group {index} has invalid identity")
         group_key = (group["scope_path"], group["presentation_id"])
         if group_key in group_ids:
             raise WorkflowBundleError(f"duplicate scoped group presentation id {group_key!r}")
@@ -413,6 +426,13 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         if "bounds" in normalized_group:
             normalized_group["bounds"] = _rectangle(normalized_group["bounds"], f"sidecar group {index} bounds")
         canonical_groups.append(normalized_group)
+    group_keys = {(str(item["scope_path"]), str(item["presentation_id"])) for item in canonical_groups}
+    for uid, entry in canonical_nodes.items():
+        if "group" not in entry:
+            continue
+        scope, _ = parse_uid(uid)
+        if (scope, str(entry["group"])) not in group_keys:
+            raise WorkflowBundleError(f"sidecar node {uid!r} references unknown group presentation id")
     canonical_groups.sort(key=lambda item: (item["scope_path"], item["presentation_id"]))
     canvas = sidecar["canvas"]
     if not isinstance(canvas, Mapping): raise WorkflowBundleError("workflow sidecar canvas must be an object")
@@ -784,6 +804,45 @@ class WorkflowBundle:
     def workflow_identity(self) -> str:
         """Read-only identity derived from the workflow, never independently stored."""
         return self.workflow.id
+
+    def materialize_ui(self, *, schema_provider: Any = None, strict: bool = False) -> dict[str, Any]:
+        """Materialize this bundle's UI projection through the one UI boundary.
+
+        Validation is intentionally repeated immediately before emitter
+        invocation.  A bundle may be held while its detached sidecar mapping is
+        mutated by a caller; such a mutation must fail closed and must never
+        reach the emitter or a legacy/raw UI fallback.
+        """
+        return materialize_ui_json(
+            self.workflow,
+            self.ui_sidecar,
+            schema_provider=schema_provider,
+            strict=strict,
+        )
+
+
+def materialize_ui_json(
+    workflow: VibeWorkflow,
+    sidecar: Mapping[str, Any] | None = None,
+    *,
+    schema_provider: Any = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Bundle-owned UI materialization convenience boundary.
+
+    The strict sidecar is validated here, before importing or invoking the
+    existing emitter.  The emitter performs semantic regeneration and the
+    allowlist-only presentation overlay; it is not a second compiler.
+    """
+    validated = validate_sidecar(sidecar, workflow) if sidecar is not None else None
+    from vibecomfy.porting.emit.ui import materialize_ui_json as _materialize_ui_json
+
+    return _materialize_ui_json(
+        workflow,
+        validated,
+        schema_provider=schema_provider,
+        strict=strict,
+    )
 
 def _make_bundle(
     workflow: VibeWorkflow,
@@ -1160,5 +1219,6 @@ __all__ = [
     "emit_bundle",
     "filter_provenance",
     "load_bundle",
+    "materialize_ui_json",
     "validate_sidecar",
 ]

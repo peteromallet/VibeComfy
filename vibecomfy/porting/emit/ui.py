@@ -984,13 +984,21 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
     so the envelope omits both ``definitions`` and the top-level ``state`` and stays
     byte-identical.
     """
+    typed_defs = getattr(wf, "definitions", None)
     metadata = getattr(wf, "metadata", None)
-    defs = metadata.get("definitions") if isinstance(metadata, dict) else None
-    subgraphs = defs.get("subgraphs") if isinstance(defs, dict) else None
+    legacy_defs = metadata.get("definitions") if isinstance(metadata, dict) else None
+    defs = typed_defs if typed_defs else legacy_defs
+    if isinstance(defs, dict) and isinstance(defs.get("subgraphs"), (list, tuple)):
+        subgraphs = list(defs["subgraphs"])
+    elif isinstance(defs, dict):
+        subgraphs = list(defs.values())
+    elif isinstance(defs, (list, tuple)):
+        subgraphs = list(defs)
+    else:
+        subgraphs = []
     if not subgraphs:
         return None
-    out_subgraphs: list[dict[str, Any]] = []
-    for raw_sg in subgraphs:
+    def emit_subgraph(raw_sg: Mapping[str, Any]) -> dict[str, Any]:
         # Detached copy: stamping uids/state below must never mutate the IR's
         # metadata definitions (``dict(raw_sg)`` alone would alias the inner
         # ``nodes`` list into the caller's data).
@@ -1014,12 +1022,129 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                         props = {}
                         inner_node["properties"] = props
                     if "vibecomfy_uid" not in props:
-                        local_uid = mint_local_uid(
-                            inner_node, str(inner_node.get("id", ""))
+                        authored_uid = inner_node.get("uid")
+                        local_uid = (
+                            str(authored_uid)
+                            if isinstance(authored_uid, str) and authored_uid.strip()
+                            else mint_local_uid(inner_node, str(inner_node.get("id", "")))
                         )
                         props["vibecomfy_uid"] = local_uid
-        out_subgraphs.append(sg)
+        # Python-authored virtual legs are represented in the disposable UI as
+        # ordinary endpoint links.  The sidecar may decorate those links, but
+        # it never supplies their endpoints or leg ordering.
+        inner_nodes_by_alias: dict[str, Mapping[str, Any]] = {}
+        for inner_node in sg.get("nodes", []) if isinstance(sg.get("nodes"), list) else []:
+            if not isinstance(inner_node, Mapping):
+                continue
+            local_uid = str((inner_node.get("properties") or {}).get("vibecomfy_uid", inner_node.get("uid", inner_node.get("id", ""))))
+            inner_nodes_by_alias[local_uid] = inner_node
+            if inner_node.get("id") is not None:
+                inner_nodes_by_alias[str(inner_node["id"])] = inner_node
+        virtual_wires = sg.get("virtual_wires", {})
+        if isinstance(virtual_wires, Mapping):
+            existing = {
+                (str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))
+                for link in sg.get("links", []) if isinstance(link, Mapping)
+            }
+            next_id = max(
+                [int(link.get("id")) for link in sg.get("links", []) if isinstance(link, Mapping) and type(link.get("id")) is int]
+                + [0]
+            ) + 1
+            for wire in virtual_wires.values():
+                if not isinstance(wire, Mapping) or not isinstance(wire.get("legs"), (list, tuple)):
+                    continue
+                for leg in wire["legs"]:
+                    if not isinstance(leg, Mapping):
+                        raise ValueError("Python virtual-wire leg must be a mapping")
+                    from_ref = leg.get("from_uid", leg.get("origin_id", leg.get("from_node")))
+                    to_ref = leg.get("to_uid", leg.get("target_id", leg.get("to_node")))
+                    from_port = leg.get("from_port", leg.get("origin_slot", leg.get("from_output")))
+                    to_port = leg.get("to_port", leg.get("target_slot", leg.get("to_input")))
+                    source = inner_nodes_by_alias.get(str(from_ref))
+                    target = inner_nodes_by_alias.get(str(to_ref))
+                    if source is None or target is None:
+                        raise ValueError("Python virtual-wire leg endpoint is not local to its definition")
+                    try:
+                        from_port = int(from_port)
+                        to_port = int(to_port)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Python virtual-wire leg ports must be integer ordinals") from exc
+                    key = (str(source.get("id")), from_port, str(target.get("id")), to_port)
+                    if key in existing:
+                        continue
+                    sg.setdefault("links", []).append({
+                        "id": next_id,
+                        "origin_id": source.get("id"),
+                        "origin_slot": from_port,
+                        "target_id": target.get("id"),
+                        "target_slot": to_port,
+                        "type": "",
+                    })
+                    existing.add(key)
+                    next_id += 1
+        nested = sg.get("definitions")
+        if nested:
+            if isinstance(nested, Mapping) and isinstance(nested.get("subgraphs"), (list, tuple)):
+                nested_items = list(nested["subgraphs"])
+            elif isinstance(nested, Mapping):
+                nested_items = list(nested.values())
+            elif isinstance(nested, (list, tuple)):
+                nested_items = list(nested)
+            else:
+                raise ValueError("definition definitions must be a mapping or sequence")
+            sg["definitions"] = {"subgraphs": [emit_subgraph(item) for item in nested_items if isinstance(item, Mapping)]}
+        return sg
+
+    out_subgraphs: list[dict[str, Any]] = []
+    for raw_sg in subgraphs:
+        if isinstance(raw_sg, Mapping):
+            out_subgraphs.append(emit_subgraph(raw_sg))
     return {"subgraphs": out_subgraphs}
+
+
+def _root_virtual_display_edges(wf: Any) -> list[VibeEdge]:
+    """Materialize explicit root Python virtual legs for the UI display graph."""
+    from vibecomfy.workflow_bundle import _virtual_legs
+
+    by_uid = {str(node.uid): str(node.id) for node in wf.nodes.values() if node.uid}
+    result: list[VibeEdge] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for (scope, _name), legs in sorted(_virtual_legs(wf).items()):
+        if scope != "" or legs is None:
+            continue
+        for _leg_scope, from_uid, from_port, to_uid, to_port in legs:
+            source = by_uid.get(str(from_uid))
+            target = by_uid.get(str(to_uid))
+            if source is None or target is None:
+                raise ValueError(
+                    f"Python virtual-wire leg endpoint is not a root node: {from_uid!r}->{to_uid!r}"
+                )
+            source_node = wf.nodes[source]
+            target_node = wf.nodes[target]
+            source_roster = getattr(source_node, "native_output_names", None)
+            target_roster = getattr(target_node, "native_input_names", None)
+            source_name = (
+                source_roster[int(from_port)]
+                if isinstance(source_roster, list)
+                and type(from_port) is int
+                and 0 <= from_port < len(source_roster)
+                and source_roster[from_port] is not None
+                else str(from_port)
+            )
+            target_name = (
+                target_roster[int(to_port)]
+                if isinstance(target_roster, list)
+                and type(to_port) is int
+                and 0 <= to_port < len(target_roster)
+                and target_roster[to_port] is not None
+                else str(to_port)
+            )
+            edge = (source, str(source_name), target, str(target_name))
+            if edge in seen:
+                continue
+            seen.add(edge)
+            result.append(VibeEdge(*edge))
+    return result
 
 
 def _canonical_emitted_output_name(from_output: Any, slot: int) -> str:
@@ -1329,6 +1454,7 @@ def _resolve_output_slot_and_type(
     from_output: str,
     class_type: str,
     schema_cache: dict[str, Any],
+    node: Any | None = None,
 ) -> tuple[int, str]:
     """Return (slot_index, socket_type) for a VibeEdge.from_output value.
 
@@ -1338,8 +1464,14 @@ def _resolve_output_slot_and_type(
     if it is a name and no schema exists we return slot 0 with an empty type.
     """
     schema = schema_cache.get(class_type)
+    native_roster = getattr(node, "native_output_names", None) if node is not None else None
     if from_output.isdigit():
         slot = int(from_output)
+        if isinstance(native_roster, list) and slot < len(native_roster):
+            socket_type = ""
+            if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
+                socket_type = getattr(schema.outputs[slot], "type", "") or ""
+            return slot, socket_type
         if schema is not None:
             outputs = getattr(schema, "outputs", None) or []
             if slot < len(outputs):
@@ -1354,6 +1486,16 @@ def _resolve_output_slot_and_type(
                 return slot, outputs[0].type or dynamic[1]
         return slot, ""
     # Name lookup against OutputSpec list position
+    if isinstance(native_roster, list):
+        try:
+            slot = native_roster.index(from_output)
+        except ValueError:
+            slot = -1
+        if slot >= 0:
+            socket_type = ""
+            if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
+                socket_type = getattr(schema.outputs[slot], "type", "") or ""
+            return slot, socket_type
     if schema is not None:
         outputs = getattr(schema, "outputs", None) or []
         for idx, out_spec in enumerate(outputs):
@@ -1383,6 +1525,7 @@ def _resolve_output_slot_and_type(
 def _ordered_incoming_edges(
     edges: list[Any],
     schema: Any | None,
+    node: Any | None = None,
 ) -> list[Any]:
     """Order linked inputs by their physical ComfyUI socket position.
 
@@ -1393,8 +1536,13 @@ def _ordered_incoming_edges(
     input order mirrors ComfyUI's declared order, so use it whenever present;
     retain a deterministic name-based fallback for schema-less nodes.
     """
+    native_inputs = getattr(node, "native_input_names", None) if node is not None else None
     schema_inputs = getattr(schema, "inputs", None)
-    ordered_names = list(schema_inputs) if isinstance(schema_inputs, Mapping) else []
+    ordered_names = (
+        [name for name in native_inputs if isinstance(name, str)]
+        if isinstance(native_inputs, list)
+        else list(schema_inputs) if isinstance(schema_inputs, Mapping) else []
+    )
     position = {name: index for index, name in enumerate(ordered_names)}
     unknown_offset = len(position)
     return sorted(
@@ -2834,6 +2982,7 @@ def emit_ui_json(
     guard_resolved_ops: Any = None,
     prior_ui_payload: Mapping[str, Any] | None = None,
     force_drop_editor_only: bool = False,
+    presentation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
 
@@ -2882,6 +3031,47 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
+    presentation_mode = presentation is not None
+    if presentation_mode:
+        # The bundle route has one explicit source-separation mode.  Do not
+        # permit the legacy furniture/raw payload arguments to be combined
+        # with it; doing so would create an ambiguous presentation authority.
+        if any(value is not None for value in (prior_store, layout, extra, definitions, source_template, prior_path, prior_ui_payload)):
+            raise ValueError("presentation mode cannot be combined with prior/layout/raw UI authorities")
+        from vibecomfy.workflow_bundle import validate_sidecar
+
+        presentation = validate_sidecar(presentation, wf)
+        # Strip import/replay evidence before the existing serializer runs.
+        wf = wf.copy()
+        metadata = getattr(wf, "metadata", None)
+        if isinstance(metadata, dict):
+            wf.metadata = {
+                key: value for key, value in metadata.items()
+                if key not in {
+                    _UI_DOOR_KEY, "_ingest_snapshot", "_ingest_raw", "_raw_ui",
+                    "_edit_link_id_hints", "definitions",
+                }
+            }
+        for node in wf.nodes.values():
+            node.raw_widgets = None
+            if isinstance(getattr(node, "metadata", None), dict):
+                node.metadata = {
+                    key: value for key, value in node.metadata.items()
+                    if key != "_ui" and not str(key).startswith("_ui_")
+                }
+        layout = dict(presentation.get("nodes", {}))
+        canvas = presentation.get("canvas", {})
+        extra = {}
+        if isinstance(canvas, Mapping):
+            ds = {}
+            if "zoom" in canvas:
+                ds["scale"] = deepcopy(canvas["zoom"])
+            if "pan" in canvas:
+                ds["offset"] = deepcopy(canvas["pan"])
+            if ds:
+                extra["ds"] = ds
+        include_main_positions = True
+
     (
         chunked_emit_node_threshold,
         chunked_emit_chunk_size,
@@ -2945,19 +3135,42 @@ def emit_ui_json(
 
     # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
     # virtual_wires}); reconcile() is called once at top and the result exposed to
-    # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still
-    # reads from ``layout`` (= prior_store['entries']) for this batch — Step 9b
-    # will replace that precedence chain with ``reconcile_result.matched``.
-    from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
+    # the per-node loop as a local. Presentation is a separate source boundary:
+    # its validated entries are already keyed by structural UID, so invoking the
+    # legacy furniture reconciler would reintroduce an unapproved authority.
     _prior_store: dict[str, Any] = dict(prior_store) if prior_store else {}
     raw_ui_node_map = extract_raw_ui_node_map(prior_ui_payload)
-    # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
-    # into a minimal envelope so reconcile() sees the entries. Step 9b retires
-    # ``layout`` entirely once all call sites migrate to prior_store.
-    if layout is not None and not _prior_store:
-        _prior_store = {"entries": dict(layout) if isinstance(layout, dict) else {}}
-    reconcile_result = _reconcile(wf, _prior_store)
-    layout = _prior_store.get("entries", {}) or {}
+    if presentation_mode:
+        from vibecomfy.porting.layout.reconcile import ReconcileResult  # noqa: PLC0415
+
+        current_uids = {
+            str(node.uid)
+            for node in wf.nodes.values()
+            if getattr(node, "uid", None)
+        }
+        presentation_entries = presentation.get("nodes", {})
+        matched = {
+            str(uid): dict(entry)
+            for uid, entry in presentation_entries.items()
+            if str(uid) in current_uids and isinstance(entry, Mapping)
+        }
+        reconcile_result = ReconcileResult(
+            matched=matched,
+            new=sorted(current_uids - set(matched)),
+            removed=[],
+            degraded_virtual_wires=[],
+        )
+        layout = {}
+    else:
+        from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
+
+        # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
+        # into a minimal envelope so reconcile() sees the entries. Step 9b retires
+        # ``layout`` entirely once all call sites migrate to prior_store.
+        if layout is not None and not _prior_store:
+            _prior_store = {"entries": dict(layout) if isinstance(layout, dict) else {}}
+        reconcile_result = _reconcile(wf, _prior_store)
+        layout = _prior_store.get("entries", {}) or {}
     anchors = anchors or {}
 
     # ── Editor-ahead detection (T3) ───────────────────────────────────────────
@@ -3022,7 +3235,17 @@ def emit_ui_json(
     # effective_edges: direct links for the EXECUTION (flat) graph
     # broadcast_ids: SetNode/GetNode node ids to drop from flat graph
     # orphaned_get_ids: GetNode ids whose broadcast name has no SetNode source
-    effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
+    if presentation_mode:
+        # Canonical materialization displays the Python graph as authored.  Do
+        # not lower broadcast/reroute helpers or infer a flat execution graph
+        # from transient UI-era helper conventions at this boundary.
+        effective_edges = list(wf.edges)
+        broadcast_ids: set[str] = set()
+        orphaned_get_ids: set[str] = set()
+    else:
+        effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
+
+    presentation_virtual_edges = _root_virtual_display_edges(wf) if presentation_mode else []
 
     # Collect the full set of virtual-wire node ids (broadcast + Reroute)
     reroute_ids = {
@@ -3040,7 +3263,7 @@ def emit_ui_json(
     if include_virtual_wires:
         # DISPLAY mode: keep all nodes, use ALL original edges (helpers visible)
         order_list = _emission_order(wf)
-        display_edges = list(wf.edges)
+        display_edges = list(wf.edges) + presentation_virtual_edges
     else:
         # EXECUTION (flat) mode: drop virtual-wire nodes, resolve edges
         order_list = [
@@ -3328,7 +3551,7 @@ def emit_ui_json(
                 incoming_link_ids_by_input[edge.to_input].append(lid)
             outgoing_link_ids_by_slot: dict[int, list[int]] = defaultdict(list)
             for edge in edges_from[node_id]:
-                slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
+                slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache, node)
                 lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
                 outgoing_link_ids_by_slot[slot].append(lid)
             pinned = _raw_ui_payload_for_pin(
@@ -3380,7 +3603,7 @@ def emit_ui_json(
         # Build a set of (from_output_val) → links for this node from edges
         output_links_by_slot: dict[int, list[int]] = defaultdict(list)
         for edge in edges_from[node_id]:
-            slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
+            slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache, node)
             eid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
             output_links_by_slot[slot].append(eid)
 
@@ -3388,6 +3611,15 @@ def emit_ui_json(
             node,
             schema,
         )
+
+        # T04 native rosters are the canonical socket shape when present.  A
+        # roster may intentionally contain ``None`` holes; retain those slots
+        # verbatim rather than inferring an ordinal from UI/schema evidence.
+        if not schema_outputs and isinstance(node.native_output_names, list):
+            schema_outputs = [
+                _DynamicOutputSpec("", name or f"output_{slot}")
+                for slot, name in enumerate(node.native_output_names)
+            ]
 
         if exec_io is not None:
             outputs = _exec_dynamic_outputs(exec_io, output_links_by_slot)
@@ -3446,7 +3678,7 @@ def emit_ui_json(
         # --- inputs list (physical ComfyUI socket order) ---
         # Only LINKED inputs get an input-slot entry; a linked input whose name is a
         # widget-type input additionally carries widget:{name:...} (widget→link).
-        incoming_sorted = _ordered_incoming_edges(edges_to[node_id], schema)
+        incoming_sorted = _ordered_incoming_edges(edges_to[node_id], schema, node)
         incoming_link_ids_by_input: dict[str, list[int]] = defaultdict(list)
         for edge in incoming_sorted:
             lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
@@ -3454,10 +3686,25 @@ def emit_ui_json(
         inputs: list[dict[str, Any]] = []
         if exec_io is not None:
             inputs = _exec_dynamic_inputs(exec_io, incoming_link_ids_by_input)
+        elif isinstance(node.native_input_names, list):
+            incoming_by_name = {edge.to_input: edge for edge in incoming_sorted}
+            for slot_idx, name in enumerate(node.native_input_names):
+                edge = incoming_by_name.get(name) if isinstance(name, str) else None
+                socket_type = "UNKNOWN"
+                link_id = None
+                if edge is not None:
+                    from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
+                    _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
+                    link_id = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
+                inputs.append({
+                    "name": name or f"input_{slot_idx}",
+                    "type": socket_type or "UNKNOWN",
+                    "link": link_id,
+                })
         else:
             for edge in incoming_sorted:
                 from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
-                _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
+                _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
                 if not socket_type or socket_type in {"*", "UNKNOWN"}:
                     raw_inputs = raw_ui_node.get("inputs") if isinstance(raw_ui_node, Mapping) else None
                     raw_input = next(
@@ -3504,7 +3751,7 @@ def emit_ui_json(
     dangling_links: list[dict[str, Any]] = []
     for edge in sorted_edges:
         from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
-        from_slot, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
+        from_slot, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
         from_exec_io = _exec_io_for_node(wf.nodes[edge.from_node]) if edge.from_node in wf.nodes else None
         if from_exec_io is not None:
             try:
@@ -3523,7 +3770,7 @@ def emit_ui_json(
                 to_slot = 0
         else:
             target_schema = schema_cache.get(wf.nodes[edge.to_node].class_type)
-            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema)
+            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema, wf.nodes.get(edge.to_node))
             to_slot = next(
                 (
                     i
@@ -3534,6 +3781,10 @@ def emit_ui_json(
                 ),
                 0,
             )
+            target_node = wf.nodes.get(edge.to_node)
+            native_inputs = getattr(target_node, "native_input_names", None) if target_node is not None else None
+            if isinstance(native_inputs, list) and edge.to_input in native_inputs:
+                to_slot = native_inputs.index(edge.to_input)
         if (
             to_exec_io is not None
             and 0 <= to_slot < len(to_exec_io["inputs"])
@@ -3851,7 +4102,554 @@ def emit_ui_json(
         _delta = compute_field_delta(_snap, wf) if _snap else {}
         _guard_emit(guard_original_ui, envelope, _delta, resolved_ops=guard_resolved_ops)
 
+    if presentation_mode:
+        _overlay_validated_presentation(envelope, presentation, wf)
+
     return envelope
+
+
+def materialize_ui_json(
+    wf: Any,
+    sidecar: Mapping[str, Any] | None = None,
+    *,
+    schema_provider: Any = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Materialize the canonical UI projection for one validated presentation.
+
+    This is the narrow bundle-facing boundary.  It deliberately invokes the
+    existing emitter exactly once, with a detached workflow whose import/raw UI
+    evidence has been removed.  The sidecar is presentation-only: it is used
+    for furniture, link identities/occurrences, groups, and canvas after the
+    semantic node/link projection has been emitted from Python.
+
+    ``sidecar`` is validated by :func:`vibecomfy.workflow_bundle.validate_sidecar`
+    before this function is normally called by ``WorkflowBundle``.  Repeating
+    the validation here keeps this public emitter seam fail-closed for direct
+    callers and, importantly, means no emitter work occurs for an invalid pair.
+    """
+    from vibecomfy.workflow_bundle import validate_sidecar
+
+    if not hasattr(wf, "copy") or not hasattr(wf, "nodes"):
+        raise TypeError("materialize_ui_json requires a VibeWorkflow")
+    if sidecar is None:
+        sidecar = {
+            "format_version": 1,
+            "bind": {
+                "workflow_identity": wf.id,
+                "semantic_digest": wf.semantic_digest(),
+            },
+            "nodes": {},
+            "links": [],
+            "groups": [],
+            "canvas": {},
+        }
+    normalized = validate_sidecar(sidecar, wf)
+
+    # Raw UI, snapshots, and the door are evidence at import/replay boundaries;
+    # none can affect a canonical bundle materialization.  Keep only authored
+    # semantic metadata and the typed node fields already present in Python.
+    materialized_wf = wf.copy()
+    metadata = getattr(materialized_wf, "metadata", None)
+    if isinstance(metadata, dict):
+        materialized_wf.metadata = {
+            key: value
+            for key, value in metadata.items()
+            if key not in {
+                _UI_DOOR_KEY,
+                "_ingest_snapshot",
+                "_ingest_raw",
+                "_raw_ui",
+                "_edit_link_id_hints",
+                "definitions",
+            }
+        }
+    for node in materialized_wf.nodes.values():
+        node.raw_widgets = None
+        node_metadata = getattr(node, "metadata", None)
+        if isinstance(node_metadata, dict):
+            node.metadata = {
+                key: value for key, value in node_metadata.items()
+                if key != "_ui" and not str(key).startswith("_ui_")
+            }
+
+    canvas = normalized.get("canvas", {})
+    extra: dict[str, Any] = {}
+    if isinstance(canvas, Mapping):
+        ds: dict[str, Any] = {}
+        if "zoom" in canvas:
+            ds["scale"] = deepcopy(canvas["zoom"])
+        if "pan" in canvas:
+            ds["offset"] = deepcopy(canvas["pan"])
+        if ds:
+            extra["ds"] = ds
+
+    envelope = emit_ui_json(
+        materialized_wf,
+        schema_provider=schema_provider,
+        strict=strict,
+        presentation=normalized,
+    )
+    structural_report = structural_validate(envelope, schema_provider=schema_provider)
+    if not structural_report.get("ok", False):
+        raise ValueError(
+            "canonical UI materialization failed structural validation: "
+            f"{structural_report.get('errors', [])}"
+        )
+    return envelope
+
+
+def _overlay_validated_presentation(
+    envelope: dict[str, Any],
+    sidecar: Mapping[str, Any],
+    wf: Any,
+) -> None:
+    """Overlay the closed v1 presentation allowlist onto a fresh envelope."""
+    side_nodes = sidecar.get("nodes", {})
+    if not isinstance(side_nodes, Mapping):
+        raise ValueError("validated sidecar nodes must be a mapping")
+    emitted_nodes = envelope.get("nodes", [])
+    if not isinstance(emitted_nodes, list):
+        raise ValueError("emitter returned an invalid nodes list")
+
+    by_uid: dict[str, dict[str, Any]] = {}
+    old_id_by_uid: dict[str, int] = {}
+    for node in emitted_nodes:
+        if not isinstance(node, dict):
+            continue
+        props = node.get("properties")
+        uid = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+        if isinstance(uid, str):
+            by_uid[uid] = node
+            if type(node.get("id")) is int:
+                old_id_by_uid[uid] = int(node["id"])
+
+    # Preserve the emitted ids for link remapping, then apply native sidecar ids.
+    old_to_new: dict[int, int] = {}
+    native_ids: set[int] = {
+        int(node["id"]) for node in emitted_nodes
+        if isinstance(node, Mapping) and type(node.get("id")) is int
+    }
+    for uid, entry in side_nodes.items():
+        node = by_uid.get(str(uid))
+        if node is None or not isinstance(entry, Mapping):
+            continue
+        old_id = node.get("id")
+        if type(entry.get("id")) is int:
+            new_id = int(entry["id"])
+            if new_id in native_ids and new_id != old_id:
+                raise ValueError(f"sidecar native node id collision for {new_id}")
+            native_ids.discard(old_id)
+            native_ids.add(new_id)
+            if type(old_id) is int:
+                old_to_new[old_id] = new_id
+            node["id"] = new_id
+        if "pos" in entry:
+            node["pos"] = deepcopy(entry["pos"])
+        if "size" in entry:
+            node["size"] = deepcopy(entry["size"])
+        if "collapsed" in entry:
+            flags = node.get("flags")
+            flags = dict(flags) if isinstance(flags, Mapping) else {}
+            flags["collapsed"] = entry["collapsed"]
+            node["flags"] = flags
+        for field in ("color", "bgcolor", "title"):
+            if field in entry:
+                node[field] = deepcopy(entry[field])
+        if "z_order" in entry:
+            node["order"] = deepcopy(entry["z_order"])
+        if "group" in entry:
+            # Keep the direct parent marker as well as the group member list;
+            # Comfy/LiteGraph consumers use both forms in different versions.
+            node["group"] = deepcopy(entry["group"])
+
+    # Rebuild links from Python-emitted endpoint geometry and sidecar foreign
+    # keys.  This preserves duplicate visual occurrences while never accepting
+    # sidecar endpoints as new semantic edges.
+    side_links = sidecar.get("links", [])
+    if not isinstance(side_links, list):
+        raise ValueError("validated sidecar links must be a list")
+    uid_by_old_id = {native_id: uid for uid, native_id in old_id_by_uid.items()}
+    emitted_by_key: dict[tuple[str, int, str, int], list[list[Any]]] = defaultdict(list)
+    for link in envelope.get("links", []):
+        if not isinstance(link, (list, tuple)) or len(link) < 6:
+            continue
+        source_uid = uid_by_old_id.get(link[1])
+        target_uid = uid_by_old_id.get(link[3])
+        if source_uid is not None and target_uid is not None:
+            emitted_by_key[(source_uid, int(link[2]), target_uid, int(link[4]))].append(list(link))
+
+    rebuilt_links: list[list[Any]] = []
+    used_link_ids: set[int] = set()
+    next_link_id = max(
+        [int(item.get("id")) for item in side_links if isinstance(item, Mapping) and type(item.get("id")) is int]
+        + [int(link[0]) for link in envelope.get("links", []) if isinstance(link, (list, tuple)) and type(link[0]) is int]
+        + [0]
+    ) + 1
+    root_side_links = [
+        item for item in side_links
+        if isinstance(item, Mapping)
+        and str((item.get("edge_ref") or item.get("virtual_wire_ref") or {}).get("scope_path", "")) == ""
+    ]
+    # Every Python-emitted semantic link remains in the result.  Sidecar rows
+    # are optional presentation overrides, not a second edge list: rows that
+    # are absent leave their Python link untouched, while duplicate rows create
+    # duplicate visual occurrences of the same Python endpoint.
+    side_overrides: dict[tuple[str, int, str, int], list[Mapping[str, Any]]] = defaultdict(list)
+    for item in root_side_links:
+        if not isinstance(item, Mapping):
+            raise ValueError("validated sidecar link must be a mapping")
+        ref = item.get("edge_ref")
+        key: tuple[str, int, str, int] | None = None
+        if isinstance(ref, Mapping):
+            key = (
+                str(ref["from_uid"]), int(ref["from_port"]),
+                str(ref["to_uid"]), int(ref["to_port"]),
+            )
+        if key is None:
+            # A virtual leg is Python-owned and must have a corresponding
+            # materialized endpoint; never synthesize an endpoint from sidecar.
+            ref = item.get("virtual_wire_ref")
+            if not isinstance(ref, Mapping):
+                raise ValueError("validated sidecar link has no semantic reference")
+            from vibecomfy.workflow_bundle import _virtual_legs
+            legs = _virtual_legs(wf).get((str(ref["scope_path"]), str(ref["name"])))
+            if legs is None or int(ref["leg_index"]) >= len(legs):
+                raise ValueError("virtual sidecar link has no Python-owned materialized leg")
+            leg = legs[int(ref["leg_index"])]
+            key = (str(leg[1]), int(leg[2]), str(leg[3]), int(leg[4]))
+        candidates = emitted_by_key.get(key, [])
+        if not candidates:
+            raise ValueError(f"sidecar link {key!r} has no Python-emitted endpoint")
+        side_overrides[key].append(item)
+
+    def materialize_link(
+        link: list[Any], item: Mapping[str, Any] | None = None
+    ) -> list[Any]:
+        result = list(link)
+        result[1] = old_to_new.get(result[1], result[1])
+        result[3] = old_to_new.get(result[3], result[3])
+        lid = item.get("id") if isinstance(item, Mapping) else None
+        if type(lid) is not int:
+            lid = result[0]
+            while lid in used_link_ids:
+                lid = next_link_id
+                next_link_id += 1
+        if lid in used_link_ids:
+            raise ValueError(f"duplicate materialized native link id {lid}")
+        used_link_ids.add(lid)
+        result[0] = lid
+        # Reroute geometry is a presentation member of the link record.  The
+        # seventh array member is retained for round-trip callers while the six
+        # LiteGraph endpoint members remain untouched.
+        if isinstance(item, Mapping) and "reroute" in item:
+            result.append(deepcopy(item["reroute"]))
+        return result
+
+    for key, candidates in emitted_by_key.items():
+        overrides = side_overrides.get(key)
+        if overrides:
+            rebuilt_links.extend(materialize_link(candidates[0], item) for item in overrides)
+        else:
+            rebuilt_links.extend(materialize_link(candidate) for candidate in candidates)
+
+    # Preserve non-semantic emitter links (for example explicit virtual-wire
+    # display links) when no sidecar row can identify their endpoint.
+    for raw_link in envelope.get("links", []):
+        if not isinstance(raw_link, (list, tuple)) or len(raw_link) < 6:
+            continue
+        key = (
+            uid_by_old_id.get(raw_link[1]), int(raw_link[2]),
+            uid_by_old_id.get(raw_link[3]), int(raw_link[4]),
+        )
+        if key not in emitted_by_key:
+            rebuilt_links.append(materialize_link(list(raw_link)))
+    envelope["links"] = rebuilt_links
+
+    # Link references inside node socket arrays are derived from the rebuilt
+    # links, never copied from sidecar endpoint data.
+    for node in emitted_nodes:
+        for output in node.get("outputs", []) if isinstance(node, Mapping) else []:
+            if isinstance(output, dict) and isinstance(output.get("links"), list):
+                output["links"] = []
+        for input_slot in node.get("inputs", []) if isinstance(node, Mapping) else []:
+            if isinstance(input_slot, dict) and "link" in input_slot:
+                input_slot["link"] = None
+    for link in rebuilt_links:
+        source = next((node for node in emitted_nodes if node.get("id") == link[1]), None)
+        target = next((node for node in emitted_nodes if node.get("id") == link[3]), None)
+        if isinstance(source, dict) and isinstance(source.get("outputs"), list) and 0 <= link[2] < len(source["outputs"]):
+            output = source["outputs"][link[2]]
+            if isinstance(output, dict):
+                output.setdefault("links", []).append(link[0])
+        if isinstance(target, dict) and isinstance(target.get("inputs"), list) and 0 <= link[4] < len(target["inputs"]):
+            target_slot = target["inputs"][link[4]]
+            if isinstance(target_slot, dict):
+                target_slot["link"] = link[0]
+
+    # Groups are wholly presentation-owned.  Build LiteGraph groups from the
+    # validated scoped records and parent markers; never title-deduplicate.
+    groups_out: list[dict[str, Any]] = []
+    for group in sidecar.get("groups", []):
+        if not isinstance(group, Mapping):
+            continue
+        scope = str(group["scope_path"])
+        pid = str(group["presentation_id"])
+        member_ids: list[int] = []
+        for uid, entry in side_nodes.items():
+            if not isinstance(entry, Mapping) or entry.get("group") != pid:
+                continue
+            node_scope = uid.rsplit("#", 1)[0] if "#" in uid else ""
+            if node_scope == scope:
+                node = by_uid.get(str(uid))
+                if isinstance(node, Mapping) and type(node.get("id")) is int:
+                    member_ids.append(int(node["id"]))
+        out: dict[str, Any] = {
+            "id": pid,
+            "vibecomfy_group_id": pid,
+            "nodes": member_ids,
+        }
+        if "bounds" in group:
+            out["bounding"] = deepcopy(group["bounds"])
+        if "title" in group:
+            out["title"] = deepcopy(group["title"])
+        if "color" in group:
+            out["color"] = deepcopy(group["color"])
+        if "z_order" in group:
+            out["order"] = deepcopy(group["z_order"])
+        groups_out.append(out)
+    envelope["groups"] = groups_out
+
+    _overlay_nested_presentation(envelope, sidecar, wf, handled=set(by_uid))
+
+
+def _overlay_nested_presentation(
+    envelope: Mapping[str, Any],
+    sidecar: Mapping[str, Any],
+    wf: Any,
+    *,
+    handled: set[str],
+) -> None:
+    """Apply the same allowlist to recursively emitted definition nodes.
+
+    Definitions are Python-owned semantic data; this helper only edits their
+    disposable UI furniture.  Structural scope keys are recomputed from each
+    definition, so nested clones never fall back to ordinal or title aliases.
+    """
+    definitions = envelope.get("definitions")
+    if not isinstance(definitions, Mapping):
+        missing = [str(uid) for uid in sidecar.get("nodes", {}) if str(uid) not in handled]
+        if missing:
+            raise ValueError(f"sidecar contains unmaterialized recursive node(s): {missing!r}")
+        return
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    side_nodes = sidecar.get("nodes", {})
+    side_links = sidecar.get("links", [])
+
+    def entries(raw: Any) -> list[Mapping[str, Any]]:
+        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), list):
+            return [item for item in raw["subgraphs"] if isinstance(item, Mapping)]
+        if isinstance(raw, Mapping):
+            return [item for item in raw.values() if isinstance(item, Mapping)]
+        if isinstance(raw, list):
+            return [item for item in raw if isinstance(item, Mapping)]
+        return []
+
+    def node_local(node: Mapping[str, Any]) -> str | None:
+        props = node.get("properties")
+        value = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+        if value is None:
+            value = node.get("uid", node.get("id"))
+        return str(value) if value is not None else None
+
+    def walk(raw_defs: Any, parent: tuple[str, ...]) -> None:
+        for definition in entries(raw_defs):
+            key = sg_key(definition)
+            scope = compose_scope_path((*parent, key))
+            out_nodes = definition.get("nodes", [])
+            out_nodes = out_nodes if isinstance(out_nodes, list) else list(out_nodes.values()) if isinstance(out_nodes, Mapping) else []
+            by_local = {local: node for node in out_nodes if isinstance(node, Mapping) and (local := node_local(node)) is not None}
+            original_node_ids = {
+                local: node.get("id") for local, node in by_local.items()
+            }
+            node_id_remap: dict[int, int] = {}
+            occupied_node_ids = {
+                int(node["id"])
+                for node in out_nodes
+                if isinstance(node, Mapping) and type(node.get("id")) is int
+            }
+            for local, node in by_local.items():
+                uid = make_uid(scope, local)
+                entry = side_nodes.get(uid)
+                if not isinstance(entry, Mapping):
+                    continue
+                handled.add(uid)
+                if type(entry.get("id")) is int:
+                    old_id = node.get("id")
+                    new_id = int(entry["id"])
+                    if new_id in occupied_node_ids and new_id != old_id:
+                        raise ValueError(
+                            f"sidecar native nested node id collision in {scope!r}: {new_id}"
+                        )
+                    if type(old_id) is int:
+                        occupied_node_ids.discard(old_id)
+                        node_id_remap[old_id] = new_id
+                    occupied_node_ids.add(new_id)
+                    node["id"] = new_id
+                if "pos" in entry: node["pos"] = deepcopy(entry["pos"])
+                if "size" in entry: node["size"] = deepcopy(entry["size"])
+                if "collapsed" in entry:
+                    flags = dict(node.get("flags") or {}) if isinstance(node.get("flags"), Mapping) else {}
+                    flags["collapsed"] = entry["collapsed"]
+                    node["flags"] = flags
+                for field in ("color", "bgcolor", "title"):
+                    if field in entry: node[field] = deepcopy(entry[field])
+                if "z_order" in entry: node["order"] = deepcopy(entry["z_order"])
+                if "group" in entry: node["group"] = deepcopy(entry["group"])
+
+            # Groups inside definitions are presentation records too.  Rebuild
+            # them by structural scope and sidecar presentation id, retaining
+            # Python-emitted membership ids while overlaying only the closed
+            # furniture fields.  A sidecar group may be present even when the
+            # raw definition carried no group object, so construct that object
+            # from the already validated node parent markers.
+            raw_groups = definition.get("groups", [])
+            groups_out = list(raw_groups) if isinstance(raw_groups, list) else []
+            groups_by_id = {
+                str(group.get("vibecomfy_group_id", group.get("id"))): group
+                for group in groups_out
+                if isinstance(group, Mapping)
+            }
+            for group in sidecar.get("groups", []) if isinstance(sidecar.get("groups"), list) else []:
+                if not isinstance(group, Mapping) or str(group.get("scope_path")) != scope:
+                    continue
+                presentation_id = str(group["presentation_id"])
+                member_ids = [
+                    node.get("id")
+                    for local, node in by_local.items()
+                    if isinstance(node, Mapping)
+                    and isinstance(side_nodes.get(make_uid(scope, local)), Mapping)
+                    and side_nodes[make_uid(scope, local)].get("group") == presentation_id
+                    and type(node.get("id")) is int
+                ]
+                target = groups_by_id.get(presentation_id)
+                if target is None:
+                    target = {"id": presentation_id, "vibecomfy_group_id": presentation_id}
+                    groups_out.append(target)
+                    groups_by_id[presentation_id] = target
+                target["nodes"] = member_ids
+                if "bounds" in group: target["bounding"] = deepcopy(group["bounds"])
+                if "title" in group: target["title"] = deepcopy(group["title"])
+                if "color" in group: target["color"] = deepcopy(group["color"])
+                if "z_order" in group: target["order"] = deepcopy(group["z_order"])
+            if groups_out:
+                definition["groups"] = groups_out
+
+            # Definition links are object records.  Select by Python-owned
+            # local endpoints, then apply only native id/reroute presentation.
+            raw_def_links = definition.get("links", [])
+            if isinstance(raw_def_links, list):
+                overridden: set[int] = set()
+                link_id_remap: dict[int, int] = {}
+                occupied_link_ids = {
+                    int(link.get("id"))
+                    for link in raw_def_links
+                    if isinstance(link, Mapping) and type(link.get("id")) is int
+                }
+                next_nested_link_id = max(
+                    [
+                        int(link.get("id"))
+                        for link in raw_def_links
+                        if isinstance(link, Mapping) and type(link.get("id")) is int
+                    ]
+                    + [0]
+                ) + 1
+                for item in side_links if isinstance(side_links, list) else []:
+                    if not isinstance(item, Mapping): continue
+                    ref = item.get("edge_ref")
+                    if isinstance(ref, Mapping):
+                        if ref.get("scope_path") != scope:
+                            continue
+                        from_local = str(ref.get("from_uid"))
+                        from_port = ref.get("from_port")
+                        to_local = str(ref.get("to_uid"))
+                        to_port = ref.get("to_port")
+                    else:
+                        virtual_ref = item.get("virtual_wire_ref")
+                        if not isinstance(virtual_ref, Mapping) or virtual_ref.get("scope_path") != scope:
+                            continue
+                        from vibecomfy.workflow_bundle import _virtual_legs
+                        legs = _virtual_legs(wf).get((scope, str(virtual_ref.get("name"))))
+                        leg_index = virtual_ref.get("leg_index")
+                        if legs is None or type(leg_index) is not int or leg_index >= len(legs):
+                            continue
+                        leg = legs[leg_index]
+                        from_local, from_port, to_local, to_port = str(leg[1]), leg[2], str(leg[3]), leg[4]
+                    matching = [
+                        link for link in raw_def_links
+                        if isinstance(link, Mapping)
+                        and str(link.get("origin_id")) == str(original_node_ids.get(from_local))
+                        and str(link.get("target_id")) == str(original_node_ids.get(to_local))
+                        and link.get("origin_slot") == from_port
+                        and link.get("target_slot") == to_port
+                    ]
+                    if not matching:
+                        continue
+                    target = matching[0]
+                    if id(target) in overridden:
+                        target = deepcopy(target)
+                        raw_def_links.append(target)
+                        if type(item.get("id")) is not int:
+                            target["id"] = next_nested_link_id
+                            next_nested_link_id += 1
+                    overridden.add(id(target))
+                    if type(item.get("id")) is int:
+                        new_link_id = int(item["id"])
+                        old_link_id = target.get("id")
+                        if new_link_id in occupied_link_ids and new_link_id != old_link_id:
+                            raise ValueError(
+                                f"sidecar native nested link id collision in {scope!r}: {new_link_id}"
+                            )
+                        if type(old_link_id) is int:
+                            occupied_link_ids.discard(old_link_id)
+                            link_id_remap.setdefault(old_link_id, new_link_id)
+                        occupied_link_ids.add(new_link_id)
+                        target["id"] = new_link_id
+                    if "reroute" in item:
+                        target["reroute"] = deepcopy(item["reroute"])
+            for link in raw_def_links:
+                if not isinstance(link, Mapping):
+                    continue
+                if type(link.get("origin_id")) is int:
+                    link["origin_id"] = node_id_remap.get(link["origin_id"], link["origin_id"])
+                if type(link.get("target_id")) is int:
+                    link["target_id"] = node_id_remap.get(link["target_id"], link["target_id"])
+            if isinstance(raw_def_links, list):
+                for node in out_nodes:
+                    if not isinstance(node, Mapping):
+                        continue
+                    inputs = node.get("inputs")
+                    if isinstance(inputs, list):
+                        for input_slot in inputs:
+                            if isinstance(input_slot, Mapping) and type(input_slot.get("link")) is int:
+                                input_slot["link"] = link_id_remap.get(input_slot["link"], input_slot["link"])
+                    outputs = node.get("outputs")
+                    if isinstance(outputs, list):
+                        for output_slot in outputs:
+                            if not isinstance(output_slot, Mapping) or not isinstance(output_slot.get("links"), list):
+                                continue
+                            output_slot["links"] = [
+                                link_id_remap.get(link_id, link_id)
+                                for link_id in output_slot["links"]
+                            ]
+            walk(definition.get("definitions"), (*parent, key))
+
+    walk(definitions.get("subgraphs", definitions), ())
+    missing = [str(uid) for uid in side_nodes if str(uid) not in handled]
+    if missing:
+        raise ValueError(f"sidecar contains unmaterialized recursive node(s): {missing!r}")
 
 
 def offline_emitter_normalizer_self_consistency_check(
@@ -4016,6 +4814,7 @@ __all__ = [
     "derive_widget_shape_evidence",
     "extract_raw_ui_node_map",
     "materialize_litegraph_node",
+    "materialize_ui_json",
     "_normalize_pinned_node_link_refs",
     "_raw_ui_payload_for_pin",
     "emit_ui_json",
