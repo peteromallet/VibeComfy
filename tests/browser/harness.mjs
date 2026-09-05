@@ -1066,6 +1066,9 @@ export async function createBrowserHarness({
     };
   }
   syncLiveGraphNodes();
+  const nativeGraphMethods = new Map(
+    Object.entries(app.canvas.graph).filter(([, value]) => typeof value === "function"),
+  );
 
   const LiteGraphCanvas = function LiteGraphCanvas() {};
   LiteGraphCanvas.prototype.getCanvasMenuOptions = function getCanvasMenuOptions() {
@@ -1211,6 +1214,7 @@ export async function createBrowserHarness({
   );
 
   const apiEventListeners = {};
+  const eventListenerErrors = [];
   const mockApi = {
     clientId: `test-client-${Date.now()}`,
     addEventListener(event, listener) {
@@ -1257,8 +1261,8 @@ export async function createBrowserHarness({
     for (const listener of listeners) {
       try {
         listener(detail);
-      } catch (_err) {
-        // Best-effort: event listener errors must not break dispatch.
+      } catch (error) {
+        eventListenerErrors.push({ event, error });
       }
     }
   }
@@ -1427,6 +1431,22 @@ export async function createBrowserHarness({
         set() {},
       });
     } else if (mode === "nonextensible") {
+      for (const marker of [
+        "__vibecomfyIntentFallbackInstalled",
+        "__vibecomfyIntentConfigureFallbackInstalled",
+        "__vibecomfyPreviewForegroundDraw",
+        "__vibecomfyPreviewForegroundInstall",
+        "__vibecomfyAgentPreviewOverlayInstalled",
+      ]) {
+        if (!Object.prototype.hasOwnProperty.call(target, marker)) {
+          Object.defineProperty(target, marker, {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: undefined,
+          });
+        }
+      }
       Object.preventExtensions(target);
     }
   }
@@ -1437,6 +1457,7 @@ export async function createBrowserHarness({
     app,
     api: mockApi,
     apiEventListeners,
+    eventListenerErrors,
     dispatchApiEvent,
     document,
     window: globalThis.window,
@@ -1464,6 +1485,18 @@ export async function createBrowserHarness({
           queuePromptCalls.push(args);
           return { replaced: true };
         };
+        return;
+      }
+      if (mode === "defineproperty_replaced") {
+        Object.defineProperty(app, "queuePrompt", {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: (...args) => {
+            queuePromptCalls.push(args);
+            return { replaced: true };
+          },
+        });
         return;
       }
       if (mode === "unwritable") {
@@ -1497,6 +1530,18 @@ export async function createBrowserHarness({
           graphChangeCalls.push(clone(currentGraph));
           operationLog.push({ kind: "graph.change.replaced", args: clone(args) });
         };
+        return;
+      }
+      if (mode === "defineproperty_replaced") {
+        Object.defineProperty(app.canvas.graph, "change", {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: (...args) => {
+            graphChangeCalls.push(clone(currentGraph));
+            operationLog.push({ kind: "graph.change.defineproperty_replaced", args: clone(args) });
+          },
+        });
         return;
       }
       if (mode === "unwritable") {
@@ -1622,7 +1667,25 @@ export async function createBrowserHarness({
       liveCanvasRevision += 1;
       currentGraph = clone(nextGraph);
       const priorGraph = app.canvas.graph;
-      app.canvas.graph = { ...priorGraph };
+      const freshGraph = {};
+      for (const [name, method] of nativeGraphMethods) {
+        freshGraph[name] = function freshNativeGraphMethod(...args) {
+          return method.apply(this, args);
+        };
+      }
+      for (const [name, value] of Object.entries(priorGraph)) {
+        if (typeof value !== "function" && name !== "change") {
+          freshGraph[name] = value;
+        }
+      }
+      app.canvas.graph = freshGraph;
+      _resetGraphLinks(currentGraph?.links);
+      syncLiveGraphNodes();
+      return app.canvas.graph;
+    },
+    reuseLiveGraph(graph) {
+      app.canvas.graph = graph;
+      currentGraph = clone(graph);
       _resetGraphLinks(currentGraph?.links);
       syncLiveGraphNodes();
       return app.canvas.graph;

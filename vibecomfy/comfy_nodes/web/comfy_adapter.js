@@ -89,8 +89,14 @@ export function installGraphMutationGuard(graph, { onMutation, scopeActivation =
   }
   const existing = custodyFor(graph, "change");
   if (existing?.installed) {
-    if (existing.healthy?.() && graph.change === existing.wrapper) return existing;
-    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+    if (existing.healthy?.() && graph.change === existing.wrapper) {
+      if (existing.scopeActivation == null || existing.scopeActivation === scopeActivation) return existing;
+      if (!existing.cleanup?.()) {
+        return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+      }
+    } else {
+      return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+    }
   }
   let descriptor;
   let original;

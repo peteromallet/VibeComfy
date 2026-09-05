@@ -430,6 +430,7 @@ export function saveScopeApprovedRecord(scopeId, record) {
     parentRevision: record.parentRevision ?? null,
     sessionId: record.sessionId ?? null,
     turnId: record.turnId ?? null,
+    workflowId: record.workflowId ?? null,
     transactionId: record.transactionId ?? null,
     candidateId: record.candidateId ?? null,
     planHash: record.planHash ?? null,
