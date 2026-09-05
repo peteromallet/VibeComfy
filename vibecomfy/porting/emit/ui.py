@@ -6548,11 +6548,11 @@ def _topology_socket_values_match_links(
                 and _canonical_native_int(parts[4]) == index
             ]
             candidate = candidate_by_name.get(name)
-            actual = (
-                candidate.get("link")
-                if isinstance(candidate, Mapping)
-                else None
-            )
+            if not isinstance(candidate, Mapping) or "link" not in candidate:
+                # Sparse UI payloads may omit socket link presentation; when
+                # present, however, the value must agree with the link table.
+                continue
+            actual = candidate.get("link")
             if expected:
                 if actual != expected[-1]:
                     return False
@@ -6580,9 +6580,11 @@ def _topology_socket_values_match_links(
                     or _canonical_native_int(parts[2]) == index
                 )
             ]
+            if "links" not in candidate_outputs[index]:
+                # Sparse UI payloads may omit socket link presentation; when
+                # present, however, the value must agree with the link table.
+                continue
             actual = candidate_outputs[index].get("links")
-            if actual is None:
-                actual = []
             if actual != expected:
                 return False
     return True
@@ -7079,7 +7081,20 @@ def guard_exit_ui(
                 )
             )
             continue
-        if candidate_node == original_node:
+        topology_inputs = set(attribution["topology_input_fields"].get(key, set()))
+        topology_outputs = set(attribution["topology_output_refs"].get(key, set()))
+        scope_ops_for_node = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        original_scope_for_node = original_scopes.get(scope_path)
+        if isinstance(original_scope_for_node, Mapping) and scope_ops_for_node:
+            folded_inputs, folded_outputs = _topology_owned_refs(
+                scope_path,
+                uid,
+                scope_ops_for_node,
+                original_scope_for_node,
+            )
+            topology_inputs.update(folded_inputs)
+            topology_outputs.update(folded_outputs)
+        if candidate_node == original_node and not (topology_inputs or topology_outputs):
             continue
         diffs = [
             path
@@ -7091,7 +7106,7 @@ def guard_exit_ui(
                 candidate_node,
             )
         ]
-        if not diffs:
+        if not diffs and not (topology_inputs or topology_outputs):
             continue
         allowed_paths = set(attribution["node_paths"].get(key, set()))
         set_fields = attribution["set_node_fields"].get(key, set())
@@ -7110,19 +7125,6 @@ def guard_exit_ui(
                     ),
                 )
             )
-        topology_inputs = set(attribution["topology_input_fields"].get(key, set()))
-        topology_outputs = set(attribution["topology_output_refs"].get(key, set()))
-        scope_ops_for_node = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
-        original_scope_for_node = original_scopes.get(scope_path)
-        if isinstance(original_scope_for_node, Mapping) and scope_ops_for_node:
-            folded_inputs, folded_outputs = _topology_owned_refs(
-                scope_path,
-                uid,
-                scope_ops_for_node,
-                original_scope_for_node,
-            )
-            topology_inputs.update(folded_inputs)
-            topology_outputs.update(folded_outputs)
         if topology_inputs or topology_outputs:
             if not _topology_socket_values_match_links(
                 original_node,

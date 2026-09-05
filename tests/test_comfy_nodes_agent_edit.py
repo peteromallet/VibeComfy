@@ -22035,11 +22035,31 @@ def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> Non
     )
     assert folded.ok is True, folded.diagnostics
 
-    stale_remove = _json_clone(original)
-    stale_remove["last_link_id"] = 1
+    stale_original = {
+        "last_node_id": 2,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "source"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}],
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+    }
+    stale_remove = _json_clone(stale_original)
+    stale_remove["last_link_id"] = 0
     stale_remove["links"] = []
-    stale_remove["nodes"][0]["outputs"][0]["links"] = [2]
-    assert guard_exit_ui(original, stale_remove, (remove,)).ok is False
+    assert guard_exit_ui(stale_original, stale_remove, (remove,)).ok is False
 
 
 def test_remove_then_set_field_does_not_repin_removed_link() -> None:
