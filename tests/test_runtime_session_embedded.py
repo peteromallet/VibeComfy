@@ -78,15 +78,51 @@ def _terminal_events(tmp_path: Path, record):
     return attempt, events
 
 
-def _assert_exact_runtime_record(evidence: dict, record) -> None:
-    approved = evidence["approved_projection"]
-    assert set(approved) == {
-        "revision_id", "selected_variant", "input_binding",
-        "api_projection", "ui_projection", "api_digest",
-    }
-    assert approved == record.to_dict()
-    assert "approval_record" not in evidence
-    assert "approved_record" not in evidence
+_RECORD_KEYS = {
+    "revision_id", "selected_variant", "input_binding",
+    "api_projection", "ui_projection", "api_digest",
+}
+
+
+def _assert_exact_runtime_record(document: dict, record) -> None:
+    evidence_objects: list[dict] = []
+    full_record_paths: list[tuple[object, ...]] = []
+
+    def walk(value, path: tuple[object, ...] = ()) -> None:
+        if isinstance(value, dict):
+            if _RECORD_KEYS <= set(value):
+                full_record_paths.append(path)
+            runtime_evidence = value.get("runtime_evidence")
+            if isinstance(runtime_evidence, dict):
+                evidence_objects.append(runtime_evidence)
+            for key, child in value.items():
+                walk(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, (*path, index))
+
+    walk(document)
+    assert evidence_objects
+    assert len(full_record_paths) == len(evidence_objects)
+    record_dict = record.to_dict()
+    for evidence in evidence_objects:
+        approved = evidence["approved_projection"]
+        assert isinstance(approved, dict)
+        assert len(approved) == 6
+        assert set(approved) == _RECORD_KEYS
+        assert approved == record_dict
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            assert evidence[key] == document.get(key, evidence[key])
+    assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
+    assert not {"approved_projection", "approval_record", "approved_record"} & set(document)
+    assert not (_RECORD_KEYS - {"api_digest"}) & set(document)
+    if "runtime_evidence" in document:
+        evidence = document["runtime_evidence"]
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            if key in document:
+                assert document[key] == evidence[key]
+        if "api_digest" in document:
+            assert document["api_digest"] == evidence["api_digest"]
 
 
 def test_embedded_session_reuses_single_comfy_context(
@@ -197,6 +233,11 @@ def test_embedded_ambiguous_acceptance_is_unknown_without_statusless_decode(
     record, bundle = _approved(_workflow())
     queue_calls = 0
 
+    def unexpected_decode(*_args, **_kwargs):
+        raise AssertionError("ambiguous acceptance must not decode a terminal result")
+
+    monkeypatch.setattr(session_module, "_decode_terminal_result", unexpected_decode)
+
     async def ambiguous_queue(_self, _api_dict):
         nonlocal queue_calls
         queue_calls += 1
@@ -212,9 +253,11 @@ def test_embedded_ambiguous_acceptance_is_unknown_without_statusless_decode(
     assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
     assert evidence["terminal"]["acceptance_known"] is False
     assert events[-1]["event_type"] == "discarded"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["generation"] == events[0]["generation"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(evidence, record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_embedded_output_failure_discards_after_accepted_witness(
@@ -237,8 +280,8 @@ def test_embedded_output_failure_discards_after_accepted_witness(
     assert evidence["terminal"]["phase"] == "output"
     assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(evidence, record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_embedded_finalized_journal_write_failure_is_visible(
@@ -262,8 +305,8 @@ def test_embedded_finalized_journal_write_failure_is_visible(
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
     assert events[-1]["event_type"] == "discarded"
     assert list(tmp_path.glob("out/runs/*/metadata.json"))
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(events[-1]["receipt"]["runtime_evidence"], record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 def test_embedded_session_terminal_error_fails_before_metadata(
     fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -362,6 +405,15 @@ def test_embedded_acceptance_witness_failure_discards_without_retry(
     assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": "prompt-1"}
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
     assert events[-1]["event_type"] == "discarded"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "persistence",
+        "reason": "witness disk full",
+        "acceptance_known": False,
+    }
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_embedded_cancel_during_queue_persists_unknown_superseded(
@@ -372,8 +424,11 @@ def test_embedded_cancel_during_queue_persists_unknown_superseded(
     record, bundle = _approved(_workflow())
     entered = asyncio.Event()
     release = asyncio.Event()
+    queue_calls = 0
 
     async def blocked_queue(*_args):
+        nonlocal queue_calls
+        queue_calls += 1
         entered.set()
         await release.wait()
         return {"prompt_id": "never-reached", "outputs": []}
@@ -388,11 +443,20 @@ def test_embedded_cancel_during_queue_persists_unknown_superseded(
             await task
 
     asyncio.run(run_case())
-    _attempt, events = _terminal_events(tmp_path, record)
+    attempt, events = _terminal_events(tmp_path, record)
+    assert queue_calls == 1
     assert events[-1]["event_type"] == "superseded"
     evidence = events[-1]["receipt"]["runtime_evidence"]
     assert evidence["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
-    assert evidence["terminal"]["acceptance_known"] is False
+    assert evidence["terminal"] == {
+        "phase": "cancelled",
+        "reason_type": "CancelledError",
+        "reason": "CancelledError",
+        "acceptance_known": False,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 @pytest.mark.parametrize("interruption", [asyncio.CancelledError(), KeyboardInterrupt()])
@@ -414,6 +478,17 @@ def test_embedded_interrupt_after_witness_is_durable_and_not_retried(
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
     assert events[-1]["event_type"] == "superseded"
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"]["status"] == "accepted"
+    expected_type = "KeyboardInterrupt" if isinstance(interruption, KeyboardInterrupt) else "CancelledError"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "interrupted" if expected_type == "KeyboardInterrupt" else "cancelled",
+        "reason_type": expected_type,
+        "reason": expected_type,
+        "acceptance_known": True,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_embedded_metadata_failure_is_discarded_after_accepted_witness(
@@ -432,10 +507,14 @@ def test_embedded_metadata_failure_is_discarded_after_accepted_witness(
     monkeypatch.setattr(session_module, "atomic_write_json", fail_metadata)
     with pytest.raises(QueueError, match="metadata could not be persisted"):
         asyncio.run(EmbeddedSession().run(record, bundle))
-    _attempt, events = _terminal_events(tmp_path, record)
+    attempt, events = _terminal_events(tmp_path, record)
     assert len(fake_comfy.instances[0].queue_calls) == 1
     assert events[-1]["event_type"] == "discarded"
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"]["status"] == "accepted"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_embedded_session_flush_invokes_clear_cache(

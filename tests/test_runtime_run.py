@@ -83,15 +83,53 @@ def _runtime_events(tmp_path: Path, record):
     return run_dir, attempt, events
 
 
-def _assert_exact_runtime_record(evidence: dict, record) -> None:
-    approved = evidence["approved_projection"]
-    assert set(approved) == {
-        "revision_id", "selected_variant", "input_binding",
-        "api_projection", "ui_projection", "api_digest",
-    }
-    assert approved == record.to_dict()
-    assert "approval_record" not in evidence
-    assert "approved_record" not in evidence
+_RECORD_KEYS = {
+    "revision_id", "selected_variant", "input_binding",
+    "api_projection", "ui_projection", "api_digest",
+}
+
+
+def _assert_exact_runtime_record(document: dict, record) -> None:
+    evidence_objects: list[dict] = []
+    full_record_paths: list[tuple[object, ...]] = []
+
+    def walk(value, path: tuple[object, ...] = ()) -> None:
+        if isinstance(value, dict):
+            if _RECORD_KEYS <= set(value):
+                full_record_paths.append(path)
+            runtime_evidence = value.get("runtime_evidence")
+            if isinstance(runtime_evidence, dict):
+                evidence_objects.append(runtime_evidence)
+            for key, child in value.items():
+                walk(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, (*path, index))
+
+    walk(document)
+    assert evidence_objects
+    assert len(full_record_paths) == len(evidence_objects)
+    record_dict = record.to_dict()
+    for evidence in evidence_objects:
+        approved = evidence["approved_projection"]
+        assert isinstance(approved, dict)
+        assert len(approved) == 6
+        assert set(approved) == _RECORD_KEYS
+        assert approved == record_dict
+        assert evidence["queue_acceptance"] == document.get("queue_acceptance", evidence["queue_acceptance"])
+        assert evidence["terminal"] == document.get("terminal", evidence["terminal"])
+        assert evidence["adapter"] == document.get("adapter", evidence["adapter"])
+        assert evidence["schema_provenance"] == document.get("schema_provenance", evidence["schema_provenance"])
+    assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
+    assert not {"approved_projection", "approval_record", "approved_record"} & set(document)
+    assert not (_RECORD_KEYS - {"api_digest"}) & set(document)
+    if "runtime_evidence" in document:
+        evidence = document["runtime_evidence"]
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            if key in document:
+                assert document[key] == evidence[key]
+        if "api_digest" in document:
+            assert document["api_digest"] == evidence["api_digest"]
 
 
 def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -225,6 +263,17 @@ def test_one_shot_raw_queue_timeout_is_unknown_and_not_retried(
     evidence = events[-1]["receipt"]["runtime_evidence"]
     assert evidence["queue_acceptance"]["status"] == "unknown"
     assert evidence["terminal"]["acceptance_known"] is False
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert len([event for event in events if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in events)
+    assert evidence["terminal"] == {
+        "phase": "queue",
+        "reason_type": "TimeoutError",
+        "reason": "queue timeout",
+        "acceptance_known": False,
+    }
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_one_shot_acceptance_witness_failure_is_nonretryable(
@@ -257,24 +306,31 @@ def test_one_shot_acceptance_witness_failure_is_nonretryable(
     with pytest.raises(QueueError, match="acceptance could not be recorded"):
         asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
     _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert calls == 2
     assert attempt["queue_acceptance"]["status"] == "unknown"
     assert attempt["queue_acceptance"]["prompt_id"] == "one-shot-witness"
-    assert events[-1]["event_type"] == "discarded"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
-@pytest.mark.parametrize("failure_kind", ["output", "metadata", "completed_attempt", "keyboard_interrupt"])
-def test_one_shot_post_witness_failure_matrix(
+def _run_one_shot_post_witness_failure(
     failure_kind: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     @asynccontextmanager
     async def fake_server(*args, **kwargs):
         yield "http://runtime.test"
 
+    queue_calls = 0
+
     class FakeClient:
         def __init__(self, _url: str) -> None:
             pass
 
         async def _post_prompt(self, _prompt: dict) -> dict:
+            nonlocal queue_calls
+            queue_calls += 1
             return {"prompt_id": "post-witness"}
 
     async def history(_url: str, prompt_id: str | None, config=None):
@@ -329,13 +385,46 @@ def test_one_shot_post_witness_failure_matrix(
         assert isinstance(exc_info.value.__cause__, OSError)
 
     run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert queue_calls == 1
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "post-witness"}
     assert len([event for event in events if event["event_type"] in {"discarded", "superseded"}]) == 1
     assert len(events) == 2
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(events[-1]["receipt"]["runtime_evidence"], record)
+    terminal = events[-1]["receipt"]["runtime_evidence"]["terminal"]
+    if failure_kind == "output":
+        assert terminal == {
+            "phase": "output",
+            "reason_type": "OSError",
+            "reason": "output collection failed",
+            "acceptance_known": True,
+        }
+    elif failure_kind == "keyboard_interrupt":
+        assert terminal == {
+            "phase": "interrupted",
+            "reason_type": "KeyboardInterrupt",
+            "reason": "interrupted after acceptance",
+            "acceptance_known": True,
+        }
+    else:
+        assert terminal["phase"] == "metadata"
+        assert terminal["reason_type"] == "QueueError"
+        assert terminal["acceptance_known"] is True
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
     assert not (run_dir / "metadata.json").exists()
+
+
+@pytest.mark.parametrize("failure_kind", ["output", "metadata", "keyboard_interrupt"])
+def test_one_shot_post_witness_failure_matrix(
+    failure_kind: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _run_one_shot_post_witness_failure(failure_kind, monkeypatch, tmp_path)
+
+
+def test_one_shot_completed_attempt_write_failure_is_nonretryable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _run_one_shot_post_witness_failure("completed_attempt", monkeypatch, tmp_path)
 
 
 def test_one_shot_external_loaded_schema_provenance_is_retained(
@@ -379,7 +468,9 @@ def test_one_shot_external_loaded_schema_provenance_is_retained(
         assert evidence["adapter"]["kind"] == "external"
         assert evidence["schema_provenance"]["schema_digest"] == object_info_payload_checksum(dict(provider._object_info))
         assert evidence["schema_provenance"]["digest_canonicalization"] == "object_info_payload_checksum"
-        _assert_exact_runtime_record(evidence, record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+    _assert_exact_runtime_record(metadata, record)
 
 
 def test_runtime_terminal_recovery_reads_known_append_only_log(
@@ -420,7 +511,7 @@ def test_runtime_terminal_recovery_reads_known_append_only_log(
     assert evidence["api_digest"] == record.api_digest
     assert evidence["adapter"]["kind"] == "external"
     assert evidence["terminal"]["phase"] == "completed"
-    _assert_exact_runtime_record(evidence, record)
+    _assert_exact_runtime_record(recovered[-1], record)
     assert result.prompt_id == "recoverable"
 
 
@@ -1687,6 +1778,7 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
         "status": "accepted",
         "prompt_id": "accepted-before-wait",
     }
+    _assert_exact_runtime_record(attempt, record)
     run_dir = attempt_path.parent
     lifecycle_path = (
         run_dir
@@ -1705,6 +1797,15 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
         "status": "accepted",
         "prompt_id": "accepted-before-wait",
     }
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "history",
+        "reason_type": "TimeoutError",
+        "reason": "history wait interrupted",
+        "acceptance_known": True,
+    }
+    assert len([event for event in lifecycle if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in lifecycle)
+    _assert_exact_runtime_record(lifecycle[-1], record)
 
 
 @pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
@@ -1736,9 +1837,10 @@ def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
     monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", unexpected_history)
+    record, bundle = _approved(_make_one_shot_run_wf())
 
     with pytest.raises(QueueError, match="acceptance is ambiguous"):
-        asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf()), server_url=server_url))
+        asyncio.run(runtime_run_module.run(record, bundle, server_url=server_url))
 
     assert queue_calls == 1
     attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
@@ -1747,7 +1849,24 @@ def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
         "status": "unknown",
         "prompt_id": None,
     }
+    lifecycle_path = attempt_path.parent / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    lifecycle = [
+        json.loads(line)
+        for line in lifecycle_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [event["event_type"] for event in lifecycle] == ["prepared", "discarded"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "QueueError",
+        "reason": "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically next action: vibecomfy runtime doctor",
+        "acceptance_known": False,
+    }
+    assert lifecycle[-1]["generation"] == lifecycle[0]["generation"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(lifecycle[-1], record)
 
 
 def test_embedded_session_dict_queue_result_sets_run_result_prompt_id(

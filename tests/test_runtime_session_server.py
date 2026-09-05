@@ -33,15 +33,51 @@ def _terminal_events(tmp_path: Path, record):
     return attempt, events
 
 
-def _assert_exact_runtime_record(evidence: dict, record) -> None:
-    approved = evidence["approved_projection"]
-    assert set(approved) == {
-        "revision_id", "selected_variant", "input_binding",
-        "api_projection", "ui_projection", "api_digest",
-    }
-    assert approved == record.to_dict()
-    assert "approval_record" not in evidence
-    assert "approved_record" not in evidence
+_RECORD_KEYS = {
+    "revision_id", "selected_variant", "input_binding",
+    "api_projection", "ui_projection", "api_digest",
+}
+
+
+def _assert_exact_runtime_record(document: dict, record) -> None:
+    evidence_objects: list[dict] = []
+    full_record_paths: list[tuple[object, ...]] = []
+
+    def walk(value, path: tuple[object, ...] = ()) -> None:
+        if isinstance(value, dict):
+            if _RECORD_KEYS <= set(value):
+                full_record_paths.append(path)
+            runtime_evidence = value.get("runtime_evidence")
+            if isinstance(runtime_evidence, dict):
+                evidence_objects.append(runtime_evidence)
+            for key, child in value.items():
+                walk(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, (*path, index))
+
+    walk(document)
+    assert evidence_objects
+    assert len(full_record_paths) == len(evidence_objects)
+    record_dict = record.to_dict()
+    for evidence in evidence_objects:
+        approved = evidence["approved_projection"]
+        assert isinstance(approved, dict)
+        assert len(approved) == 6
+        assert set(approved) == _RECORD_KEYS
+        assert approved == record_dict
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            assert evidence[key] == document.get(key, evidence[key])
+    assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
+    assert not {"approved_projection", "approval_record", "approved_record"} & set(document)
+    assert not (_RECORD_KEYS - {"api_digest"}) & set(document)
+    if "runtime_evidence" in document:
+        evidence = document["runtime_evidence"]
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            if key in document:
+                assert document[key] == evidence[key]
+        if "api_digest" in document:
+            assert document["api_digest"] == evidence["api_digest"]
 
 
 def _approved(workflow):
@@ -315,9 +351,9 @@ def test_server_managed_success_adapter_provenance_is_identical(
     ]
     assert all(adapter == adapters[0] for adapter in adapters)
     assert adapters[0] == {"kind": "managed", "backend": "api", "endpoint": "http://127.0.0.1:8200"}
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(metadata["runtime_evidence"], record)
-    _assert_exact_runtime_record(events[-1]["receipt"]["runtime_evidence"], record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(metadata, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_server_history_active_states_continue_polling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -500,15 +536,16 @@ def test_server_session_does_not_finalize_watchdog_completed_before_history(
     assert reasons == ["errored"]
 
 
-def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
-    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
+def test_server_queue_http_200_without_or_blank_prompt_id_fails_without_history_retry(
+    queue_response: dict, fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     async def post(self, url: str, json: dict | None = None):
         FakeAsyncClient.posts.append((url, json))
         if url.endswith("/prompt"):
-            return FakeResponse(200, {})
+            return FakeResponse(200, queue_response)
         return FakeResponse(200, {})
 
     monkeypatch.setattr(FakeAsyncClient, "post", post)
@@ -530,10 +567,17 @@ def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
     evidence = events[-1]["receipt"]["runtime_evidence"]
     assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
     assert evidence["terminal"]["acceptance_known"] is False
+    assert evidence["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "QueueError",
+        "reason": "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically next action: vibecomfy runtime doctor",
+        "acceptance_known": False,
+    }
     assert events[-1]["event_type"] == "discarded"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
     assert events[-1]["generation"] == events[0]["generation"]
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(evidence, record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_server_acceptance_witness_write_failure_is_unknown_discarded(
@@ -568,6 +612,15 @@ def test_server_acceptance_witness_write_failure_is_unknown_discarded(
     assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": "prompt-1"}
     assert events[-1]["event_type"] == "discarded"
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "persistence",
+        "reason": "witness disk full",
+        "acceptance_known": False,
+    }
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 @pytest.mark.parametrize("failure_kind", ["output", "metadata", "journal", "completed_attempt"])
@@ -576,6 +629,16 @@ def test_server_post_witness_failure_matrix(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     record, bundle = _approved(_workflow())
+    reasons: list[str] = []
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
     if failure_kind == "output":
         monkeypatch.setattr(
             session_module, "_collect_output_paths",
@@ -629,13 +692,21 @@ def test_server_post_witness_failure_matrix(
     asyncio.run(run_case())
     attempt, events = _terminal_events(tmp_path, record)
     assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert reasons == ["errored"]
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
     assert events[-1]["event_type"] == "discarded"
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert len(events) == 2
+    assert len([event for event in events if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in events)
+    terminal = events[-1]["receipt"]["runtime_evidence"]["terminal"]
+    assert terminal["phase"] == ("output" if failure_kind == "output" else "metadata")
+    assert terminal["reason_type"] == ("OSError" if failure_kind == "output" else "QueueError")
+    assert terminal["acceptance_known"] is True
     if failure_kind != "journal":
         assert not list(tmp_path.glob("out/runs/*/metadata.json"))
-    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
-    _assert_exact_runtime_record(events[-1]["receipt"]["runtime_evidence"], record)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_server_cancel_during_queue_persists_unknown_superseded(
@@ -645,8 +716,21 @@ def test_server_cancel_during_queue_persists_unknown_superseded(
     record, bundle = _approved(_workflow())
     entered = asyncio.Event()
     release = asyncio.Event()
+    reasons: list[str] = []
+    queue_calls = 0
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
 
     async def blocked_queue(*_args, **_kwargs):
+        nonlocal queue_calls
+        queue_calls += 1
         entered.set()
         await release.wait()
         return types.SimpleNamespace(queued={"prompt_id": "never"})
@@ -667,17 +751,37 @@ def test_server_cancel_during_queue_persists_unknown_superseded(
 
     asyncio.run(run_case())
     attempt, events = _terminal_events(tmp_path, record)
+    assert queue_calls == 1
+    assert reasons == ["cancelled"]
     assert events[-1]["event_type"] == "superseded"
     assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
-    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["acceptance_known"] is False
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "cancelled",
+        "reason_type": "CancelledError",
+        "reason": "CancelledError",
+        "acceptance_known": False,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
-@pytest.mark.parametrize("interruption", [asyncio.CancelledError("cancelled after accept"), KeyboardInterrupt("interrupt after accept")])
-def test_server_interrupt_after_acceptance_persists_accepted_superseded(
+def _run_server_interrupt_after_acceptance(
     interruption: BaseException, fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     record, bundle = _approved(_workflow())
+    reasons: list[str] = []
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
 
     async def interrupted_history(*_args, **_kwargs):
         raise interruption
@@ -695,9 +799,37 @@ def test_server_interrupt_after_acceptance_persists_accepted_superseded(
     asyncio.run(run_case())
     attempt, events = _terminal_events(tmp_path, record)
     assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert reasons == ["interrupted" if isinstance(interruption, KeyboardInterrupt) else "cancelled"]
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
     assert events[-1]["event_type"] == "superseded"
     assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    reason_type = "KeyboardInterrupt" if isinstance(interruption, KeyboardInterrupt) else "CancelledError"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "interrupted" if reason_type == "KeyboardInterrupt" else "cancelled",
+        "reason_type": reason_type,
+        "reason": str(interruption),
+        "acceptance_known": True,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_server_cancel_after_acceptance_persists_accepted_superseded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run_server_interrupt_after_acceptance(
+        asyncio.CancelledError("cancelled after accept"), fake_server, tmp_path, monkeypatch
+    )
+
+
+def test_server_keyboard_interrupt_after_acceptance_persists_accepted_superseded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run_server_interrupt_after_acceptance(
+        KeyboardInterrupt("interrupt after accept"), fake_server, tmp_path, monkeypatch
+    )
 
 
 @pytest.mark.parametrize("failure", [asyncio.TimeoutError("queue timeout"), QueueError("queue rejected")])
@@ -731,6 +863,8 @@ def test_server_queue_failure_classifies_timeout_and_rejection(
     assert evidence["terminal"]["acceptance_known"] is (expected == "rejected")
     assert [event["event_type"] for event in events] == ["prepared", "discarded"]
     assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_server_model_preflight_is_recorded_after_lifecycle_begin(
