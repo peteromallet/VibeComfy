@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -67,6 +68,14 @@ def _patch_fast_runtime_run(monkeypatch):
     monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
     monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
     monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: object())
+
+
+def _terminal_events(tmp_path: Path, record):
+    run_dir = next(path for path in (tmp_path / "out/runs").iterdir() if path.is_dir())
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    return attempt, events
 
 
 def test_embedded_session_reuses_single_comfy_context(
@@ -215,6 +224,129 @@ def test_embedded_session_malformed_result_fails_before_metadata(
         asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
 
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+@pytest.mark.parametrize("failure", [asyncio.TimeoutError("queue timeout"), QueueError("queue rejected")])
+def test_embedded_queue_failure_classifies_timeout_and_rejection(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+
+    async def failing_queue(_self, _api_dict):
+        raise failure
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", failing_queue)
+    with pytest.raises((TimeoutError, QueueError)):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    expected = "unknown" if isinstance(failure, asyncio.TimeoutError) else "rejected"
+    assert attempt["queue_acceptance"]["status"] == expected
+    assert evidence["queue_acceptance"]["status"] == expected
+    assert evidence["terminal"]["acceptance_known"] is (expected == "rejected")
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+
+
+def test_embedded_acceptance_witness_failure_discards_without_retry(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    real_persist = session_module._persist_runtime_evidence
+    calls = 0
+
+    def fail_witness(run_dir, attempt_bundle, evidence):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("witness disk full")
+        return real_persist(run_dir, attempt_bundle, evidence)
+
+    monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_witness)
+    with pytest.raises(QueueError, match="acceptance could not be recorded"):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len(fake_comfy.instances[0].queue_calls) == 1
+    assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": "prompt-1"}
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert events[-1]["event_type"] == "discarded"
+
+
+def test_embedded_cancel_during_queue_persists_unknown_superseded(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_queue(*_args):
+        entered.set()
+        await release.wait()
+        return {"prompt_id": "never-reached", "outputs": []}
+
+    monkeypatch.setattr(session_module, "queue_embedded_prompt", blocked_queue)
+
+    async def run_case() -> None:
+        task = asyncio.create_task(EmbeddedSession().run(record, bundle))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run_case())
+    _attempt, events = _terminal_events(tmp_path, record)
+    assert events[-1]["event_type"] == "superseded"
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
+    assert evidence["terminal"]["acceptance_known"] is False
+
+
+@pytest.mark.parametrize("interruption", [asyncio.CancelledError(), KeyboardInterrupt()])
+def test_embedded_interrupt_after_witness_is_durable_and_not_retried(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interruption: BaseException
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+
+    def interrupt_decode(*_args, **_kwargs):
+        raise interruption
+
+    monkeypatch.setattr(session_module, "_decode_terminal_result", interrupt_decode)
+    with pytest.raises(type(interruption)):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len(fake_comfy.instances[0].queue_calls) == 1
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "superseded"
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"]["status"] == "accepted"
+
+
+def test_embedded_metadata_failure_is_discarded_after_accepted_witness(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    real_atomic = session_module.atomic_write_json
+
+    def fail_metadata(path, value):
+        if Path(path).name == "metadata.json":
+            raise OSError("metadata disk full")
+        return real_atomic(path, value)
+
+    monkeypatch.setattr(session_module, "atomic_write_json", fail_metadata)
+    with pytest.raises(QueueError, match="metadata could not be persisted"):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    _attempt, events = _terminal_events(tmp_path, record)
+    assert len(fake_comfy.instances[0].queue_calls) == 1
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"]["status"] == "accepted"
 
 
 def test_embedded_session_flush_invokes_clear_cache(

@@ -121,8 +121,6 @@ def build_attempt_bundle(
     drift: dict[str, Any] = _collect_drift_for_bundle(workflow)
 
     result = {
-        "approved_projection": approved,
-        "approval_record": approved,
         "adapter": {
             "kind": adapter_kind,
             "backend": backend,
@@ -152,9 +150,6 @@ def write_attempt_json(
 ) -> Path:
     """Atomically write *bundle* to ``<run_dir>/attempt.json``."""
     return atomic_write_json(run_dir / "attempt.json", bundle)
-
-
-# -- helpers ------------------------------------------------------------------
 
 
 def _build_model_manifest(
@@ -307,8 +302,6 @@ def build_shared_fields(
     """
     evidence = build_attempt_bundle(bundle, record, backend="api", config=config)
     return {
-        "approved_projection": evidence["approved_projection"],
-        "approval_record": evidence["approval_record"],
         "compiled_prompt": evidence["compiled_prompt"],
         "id_map": evidence["id_map"],
         "node_lookups": evidence["node_lookups"],

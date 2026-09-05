@@ -75,6 +75,14 @@ def _successful_history(prompt_id: str, outputs: object) -> dict:
     }
 
 
+def _runtime_events(tmp_path: Path, record):
+    run_dir = next(path for path in (tmp_path / "out/runs").iterdir() if path.is_dir())
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    return run_dir, attempt, events
+
+
 def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     entered_server = False
 
@@ -177,6 +185,147 @@ def test_run_surfaces_queue_failure(monkeypatch: pytest.MonkeyPatch, tmp_path) -
     assert "id_map=" in message
     assert "'save': '1'" in message
     assert "'7': '1'" in message
+
+
+def test_one_shot_raw_queue_timeout_is_unknown_and_not_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    calls = 0
+    async def timeout_queue(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise asyncio.TimeoutError("queue timeout")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "queue_server_prompt", timeout_queue)
+    record, bundle = _approved(_workflow())
+    with pytest.raises(TimeoutError):
+        asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert calls == 1
+    assert attempt["queue_acceptance"]["status"] == "unknown"
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"]["status"] == "unknown"
+    assert evidence["terminal"]["acceptance_known"] is False
+
+
+def test_one_shot_acceptance_witness_failure_is_nonretryable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "one-shot-witness"}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    real_persist = session_module._persist_runtime_evidence
+    calls = 0
+    def fail_witness(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("witness disk full")
+        return real_persist(*args, **kwargs)
+    monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_witness)
+    record, bundle = _approved(_workflow())
+    with pytest.raises(QueueError, match="acceptance could not be recorded"):
+        asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert attempt["queue_acceptance"]["status"] == "unknown"
+    assert attempt["queue_acceptance"]["prompt_id"] == "one-shot-witness"
+    assert events[-1]["event_type"] == "discarded"
+
+
+def test_one_shot_external_loaded_schema_provenance_is_retained(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "external-schema"}
+
+    async def loaded_prepare(record, bundle, *, backend, schema_provider, on_unavailable):
+        return session_module.PreparedPrompt(
+            record.to_dict()["api_projection"],
+            schema_provenance={"provider": "external", "schema_digest": "loaded-digest"},
+        )
+
+    async def history(_url: str, prompt_id: str | None, config=None):
+        return _successful_history(prompt_id or "", {})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: object())
+    monkeypatch.setattr(runtime_run_module, "_prepare_prompt_async", loaded_prepare)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", history)
+    record, bundle = _approved(_workflow())
+    result = asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    for evidence in (attempt["runtime_evidence"], events[-1]["receipt"]["runtime_evidence"], metadata["runtime_evidence"]):
+        assert evidence["adapter"]["kind"] == "external"
+        assert evidence["schema_provenance"]["schema_digest"] == "loaded-digest"
+
+
+def test_runtime_terminal_recovery_reads_known_append_only_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "recoverable"}
+
+    async def history(_url: str, prompt_id: str | None, config=None):
+        return _successful_history(prompt_id or "", {})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", history)
+    record, bundle = _approved(_workflow())
+    result = asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    run_dir, _attempt, _events = _runtime_events(tmp_path, record)
+    txn_dir = run_dir / "transactions" / record.api_digest
+    (run_dir / "attempt.json").unlink()
+    for name in ("prepared.json", "finalized.json"):
+        path = txn_dir / name
+        if path.exists():
+            path.unlink()
+    from vibecomfy.comfy_nodes.agent import _artifact_store as S
+    recovered = S.read_transaction_lifecycle(txn_dir)
+    assert recovered[-1]["event_type"] == "finalized"
+    assert recovered[-1]["generation"] == recovered[0]["generation"]
+    evidence = recovered[-1]["receipt"]["runtime_evidence"]
+    assert evidence["api_digest"] == record.api_digest
+    assert evidence["adapter"]["kind"] == "external"
+    assert evidence["terminal"]["phase"] == "completed"
+    assert result.prompt_id == "recoverable"
 
 
 @pytest.mark.parametrize("failure", ["attempt", "journal"])
@@ -441,8 +590,9 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
 
     assert result.outputs == [str(output_dir / "Wanimate_00001_.mp4")]
     metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
-    assert metadata["approval_record"] == record.to_dict()
-    assert metadata["approved_projection"] == record.to_dict()
+    assert metadata["runtime_evidence"]["approved_projection"] == record.to_dict()
+    assert "approval_record" not in metadata
+    assert "approved_projection" not in metadata
     assert metadata["api_digest"] == record.api_digest
     assert metadata["adapter"] == {
         "kind": "embedded",
@@ -1429,8 +1579,9 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
 
     attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
     attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
-    assert attempt["approval_record"] == record.to_dict()
-    assert attempt["approved_projection"] == record.to_dict()
+    assert attempt["runtime_evidence"]["approved_projection"] == record.to_dict()
+    assert "approval_record" not in attempt
+    assert "approved_projection" not in attempt
     assert attempt["adapter"]["kind"] == "managed"
     assert attempt["adapter"]["backend"] == "api"
     assert attempt["schema_provenance"]["provider"] is None

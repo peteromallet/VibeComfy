@@ -14,9 +14,8 @@ from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, 
 
 from .attempt import build_attempt_bundle, write_attempt_json
 from .client import ComfyClient
-from .execution import normalize_prompt_id, queue_server_prompt
+from .execution import queue_server_prompt
 from .drift import enforce_strict_drift
-from vibecomfy.utils import atomic_write_json
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
 from .server import comfy_server
 from .session import (
@@ -30,11 +29,11 @@ from .session import (
     _outputs_from_server_history,
     _prepare_prompt_async,
     _begin_runtime_lifecycle,
-    _journal_terminal,
+    _commit_queue_witness,
+    _complete_runtime_run,
     _persist_runtime_evidence,
     _persist_runtime_failure,
     _runtime_evidence,
-    _runtime_failure_evidence,
     _run_metadata,
     _schema_provider_provenance,
     _schema_warn_only,
@@ -97,11 +96,9 @@ async def run(
         )
         schema_provenance = _schema_provider_provenance(None)
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
-        provider = None
         warned = {"emitted": False}
         phase = "schema"
-        queue_started = False
-        terminal_event_written = False
+        failure_exc: BaseException | None = None
 
         def on_unavailable(msg: str) -> None:
             if warned["emitted"] and "schema validation skipped for class types" not in msg:
@@ -146,79 +143,24 @@ async def run(
             if resolved_strict:
                 enforce_strict_drift(workflow)
             phase = "queue"
-            queue_started = True
             try:
-                queued_execution = await queue_server_prompt(
-                    record,
-                    bundle,
-                    client=ComfyClient(active_url),
-                )
-                queued = queued_execution.queued
-            except asyncio.CancelledError:
+                queued = (
+                    await queue_server_prompt(record, bundle, client=ComfyClient(active_url))
+                ).queued
+            except asyncio.TimeoutError:
                 raise
-            except asyncio.TimeoutError as exc:
-                raise QueueError(
-                    _workflow_queue_failure_message(workflow, exc),
-                    next_action="vibecomfy runtime doctor",
-                ) from exc
             except Exception as exc:
                 raise QueueError(
-                    _workflow_queue_failure_message(workflow, exc),
-                    next_action="vibecomfy runtime doctor",
+                    _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
                 ) from exc
-            prompt_id = normalize_prompt_id(queued)
-            if prompt_id is not None and not prompt_id.strip():
-                prompt_id = None
-            prompt_id_is_usable = bool(prompt_id and prompt_id.strip())
-            queue_acceptance = {
-                "status": "accepted" if prompt_id_is_usable else "unknown",
-                "prompt_id": prompt_id,
-            }
             phase = "acceptance_witness"
-            evidence = _runtime_evidence(
-                record,
-                adapter_kind=adapter_kind,
-                backend=backend,
-                endpoint=active_url,
-                schema_provenance=schema_provenance,
-                queue_acceptance=queue_acceptance,
-                terminal={
-                    "phase": "accepted" if prompt_id_is_usable else "ambiguous",
-                    "reason_type": "none" if prompt_id_is_usable else "missing_prompt_id",
-                    "reason": None if prompt_id_is_usable else "queue response did not include a usable prompt_id",
-                    "acceptance_known": prompt_id_is_usable,
-                },
+            prompt_id = _commit_queue_witness(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind=adapter_kind, backend=backend, endpoint=active_url,
+                schema_provenance=schema_provenance, queued=queued,
             )
-            try:
-                _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
-            except Exception as exc:
-                unknown = _runtime_failure_evidence(
-                    record,
-                    adapter_kind=adapter_kind,
-                    backend=backend,
-                    endpoint=active_url,
-                    schema_provenance=schema_provenance,
-                    queue_acceptance={"status": "unknown", "prompt_id": prompt_id},
-                    phase="acceptance_witness",
-                    reason_type="persistence",
-                    reason="acceptance witness persistence failed",
-                )
-                try:
-                    _journal_terminal(
-                        journal_state, run_dir, run_id, record, journal_generation, unknown,
-                        event_type="discarded", reason="acceptance witness persistence failed",
-                    )
-                    terminal_event_written = True
-                finally:
-                    raise QueueError(
-                        "Comfy prompt acceptance could not be recorded durably; the run may be in flight and must not be retried automatically",
-                        next_action="vibecomfy runtime doctor",
-                    ) from exc
-            if not prompt_id_is_usable:
-                raise QueueError(
-                    "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically",
-                    next_action="vibecomfy runtime doctor",
-                )
+            queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
             phase = "history"
             history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
             comfy_outputs = _outputs_from_server_history(history, prompt_id)
@@ -228,15 +170,6 @@ async def run(
                 output_directory=_configured_output_directory(resolved_config),
             )
             phase = "metadata"
-            evidence = _runtime_evidence(
-                record,
-                adapter_kind=adapter_kind,
-                backend=backend,
-                endpoint=active_url,
-                schema_provenance=schema_provenance,
-                queue_acceptance=queue_acceptance,
-                terminal={"phase": "completed", "reason_type": "none", "reason": None, "acceptance_known": True},
-            )
             metadata = _run_metadata(
                 run_id=run_id,
                 bundle=bundle,
@@ -249,16 +182,16 @@ async def run(
                 schema_validation_skipped=schema_validation_skipped,
                 schema_provenance=schema_provenance,
                 adapter_endpoint=active_url,
-                runtime_evidence=evidence,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
-            metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
-            _journal_terminal(
-                journal_state, run_dir, run_id, record, journal_generation, evidence,
-                event_type="finalized",
+            metadata_path = _complete_runtime_run(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind=adapter_kind, backend=backend, endpoint=active_url,
+                schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
+                metadata=metadata,
             )
-            terminal_event_written = True
             return RunResult(
                 run_id=run_id,
                 prompt_id=prompt_id,
@@ -267,62 +200,23 @@ async def run(
                 log_path=str(log_path),
             )
         except asyncio.CancelledError as exc:
-            if terminal_event_written or _terminal_event_already_written(run_dir, record, journal_generation):
-                raise exc
-            if queue_started and queue_acceptance["status"] == "not_attempted":
-                queue_acceptance = {"status": "unknown", "prompt_id": None}
-            cancellation = _runtime_failure_evidence(
-                record,
-                adapter_kind=adapter_kind,
-                backend=backend,
-                endpoint=active_url,
-                schema_provenance=schema_provenance,
-                queue_acceptance=queue_acceptance,
-                phase="cancelled",
-                reason_type="cancelled",
-                reason="runtime task cancelled",
-            )
-            try:
-                _persist_runtime_failure(
-                    run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
-                    run_id=run_id, record=record, generation=journal_generation,
-                    evidence=cancellation, event_type="superseded",
-                )
-            except Exception as persistence_exc:
-                raise QueueError(
-                    "runtime cancellation evidence could not be persisted",
-                    next_action="vibecomfy runtime doctor",
-                ) from persistence_exc
-            raise exc
+            failure_exc, failure_event, failure_interrupted = exc, "superseded", True
+        except KeyboardInterrupt as exc:
+            failure_exc, failure_event, failure_interrupted = exc, "superseded", True
         except Exception as exc:
-            if terminal_event_written or _terminal_event_already_written(run_dir, record, journal_generation):
-                raise
-            status = queue_acceptance.get("status", "not_attempted")
-            if phase == "queue" and isinstance(exc, QueueError):
-                status = "unknown" if isinstance(exc.__cause__, asyncio.TimeoutError) else "rejected"
-            failure = _runtime_failure_evidence(
-                record,
-                adapter_kind=adapter_kind,
-                backend=backend,
-                endpoint=active_url,
-                schema_provenance=schema_provenance,
-                queue_acceptance={"status": status, "prompt_id": queue_acceptance.get("prompt_id")},
-                phase=phase,
-                reason_type=type(exc).__name__,
-                reason=str(exc),
+            failure_exc, failure_event, failure_interrupted = exc, "discarded", False
+        if failure_exc is not None:
+            if _terminal_event_already_written(run_dir, record, journal_generation):
+                raise failure_exc
+            if phase in {"queue", "acceptance_witness", "history", "output", "metadata"} and queue_acceptance["status"] == "not_attempted":
+                queue_acceptance = {"status": "unknown", "prompt_id": None}
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                event_type=failure_event, original_error=failure_exc, queue_acceptance=queue_acceptance,
+                phase=phase, exc=failure_exc, interrupted=failure_interrupted,
             )
-            try:
-                _persist_runtime_failure(
-                    run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
-                    run_id=run_id, record=record, generation=journal_generation,
-                    evidence=failure,
-                )
-            except Exception as persistence_exc:
-                raise QueueError(
-                    "runtime lifecycle failure evidence could not be persisted",
-                    next_action="vibecomfy runtime doctor",
-                ) from persistence_exc
-            raise
+            raise failure_exc
 
 
 def run_sync(

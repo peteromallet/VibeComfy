@@ -25,6 +25,14 @@ from tests._runtime_session_helpers import (
 )
 
 
+def _terminal_events(tmp_path: Path, record):
+    run_dir = next(path for path in (tmp_path / "out/runs").iterdir() if path.is_dir())
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    return attempt, events
+
+
 def _approved(workflow):
     for node in workflow.nodes.values():
         if not node.uid:
@@ -472,6 +480,65 @@ def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
 
     asyncio.run(run_case())
     assert not any("/history/" in url for url in FakeAsyncClient.gets)
+
+
+@pytest.mark.parametrize("failure", [asyncio.TimeoutError("queue timeout"), QueueError("queue rejected")])
+def test_server_queue_failure_classifies_timeout_and_rejection(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+
+    async def post(self, url: str, json: dict | None = None):
+        FakeAsyncClient.posts.append((url, json))
+        if url.endswith("/prompt"):
+            raise failure
+        return FakeResponse(200, {})
+
+    monkeypatch.setattr(FakeAsyncClient, "post", post)
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises((TimeoutError, QueueError)):
+                await session.run(record, bundle)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    expected = "unknown" if isinstance(failure, asyncio.TimeoutError) else "rejected"
+    assert attempt["queue_acceptance"]["status"] == expected
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"]["status"] == expected
+    assert evidence["terminal"]["acceptance_known"] is (expected == "rejected")
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+
+
+def test_server_model_preflight_is_recorded_after_lifecycle_begin(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    monkeypatch.setattr(
+        session_module, "apply_model_preflight", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("managed preflight failed")
+        )
+    )
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(RuntimeError, match="managed preflight failed"):
+                await session.run(record, bundle, ensure_models=True)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert attempt["queue_acceptance"] == {"status": "not_attempted", "prompt_id": None}
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["phase"] == "preflight"
+    assert not any(url.endswith("/prompt") for url, _payload in FakeAsyncClient.posts)
 
 
 def test_terminal_error_evidence_is_bounded() -> None:
