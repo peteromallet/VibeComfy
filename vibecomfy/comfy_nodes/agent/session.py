@@ -3152,6 +3152,7 @@ def finalize_turn_transaction(
             "candidate_transaction": finalized_transaction,
             "canvas_verified_receipt": verified_event,
             "receipt": event,
+            "approved_record_canonical": _approval_record.to_canonical_bytes().decode("utf-8"),
         }
 
 

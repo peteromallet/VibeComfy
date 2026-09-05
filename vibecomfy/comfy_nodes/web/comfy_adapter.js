@@ -2353,7 +2353,17 @@ export function detectQueueGuard(app) {
       path: "app.queuePrompt",
     };
   }
-  if (typeof app.queuePrompt !== "function") {
+  let queuePrompt;
+  try {
+    queuePrompt = app.queuePrompt;
+  } catch (error) {
+    return {
+      available: false,
+      detail: `app.queuePrompt could not be read: ${error?.message || String(error)}`,
+      path: "app.queuePrompt",
+    };
+  }
+  if (typeof queuePrompt !== "function") {
     return {
       available: false,
       detail: "app.queuePrompt is not a function (queue guard unavailable).",
@@ -2368,24 +2378,19 @@ export function detectQueueGuard(app) {
 }
 
 /**
- * Install a queue guard wrapper on app.queuePrompt using an adapter-owned
- * strategy. The wrapper calls through to the original unless the caller-supplied
- * `shouldBlock` callback returns a truthy block-info object, in which case the
- * wrapper returns null and delegates to the `onBlock` callback.
+ * Install the one supported VibeComfy queue boundary.
  *
- * When app.queuePrompt is not a function the returned report records the
- * degraded state; the caller is responsible for surfacing the missing-hook
- * fallback warning in the panel.
+ * `app.queuePrompt` is only an interception boundary.  The captured native
+ * function is deliberately never called: an approved record is validated and
+ * submitted through the imported lower-level API by `queueApproved`.
  *
  * @param {object} app — the ComfyUI app global (or mock)
  * @param {object} [options]
- * @param {() => object|null} [options.shouldBlock] — return block-info when the
- *   current turn context should prevent queueing, or null to allow pass-through.
- * @param {(blockInfo: object) => void} [options.onBlock] — called when a queue
- *   prompt is blocked so the caller can record block notices and update the panel.
- * @param {(args: any[]) => void} [options.normalize] — called before the
- *   original queuePrompt with the same arguments so the caller can normalize
- *   exec-node typed IO in the serialized graph before it hits the backend.
+ * @param {() => object|null} [options.shouldBlock] — legacy/context gate.
+ * @param {(blockInfo: object) => void} [options.onBlock] — called for every
+ *   fail-closed diagnostic.
+ * @param {(...args: any[]) => any} [options.queueApproved] — validate the
+ *   stored immutable record and call api.queuePrompt.
  * @returns {{
  *   capability: Capability,
  *   strategy: string,
@@ -2410,44 +2415,86 @@ export function installQueueGuard(app, options = {}) {
     };
   }
 
-  const existingInstall = app?.__vibecomfyQueueGuardInstall;
+  let existingInstall = null;
+  try {
+    existingInstall = app?.__vibecomfyQueueGuardInstall;
+  } catch (_error) {
+    existingInstall = null;
+  }
   if (existingInstall?.installed && typeof existingInstall.wrapper === "function") {
-    return existingInstall;
+    try {
+      if (app.queuePrompt === existingInstall.wrapper) return existingInstall;
+    } catch (_error) {
+      // Fall through to an unavailable report below.
+    }
   }
 
-  const original = app.queuePrompt;
+  let original;
+  try {
+    original = app.queuePrompt;
+  } catch (error) {
+    return {
+      capability: { available: false, detail: `app.queuePrompt could not be read: ${error?.message || String(error)}`, path: "app.queuePrompt" },
+      strategy: "unavailable",
+      installed: false,
+      path: "app.queuePrompt",
+      original: null,
+      wrapper: null,
+      cleanup() {},
+    };
+  }
   const shouldBlock = typeof options.shouldBlock === "function" ? options.shouldBlock : null;
   const onBlock = typeof options.onBlock === "function" ? options.onBlock : null;
-  const normalize = typeof options.normalize === "function" ? options.normalize : null;
+  const queueApproved = typeof options.queueApproved === "function" ? options.queueApproved : null;
 
   const wrapper = function guardedQueuePrompt(...args) {
+    let currentHook;
+    try {
+      currentHook = app.queuePrompt;
+    } catch (error) {
+      const blockInfo = {
+        code: "queue_hook_unverifiable",
+        message: `VibeComfy queue hook could not be verified: ${error?.message || String(error)}`,
+      };
+      if (onBlock) onBlock(blockInfo);
+      return null;
+    }
+    if (currentHook !== wrapper) {
+      const blockInfo = {
+        code: "queue_hook_replaced",
+        message: "VibeComfy queue hook was replaced and cannot be verified.",
+      };
+      if (onBlock) onBlock(blockInfo);
+      return null;
+    }
     if (shouldBlock) {
       const blockInfo = shouldBlock();
       if (blockInfo) {
-        if (onBlock) {
-          try {
-            onBlock(blockInfo);
-          } catch (_err) {
-            // Best-effort: block notice recording is advisory.
-          }
-        }
+        if (onBlock) onBlock(blockInfo);
         return null;
       }
     }
-    if (normalize) {
-      try {
-        normalize(...args);
-      } catch (_err) {
-        // Best-effort: normalization failures must not block queueing.
-      }
+    if (!queueApproved) {
+      const blockInfo = {
+        code: "approved_queue_unavailable",
+        message: "VibeComfy approved queue adapter is unavailable.",
+      };
+      if (onBlock) onBlock(blockInfo);
+      return null;
     }
-    return original.apply(this, args);
+    return queueApproved(...args);
   };
 
   // Safe-install: verify the property is writable before replacing.
   try {
     app.queuePrompt = wrapper;
+    if (app.queuePrompt !== wrapper) {
+      throw new TypeError("app.queuePrompt assignment could not be verified");
+    }
     app.queuePrompt = original;
+    if (app.queuePrompt !== original) {
+      throw new TypeError("app.queuePrompt restoration could not be verified");
+    }
   } catch (_error) {
     // Property is not writable; return degraded.
     return {
@@ -2465,7 +2512,26 @@ export function installQueueGuard(app, options = {}) {
     };
   }
 
-  app.queuePrompt = wrapper;
+  try {
+    app.queuePrompt = wrapper;
+    if (app.queuePrompt !== wrapper) {
+      throw new TypeError("app.queuePrompt installation could not be verified");
+    }
+  } catch (_error) {
+    return {
+      capability: {
+        available: false,
+        detail: `app.queuePrompt installation could not be verified: ${_error?.message || String(_error)}`,
+        path: "app.queuePrompt",
+      },
+      strategy: "unavailable",
+      installed: false,
+      path: "app.queuePrompt",
+      original,
+      wrapper: null,
+      cleanup() {},
+    };
+  }
 
   const cleanup = () => {
     if (app.queuePrompt === wrapper) {

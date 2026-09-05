@@ -556,6 +556,7 @@ export async function createBrowserHarness({
   graph,
   responses = {},
   withQueuePrompt = true,
+  withApiQueuePrompt = true,
   withGraphMutation = false,
   enableVibeComfySidebarTab = true,
   workflowId = "123e4567-e89b-12d3-a456-426614174000",
@@ -575,6 +576,9 @@ export async function createBrowserHarness({
   const graphDirtyCanvasCalls = [];
   const canvasDrawCalls = [];
   const queuePromptCalls = [];
+  const apiQueuePromptCalls = [];
+  const interruptCalls = [];
+  const deleteItemCalls = [];
   const serializeCalls = [];
   const toasts = [];
   const registeredExtensions = [];
@@ -1213,6 +1217,20 @@ export async function createBrowserHarness({
       apiEventListeners[event] = listeners.filter((entry) => entry !== listener);
     },
   };
+  if (withApiQueuePrompt) {
+    mockApi.queuePrompt = (number = 0, payload = {}) => {
+      apiQueuePromptCalls.push([number, clone(payload)]);
+      return { prompt_id: `prompt-${apiQueuePromptCalls.length}` };
+    };
+  }
+  mockApi.interrupt = (...args) => {
+    interruptCalls.push(args.map((entry) => clone(entry)));
+    throw new Error("interrupt transport is not part of the approved T19 browser contract");
+  };
+  mockApi.deleteItem = (...args) => {
+    deleteItemCalls.push(args.map((entry) => clone(entry)));
+    throw new Error("deleteItem transport is not part of the approved T19 browser contract");
+  };
 
   function dispatchApiEvent(event, data) {
     const listeners = apiEventListeners[event] || [];
@@ -1392,6 +1410,42 @@ export async function createBrowserHarness({
     graphDirtyCanvasCalls,
     canvasDrawCalls,
     queuePromptCalls,
+    apiQueuePromptCalls,
+    interruptCalls,
+    deleteItemCalls,
+    setQueuePromptHookFault(mode) {
+      if (mode === "missing") {
+        delete app.queuePrompt;
+        return;
+      }
+      if (mode === "replaced") {
+        app.queuePrompt = (...args) => {
+          queuePromptCalls.push(args);
+          return { replaced: true };
+        };
+        return;
+      }
+      if (mode === "unwritable") {
+        Object.defineProperty(app, "queuePrompt", {
+          configurable: true,
+          enumerable: true,
+          writable: false,
+          value: app.queuePrompt,
+        });
+        return;
+      }
+      if (mode === "normal") {
+        Object.defineProperty(app, "queuePrompt", {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: (...args) => {
+            queuePromptCalls.push(args);
+            return { queued: true, args: clone(args) };
+          },
+        });
+      }
+    },
     serializeCalls,
     toasts,
     registeredExtensions,

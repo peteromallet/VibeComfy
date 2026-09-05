@@ -18,6 +18,10 @@ function createAgentPanelRuntimeState() {
     queueGuardFallbackWarning: null,
     queueGuardFallbackWarned: false,
     queueGuardBlockNotice: null,
+    queueGuardInvalidationGeneration: 0,
+    queuePromptLifecycleListenersInstalled: false,
+    queuePromptLifecycleListeners: [],
+    queuePromptLifecycleApi: null,
     queueGuardBlockedTurnKeys: new Set(),
     _previewForegroundInstallReport: null,
     _adapterCapabilities: null,
@@ -45,6 +49,7 @@ function createAgentPanelRuntimeState() {
     // when the user returns to that scope.  Cleared per-scope on new
     // conversation.
     _scopeQueueGuardContexts: new Map(),
+    _scopeApprovedRecords: new Map(),
   };
 }
 
@@ -74,12 +79,15 @@ function backfillRuntimeShape(runtime) {
   if (!(runtime._scopeQueueGuardContexts instanceof Map)) {
     runtime._scopeQueueGuardContexts = new Map();
   }
+  if (!(runtime._scopeApprovedRecords instanceof Map)) {
+    runtime._scopeApprovedRecords = new Map();
+  }
   const defaults = createAgentPanelRuntimeState();
   for (const [key, value] of Object.entries(defaults)) {
     if (!Object.prototype.hasOwnProperty.call(runtime, key) || runtime[key] === undefined) {
       if (key === "queueGuardBlockedTurnKeys") {
         runtime[key] = new Set();
-      } else if (key === "_scopeSnapshots" || key === "_scopeDrafts" || key === "_scopeQueueGuardContexts") {
+      } else if (key === "_scopeSnapshots" || key === "_scopeDrafts" || key === "_scopeQueueGuardContexts" || key === "_scopeApprovedRecords") {
         runtime[key] = new Map();
       } else {
         runtime[key] = Array.isArray(value) ? [] : value;
@@ -400,4 +408,50 @@ export function forgetScopeQueueGuardContext(scopeId) {
   }
   const runtime = getAgentPanelRuntime();
   runtime._scopeQueueGuardContexts.delete(scopeId);
+}
+
+export function saveScopeApprovedRecord(scopeId, record) {
+  if (!scopeId) return;
+  const runtime = getAgentPanelRuntime();
+  if (record === null || record === undefined) {
+    runtime._scopeApprovedRecords.delete(scopeId);
+    return;
+  }
+  if (typeof record !== "object" || typeof record.canonical !== "string") {
+    throw new TypeError("approved record scope state requires a canonical string");
+  }
+  const detached = Object.freeze({
+    canonical: record.canonical,
+    revisionId: record.revisionId ?? null,
+    parentRevision: record.parentRevision ?? null,
+    sessionId: record.sessionId ?? null,
+    turnId: record.turnId ?? null,
+    transactionRevision: record.transactionRevision ?? null,
+    transactionParentRevision: record.transactionParentRevision ?? null,
+    apiDigest: record.apiDigest ?? null,
+    recordDigest: record.recordDigest ?? null,
+    scopeActivation: record.scopeActivation ?? null,
+    approvalIdentity: record.approvalIdentity ?? null,
+    invalidationGeneration: record.invalidationGeneration ?? runtime.queueGuardInvalidationGeneration,
+  });
+  runtime._scopeApprovedRecords.set(scopeId, detached);
+}
+
+export function getScopeApprovedRecord(scopeId) {
+  if (!scopeId) return null;
+  const record = getAgentPanelRuntime()._scopeApprovedRecords.get(scopeId);
+  return record && typeof record === "object" ? Object.freeze({ ...record }) : null;
+}
+
+export function forgetScopeApprovedRecord(scopeId) {
+  if (!scopeId) return;
+  getAgentPanelRuntime()._scopeApprovedRecords.delete(scopeId);
+}
+
+export function advanceQueueGuardInvalidationGeneration() {
+  const runtime = getAgentPanelRuntime();
+  runtime.queueGuardInvalidationGeneration = (Number.isSafeInteger(runtime.queueGuardInvalidationGeneration)
+    ? runtime.queueGuardInvalidationGeneration
+    : 0) + 1;
+  return runtime.queueGuardInvalidationGeneration;
 }

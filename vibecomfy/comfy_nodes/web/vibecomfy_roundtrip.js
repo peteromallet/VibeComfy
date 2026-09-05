@@ -13,6 +13,10 @@ import {
   saveScopeQueueGuardContext,
   getScopeQueueGuardContext,
   forgetScopeQueueGuardContext,
+  saveScopeApprovedRecord,
+  getScopeApprovedRecord,
+  forgetScopeApprovedRecord,
+  advanceQueueGuardInvalidationGeneration,
 } from "./panel_runtime.js";
 import {
   consumeAgentPanelDirtySections,
@@ -141,6 +145,7 @@ import {
 } from "./agent_edit_transaction.js";
 import {
   canonicalSessionJsonString,
+  sha256HexFromString,
 } from "./canonical_hash.js";
 import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
 import {
@@ -689,7 +694,7 @@ const applyFlow = createApplyFlow({
   clonePlainData,
   commitFinalizeFailure,
   commitFinalizeStarted,
-  commitFinalizeSuccess,
+  commitFinalizeSuccess: commitFinalizeSuccessAndPublishRecord,
   commitPrepareFailure,
   commitPrepareStarted,
   commitPrepareSuccess,
@@ -2219,6 +2224,7 @@ export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
 let graphLoadScopeSwitchSuppressionDepth = 0;
 
 function loadGraphDataWithoutScopeSwitch(graph, ...args) {
+  invalidateApprovedRecord(_activeScopeId());
   graphLoadScopeSwitchSuppressionDepth += 1;
   const finish = () => {
     graphLoadScopeSwitchSuppressionDepth = Math.max(0, graphLoadScopeSwitchSuppressionDepth - 1);
@@ -2256,6 +2262,7 @@ function syncPanelScopeAfterGraphLoad() {
     // The Comfy workflow UUID owns conversation identity. Loading a changed
     // graph into that same workflow advances revision/precondition evidence;
     // it must not run the destructive workflow-switch transition.
+    invalidateApprovedRecord(scopeId);
     transition(panel, "SCOPE_REVISION", {
       scopeId,
       fingerprint,
@@ -7381,19 +7388,478 @@ function setQueueGuardContext(nextContext) {
   }
 }
 
-function warnQueueGuardFallbackOnce(reason) {
+function invalidateApprovedRecord(scopeId = _activeScopeId()) {
   const runtime = getAgentPanelRuntime();
-  if (runtime.queueGuardFallbackWarned) {
+  const resolvedScopeId = scopeId || null;
+  if (resolvedScopeId) {
+    forgetScopeApprovedRecord(resolvedScopeId);
+  }
+  if (!resolvedScopeId || runtime.queueGuardContext?.scopeId === resolvedScopeId) {
+    runtime.queueGuardContext = null;
+  }
+  const generation = advanceQueueGuardInvalidationGeneration();
+  const panel = currentAgentPanel();
+  if (panel) {
+    panel.state.queueGuard = getQueueGuardStateForPanel();
+  }
+  return generation;
+}
+
+function queueGuardFailure(code, message, detail = {}) {
+  return { code, message, detail };
+}
+
+function isQueueRecordObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertQueueJsonNumbers(value, path = "record") {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) {
+      throw new Error(`${path} contains a non-finite or unsafe integer`);
+    }
     return;
   }
-  runtime.queueGuardFallbackWarned = true;
-  console.warn(`VibeComfy: queue guard fallback active (${reason})`);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertQueueJsonNumbers(entry, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, entry]) => assertQueueJsonNumbers(entry, `${path}.${key}`));
+  }
+}
+
+function queueAttemptStillCurrent(attempt) {
+  const runtime = getAgentPanelRuntime();
+  const active = runtime.queueGuardContext;
+  const recordState = getScopeApprovedRecord(attempt.scopeId);
+  let hookIsCurrent = false;
+  try {
+    hookIsCurrent = app.queuePrompt === attempt.wrapper;
+  } catch (_error) {
+    hookIsCurrent = false;
+  }
+  return Boolean(
+    active
+    && active === attempt.context
+    && active.scopeId === attempt.scopeId
+    && active.scopeActivation === attempt.scopeActivation
+    && active.sessionId === attempt.sessionId
+    && active.turnId === attempt.turnId
+    && active.transactionRevision === attempt.transactionRevision
+    && active.transactionParentRevision === attempt.transactionParentRevision
+    && runtime.queueGuardInvalidationGeneration === attempt.invalidationGeneration
+    && recordState
+    && recordState.revisionId === active.revisionId
+    && recordState.parentRevision === active.parentRevision
+    && recordState.transactionRevision === active.transactionRevision
+    && recordState.transactionParentRevision === active.transactionParentRevision
+    && recordState.sessionId === active.sessionId
+    && recordState.turnId === active.turnId
+    && recordState.approvalIdentity === attempt.approvalIdentity
+    && hookIsCurrent
+    && runtime.queueGuardHook?.wrapper === attempt.wrapper
+  );
+}
+
+function queueValidationFailure(context, code, message, detail = {}, onFailure = null) {
+  const failure = queueGuardFailure(code, message, detail);
+  if (typeof onFailure === "function") onFailure(failure);
+  else context?.onFailure?.(failure);
+  return null;
+}
+
+function validateApprovedRecordAndQueue(failureContext = {}) {
+  const runtime = getAgentPanelRuntime();
+  const context = runtime.queueGuardContext;
+  const scopeId = _activeScopeId();
+  const recordState = getScopeApprovedRecord(scopeId);
+  const wrapper = runtime.queueGuardHook?.wrapper;
+  const attempt = {
+    context,
+    scopeId,
+    scopeActivation: context?.scopeActivation ?? null,
+    sessionId: context?.sessionId ?? null,
+    turnId: context?.turnId ?? null,
+    transactionRevision: context?.transactionRevision ?? null,
+    transactionParentRevision: context?.transactionParentRevision ?? null,
+    invalidationGeneration: runtime.queueGuardInvalidationGeneration,
+    approvalIdentity: recordState?.approvalIdentity ?? null,
+    wrapper,
+  };
+  const fail = (code, message, detail = {}) => queueValidationFailure(context, code, message, detail, failureContext.onFailure);
+  if (!context || context.queueAllowed === false || !scopeId || !recordState || typeof recordState.canonical !== "string" || !recordState.canonical) {
+    return fail("missing_approved_record", "No approved canonical record is available for queueing.");
+  }
+  if (!wrapper || app.queuePrompt !== wrapper) {
+    return fail("queue_hook_unverifiable", "VibeComfy queue hook is missing or was replaced.");
+  }
+  let record;
+  try {
+    record = JSON.parse(recordState.canonical);
+    assertQueueJsonNumbers(record);
+  } catch (error) {
+    return fail("malformed_approved_record", "The approved canonical record is malformed or contains unsupported numbers.", { error: String(error) });
+  }
+  const keys = Object.keys(record || {}).sort();
+  if (!isQueueRecordObject(record) || keys.join("\0") !== [
+    "api_digest", "api_projection", "input_binding", "revision_id", "selected_variant", "ui_projection",
+  ].join("\0")) {
+    return fail("approved_record_schema", "The approved record does not have the exact six-field schema.");
+  }
+  if (
+    typeof record.revision_id !== "string" || !record.revision_id
+    || (record.selected_variant !== null && typeof record.selected_variant !== "string")
+    || !isQueueRecordObject(record.input_binding)
+    || !isQueueRecordObject(record.api_projection)
+    || !isQueueRecordObject(record.ui_projection)
+    || typeof record.api_digest !== "string" || !record.api_digest
+  ) {
+    return fail("approved_record_types", "The approved record contains invalid field types.");
+  }
+  const exactRecordDigest = sha256HexFromString(recordState.canonical);
+  const receipt = context.receipt;
+  if (
+    recordState.revisionId !== record.revision_id
+    || context.revisionId !== record.revision_id
+    || context.parentRevision !== recordState.parentRevision
+    || context.receiptRevision !== record.revision_id
+    || context.receiptParentRevision !== recordState.parentRevision
+    || recordState.recordDigest !== exactRecordDigest
+    || receipt?.record_digest !== exactRecordDigest
+    || recordState.apiDigest !== record.api_digest
+    || receipt?.api_digest !== record.api_digest
+  ) {
+    return fail("approved_record_digest_mismatch", "The approved record digest does not match finalize metadata.");
+  }
+  if (context.inputBinding !== undefined
+    && canonicalSessionJsonString(context.inputBinding) !== canonicalSessionJsonString(record.input_binding)) {
+    return fail("input_binding_mismatch", "The approved record input binding does not match finalize metadata.");
+  }
+  const runAfterValidation = () => {
+    if (!queueAttemptStillCurrent(attempt)) {
+      return fail("queue_attempt_stale", "Approved queue attempt became stale before transport.");
+    }
+    if (typeof api?.queuePrompt !== "function") {
+      return fail("api_queue_unavailable", "Comfy API queuePrompt is unavailable.");
+    }
+    // `record` was freshly decoded from the immutable canonical bytes. There
+    // is no callback/await between this final identity check and transport.
+    let queued;
+    try {
+      queued = api.queuePrompt(0, {
+        output: record.api_projection,
+        workflow: record.ui_projection,
+      });
+    } catch (error) {
+      const failure = queueGuardFailure("queue_transport_error", "Comfy API queuePrompt failed.", { error: String(error) });
+      failureContext.onFailure?.(failure);
+      throw error;
+    }
+    const acceptQueueResult = (result) => {
+      const promptId = typeof result?.prompt_id === "string" ? result.prompt_id.trim() : "";
+      if (!promptId) {
+        const failure = queueGuardFailure("missing_prompt_id", "Comfy API queuePrompt returned no nonblank prompt_id.");
+        if (queueAttemptStillCurrent(attempt)) failureContext.onFailure?.(failure);
+        throw new Error(failure.message);
+      }
+      const current = getAgentPanelRuntime().queueGuardContext;
+      if (current === attempt.context) {
+        setQueueGuardContext({ ...current, promptId, lifecycleState: "pending" });
+      }
+      return result;
+    };
+    if (queued && typeof queued.then === "function") {
+      return queued.then(acceptQueueResult, (error) => {
+        const failure = queueGuardFailure("queue_transport_error", "Comfy API queuePrompt failed.", { error: String(error) });
+        if (queueAttemptStillCurrent(attempt)) failureContext.onFailure?.(failure);
+        throw error;
+      });
+    }
+    return acceptQueueResult(queued);
+  };
+  if (runtime.queueGuardValidationPause) {
+    const pauseResult = runtime.queueGuardValidationPause({ attempt, record });
+    if (pauseResult && typeof pauseResult.then === "function") {
+      return pauseResult.then(runAfterValidation);
+    }
+  }
+  return runAfterValidation();
+}
+
+function finalizePublishObligation(panel, finalized) {
+  const runtime = getAgentPanelRuntime();
+  const raw = finalized?.raw || finalized || {};
+  const durableReceipt = raw?.receipt || null;
+  const approval = durableReceipt?.receipt?.approval || null;
+  const transaction = raw?.candidate_transaction || raw?.candidateTransaction || finalized?.candidateTransaction || null;
+  const state = runtime.queueGuardContext;
+  const priorRecord = getScopeApprovedRecord(panel?.state?.chatScopeId || _activeScopeId());
+  return {
+    scopeId: panel?.state?.chatScopeId || _activeScopeId(),
+    scopeActivation: panel?.state?.scopeActivationEpoch ?? null,
+    sessionId: panel?.state?.sessionId || raw.session_id || null,
+    turnId: panel?.state?.turnId || raw.turn_id || null,
+    transactionRevision: transaction?.revision_id ?? null,
+    transactionParentRevision: transaction?.parent_revision ?? null,
+    responseRevision: raw.revision_id ?? null,
+    responseParentRevision: raw.parent_revision ?? null,
+    receiptRevision: durableReceipt?.revision_id ?? durableReceipt?.receipt?.revision_id ?? null,
+    receiptParentRevision: durableReceipt?.parent_revision ?? durableReceipt?.receipt?.parent_revision ?? null,
+    approvalRevision: approval?.revision_id ?? null,
+    approvalParentRevision: approval?.parent_revision ?? null,
+    approvalIdentity: approval ? `${approval.revision_id || ""}:${approval.parent_revision || ""}:${approval.api_digest || ""}:${approval.record_digest || ""}` : null,
+    canonical: raw.approved_record_canonical,
+    approval,
+    durableReceipt,
+    priorApprovalIdentity: state?.approvalIdentity ?? null,
+    priorRecord,
+    invalidationGeneration: runtime.queueGuardInvalidationGeneration,
+  };
+}
+
+function publishApprovedRecordFromFinalize(obligation) {
+  const runtime = getAgentPanelRuntime();
+  const panel = currentAgentPanel();
+  if (!obligation || panel?.state?.chatScopeId !== obligation.scopeId
+    || panel?.state?.scopeActivationEpoch !== obligation.scopeActivation
+    || panel?.state?.sessionId !== obligation.sessionId
+    || panel?.state?.turnId !== obligation.turnId
+    || runtime.queueGuardInvalidationGeneration < obligation.invalidationGeneration) {
+    return false;
+  }
+  const canonical = obligation.canonical;
+  const approval = obligation.approval;
+  const identityMatches = [
+    obligation.responseRevision,
+    obligation.receiptRevision,
+    obligation.approvalRevision,
+    obligation.transactionRevision,
+  ].every((value) => typeof value === "string" && value)
+    && [
+      obligation.responseParentRevision,
+      obligation.receiptParentRevision,
+      obligation.approvalParentRevision,
+      obligation.transactionParentRevision,
+    ].every((value) => typeof value === "string")
+    && new Set([
+      obligation.responseRevision,
+      obligation.receiptRevision,
+      obligation.approvalRevision,
+      obligation.transactionRevision,
+    ]).size === 1
+    && new Set([
+      obligation.responseParentRevision,
+      obligation.receiptParentRevision,
+      obligation.approvalParentRevision,
+      obligation.transactionParentRevision,
+    ]).size === 1;
+  if (!identityMatches || !approval) {
+    return false;
+  }
+  if (typeof canonical !== "string" || !canonical) {
+    const prior = obligation.priorRecord;
+    if (!prior || prior.approvalIdentity !== obligation.priorApprovalIdentity
+      || prior.revisionId !== obligation.responseRevision
+      || prior.parentRevision !== obligation.responseParentRevision
+      || prior.sessionId !== obligation.sessionId
+      || prior.turnId !== obligation.turnId
+      || prior.recordDigest !== approval.record_digest
+      || prior.apiDigest !== approval.api_digest) {
+      return false;
+    }
+    saveScopeApprovedRecord(obligation.scopeId, prior);
+    setQueueGuardContext({
+      scopeId: obligation.scopeId,
+      scopeActivation: obligation.scopeActivation,
+      sessionId: obligation.sessionId,
+      turnId: obligation.turnId,
+      queueAllowed: true,
+      revisionId: obligation.responseRevision,
+      parentRevision: obligation.responseParentRevision,
+      receiptRevision: obligation.receiptRevision,
+      receiptParentRevision: obligation.receiptParentRevision,
+      transactionRevision: obligation.transactionRevision,
+      transactionParentRevision: obligation.transactionParentRevision,
+      receipt: approval,
+      approvalIdentity: prior.approvalIdentity,
+    });
+    return true;
+  }
+  const exactDigest = sha256HexFromString(canonical);
+  const state = getScopeApprovedRecord(obligation.scopeId);
+  const metadata = {
+    canonical,
+    revisionId: obligation.responseRevision,
+    parentRevision: obligation.responseParentRevision,
+    sessionId: obligation.sessionId,
+    turnId: obligation.turnId,
+    transactionRevision: obligation.transactionRevision,
+    transactionParentRevision: obligation.transactionParentRevision,
+    apiDigest: approval.api_digest,
+    recordDigest: approval.record_digest,
+    scopeActivation: obligation.scopeActivation,
+    approvalIdentity: obligation.approvalIdentity,
+    invalidationGeneration: runtime.queueGuardInvalidationGeneration,
+  };
+  if (state && state.approvalIdentity === obligation.approvalIdentity && state.recordDigest === exactDigest) {
+    setQueueGuardContext({
+      ...runtime.queueGuardContext,
+      scopeId: obligation.scopeId,
+      queueAllowed: true,
+      revisionId: obligation.responseRevision,
+      parentRevision: obligation.responseParentRevision,
+      receiptRevision: obligation.receiptRevision,
+      receiptParentRevision: obligation.receiptParentRevision,
+    });
+    return true;
+  }
+  if (approval.record_digest !== exactDigest) return false;
+  saveScopeApprovedRecord(obligation.scopeId, metadata);
+  setQueueGuardContext({
+    scopeId: obligation.scopeId,
+    scopeActivation: obligation.scopeActivation,
+    sessionId: obligation.sessionId,
+    turnId: obligation.turnId,
+    queueAllowed: true,
+    revisionId: obligation.responseRevision,
+    parentRevision: obligation.responseParentRevision,
+    receiptRevision: obligation.receiptRevision,
+    receiptParentRevision: obligation.receiptParentRevision,
+    transactionRevision: obligation.transactionRevision,
+    transactionParentRevision: obligation.transactionParentRevision,
+    receipt: approval,
+    approvalIdentity: obligation.approvalIdentity,
+  });
+  return true;
+}
+
+function commitFinalizeSuccessAndPublishRecord(panel, payload = {}) {
+  const finalized = payload.accepted || payload.finalizedReceipt || payload.receipt || {};
+  const publish = finalizePublishObligation(panel, finalized);
+  const obligations = commitFinalizeSuccess(panel, payload);
+  return { ...obligations, t19ApprovedRecordPublish: publish };
+}
+
+function installQueuePromptLifecycleListeners(runtime) {
+  if (runtime.queuePromptLifecycleListenersInstalled && runtime.queuePromptLifecycleApi === api) {
+    return;
+  }
+  if (runtime.queuePromptLifecycleListenersInstalled
+    && runtime.queuePromptLifecycleApi
+    && typeof runtime.queuePromptLifecycleApi.removeEventListener === "function") {
+    for (const [eventName, listener] of runtime.queuePromptLifecycleListeners || []) {
+      runtime.queuePromptLifecycleApi.removeEventListener(eventName, listener);
+    }
+  }
+  runtime.queuePromptLifecycleListenersInstalled = false;
+  runtime.queuePromptLifecycleListeners = [];
+  runtime.queuePromptLifecycleApi = null;
+  if (typeof api?.addEventListener !== "function") {
+    return;
+  }
+  const eventNames = ["execution_start", "execution_cached", "executing", "executed", "progress", "execution_error"];
+  const listeners = [];
+  for (const eventName of eventNames) {
+    const listener = (event) => {
+      const detail = event?.detail && typeof event.detail === "object" ? event.detail : event;
+      const active = runtime.queueGuardContext;
+      const eventPromptId = detail?.prompt_id ?? detail?.data?.prompt_id;
+      if (!active?.promptId || typeof eventPromptId !== "string" || !eventPromptId.trim()
+        || eventPromptId.trim() !== active.promptId) {
+        return;
+      }
+      let lifecycleState = active.lifecycleState || "pending";
+      if (eventName === "execution_start") lifecycleState = "running";
+      if (eventName === "progress") lifecycleState = "running";
+      if (eventName === "execution_error") lifecycleState = "error";
+      if (eventName === "executing") {
+        const endObservation = Object.prototype.hasOwnProperty.call(detail, "node") && detail.node === null;
+        if (active.operationUnsupported) {
+          lifecycleState = active.lifecycleState || "pending";
+        } else if (endObservation && active.lifecycleState !== "error" && active.lifecycleState !== "unsupported") {
+          lifecycleState = "ended_observation";
+        } else if (!endObservation && active.lifecycleState !== "error" && active.lifecycleState !== "unsupported") {
+          lifecycleState = "running";
+        }
+      }
+      runtime.queueGuardLifecycle = {
+        event: eventName,
+        promptId: active.promptId,
+        state: lifecycleState,
+        error: eventName === "execution_error" ? (detail?.error || detail?.message || "Queue lifecycle error") : null,
+        detail,
+      };
+      runtime.queueGuardContext = { ...active, lifecycleState };
+      if (eventName === "execution_error") {
+        runtime.queueGuardBlockNotice = {
+          at: new Date().toISOString(),
+          code: "queue_prompt_lifecycle_error",
+          message: `Queue prompt ${active.promptId} reported ${eventName}.`,
+          promptId: active.promptId,
+          detail,
+        };
+        const panel = currentAgentPanel();
+        if (panel) {
+          panel.state.queueGuard = getQueueGuardStateForPanel();
+          renderAgentPanel(panel);
+        }
+      }
+    };
+    api.addEventListener(eventName, listener);
+    listeners.push([eventName, listener]);
+  }
+  runtime.queuePromptLifecycleListenersInstalled = true;
+  runtime.queuePromptLifecycleListeners = listeners;
+  runtime.queuePromptLifecycleApi = api;
+}
+
+export function requestQueuePromptOperation(operation) {
+  const normalized = operation === "cancel" || operation === "delete" ? operation : null;
+  const active = getAgentPanelRuntime().queueGuardContext;
+  if (!normalized) {
+    throw new Error(`Unsupported queue prompt operation: ${String(operation)}`);
+  }
+  const promptId = typeof active?.promptId === "string" ? active.promptId : "";
+  if (!promptId) {
+    const error = new Error(`Cannot ${normalized} an untracked prompt: prompt_id is unavailable.`);
+    error.code = "prompt_id_unavailable";
+    throw error;
+  }
+  const error = new Error(`Unsupported queue prompt operation ${normalized} for prompt ${promptId}.`);
+  error.code = "unsupported_prompt_operation";
+  error.prompt_id = promptId;
+  error.operation = normalized;
+  const runtime = getAgentPanelRuntime();
+  runtime.queueGuardContext = { ...active, operationUnsupported: normalized };
+  runtime.queueGuardBlockNotice = {
+    at: new Date().toISOString(),
+    code: error.code,
+    message: error.message,
+    promptId,
+    operation: normalized,
+  };
+  const panel = currentAgentPanel();
+  if (panel) {
+    panel.state.queueGuard = getQueueGuardStateForPanel();
+    renderAgentPanel(panel);
+  }
+  toast(error.message);
+  throw error;
 }
 
 function installQueueGuard() {
   const runtime = getAgentPanelRuntime();
+  installQueuePromptLifecycleListeners(runtime);
   if (runtime.queueGuardHook) {
-    return runtime.queueGuardHook.installed;
+    try {
+      if (runtime.queueGuardHook.installed && app.queuePrompt === runtime.queueGuardHook.wrapper) {
+        return true;
+      }
+    } catch (_error) {
+      // Treat an accessor or replaced hook as unverifiable and fail closed.
+    }
+    runtime.queueGuardHook = null;
   }
 
   const report = installQueueGuardAdapter(app, {
@@ -7404,37 +7870,37 @@ function installQueueGuard() {
           turnId: active.turnId || null,
           sessionId: active.sessionId || null,
           blockKey: queueGuardTurnKey(active),
+          message: `Queue blocked for turn ${active.turnId || "unknown"} because queue_allowed=false.`,
         };
       }
       return null;
     },
-    normalize(...queueArgs) {
-      // Normalize live exec nodes before the backend serializes the canvas.
-      normalizeForSerialize(null, { live: true });
-      // Also normalize any serialized graph payloads passed as queue args.
-      for (const arg of queueArgs) {
-        if (arg && typeof arg === 'object') {
-          // Direct graph payload (has nodes array).
-          if (Array.isArray(arg.nodes)) {
-            normalizeForSerialize(arg);
+    queueApproved() {
+      const active = runtime.queueGuardContext;
+      return validateApprovedRecordAndQueue({
+        onFailure: (failure) => {
+          runtime.queueGuardBlockNotice = {
+            at: new Date().toISOString(),
+            message: failure.message,
+            code: failure.code,
+            sessionId: active?.sessionId || null,
+            turnId: active?.turnId || null,
+          };
+          const panel = currentAgentPanel();
+          if (panel) {
+            panel.state.queueGuard = getQueueGuardStateForPanel();
+            renderAgentPanel(panel);
           }
-          // ComfyUI wraps the serialized graph in { output: {...} }.
-          if (arg.output && typeof arg.output === 'object' && Array.isArray(arg.output.nodes)) {
-            normalizeForSerialize(arg.output);
-          }
-          // Some callers pass { workflow: {...} }.
-          if (arg.workflow && typeof arg.workflow === 'object' && Array.isArray(arg.workflow.nodes)) {
-            normalizeForSerialize(arg.workflow);
-          }
-        }
-      }
+          toast(`Queue blocked: ${failure.message}`);
+        },
+      });
     },
     onBlock(blockInfo) {
       if (!runtime.queueGuardBlockedTurnKeys.has(blockInfo.blockKey)) {
         runtime.queueGuardBlockedTurnKeys.add(blockInfo.blockKey);
         runtime.queueGuardBlockNotice = {
           at: new Date().toISOString(),
-          message: `Queue blocked for turn ${blockInfo.turnId || "unknown"} because queue_allowed=false.`,
+          message: blockInfo.message || `Queue blocked for turn ${blockInfo.turnId || "unknown"}.`,
           turnId: blockInfo.turnId,
           sessionId: blockInfo.sessionId,
         };
@@ -7444,14 +7910,13 @@ function installQueueGuard() {
         panel.state.queueGuard = getQueueGuardStateForPanel();
         renderAgentPanel(panel);
       }
-      toast("Queue blocked: this applied turn is canvas-reviewable only.");
+      toast(blockInfo.message || "Queue blocked: approved record is unavailable.");
     },
   });
 
   if (!report.installed) {
     const fallbackDetail = report.capability?.detail || "app.queuePrompt unavailable";
-    runtime.queueGuardFallbackWarning = `Native queue hook unavailable: \`app.queuePrompt\` was not found. Queue warnings remain panel-only.`;
-    warnQueueGuardFallbackOnce(`missing app.queuePrompt (${fallbackDetail})`);
+    runtime.queueGuardFallbackWarning = `VibeComfy queue disabled: ${fallbackDetail}`;
     runtime.queueGuardHook = { installed: false, path: report.path, original: null, wrapper: null };
     return false;
   }
@@ -8323,6 +8788,7 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
     markAgentPanelDirty(panel, obligations.dirtySections);
   }
   if (obligations.invalidateCandidate) {
+    invalidateApprovedRecord(_activeScopeId());
     clearCandidateInvalidationSideEffects(false);
   }
   if (obligations.clearCandidatePreview) {
@@ -8348,6 +8814,7 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
   // ── T7: Forget scope snapshot (new conversation, workflow closed) ─────
   if (obligations.forgetScope) {
     forgetScopeSnapshot(obligations.forgetScope);
+    invalidateApprovedRecord(obligations.forgetScope);
   }
   if (obligations.queueGuardClear) {
     setQueueGuardContext(null);
@@ -8369,6 +8836,11 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
   }
   if (obligations.setQueueGuardContext) {
     setQueueGuardContext(obligations.setQueueGuardContext);
+  }
+  // Publish only after ordinary finalize invalidation/queue clearing has
+  // completed; the approved record is the sole state allowed to survive.
+  if (obligations.t19ApprovedRecordPublish) {
+    publishApprovedRecordFromFinalize(obligations.t19ApprovedRecordPublish);
   }
   if (obligations.refreshQueueGuard) {
     panel.state.queueGuard = getQueueGuardStateForPanel();
@@ -9397,10 +9869,35 @@ function widgetReferenceNodeFor(uidOrId) {
 }
 
 async function postAgentLifecycleAction(endpoint, body, action) {
+  let requestBody = body;
+  if (action === "finalize") {
+    const panel = currentAgentPanel();
+    const transaction = normalizeCandidateTransaction(panel?.state?.candidateTransaction);
+    const revisionId = transaction?.revision_id;
+    const parentRevision = transaction?.parent_revision;
+    if (typeof revisionId !== "string" || !revisionId || typeof parentRevision !== "string"
+      || (body?.session_id && body.session_id !== panel?.state?.sessionId)
+      || (body?.turn_id && body.turn_id !== panel?.state?.turnId)) {
+      throw {
+        kind: "FinalizeIdentityError",
+        message: "Finalize blocked because authoritative candidate revision identity is missing or inconsistent.",
+        revision_id: revisionId || null,
+        parent_revision: typeof parentRevision === "string" ? parentRevision : null,
+      };
+    }
+    if ((body.revision_id !== undefined && body.revision_id !== revisionId)
+      || (body.parent_revision !== undefined && body.parent_revision !== parentRevision)) {
+      throw {
+        kind: "FinalizeIdentityError",
+        message: "Finalize blocked because its revision identity disagrees with the authoritative candidate transaction.",
+      };
+    }
+    requestBody = { ...body, revision_id: revisionId, parent_revision: parentRevision };
+  }
   const response = await vibecomfyFetch(`/vibecomfy/agent-edit/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
   });
   const rawPayload = await response.json();
   const payload = normalizeAuxiliaryAgentPayload(rawPayload, action);

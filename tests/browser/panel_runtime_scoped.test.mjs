@@ -547,6 +547,21 @@ test("forgetScopeQueueGuardContext is safe for unknown scopeId", async () => {
   forgetScopeQueueGuardContext("");
 });
 
+test("approved record strings remain isolated per workflow scope", async () => {
+  const {
+    saveScopeApprovedRecord,
+    getScopeApprovedRecord,
+    forgetScopeApprovedRecord,
+  } = await loadRuntime();
+  saveScopeApprovedRecord("scope-A", { canonical: '{"revision_id":"A"}', revisionId: "A" });
+  saveScopeApprovedRecord("scope-B", { canonical: '{"revision_id":"B"}', revisionId: "B" });
+  assert.equal(getScopeApprovedRecord("scope-A").canonical, '{"revision_id":"A"}');
+  assert.equal(getScopeApprovedRecord("scope-B").canonical, '{"revision_id":"B"}');
+  forgetScopeApprovedRecord("scope-A");
+  assert.equal(getScopeApprovedRecord("scope-A"), null);
+  assert.equal(getScopeApprovedRecord("scope-B").revisionId, "B");
+});
+
 test("queue guard contexts are independent across scopes", async () => {
   const { saveScopeQueueGuardContext, getScopeQueueGuardContext, forgetScopeQueueGuardContext } = await loadRuntime();
 

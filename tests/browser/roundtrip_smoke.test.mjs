@@ -139,6 +139,10 @@ function candidateTransactionFixture({
       },
     },
   });
+  // T19: the real finalize boundary carries the candidate transaction's
+  // authoritative revision identity into the request.
+  transaction.revision_id = "a".repeat(64);
+  transaction.parent_revision = "";
   return transaction;
 }
 
@@ -5188,8 +5192,8 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
     assert.equal(undoButton.style.display, "none");
 
     const postApplyQueueResult = harness.app.queuePrompt("prompt-applied");
-    assert.deepEqual(postApplyQueueResult, { queued: true, args: ["prompt-applied"] });
-    assert.equal(harness.queuePromptCalls.length, 1);
+    assert.equal(postApplyQueueResult, null, "queue must fail closed without an approved record");
+    assert.equal(harness.queuePromptCalls.length, 0);
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 0);
     expandAgentBubbleDetails(harness.document.body);
@@ -5198,8 +5202,8 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
     assert.equal(undoButton.disabled, true);
 
     const allowedQueueResult = harness.app.queuePrompt("prompt-2");
-    assert.deepEqual(allowedQueueResult, { queued: true, args: ["prompt-2"] });
-    assert.equal(harness.queuePromptCalls.length, 2);
+    assert.equal(allowedQueueResult, null, "queue must fail closed without an approved record");
+    assert.equal(harness.queuePromptCalls.length, 0);
 
   } finally {
     await harness.dispose();
@@ -7504,8 +7508,8 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes listed here because live node lookup was unavailable\./);
     assert.match(harness.textDump(), /Edited uid-missing/);
-    assert.match(harness.textDump(), /Native queue hook unavailable: `app\.queuePrompt` was not found\./);
-    assert.equal(harness.consoleCapture.warn.filter((line) => line.includes("queue guard fallback active")).length, 1);
+    assert.match(harness.textDump(), /VibeComfy queue disabled: `?app\.queuePrompt/);
+    assert.equal(harness.consoleCapture.warn.filter((line) => line.includes("queue guard fallback active")).length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.graphAddCalls.length, 1);

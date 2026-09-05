@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import sys
 import types
@@ -2335,6 +2336,21 @@ def test_real_public_submit_prepare_finalize_rollback_chat_envelopes_carry_revis
     )
     assert finalized["revision_id"] == revision_id
     assert finalized["parent_revision"] == parent_revision
+    expected_approval = ApprovedProjectionRecord(
+        revision_id=revision_id,
+        selected_variant=None,
+        input_binding={},
+        api_projection={"workflow_revision": revision_id},
+        ui_projection={},
+        api_digest=canonical_digest({"workflow_revision": revision_id}),
+    )
+    expected_canonical = expected_approval.to_canonical_bytes().decode("utf-8")
+    assert finalized["approved_record_canonical"] == expected_canonical
+    durable_approval = finalized["receipt"]["receipt"]["approval"]
+    assert durable_approval["api_digest"] == expected_approval.api_digest
+    assert durable_approval["record_digest"] == hashlib.sha256(
+        expected_canonical.encode("utf-8")
+    ).hexdigest()
 
     _register_for_root(rollback_root)
     rollback_submit = _body(
