@@ -4,6 +4,7 @@ import asyncio
 import ast
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -13,7 +14,9 @@ from vibecomfy.runtime.eval import approve_eval_subgraph, plan_eval_node, select
 from vibecomfy.runtime.eval import prompt as eval_prompt
 from vibecomfy.runtime.session import RunResult
 from vibecomfy.testing.canonical import canonical_digest
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundleError
 
 
@@ -25,8 +28,8 @@ def _bundle() -> object:
     workflow.nodes["latent"] = VibeNode("latent", "LatentSource", uid="latent", inputs={})
     workflow.nodes["vae"] = VibeNode("vae", "VAELoader", uid="vae", inputs={"vae_name": "x.vae"})
     workflow.edges.extend([
-        __import__("vibecomfy.workflow", fromlist=["VibeEdge"]).VibeEdge("latent", "0", "1", "samples"),
-        __import__("vibecomfy.workflow", fromlist=["VibeEdge"]).VibeEdge("vae", "0", "1", "vae"),
+        VibeEdge("latent", "0", "1", "samples"),
+        VibeEdge("vae", "0", "1", "vae"),
     ])
     return load_bundle(workflow)
 
@@ -121,3 +124,139 @@ def test_eval_failure_paths_make_zero_runtime_calls(monkeypatch: pytest.MonkeyPa
     with pytest.raises(RuntimeNodeError):
         asyncio.run(eval_prompt.eval_node(parent, "root/1"))
     assert calls == []
+
+
+def _latent_bundle(*, vae_loader: bool = False, second_emitter: bool = False, roster: object = "valid", checkpoint: bool = True):
+    workflow = VibeWorkflow("latent-source", WorkflowSource("latent-source"))
+    checkpoint_metadata = {}
+    if roster == "valid":
+        checkpoint_metadata = {"output_names": ["MODEL", "CLIP", "VAE"], "output_types": ["MODEL", "CLIP", "VAE"]}
+    elif roster is not None:
+        checkpoint_metadata = {"output_names": roster}
+    if checkpoint:
+        workflow.nodes["checkpoint"] = VibeNode(
+            "checkpoint", "CheckpointLoaderSimple", uid="checkpoint-uid",
+            inputs={"ckpt_name": "model.safetensors"}, metadata=checkpoint_metadata,
+        )
+    workflow.nodes["2"] = VibeNode(
+        "2", "KSampler", uid="sampler-uid", inputs={"seed": 1, "steps": 2, "cfg": 1.0},
+        native_input_names=["model", "vae"],
+    )
+    if checkpoint:
+        workflow.edges.append(VibeEdge("checkpoint", "0", "2", "model"))
+    if vae_loader:
+        workflow.nodes["vae"] = VibeNode("vae", "VAELoader", uid="vae-uid", inputs={"vae_name": "vae.safetensors"})
+        workflow.edges.append(VibeEdge("vae", "0", "2", "vae"))
+    if second_emitter:
+        workflow.nodes["vae2"] = VibeNode("vae2", "VAELoader", uid="vae2-uid", inputs={"vae_name": "vae2.safetensors"})
+        workflow.edges.append(VibeEdge("vae2", "0", "2", "vae2"))
+    return load_bundle(workflow)
+
+
+def test_latent_checkpoint_selection_wires_real_slot_two() -> None:
+    bundle = _latent_bundle()
+    candidate = select_eval_workflow(bundle, "2")
+    assert ("checkpoint", "2", "2_vaedecode", "vae") in {
+        (edge.from_node, edge.from_output, edge.to_node, edge.to_input) for edge in candidate.edges
+    }
+    assert ("2", "0", "2_vaedecode", "samples") in {
+        (edge.from_node, edge.from_output, edge.to_node, edge.to_input) for edge in candidate.edges
+    }
+    assert ("2_vaedecode", "0", "2_preview", "images") in {
+        (edge.from_node, edge.from_output, edge.to_node, edge.to_input) for edge in candidate.edges
+    }
+    assert bundle.workflow.nodes["checkpoint"].uid == "checkpoint-uid"
+
+
+def test_latent_checkpoint_real_compile_binds_vae_slot_two() -> None:
+    class FixtureProvider:
+        schemas = {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple", None,
+                {"ckpt_name": InputSpec("STRING")},
+                [OutputSpec("MODEL", "MODEL"), OutputSpec("CLIP", "CLIP"), OutputSpec("VAE", "VAE")],
+            ),
+            "KSampler": NodeSchema(
+                "KSampler", None,
+                {"model": InputSpec("MODEL"), "seed": InputSpec("INT"), "steps": InputSpec("INT"), "cfg": InputSpec("FLOAT")},
+                [OutputSpec("LATENT", "LATENT")],
+            ),
+            "VAEDecode": NodeSchema(
+                "VAEDecode", None,
+                {"samples": InputSpec("LATENT"), "vae": InputSpec("VAE")},
+                [OutputSpec("IMAGE", "IMAGE")],
+            ),
+            "PreviewImage": NodeSchema("PreviewImage", None, {"images": InputSpec("IMAGE")}, []),
+        }
+
+        def get_schema(self, class_type):
+            return self.schemas.get(class_type)
+
+    entry = ModelEntry(
+        "runtime-eval-model", ModelSource("local"), 0,
+        (ModelTarget("comfy_core", "checkpoints"),),
+    )
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+    ):
+        candidate_bundle, record = approve_eval_subgraph(
+            _latent_bundle(), "2", schema_provider=FixtureProvider()
+        )
+    assert record.to_dict()["api_projection"]["2_vaedecode"]["inputs"]["vae"] == ["checkpoint", 2]
+    assert candidate_bundle.workflow.id == "latent-source"
+
+
+def test_latent_vaeloader_uses_slot_zero_and_consumers_are_not_emitters() -> None:
+    bundle = _latent_bundle(vae_loader=True, checkpoint=False)
+    candidate = select_eval_workflow(bundle, "2")
+    vae_edges = [edge for edge in candidate.edges if edge.to_node == "2_vaedecode" and edge.to_input == "vae"]
+    assert [(edge.from_node, edge.from_output) for edge in vae_edges] == [("vae", "0")]
+
+    consumer = VibeWorkflow("consumer", WorkflowSource("consumer"))
+    consumer.nodes["consumer"] = VibeNode("consumer", "VAEDecode", uid="consumer-uid")
+    consumer.nodes["2"] = VibeNode("2", "KSampler", uid="sampler-uid")
+    consumer.edges.append(VibeEdge("consumer", "0", "2", "model"))
+    assert plan_eval_node(load_bundle(consumer), "2").queueable is False
+
+
+def test_latent_ambiguous_emitters_fail_closed_before_t14(monkeypatch: pytest.MonkeyPatch) -> None:
+    bundle = _latent_bundle(vae_loader=True, second_emitter=True)
+    plan = plan_eval_node(bundle, "2")
+    assert plan.queueable is False
+    assert any(item["code"] == "vae_source_ambiguous" for item in plan.warnings)
+    with pytest.raises(RuntimeNodeError, match="vae_source_ambiguous"):
+        select_eval_workflow(bundle, "2")
+    calls = []
+    monkeypatch.setattr(eval_prompt, "run_embedded", lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(RuntimeNodeError, match="not queueable"):
+        asyncio.run(eval_prompt.eval_node(bundle, "2"))
+    assert calls == []
+
+
+@pytest.mark.parametrize("roster", [[], ["MODEL"], ["MODEL", "CLIP", "VAE", "VAE"], ["MODEL", None, "VAE"]])
+def test_latent_malformed_roster_and_specialized_loader_are_unresolved(
+    roster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = _latent_bundle(roster=roster)
+    assert plan_eval_node(bundle, "2").queueable is False
+    monkeypatch.setattr(eval_prompt, "approve_eval_subgraph", lambda *args, **kwargs: pytest.fail("approval called"))
+    with pytest.raises(RuntimeNodeError, match="not queueable"):
+        asyncio.run(eval_prompt.eval_node(bundle, "2"))
+
+    specialized = VibeWorkflow("specialized", WorkflowSource("specialized"))
+    specialized.nodes["special"] = VibeNode("special", "WanVideoVAELoader", uid="special-uid")
+    specialized.nodes["2"] = VibeNode("2", "KSampler", uid="sampler-uid")
+    specialized.edges.append(VibeEdge("special", "0", "2", "model"))
+    assert plan_eval_node(load_bundle(specialized), "2").queueable is False
+
+
+@pytest.mark.parametrize("collision", ["2_vaedecode", "2_preview"])
+def test_latent_synthetic_id_and_uid_collisions_reject_without_parent_mutation(collision: str) -> None:
+    workflow = _latent_bundle().workflow
+    workflow.nodes["collision"] = VibeNode("collision", "Integer", uid=collision)
+    before = workflow.semantic_digest()
+    with pytest.raises(RuntimeNodeError, match="collides"):
+        select_eval_workflow(load_bundle(workflow), "2")
+    assert workflow.semantic_digest() == before

@@ -979,11 +979,19 @@ def test_cmd_run_prints_clear_failure(monkeypatch: pytest.MonkeyPatch, capsys: p
 
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
-    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", lambda *args, **kwargs: types.SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))
+    handoff: list[tuple[object, object]] = []
+    def fake_embedded(record, bundle, **kwargs):
+        handoff.append((record, bundle))
+        return types.SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m")
+    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_embedded)
     assert _cmd_run(args) == 0
     captured = capsys.readouterr()
     assert "run_id: r" in captured.out
+    assert "prompt_id: p" in captured.out
+    assert "metadata_path: m" in captured.out
     assert captured.err == ""
+    assert len(handoff) == 1
+    assert handoff[0][0].revision_id == handoff[0][1].revision_id
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(
@@ -1001,7 +1009,7 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
     )
     schema_calls: list[tuple[str, str | None]] = []
     loaded_schema_providers: list[object] = []
-    run_calls: list[tuple[VibeWorkflow, str | None, str]] = []
+    run_calls: list[tuple[object, object, str | None, str]] = []
     provider = None
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: "http://warm.test")
@@ -1014,8 +1022,8 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
         loaded_schema_providers.append(kwargs["schema_provider"])
         return _workflow()
 
-    def fake_run_sync(workflow: VibeWorkflow, bundle: object, *, server_url: str | None, backend: str, **kwargs):
-        run_calls.append((workflow, server_url, backend))
+    def fake_run_sync(record: object, bundle: object, *, server_url: str | None, backend: str, **kwargs):
+        run_calls.append((record, bundle, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-1",
             prompt_id="prompt-1",
@@ -1031,7 +1039,11 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
 
     assert schema_calls == [("local", None)]
     assert not loaded_schema_providers
-    assert run_calls
+    assert len(run_calls) == 1
+    record, bundle, route_url, route_backend = run_calls[0]
+    assert record.revision_id == bundle.revision_id
+    assert route_url == "http://warm.test"
+    assert route_backend == "api"
     assert capsys.readouterr().err == ""
 
 
@@ -1049,7 +1061,7 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
         steps=None,
     )
     schema_calls: list[tuple[str, str | None]] = []
-    embedded_calls: list[tuple[VibeWorkflow, dict]] = []
+    embedded_calls: list[tuple[object, object, dict]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
     monkeypatch.setattr(
@@ -1057,8 +1069,8 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
         lambda prefer, *, server_url=None: schema_calls.append((prefer, server_url)) or None,
     )
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
-    def fake_run_embedded_sync(workflow: VibeWorkflow, bundle: object, **kwargs):
-        embedded_calls.append((workflow, kwargs))
+    def fake_run_embedded_sync(record: object, bundle: object, **kwargs):
+        embedded_calls.append((record, bundle, kwargs))
         return types.SimpleNamespace(
             run_id="run-embedded",
             prompt_id="prompt-embedded",
@@ -1071,7 +1083,8 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
     assert _cmd_run(args) == 0
 
     assert schema_calls == [("local", None)]
-    assert embedded_calls
+    assert len(embedded_calls) == 1
+    assert embedded_calls[0][0].revision_id == embedded_calls[0][1].revision_id
     assert capsys.readouterr().err == ""
 
 
@@ -1088,7 +1101,7 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
         seed=None,
         steps=None,
     )
-    run_calls: list[tuple[VibeWorkflow, str | None, str]] = []
+    run_calls: list[tuple[object, object, str | None, str]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
     monkeypatch.setattr(
@@ -1097,8 +1110,8 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
     )
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
 
-    def fake_run_sync(workflow: VibeWorkflow, bundle: object, *, server_url: str | None, backend: str, **kwargs):
-        run_calls.append((workflow, server_url, backend))
+    def fake_run_sync(record: object, bundle: object, *, server_url: str | None, backend: str, **kwargs):
+        run_calls.append((record, bundle, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-managed",
             prompt_id="prompt-managed",
@@ -1110,7 +1123,11 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
     assert _cmd_run(args) == 0
 
-    assert run_calls
+    assert len(run_calls) == 1
+    record, bundle, route_url, route_backend = run_calls[0]
+    assert record.revision_id == bundle.revision_id
+    assert route_url is None
+    assert route_backend == "api"
     assert capsys.readouterr().err == ""
 
 
@@ -1134,7 +1151,7 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
         steps=None,
         memory_profile=5,
     )
-    embedded_configs: list[SessionConfig] = []
+    embedded_configs: list[tuple[object, object, SessionConfig]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: None)
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
@@ -1150,7 +1167,7 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
     ):
         assert backend == "api"
         assert ensure_models is False
-        embedded_configs.append(config)
+        embedded_configs.append((workflow, bundle, config))
         return types.SimpleNamespace(
             run_id="run-embedded",
             prompt_id="prompt-embedded",
@@ -1161,7 +1178,9 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
 
     monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
     assert _cmd_run(args) == 0
-    assert embedded_configs
+    assert len(embedded_configs) == 1
+    assert embedded_configs[0][2].memory_profile == 5
+    assert embedded_configs[0][0].revision_id == embedded_configs[0][1].revision_id
 
 
 def test_cmd_run_memory_profile_overrides_new_managed_server_config(
@@ -1184,7 +1203,7 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
         steps=None,
         memory_profile=5,
     )
-    server_configs: list[SessionConfig] = []
+    server_configs: list[tuple[object, object, SessionConfig]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: None)
@@ -1199,7 +1218,7 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
         config: SessionConfig,
         **kwargs,
     ):
-        server_configs.append(config)
+        server_configs.append((workflow, bundle, config))
         return types.SimpleNamespace(
             run_id="run-managed",
             prompt_id="prompt-managed",
@@ -1210,7 +1229,9 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
 
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
     assert _cmd_run(args) == 0
-    assert server_configs
+    assert len(server_configs) == 1
+    assert server_configs[0][2].memory_profile == 5
+    assert server_configs[0][0].revision_id == server_configs[0][1].revision_id
 
 
 def test_cmd_run_memory_profile_rejects_explicit_external_server(

@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from vibecomfy.analysis.graph import upstream
 from vibecomfy.errors import RuntimeNodeError
+from vibecomfy.handles import Handle
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow
 from vibecomfy.workflow_bundle import (
     ApprovedProjectionRecord,
@@ -40,11 +41,9 @@ def select_eval_workflow(bundle: WorkflowBundle, target_node_id: str) -> VibeWor
     output_type = _detect_output_type(workflow, target)
     upstream_ids = upstream(workflow, nid)
     selected_ids: set[str] = {nid, *upstream_ids}
+    latent_vae_handle: Handle | None = None
     if output_type == "LATENT":
-        vae_node_id = _find_upstream_vae(workflow, nid, upstream_ids)
-        if vae_node_id is None:
-            raise _node_error("LATENT eval output has no upstream VAE and is plan-only/non-queueable", nid)
-        selected_ids.add(vae_node_id)
+        latent_vae_handle = _resolve_upstream_vae_handle(workflow, upstream_ids)
         injections = (
             (f"{nid}_vaedecode", "VAEDecode", {}, nid, "0", "samples"),
             (f"{nid}_preview", "PreviewImage", {}, f"{nid}_vaedecode", "0", "images"),
@@ -82,8 +81,23 @@ def select_eval_workflow(bundle: WorkflowBundle, target_node_id: str) -> VibeWor
     candidate.boundary_ports = []
     candidate.virtual_wires = {}
     for preview_id, class_type, inputs, from_node, from_output, to_input in injections:
-        candidate.nodes[preview_id] = VibeNode(id=preview_id, uid=preview_id, class_type=class_type, inputs=inputs)
+        candidate.nodes[preview_id] = VibeNode(
+            id=preview_id,
+            uid=preview_id,
+            class_type=class_type,
+            inputs=inputs,
+            native_input_names=["samples", "vae"] if class_type == "VAEDecode" else [to_input],
+        )
         candidate.edges.append(VibeEdge(from_node=from_node, from_output=from_output, to_node=preview_id, to_input=to_input))
+    if latent_vae_handle is not None:
+        candidate.edges.append(
+            VibeEdge(
+                from_node=latent_vae_handle.node_id,
+                from_output=str(latent_vae_handle.output_slot),
+                to_node=f"{nid}_vaedecode",
+                to_input="vae",
+            )
+        )
     return candidate
 
 
@@ -129,31 +143,64 @@ def _detect_output_type(workflow: VibeWorkflow, target: VibeNode) -> str:
     return "UNKNOWN"
 
 
-def _find_upstream_vae(workflow: VibeWorkflow, target_node_id: str, upstream_ids: set[str]) -> str | None:
-    depths = _upstream_depths(workflow, target_node_id)
-    candidates = [
-        (depths.get(node_id, 1 << 30), node_id)
-        for node_id in upstream_ids
-        if node_id in workflow.nodes and workflow.nodes[node_id].class_type in VAE_EMITTER_CLASSES
-    ]
-    return min(candidates)[1] if candidates else None
+def _resolve_upstream_vae_handle(
+    workflow: VibeWorkflow,
+    upstream_ids: set[str],
+) -> Handle:
+    """Resolve exactly one closed-contract upstream generic VAE output."""
+    candidates: list[Handle] = []
+    for node_id in sorted(upstream_ids):
+        node = workflow.nodes.get(node_id)
+        if node is None:
+            continue
+        descriptor = VAE_EMITTER_CLASSES.get(node.class_type)
+        if descriptor is None or not _valid_vae_rosters(node, descriptor.output_slot, descriptor.name, descriptor.output_type):
+            continue
+        candidates.append(
+            Handle(
+                node_id=str(node_id),
+                output_slot=descriptor.output_slot,
+                output_type=descriptor.output_type,
+                name=descriptor.name,
+            )
+        )
+    if not candidates:
+        raise RuntimeNodeError(
+            "vae_handle_unresolved: no valid upstream generic VAE handle; eval is plan-only",
+            next_action="add one valid VAELoader or CheckpointLoaderSimple upstream of the target",
+        )
+    if len(candidates) > 1:
+        source_ids = [f"{item.node_id}:{item.output_slot}" for item in candidates]
+        raise RuntimeNodeError(
+            f"vae_source_ambiguous: multiple valid upstream VAE handles: {source_ids}",
+            next_action="leave exactly one generic VAE emitter on the selected upstream path",
+        )
+    return candidates[0]
 
 
-def _upstream_depths(workflow: VibeWorkflow, node_id: str) -> dict[str, int]:
-    from collections import deque
-
-    reverse: dict[str, set[str]] = {}
-    for edge in workflow.edges:
-        reverse.setdefault(str(edge.to_node), set()).add(str(edge.from_node))
-    depths = {str(node_id): 0}
-    queue = deque([str(node_id)])
-    while queue:
-        current = queue.popleft()
-        for parent in reverse.get(current, ()):
-            if parent not in depths:
-                depths[parent] = depths[current] + 1
-                queue.append(parent)
-    return depths
+def _valid_vae_rosters(node: VibeNode, output_slot: int, name: str, output_type: str) -> bool:
+    """Validate every source-attached output roster without schema lookup."""
+    sources: list[tuple[str, Any, str]] = []
+    native = node.native_output_names
+    if native is not None:
+        sources.append(("native_output_names", native, "name"))
+    metadata = node.metadata if isinstance(node.metadata, dict) else {}
+    if "output_names" in metadata and metadata["output_names"] is not None:
+        sources.append(("output_names", metadata["output_names"], "name"))
+    if "output_types" in metadata and metadata["output_types"] is not None:
+        sources.append(("output_types", metadata["output_types"], "type"))
+    for source_name, roster, kind in sources:
+        if not isinstance(roster, (list, tuple)) or len(roster) <= output_slot:
+            return False
+        if any(not isinstance(item, str) or not item.strip() for item in roster):
+            return False
+        if len(set(roster)) != len(roster):
+            return False
+        if kind == "name" and roster[output_slot] != name:
+            return False
+        if kind == "type" and roster[output_slot] != output_type:
+            return False
+    return True
 
 
 __all__ = ["approve_eval_subgraph", "select_eval_workflow"]

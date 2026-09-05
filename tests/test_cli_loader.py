@@ -214,7 +214,7 @@ def test_production_inspection_enters_bundle_boundary(monkeypatch: pytest.Monkey
     assert analyze._load_workflow("inspection") is workflow
 
 
-def test_run_command_hands_compiled_record_to_t14(
+def test_run_command_blocks_bare_runtime_after_bundle_compile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """T13 hands its compiled source record to the T14 sync boundary."""
@@ -222,19 +222,25 @@ def test_run_command_hands_compiled_record_to_t14(
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
     workflow = VibeWorkflow("run-boundary", WorkflowSource("run-boundary"))
-    calls: list[str] = []
+    calls: list[object] = []
 
     class Bundle:
         def __init__(self) -> None:
             self.workflow = workflow
+            self.record = SimpleNamespace(revision_id="run-boundary-revision")
 
         def compile(self, **kwargs):
             calls.append("compile")
-            return object()
+            return self.record
 
     monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
     monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(run_command, "run_embedded_sync", lambda record, bundle, **kwargs: (calls.append("run"), SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))[1])
+    handoff: list[tuple[object, object]] = []
+    def fake_embedded(record, bundle, **kwargs):
+        calls.append("run")
+        handoff.append((record, bundle))
+        return SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m")
+    monkeypatch.setattr(run_command, "run_embedded_sync", fake_embedded)
     args = run_command.argparse.Namespace(
         path="run-boundary",
         runtime="embedded",
@@ -247,6 +253,9 @@ def test_run_command_hands_compiled_record_to_t14(
 
     assert run_command._cmd_run(args) == 0
     assert calls == ["compile", "run"]
+    assert len(handoff) == 1
+    assert handoff[0][1].workflow is workflow
+    assert handoff[0][0] is handoff[0][1].record
 
 
 def test_run_binds_public_inputs_without_mutating_candidate(
@@ -278,7 +287,8 @@ def test_run_binds_public_inputs_without_mutating_candidate(
 
     monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
     monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(run_command, "run_embedded_sync", lambda record, bundle, **kwargs: SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))
+    handoff: list[tuple[object, object]] = []
+    monkeypatch.setattr(run_command, "run_embedded_sync", lambda record, bundle, **kwargs: (handoff.append((record, bundle)), SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))[1])
     args = argparse.Namespace(
         path="run-inputs",
         runtime="embedded",
@@ -298,6 +308,8 @@ def test_run_binds_public_inputs_without_mutating_candidate(
     assert run_command._cmd_run(args) == 0
     assert calls[0]["run_inputs"] == {"prompt": "new prompt", "seed": 17, "steps": 23}
     assert set(calls[0]) == {"run_inputs", "schema_provider"}
+    assert len(handoff) == 1
+    assert handoff[0][1].workflow is Bundle.workflow
 
 
 def test_run_preserves_parser_options_and_server_preflight() -> None:

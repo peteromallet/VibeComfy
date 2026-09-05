@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vibecomfy.analysis.graph import upstream
+from vibecomfy.errors import RuntimeNodeError
 from vibecomfy.workflow_bundle import WorkflowBundle, WorkflowBundleError
 
-from .core import _detect_output_type, _find_upstream_vae
+from .core import _detect_output_type, _resolve_upstream_vae_handle
 from .preview_types import PREVIEW_MAP, VIDEO_FALLBACK
 
 
@@ -70,7 +71,14 @@ def plan_eval_node(bundle: WorkflowBundle, node_id: str, *, dry_run: bool = True
     retained = upstream(workflow, node_key) | {node_key}
     dropped = set(workflow.nodes) - retained
     output_type = _detect_output_type(workflow, node)
-    has_vae = _find_upstream_vae(workflow, node_key, retained - {node_key}) is not None
+    vae_handle = None
+    vae_error: RuntimeNodeError | None = None
+    if output_type == "LATENT":
+        try:
+            vae_handle = _resolve_upstream_vae_handle(workflow, retained - {node_key})
+        except RuntimeNodeError as exc:
+            vae_error = exc
+    has_vae = vae_handle is not None
     preview = PREVIEW_MAP.get(output_type) or (VIDEO_FALLBACK if output_type == "VIDEO" else None)
     queueable = preview is not None or (output_type == "LATENT" and has_vae)
     output = {
@@ -85,9 +93,11 @@ def plan_eval_node(bundle: WorkflowBundle, node_id: str, *, dry_run: bool = True
                            "wrapped_via": preview.class_type, "source": [node_key, 0]})
     elif output_type == "LATENT" and has_vae:
         injections.append({"slot": "output_0", "slot_index": 0, "comfy_type": output_type,
-                           "wrapped_via": "VAEDecode+PreviewImage", "source": [node_key, 0]})
+                           "wrapped_via": "VAEDecode+PreviewImage", "source": [node_key, 0],
+                           "vae_source": [vae_handle.node_id, vae_handle.output_slot]})
     if not queueable:
-        warnings.append({"code": "non_visualizable", "message": f"Node {node_key} has no queueable preview output."})
+        code = "vae_source_ambiguous" if vae_error is not None and "vae_source_ambiguous" in str(vae_error) else "vae_handle_unresolved" if output_type == "LATENT" else "non_visualizable"
+        warnings.append({"code": code, "message": str(vae_error) if vae_error is not None else f"Node {node_key} has no queueable preview output."})
     dependencies = sorted(retained - {node_key}, key=_node_sort_key)
     return EvalNodePlan(
         workflow.id, node_key, dry_run, mode, queueable,
