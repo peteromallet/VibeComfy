@@ -145,6 +145,7 @@ import {
 } from "./agent_edit_transaction.js";
 import {
   canonicalSessionJsonString,
+  extractCanonicalJsonValue,
   sha256Hex,
   sha256HexFromString,
 } from "./canonical_hash.js";
@@ -7391,9 +7392,6 @@ function setQueueGuardContext(nextContext) {
   runtime.queueGuardApproval = nextContext || null;
   runtime.queueGuardContext = runtime.queueGuardApproval;
   runtime.queueGuardPromptAttempt = null;
-  if (!runtime.queueGuardApproval || runtime.queueGuardApproval.queueAllowed !== false) {
-    runtime.queueGuardBlockNotice = null;
-  }
   const panel = currentAgentPanel();
   if (panel) {
     panel.state.queueGuard = getQueueGuardStateForPanel();
@@ -7459,6 +7457,31 @@ function transactionAuthorityIdentity(transaction) {
   };
 }
 
+const TRANSACTION_AUTHORITY_FIELDS = Object.freeze([
+  "transaction_id", "candidate_id", "workflow_id", "session_id", "turn_id",
+  "plan_hash", "generation", "lease_nonce",
+]);
+
+function transactionAuthorityCopies(transaction) {
+  if (!transaction || typeof transaction !== "object") return [];
+  return [
+    transaction,
+    transaction.candidate_authority || transaction.candidateAuthority,
+    transaction.prepared_authority || transaction.preparedAuthority,
+  ].filter((source) => source && typeof source === "object");
+}
+
+function transactionAuthorityCopiesAgree(transaction, expected = null) {
+  const copies = transactionAuthorityCopies(transaction);
+  if (!copies.length) return false;
+  return TRANSACTION_AUTHORITY_FIELDS.every((field) => authorityCopiesAgree(
+    field,
+    copies,
+    expected ? expected[field] : undefined,
+    { numeric: field === "generation" },
+  ));
+}
+
 function ensureCurrentQueueMutationAuthority() {
   const runtime = getAgentPanelRuntime();
   let graph;
@@ -7504,7 +7527,8 @@ function ensureCurrentQueueMutationAuthority() {
 function approvalCustodyStillCurrent(custody, requireQueueHook = true) {
   const runtime = getAgentPanelRuntime();
   const state = currentAgentPanel()?.state;
-  const transaction = normalizeCandidateTransaction(state?.candidateTransaction);
+  const rawTransaction = state?.candidateTransaction;
+  const transaction = normalizeCandidateTransaction(rawTransaction);
   const live = transactionAuthorityIdentity(transaction);
   const saved = custody?.scopeId ? getScopeApprovedRecord(custody.scopeId) : null;
   let graph;
@@ -7529,6 +7553,16 @@ function approvalCustodyStillCurrent(custody, requireQueueHook = true) {
     && live.sessionId === custody.sessionId
     && live.turnId === custody.turnId
     && live.workflowId === custody.workflowId
+    && transactionAuthorityCopiesAgree(rawTransaction, {
+      transaction_id: live.transactionId,
+      candidate_id: live.candidateId,
+      workflow_id: live.workflowId,
+      session_id: live.sessionId,
+      turn_id: live.turnId,
+      plan_hash: live.planHash,
+      generation: live.generation,
+      lease_nonce: live.leaseNonce,
+    })
     && graph === custody.graph
     && (!custody.approvalIdentity || Boolean(saved && saved.approvalIdentity === custody.approvalIdentity))
     && (custody.invalidationGeneration == null
@@ -7560,7 +7594,7 @@ function approvalCustodyStillCurrent(custody, requireQueueHook = true) {
   return result;
 }
 
-function queueAttemptStillCurrent(attempt) {
+function queueAttemptStillCurrent(attempt, { allowUnpublished = false } = {}) {
   const runtime = getAgentPanelRuntime();
   const active = runtime.queueGuardApproval;
   const promptAttempt = runtime.queueGuardPromptAttempt;
@@ -7597,7 +7631,7 @@ function queueAttemptStillCurrent(attempt) {
     && recordState.workflowId === active.workflowId
     && recordState.invalidationGeneration === attempt.invalidationGeneration
     && recordState.approvalIdentity === attempt.approvalIdentity
-    && promptAttempt?.attemptId === attempt.attemptId
+    && (allowUnpublished || promptAttempt?.attemptId === attempt.attemptId)
     && hookIsCurrent
     && runtime.queueGuardHook?.wrapper === attempt.wrapper
     && runtime.queueGuardHook?.healthy?.()
@@ -7684,7 +7718,12 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     return fail("approved_record_types", "The approved record contains invalid field types.");
   }
   const exactRecordDigest = sha256HexFromString(recordState.canonical);
-  const computedApiDigest = sha256Hex(record.api_projection);
+  let computedApiDigest;
+  try {
+    computedApiDigest = sha256HexFromString(extractCanonicalJsonValue(recordState.canonical, "api_projection"));
+  } catch (error) {
+    return fail("malformed_approved_record", "The approved canonical record has no valid api_projection token.", { error: String(error) });
+  }
   const receipt = context.receipt;
   if (
     recordState.revisionId !== record.revision_id
@@ -7713,6 +7752,16 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     }
   }
   const runAfterValidation = () => {
+    // Keep the prior attempt and its diagnostics intact until every final
+    // custody/API check has passed.  A prospective attempt has no prompt
+    // ownership yet; ownership is installed only immediately before the sole
+    // lower transport below.
+    if (!queueAttemptStillCurrent(attempt, { allowUnpublished: true })) {
+      return fail("queue_attempt_stale", "Approved queue attempt became stale before transport.");
+    }
+    if (typeof api?.queuePrompt !== "function") {
+      return fail("api_queue_unavailable", "Comfy API queuePrompt is unavailable.");
+    }
     // A validated attempt owns fresh lifecycle diagnostics.  This is the only
     // reset point, so generic invalidation and failed validation retain their
     // useful prior error/block evidence.
@@ -7731,12 +7780,6 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
       operationUnsupported: null,
       error: null,
     };
-    if (!queueAttemptStillCurrent(attempt)) {
-      return fail("queue_attempt_stale", "Approved queue attempt became stale before transport.");
-    }
-    if (typeof api?.queuePrompt !== "function") {
-      return fail("api_queue_unavailable", "Comfy API queuePrompt is unavailable.");
-    }
     // `record` was freshly decoded from the immutable canonical bytes. There
     // is no callback/await between this final identity check and transport.
     let queued;
@@ -7863,7 +7906,7 @@ function authorityCopiesAgree(field, copies, expected, { numeric = false } = {})
     .map((source) => presentAuthorityValue(source, field))
     .filter((entry) => entry.present)
     .map((entry) => entry.value);
-  if (numeric && values.some((value) => typeof value !== "number" || !Number.isSafeInteger(value))) {
+  if (numeric && values.some((value) => typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)) {
     return false;
   }
   if (values.some((value) => value !== values[0])) return false;
@@ -7887,9 +7930,8 @@ function finalizeAuthorityCopiesAgree(obligation, raw, transaction, durableRecei
       request[field] = obligation[custodyField];
     }
   }
-  const authority = transaction?.candidate_authority || transaction?.candidateAuthority || {};
-  const transactionAuthority = { ...transaction, workflow_id: authority.workflow_id };
-  const sources = [raw, durableReceipt, nestedReceipt, transaction, authority, approval, record, request];
+  const transactionCopies = transactionAuthorityCopies(transaction);
+  const sources = [raw, durableReceipt, nestedReceipt, ...transactionCopies, approval, record, request];
   return [
     ["session_id", obligation.sessionId],
     ["turn_id", obligation.turnId],
@@ -7899,9 +7941,19 @@ function finalizeAuthorityCopiesAgree(obligation, raw, transaction, durableRecei
     ["revision_id", obligation.responseRevision],
     ["parent_revision", obligation.responseParentRevision],
   ].every(([field, expected, numeric]) => authorityCopiesAgree(field, sources, expected, { numeric }))
-    && authorityCopiesAgree("transaction_id", [transactionAuthority], obligation.transactionId)
-    && authorityCopiesAgree("candidate_id", [transactionAuthority], obligation.candidateId)
-    && authorityCopiesAgree("workflow_id", [transactionAuthority], obligation.workflowId);
+    && authorityCopiesAgree("transaction_id", transactionCopies, obligation.transactionId)
+    && authorityCopiesAgree("candidate_id", transactionCopies, obligation.candidateId)
+    && authorityCopiesAgree("workflow_id", transactionCopies, obligation.workflowId)
+    && transactionAuthorityCopiesAgree(transaction, {
+      transaction_id: obligation.transactionId,
+      candidate_id: obligation.candidateId,
+      workflow_id: obligation.workflowId,
+      session_id: obligation.sessionId,
+      turn_id: obligation.turnId,
+      plan_hash: obligation.planHash,
+      generation: obligation.transactionGeneration,
+      lease_nonce: obligation.leaseNonce,
+    });
 }
 
 function publishApprovedRecordFromFinalize(obligation) {
@@ -7995,11 +8047,17 @@ function publishApprovedRecordFromFinalize(obligation) {
     || !isQueueRecordObject(record.ui_projection)
     || typeof record.api_digest !== "string" || !record.api_digest) return false;
   const exactDigest = sha256HexFromString(canonical);
+  let exactApiDigest;
+  try {
+    exactApiDigest = sha256HexFromString(extractCanonicalJsonValue(canonical, "api_projection"));
+  } catch (_error) {
+    return false;
+  }
   if (typeof approval.api_digest !== "string" || !approval.api_digest
     || typeof approval.record_digest !== "string" || !approval.record_digest
     || !/^[0-9a-f]{64}$/.test(approval.api_digest)
     || record.api_digest !== approval.api_digest
-    || record.api_digest !== sha256Hex(record.api_projection)
+    || record.api_digest !== exactApiDigest
     || approval.record_digest !== exactDigest) return false;
   if (!finalizeAuthorityCopiesAgree(
     obligation,
@@ -8106,6 +8164,9 @@ function commitFinalizeSuccessAndPublishRecord(panel, payload = {}) {
   const publish = finalizePublishObligation(panel, finalized);
   const custodyCurrent = finalizeCustodyStillCurrent(publish);
   if (!custodyCurrent) {
+    // A response that lost any captured authority fence is ignored.  It must
+    // not invalidate the active scope: a late A response cannot revoke a
+    // newer B approval or advance the shared invalidation generation.
     return { render: false, stale: true, ignored: true, t19ApprovedRecordPublish: null };
   }
   const obligations = commitFinalizeSuccess(panel, payload);
@@ -8315,13 +8376,19 @@ function installQueueGuard() {
       const active = runtime.queueGuardApproval;
       return validateApprovedRecordAndQueue({
         onFailure: (failure) => {
-          runtime.queueGuardBlockNotice = {
-            at: new Date().toISOString(),
-            message: failure.message,
-            code: failure.code,
-            sessionId: active?.sessionId || null,
-            turnId: active?.turnId || null,
-          };
+          // Failed follow-up attempts must not erase a prior lifecycle error
+          // or unsupported-operation diagnostic.  The toast and current
+          // panel snapshot still expose this failure; a validated dispatch
+          // is the only operation allowed to clear the prior evidence.
+          if (!runtime.queueGuardBlockNotice) {
+            runtime.queueGuardBlockNotice = {
+              at: new Date().toISOString(),
+              message: failure.message,
+              code: failure.code,
+              sessionId: active?.sessionId || null,
+              turnId: active?.turnId || null,
+            };
+          }
           const panel = currentAgentPanel();
           if (panel) {
             panel.state.queueGuard = getQueueGuardStateForPanel();

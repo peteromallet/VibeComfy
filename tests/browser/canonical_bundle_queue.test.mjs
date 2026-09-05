@@ -39,7 +39,17 @@ import os
 from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.workflow_bundle import ApprovedProjectionRecord
 
-api_projection = {"workflow_revision": "t19-python-fixed"}
+api_projection = (
+    {"workflow_revision": "t19-python-fixed"}
+    if os.environ.get("T19_FIXTURE_PROFILE", "ascii") == "ascii"
+    else {
+        "ascii": "plain",
+        "unicode": "café {[]}\\\"quoted\\\" \\\\path",
+        "integral_float": 7.0,
+        "small_exponent": 1e-7,
+        "negative_zero": -0.0,
+    }
+)
 record = ApprovedProjectionRecord(
     revision_id=os.environ.get("T19_FIXTURE_REVISION", "t19-python-revision"),
     selected_variant=None,
@@ -58,7 +68,7 @@ print(json.dumps({
 }))
 `;
 
-function pythonApprovedFixture(t, revisionId = "t19-python-revision") {
+function pythonApprovedFixture(t, revisionId = "t19-python-revision", profile = "ascii") {
   const configured = typeof process.env.VIBECOMFY_PYTHON === "string" && process.env.VIBECOMFY_PYTHON
     ? process.env.VIBECOMFY_PYTHON
     : null;
@@ -72,6 +82,7 @@ function pythonApprovedFixture(t, revisionId = "t19-python-revision") {
         PYTHONPATH: [WORKTREE_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
         VIBECOMFY_HEADLESS: "1",
         T19_FIXTURE_REVISION: revisionId,
+        T19_FIXTURE_PROFILE: profile,
       },
     });
     if (result.error?.code === "ENOENT") continue;
@@ -267,7 +278,7 @@ async function runDeferredRealFinalizeCase(t, { mutateBeforeRelease = null, muta
   const candidateTransaction = makeValidCandidateTransactionV2({ sessionId, turnId, planHash, deltaOps });
   candidateTransaction.revision_id = "c".repeat(64);
   candidateTransaction.parent_revision = "";
-  const pythonFixture = pythonApprovedFixture(t, candidateTransaction.revision_id);
+  const pythonFixture = pythonApprovedFixture(t, candidateTransaction.revision_id, "rich");
   if (!pythonFixture) return null;
   const preparedTransaction = makeValidCandidateTransactionV2({ sessionId, turnId, planHash, deltaOps, state: "prepared", generation: 1, leaseNonce: "deferred-lease", overrides: { revision_id: candidateTransaction.revision_id, parent_revision: "" } });
   const finalizedTransaction = makeValidCandidateTransactionV2({ sessionId, turnId, planHash, deltaOps, state: "finalized", generation: 1, leaseNonce: "deferred-lease", overrides: { revision_id: candidateTransaction.revision_id, parent_revision: "" } });
@@ -279,20 +290,33 @@ async function runDeferredRealFinalizeCase(t, { mutateBeforeRelease = null, muta
   bindTransactionHashes(null, preparedTransaction, candidateGraph, graph);
   bindTransactionHashes(null, finalizedTransaction, candidateGraph, graph);
   const approval = { revision_id: candidateTransaction.revision_id, parent_revision: "", api_digest: pythonFixture.api_digest, record_digest: pythonFixture.record_digest };
+  let activeCycle = {
+    sessionId,
+    turnId,
+    planHash,
+    graph,
+    candidateGraph,
+    candidateTransaction,
+    preparedTransaction,
+    finalizedTransaction,
+    pythonFixture,
+    approval,
+    deferFinalize: true,
+  };
   let releaseFinalize;
   let finalizeRequested;
   const finalizeRequestedPromise = new Promise((resolve) => { finalizeRequested = resolve; });
   const finalizeGate = new Promise((resolve) => { releaseFinalize = resolve; });
-  const candidateFields = {
+  const candidateFields = (cycle) => ({
     agent_edit_protocol: "v2_delta",
     outcome: { kind: "candidate", changes: [] },
-    candidate: { state: "candidate", graph: candidateGraph, graph_hash: candidateTransaction.hashes.candidate_graph_hash, plan_hash: planHash },
-    graph: candidateGraph,
-    candidate_graph_hash: candidateTransaction.hashes.candidate_graph_hash,
-    delta_ops: candidateTransaction.plan.delta_ops_envelope.ops,
-    delta_ops_envelope: structuredClone(candidateTransaction.plan.delta_ops_envelope),
-    candidate_transaction: candidateTransaction,
-  };
+    candidate: { state: "candidate", graph: cycle.candidateGraph, graph_hash: cycle.candidateTransaction.hashes.candidate_graph_hash, plan_hash: cycle.planHash },
+    graph: cycle.candidateGraph,
+    candidate_graph_hash: cycle.candidateTransaction.hashes.candidate_graph_hash,
+    delta_ops: cycle.candidateTransaction.plan.delta_ops_envelope.ops,
+    delta_ops_envelope: structuredClone(cycle.candidateTransaction.plan.delta_ops_envelope),
+    candidate_transaction: cycle.candidateTransaction,
+  });
   const harness = await createBrowserHarness({
     graph,
     withQueuePrompt: true,
@@ -301,35 +325,44 @@ async function runDeferredRealFinalizeCase(t, { mutateBeforeRelease = null, muta
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/status?route=auto": { status: 200, body: { ok: true, provider_available: true, route: "arnold", requested_route: "auto", route_options: { auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false } } } },
-      "/vibecomfy/agent-executor": { status: 200, body: { ok: true, session_id: sessionId, turn_id: turnId, baseline_turn_id: null, ...candidateFields, eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] }, canvas_apply_allowed: true, apply_allowed: true, queue_allowed: true, message: "T19 deferred candidate." } },
-      "/vibecomfy/agent-edit/prepare": { status: 200, body: { ok: true, action: "prepare", session_id: sessionId, turn_id: turnId, revision_id: candidateTransaction.revision_id, parent_revision: "", receipt: { plan_hash: planHash, generation: 1, lease_nonce: "deferred-lease" }, candidate_transaction: preparedTransaction } },
+      "/vibecomfy/agent-executor": () => ({ status: 200, body: { ok: true, session_id: activeCycle.sessionId, turn_id: activeCycle.turnId, baseline_turn_id: null, ...candidateFields(activeCycle), eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] }, canvas_apply_allowed: true, apply_allowed: true, queue_allowed: true, message: "T19 deferred candidate." } }),
+      "/vibecomfy/agent-edit/prepare": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        const cycle = activeCycle;
+        assert.equal(body.session_id, cycle.sessionId);
+        return { status: 200, body: { ok: true, action: "prepare", session_id: cycle.sessionId, turn_id: cycle.turnId, revision_id: cycle.candidateTransaction.revision_id, parent_revision: "", receipt: { plan_hash: cycle.planHash, generation: 1, lease_nonce: cycle.preparedTransaction?.lease_nonce ?? "deferred-lease" }, candidate_transaction: cycle.preparedTransaction } };
+      },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
         const body = JSON.parse(options.body);
-        assert.equal(body.revision_id, candidateTransaction.revision_id);
-        finalizeRequested();
-        await finalizeGate;
+        const cycle = activeCycle;
+        assert.equal(body.revision_id, cycle.candidateTransaction.revision_id);
+        if (cycle.deferFinalize) {
+          finalizeRequested();
+          await finalizeGate;
+        }
         const response = {
           ok: true,
           action: "finalize",
-          session_id: sessionId,
-          turn_id: turnId,
-          plan_hash: planHash,
+          session_id: cycle.sessionId,
+          turn_id: cycle.turnId,
+          plan_hash: cycle.planHash,
           generation: 1,
-          revision_id: candidateTransaction.revision_id,
+          revision_id: cycle.candidateTransaction.revision_id,
           parent_revision: "",
-          candidate_transaction: finalizedTransaction,
-          approved_record_canonical: pythonFixture.canonical,
+          candidate_transaction: cycle.finalizedTransaction,
+          approved_record_canonical: cycle.pythonFixture.canonical,
           receipt: {
             seq: 1,
             event_type: "finalized",
-            turn_id: turnId,
-            plan_hash: planHash,
+            turn_id: cycle.turnId,
+            plan_hash: cycle.planHash,
             generation: 1,
             timestamp: "2026-09-05T00:00:00+00:00",
-            receipt: { turn_id: turnId, plan_hash: planHash, generation: 1, revision_id: candidateTransaction.revision_id, parent_revision: "", phase: "finalized", approval },
+            receipt: { turn_id: cycle.turnId, plan_hash: cycle.planHash, generation: 1, revision_id: cycle.candidateTransaction.revision_id, parent_revision: "", phase: "finalized", approval: cycle.approval },
           },
         };
-        mutateResponse?.(response, { candidateTransaction, finalizedTransaction, approval });
+        if (cycle.mutateResponse) cycle.mutateResponse(response, cycle);
+        else mutateResponse?.(response, cycle);
         return { status: 200, body: response };
       },
     },
@@ -366,6 +399,9 @@ async function runDeferredRealFinalizeCase(t, { mutateBeforeRelease = null, muta
       pythonFixture,
       runtime: runtimeModule.getAgentPanelRuntime(),
       runtimeModule,
+      setFinalizeCycle(cycle) {
+        activeCycle = { ...cycle, deferFinalize: false };
+      },
     };
   } catch (error) {
     await harness.dispose();
@@ -553,9 +589,14 @@ test("deferred real finalize rejects every changed custody dimension before publ
     ["workflow", ({ panel }) => mutateTx(panel, (transaction) => { transaction.candidate_authority.workflow_id = "stale-workflow"; })],
     ["transaction", ({ panel }) => mutateTx(panel, (transaction) => { transaction.candidate_authority.transaction_id = "stale-transaction"; })],
     ["candidate", ({ panel }) => mutateTx(panel, (transaction) => { transaction.candidate_authority.candidate_id = "stale-candidate"; })],
+    ["prepared workflow", ({ panel }) => mutateTx(panel, (transaction) => { transaction.prepared_authority.workflow_id = "stale-prepared-workflow"; })],
+    ["prepared transaction", ({ panel }) => mutateTx(panel, (transaction) => { transaction.prepared_authority.transaction_id = "stale-prepared-transaction"; })],
+    ["prepared candidate", ({ panel }) => mutateTx(panel, (transaction) => { transaction.prepared_authority.candidate_id = "stale-prepared-candidate"; })],
     ["plan", ({ panel }) => mutateTx(panel, (transaction) => { transaction.plan_hash = "stale-plan"; })],
     ["generation", ({ panel }) => mutateTx(panel, (transaction) => { transaction.generation = 2; })],
     ["lease", ({ panel }) => mutateTx(panel, (transaction) => { transaction.lease_nonce = "stale-lease"; })],
+    ["prepared generation", ({ panel }) => mutateTx(panel, (transaction) => { transaction.prepared_authority.generation = 9007199254740992; })],
+    ["prepared lease", ({ panel }) => mutateTx(panel, (transaction) => { transaction.prepared_authority.lease_nonce = "stale-prepared-lease"; })],
     ["scope activation", ({ panel }) => { panel.state.scopeActivationEpoch += 1; }],
     ["ordinary graph mutation", ({ harness }) => { harness.app.canvas.graph.change(); }],
     ["fresh graph", ({ harness }) => { harness.replaceLiveGraph({ nodes: [{ id: 9, type: "Fresh" }], links: [] }); }],
@@ -570,6 +611,10 @@ test("deferred real finalize rejects every changed custody dimension before publ
       assert.equal(result.harness.apiQueuePromptCalls.length, 0, name);
       assert.equal(result.harness.queuePromptCalls.length, 0, name);
       assert.notEqual(result.panel.state.phase, "READY", name);
+      assert.notEqual(result.panel.state.phase, "FINALIZED", name);
+      // The candidate lifecycle context may remain visible, but no approved
+      // record custody may be minted by a stale response.
+      assert.equal(result.runtime.queueGuardApproval?.approvalIdentity ?? null, null, name);
     } finally {
       await result.harness.dispose();
     }
@@ -586,7 +631,12 @@ test("deferred real finalize positive control publishes the Python canonical rec
     assert.equal(saved.recordDigest, result.pythonFixture.record_digest);
     assert.equal(saved.apiDigest, result.pythonFixture.api_digest);
     assert.equal(result.panel.state.phase, "FINALIZED");
-    assert.equal(result.harness.apiQueuePromptCalls.length, 0);
+    assert.deepEqual(result.harness.app.queuePrompt("rich-finalized-record"), { prompt_id: "prompt-1" });
+    assert.deepEqual(result.harness.apiQueuePromptCalls[0], [0, {
+      output: { ...JSON.parse(result.pythonFixture.canonical).api_projection, negative_zero: 0 },
+      workflow: JSON.parse(result.pythonFixture.canonical).ui_projection,
+    }]);
+    assert.equal(Object.is(result.harness.apiQueuePromptPayloadRefs[0].output.negative_zero, -0), true);
     assert.equal(result.harness.queuePromptCalls.length, 0);
   } finally {
     await result.harness.dispose();
@@ -623,6 +673,29 @@ test("literal Python canonical bytes retain their known UTF-8 digest across the 
   }
 });
 
+test("token-spelling tamper is rejected against the exact Python api_projection bytes", async (t) => {
+  const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+  try {
+    const pythonFixture = pythonApprovedFixture(t, "t19-token-tamper", "rich");
+    if (!pythonFixture) return;
+    const panel = extension.ensureAgentPanel();
+    const fixture = { canonical: pythonFixture.canonical, receipt: { revision_id: pythonFixture.revision_id, api_digest: pythonFixture.api_digest, record_digest: pythonFixture.record_digest } };
+    const context = seedApprovedRecord(runtimeModule, runtime, panel, fixture, { revisionId: pythonFixture.revision_id, recordDigest: pythonFixture.record_digest, recordRecordDigest: pythonFixture.record_digest });
+    const tamperedCanonical = pythonFixture.canonical.replace('"negative_zero":-0.0', '"negative_zero":-0');
+    assert.notEqual(tamperedCanonical, pythonFixture.canonical);
+    const tamperedRecordDigest = sha256HexFromString(tamperedCanonical);
+    const saved = runtimeModule.getScopeApprovedRecord("queue-scope");
+    runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical: tamperedCanonical, recordDigest: tamperedRecordDigest });
+    runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, recordDigest: tamperedRecordDigest, receipt: { ...context.receipt, record_digest: tamperedRecordDigest } };
+    assert.equal(harness.app.queuePrompt("tampered-token"), null);
+    assert.equal(runtime.queueGuardBlockNotice?.code, "approved_record_digest_mismatch");
+    assert.equal(harness.queuePromptCalls.length, 0);
+    assert.equal(harness.apiQueuePromptCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("real-shaped finalize rejects each independent receipt, transaction, approval, and request conflict", async (t) => {
   const conflicts = [
     ["outer event turn", (response) => { response.receipt.turn_id = "outer-turn-conflict"; }],
@@ -647,6 +720,14 @@ test("real-shaped finalize rejects each independent receipt, transaction, approv
     ["authority workflow", (response) => { response.candidate_transaction.candidate_authority.workflow_id = "authority-workflow-conflict"; }],
     ["authority transaction", (response) => { response.candidate_transaction.candidate_authority.transaction_id = "authority-transaction-conflict"; }],
     ["authority candidate", (response) => { response.candidate_transaction.candidate_authority.candidate_id = "authority-candidate-conflict"; }],
+    ["prepared workflow", (response) => { response.candidate_transaction.prepared_authority.workflow_id = "prepared-workflow-conflict"; }],
+    ["prepared transaction", (response) => { response.candidate_transaction.prepared_authority.transaction_id = "prepared-transaction-conflict"; }],
+    ["prepared candidate", (response) => { response.candidate_transaction.prepared_authority.candidate_id = "prepared-candidate-conflict"; }],
+    ["prepared session", (response) => { response.candidate_transaction.prepared_authority.session_id = "prepared-session-conflict"; }],
+    ["prepared turn", (response) => { response.candidate_transaction.prepared_authority.turn_id = "prepared-turn-conflict"; }],
+    ["prepared plan", (response) => { response.candidate_transaction.prepared_authority.plan_hash = "prepared-plan-conflict"; }],
+    ["prepared generation", (response) => { response.candidate_transaction.prepared_authority.generation = 9007199254740992; }],
+    ["prepared lease", (response) => { response.candidate_transaction.prepared_authority.lease_nonce = "prepared-lease-conflict"; }],
     ["approval revision", (response) => { response.receipt.receipt.approval.revision_id = "approval-revision-conflict"; }],
     ["approval parent", (response) => { response.receipt.receipt.approval.parent_revision = "approval-parent-conflict"; }],
     ["approval api digest", (response) => { response.receipt.receipt.approval.api_digest = "0".repeat(64); }],
@@ -756,26 +837,35 @@ test("canonical queue blocker matrix never calls either queue function", async (
   }
 });
 
-test("replaced queue hook and graph mutation fail closed without transport", async () => {
+test("replaced queue hook fails closed without transport", async () => {
   const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
   try {
     const fixture = approvedFixture();
     const panel = extension.ensureAgentPanel();
     seedApprovedRecord(runtimeModule, runtime, panel, fixture);
-    const wrapper = runtime.queueGuardHook.wrapper;
     harness.setQueuePromptHookFault("replaced");
     assert.equal(harness.app.queuePrompt("caller"), null);
     assert.equal(harness.queuePromptCalls.length, 0);
     assert.equal(harness.apiQueuePromptCalls.length, 0);
-    harness.app.queuePrompt = wrapper;
-    for (const mode of ["missing", "replaced", "defineproperty_replaced", "unwritable"]) {
-      harness.setGraphMutationHookFault(mode);
-      assert.equal(harness.app.queuePrompt("caller"), null, mode);
-      assert.equal(harness.apiQueuePromptCalls.length, 0, mode);
-      if (mode === "missing") harness.app.canvas.graph.change = runtime.queueGuardMutationHook.wrapper;
-    }
   } finally {
     await harness.dispose();
+  }
+});
+
+test("each graph hook fault is isolated behind a healthy queue hook", async () => {
+  for (const mode of ["missing", "replaced", "defineproperty_replaced", "unwritable"]) {
+    const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+    try {
+      seedApprovedRecord(runtimeModule, runtime, extension.ensureAgentPanel(), approvedFixture());
+      assert.equal(runtime.queueGuardHook?.healthy?.(), true, mode);
+      harness.setGraphMutationHookFault(mode);
+      assert.equal(harness.app.queuePrompt(`graph-${mode}`), null, mode);
+      assert.equal(runtime.queueGuardBlockNotice?.code, "mutation_hook_unverifiable", mode);
+      assert.equal(harness.queuePromptCalls.length, 0, mode);
+      assert.equal(harness.apiQueuePromptCalls.length, 0, mode);
+    } finally {
+      await harness.dispose();
+    }
   }
 });
 
@@ -850,6 +940,102 @@ test("A to B to reused A rebinds graph custody and never restores A approval", a
   }
 });
 
+test("real finalized A to B to A loadGraphData transition requires new approval", async (t) => {
+  const result = await runDeferredRealFinalizeCase(t);
+  if (!result) return;
+  const originalGlobalApp = globalThis.app;
+  globalThis.app = result.harness.app;
+  try {
+    const { harness, panel, runtime, runtimeModule, scope, extension, setFinalizeCycle } = result;
+    const graphA = harness.getCurrentGraph();
+    const graphObjectA = harness.app.canvas.graph;
+    const oldAWrapper = runtime.queueGuardMutationHook.wrapper;
+    const activationA = panel.state.scopeActivationEpoch;
+    const workflow = harness.app.extensionManager.workflow;
+    const workflowA = workflow.vibecomfyScopeMetadata.workflow_id;
+    workflow.vibecomfyScopeMetadata.workflow_id = "223e4567-e89b-12d3-a456-426614174001";
+    const graphB = structuredClone(graphA);
+    graphB.nodes[0].properties.vibecomfy_uid = "uid-b";
+    harness.app.loadGraphData(graphB);
+    const scopeB = extension.resolveActiveCanvasScope();
+    assert.ok(scopeB?.scopeId);
+    assert.notEqual(scopeB.scopeId, scope.scopeId);
+    assert.equal(harness.app.canvas.graph, graphObjectA);
+    assert.notEqual(panel.state.scopeActivationEpoch, activationA);
+    assert.notEqual(runtime.queueGuardMutationHook.wrapper, oldAWrapper);
+    assert.equal(runtime.queueGuardMutationHook.scopeActivation, panel.state.scopeActivationEpoch);
+
+    const bSessionId = "session-t19-deferred";
+    const bTurnId = "deferred-0001";
+    const bPlanHash = "plan-t19-b";
+    const bCandidateGraph = { nodes: [...graphB.nodes, { id: 3, type: "SaveImage", properties: { vibecomfy_uid: "uid-b-save" } }], links: [] };
+    const bDeltaOps = [{ op: "add_node", scope_path: "", uid: "uid-b-save", node_id: "3", class_type: "SaveImage", fields: { properties: { vibecomfy_uid: "uid-b-save" } }, inputs: {} }];
+    const bWorkflowId = workflow.vibecomfyScopeMetadata.workflow_id;
+    const bCandidate = makeValidCandidateTransactionV2({ sessionId: bSessionId, turnId: bTurnId, workflowId: bWorkflowId, planHash: bPlanHash, deltaOps: bDeltaOps });
+    bCandidate.revision_id = "d".repeat(64);
+    bCandidate.parent_revision = "";
+    const bFixture = pythonApprovedFixture(t, bCandidate.revision_id, "rich");
+    if (!bFixture) return;
+    const bPrepared = makeValidCandidateTransactionV2({ sessionId: bSessionId, turnId: bTurnId, workflowId: bWorkflowId, planHash: bPlanHash, deltaOps: bDeltaOps, state: "prepared", generation: 1, leaseNonce: "lease-t19-b", overrides: { revision_id: bCandidate.revision_id, parent_revision: "" } });
+    const bFinalized = makeValidCandidateTransactionV2({ sessionId: bSessionId, turnId: bTurnId, workflowId: bWorkflowId, planHash: bPlanHash, deltaOps: bDeltaOps, state: "finalized", generation: 1, leaseNonce: "lease-t19-b", overrides: { revision_id: bCandidate.revision_id, parent_revision: "" } });
+    for (const transaction of [bCandidate, bPrepared, bFinalized]) {
+      transaction.revision_id = bCandidate.revision_id;
+      transaction.parent_revision = "";
+      bindTransactionHashes(null, transaction, bCandidateGraph, graphB);
+    }
+    assert.ok(normalizeCandidateTransaction(bCandidate), JSON.stringify(bCandidate));
+    const bApproval = { revision_id: bCandidate.revision_id, parent_revision: "", api_digest: bFixture.api_digest, record_digest: bFixture.record_digest };
+    setFinalizeCycle({
+      sessionId: bSessionId,
+      turnId: bTurnId,
+      planHash: bPlanHash,
+      graph: graphB,
+      candidateGraph: bCandidateGraph,
+      candidateTransaction: bCandidate,
+      preparedTransaction: bPrepared,
+      finalizedTransaction: bFinalized,
+      pythonFixture: bFixture,
+      approval: bApproval,
+      deferFinalize: false,
+    });
+    panel.state.chatScopeId = scopeB.scopeId;
+    panel.state.chatScopeFingerprint = scopeB.fingerprint;
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "finalize B";
+    panel.buttons.submit.disabled = false;
+    await harness.clickButton("Submit");
+    for (let index = 0; index < 40 && panel.state.phase !== "AWAITING_REVIEW"; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(panel.state.phase, "AWAITING_REVIEW");
+    assert.ok(normalizeCandidateTransaction(panel.state.candidateTransaction), JSON.stringify(panel.state.candidateTransaction));
+    panel.state.chatRehydratePending = false;
+    panel.buttons.apply.disabled = false;
+    panel.buttons.apply.click();
+    for (let index = 0; index < 100 && panel.state.phase !== "FINALIZED"; index += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(panel.state.phase, "FINALIZED", JSON.stringify({ failure: panel.state.failure, message: panel.state.message, requests: harness.requests }));
+    assert.ok(runtimeModule.getScopeApprovedRecord(scopeB.scopeId));
+
+    // The retained A wrapper is stale after the real scope transition and
+    // must not revoke B's newly published approval.
+    oldAWrapper();
+    assert.ok(runtimeModule.getScopeApprovedRecord(scopeB.scopeId));
+    harness.app.canvas.graph.change();
+    assert.equal(runtimeModule.getScopeApprovedRecord(scopeB.scopeId), null);
+    assert.equal(harness.app.queuePrompt("B-after-mutation"), null);
+
+    workflow.vibecomfyScopeMetadata.workflow_id = workflowA;
+    harness.app.loadGraphData(graphA);
+    assert.equal(harness.app.canvas.graph, graphObjectA);
+    assert.equal(runtimeModule.getScopeApprovedRecord(scope.scopeId), null);
+    assert.equal(harness.app.queuePrompt("A-reused-before-new-approval"), null);
+    assert.equal(runtime.queueGuardBlockNotice?.code, "missing_approved_record");
+    assert.equal(harness.apiQueuePromptCalls.length, 0);
+    assert.equal(harness.queuePromptCalls.length, 0);
+  } finally {
+    if (originalGlobalApp === undefined) delete globalThis.app;
+    else globalThis.app = originalGlobalApp;
+    await result.harness.dispose();
+  }
+});
+
 test("ordinary graph change invalidates the approved canonical custody", async () => {
   const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
   try {
@@ -868,7 +1054,7 @@ test("ordinary graph change invalidates the approved canonical custody", async (
   }
 });
 
-test("live authority mutation after publication is a named fail-closed cause", async () => {
+test("live authority mutation after real publication is a named fail-closed cause", async (t) => {
   const mutations = [
     ["revision", (panel) => { panel.state.candidateTransaction.revision_id = "rev-mutated"; }],
     ["parent", (panel) => { panel.state.candidateTransaction.parent_revision = "parent-mutated"; }],
@@ -880,18 +1066,26 @@ test("live authority mutation after publication is a named fail-closed cause", a
     ["transaction", (panel) => { panel.state.candidateTransaction.candidate_authority.transaction_id = "tx-mutated"; }],
     ["candidate", (panel) => { panel.state.candidateTransaction.candidate_authority.candidate_id = "candidate-mutated"; }],
     ["workflow", (panel) => { panel.state.candidateTransaction.candidate_authority.workflow_id = "workflow-mutated"; }],
+    ["prepared session", (panel) => { panel.state.candidateTransaction.prepared_authority.session_id = "prepared-session-mutated"; }],
+    ["prepared turn", (panel) => { panel.state.candidateTransaction.prepared_authority.turn_id = "prepared-turn-mutated"; }],
+    ["prepared plan", (panel) => { panel.state.candidateTransaction.prepared_authority.plan_hash = "prepared-plan-mutated"; }],
+    ["prepared generation", (panel) => { panel.state.candidateTransaction.prepared_authority.generation = 9007199254740992; }],
+    ["prepared lease", (panel) => { panel.state.candidateTransaction.prepared_authority.lease_nonce = "prepared-lease-mutated"; }],
     ["activation", (panel) => { panel.state.scopeActivationEpoch += 1; }],
     ["fresh graph", (_panel, harness) => { harness.replaceLiveGraph({ nodes: [{ id: 7, type: "Fresh" }], links: [] }); }],
+    ["ordinary graph", (_panel, harness) => { harness.app.canvas.graph.change(); }],
   ];
   for (const [name, mutate] of mutations) {
-    const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+    const result = await runDeferredRealFinalizeCase(t);
+    if (!result) return;
+    const { harness, panel, runtimeModule, runtime } = result;
     try {
-      const fixture = approvedFixture();
-      const panel = extension.ensureAgentPanel();
-      seedApprovedRecord(runtimeModule, runtime, panel, fixture);
+      if (!["fresh graph", "ordinary graph"].includes(name)) {
+        panel.state.candidateTransaction = structuredClone(panel.state.candidateTransaction);
+      }
       mutate(panel, harness);
       assert.equal(harness.app.queuePrompt("caller"), null, name);
-      assert.equal(runtime.queueGuardBlockNotice?.code, name === "fresh graph" ? "missing_approved_record" : "queue_attempt_stale", name);
+      assert.equal(runtime.queueGuardBlockNotice?.code, ["fresh graph", "ordinary graph"].includes(name) ? "missing_approved_record" : "queue_attempt_stale", name);
       assert.equal(harness.queuePromptCalls.length, 0, name);
       assert.equal(harness.apiQueuePromptCalls.length, 0, name);
     } finally {
@@ -900,21 +1094,25 @@ test("live authority mutation after publication is a named fail-closed cause", a
   }
 });
 
-test("safe numeric spellings remain queueable", async () => {
+test("safe numeric spellings remain queueable", async (t) => {
   const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
   try {
-    const fixture = approvedFixture();
+    const pythonFixture = pythonApprovedFixture(t, "t19-safe-numbers", "rich");
+    if (!pythonFixture) return;
+    const fixture = {
+      canonical: pythonFixture.canonical,
+      receipt: {
+        revision_id: pythonFixture.revision_id,
+        api_digest: pythonFixture.api_digest,
+        record_digest: pythonFixture.record_digest,
+      },
+    };
     const panel = extension.ensureAgentPanel();
-    const record = JSON.parse(fixture.canonical);
-    record.api_projection = { negative_zero: -0, float: 1.25, exponent: 1e3 };
-    record.api_digest = sha256Hex(record.api_projection);
-    const canonical = canonicalJsonString(record).replace('"negative_zero":0', '"negative_zero":-0');
-    const recordDigest = sha256HexFromString(canonical);
     seedApprovedRecord(runtimeModule, runtime, panel, fixture, {
-      canonical,
-      apiDigest: record.api_digest,
-      recordDigest,
-      recordRecordDigest: recordDigest,
+      revisionId: pythonFixture.revision_id,
+      apiDigest: pythonFixture.api_digest,
+      recordDigest: pythonFixture.record_digest,
+      recordRecordDigest: pythonFixture.record_digest,
     });
     assert.deepEqual(harness.app.queuePrompt("caller"), { prompt_id: "prompt-1" });
     assert.equal(harness.apiQueuePromptCalls.length, 1);
@@ -1019,6 +1217,48 @@ test("prompt lifecycle remains scoped when a newer prompt supersedes an older at
     assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "running");
     harness.dispatchApiEvent("executed", { prompt_id: "prompt-1" });
     assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "running");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("prior lifecycle diagnostics survive failed P2 attempts and generic invalidation", async () => {
+  const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+  try {
+    const panel = extension.ensureAgentPanel();
+    const fixture = approvedFixture();
+    seedApprovedRecord(runtimeModule, runtime, panel, fixture);
+    assert.deepEqual(harness.app.queuePrompt("p1"), { prompt_id: "prompt-1" });
+    harness.dispatchApiEvent("execution_error", { prompt_id: "prompt-1", error: "p1 failed" });
+    const priorLifecycle = runtime.queueGuardLifecycle;
+    const priorBlock = runtime.queueGuardBlockNotice;
+    assert.equal(priorBlock?.code, "queue_prompt_lifecycle_error");
+
+    const validCandidateTransaction = structuredClone(panel.state.candidateTransaction);
+    panel.state.candidateTransaction = structuredClone(panel.state.candidateTransaction);
+    panel.state.candidateTransaction.revision_id = "stale-p2-revision";
+    assert.equal(harness.app.queuePrompt("stale-p2"), null);
+    assert.deepEqual(runtime.queueGuardLifecycle, priorLifecycle);
+    assert.deepEqual(runtime.queueGuardBlockNotice, priorBlock);
+
+    panel.state.candidateTransaction = validCandidateTransaction;
+    const originalApiQueuePrompt = harness.api.queuePrompt;
+    const toastCountBeforeApiFailure = harness.toasts.length;
+    harness.api.queuePrompt = undefined;
+    assert.equal(harness.app.queuePrompt("unavailable-p2"), null);
+    assert.deepEqual(runtime.queueGuardLifecycle, priorLifecycle);
+    assert.deepEqual(runtime.queueGuardBlockNotice, priorBlock);
+    assert.ok(harness.toasts.slice(toastCountBeforeApiFailure).some((entry) => String(entry?.summary || entry?.detail || "").includes("queuePrompt is unavailable")));
+    harness.api.queuePrompt = originalApiQueuePrompt;
+
+    harness.app.canvas.graph.change();
+    assert.deepEqual(runtime.queueGuardLifecycle, priorLifecycle);
+    assert.deepEqual(runtime.queueGuardBlockNotice, priorBlock);
+
+    seedApprovedRecord(runtimeModule, runtime, panel, fixture);
+    assert.deepEqual(harness.app.queuePrompt("valid-p2"), { prompt_id: "prompt-2" });
+    assert.equal(runtime.queueGuardLifecycle, null);
+    assert.equal(runtime.queueGuardBlockNotice, null);
   } finally {
     await harness.dispose();
   }
