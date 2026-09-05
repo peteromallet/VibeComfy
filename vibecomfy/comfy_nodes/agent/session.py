@@ -4527,6 +4527,8 @@ def record_idempotent_response(
     key = _record_key(scope, idempotency_key)
     stamped_response = response
     authority_receipt: Any = None
+    authority_receipt_path_for_turn: Path | None = None
+    authority_receipt_before: bytes | None = None
     request_payload: Mapping[str, Any] | None = None
     requested_v2 = (
         response.get("agent_edit_protocol") == "v2_delta"
@@ -4551,6 +4553,7 @@ def record_idempotent_response(
                     # sole receipt-digest source for mint AND binding.
                     from .authority_receipts import (
                         authority_receipt_digest_v2,
+                        authority_receipt_path,
                         build_and_persist_authority_receipt,
                     )
 
@@ -4563,15 +4566,29 @@ def record_idempotent_response(
                     raw_schema_version = delta_envelope.get("schema_version")
                     if isinstance(raw_schema_version, str):
                         schema_version = raw_schema_version
-                    authority_receipt, stamped_response = build_and_persist_authority_receipt(
-                        turn_dir=turn_dir,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        request_payload=request_payload,
-                        response=response,
-                        schema_version=schema_version,
-                        schema_provider=schema_provider,
+                    # The receipt is written before candidate capture, so it
+                    # must join the same recovery boundary as the staged/final
+                    # bundle pair and candidate transaction.
+                    authority_receipt_path_for_turn = authority_receipt_path(turn_dir)
+                    authority_receipt_before = _existing_file_bytes(
+                        authority_receipt_path_for_turn
                     )
+                    try:
+                        authority_receipt, stamped_response = build_and_persist_authority_receipt(
+                            turn_dir=turn_dir,
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            request_payload=request_payload,
+                            response=response,
+                            schema_version=schema_version,
+                            schema_provider=schema_provider,
+                        )
+                    except Exception:
+                        _restore_file_bytes(
+                            authority_receipt_path_for_turn,
+                            authority_receipt_before,
+                        )
+                        raise
         except Exception:
             if requested_v2:
                 # An applyable V2 candidate must never be published without
@@ -4592,7 +4609,15 @@ def record_idempotent_response(
         token = request_payload.get("client_live_canvas_token")
         if token is not None:
             protocol_response["client_live_canvas_token"] = token
-    agent_edit_protocol = _validated_agent_edit_protocol(protocol_response)
+    try:
+        agent_edit_protocol = _validated_agent_edit_protocol(protocol_response)
+    except Exception:
+        if authority_receipt_path_for_turn is not None:
+            _restore_file_bytes(
+                authority_receipt_path_for_turn,
+                authority_receipt_before,
+            )
+        raise
     candidate_payload = (
         stamped_response.get("candidate")
         if isinstance(stamped_response.get("candidate"), Mapping)
@@ -4628,21 +4653,52 @@ def record_idempotent_response(
             and isinstance(authority_receipt.schema_witness, Mapping)
         )
         if not complete_authority:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate publication requires complete durable replay authority.")
         assert authority_receipt is not None
         assert turn_id is not None
         if not isinstance(request_payload, Mapping):
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate issuance requires the persisted submit request.")
         submit_graph = request_payload.get("graph")
         candidate_graph = stamped_response.get("graph")
         if not isinstance(submit_graph, Mapping) or not isinstance(candidate_graph, Mapping):
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate issuance requires genuine submit and candidate graphs.")
         scope_metadata = request_payload.get("scope_metadata")
         workflow_id = _resolve_stable_workflow_id(
             request_payload, scope_metadata, session_id, submit_graph
         )
-        workflow_identity_v1(workflow_id)
-        requested_revision, requested_parent = revision_identity_from_mapping(request_payload)
+        try:
+            workflow_identity_v1(workflow_id)
+        except Exception:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
+            raise
+        try:
+            requested_revision, requested_parent = revision_identity_from_mapping(request_payload)
+        except Exception:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
+            raise
         pending_bundle = None
         try:
             bundle_metadata, pending_bundle = _capture_candidate_bundle(
@@ -4769,6 +4825,11 @@ def record_idempotent_response(
         except Exception:
             if pending_bundle is not None:
                 _cleanup_pending_bundle(pending_bundle)
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise
         stamped_response = dict(stamped_response)
         stamped_response["revision_id"] = revision_id

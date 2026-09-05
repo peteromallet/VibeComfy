@@ -215,6 +215,7 @@ def _record_v2_turn(
     session_id: str = "s1",
     label: str = "v2-prep-test",
     parent_revision: str = "",
+    seed_parent_revision: str | None = None,
     workflow_id: str | None = None,
     submit_graph: dict | None = None,
 ):
@@ -282,19 +283,20 @@ def _record_v2_turn(
     resolved_workflow_id = _resolve_stable_workflow_id(
         request, request.get("scope_metadata"), session_id, request["graph"]
     )
+    seed_parent = parent_revision if seed_parent_revision is None else seed_parent_revision
     seed_graph = dict(candidate_graph)
     seed_graph["workflow_id"] = resolved_workflow_id
     parent_evidence = None
-    if parent_revision:
+    if seed_parent:
         parent_evidence = {
-            "revision_id": parent_revision,
+            "revision_id": seed_parent,
             "workflow_identity": resolved_workflow_id,
         }
     seed = capture_bundle(
         seed_graph,
         allocation.turn_dir / "seed.py",
         {"operation": "captured"},
-        parent_revision=parent_revision,
+        parent_revision=seed_parent,
         parent_evidence=parent_evidence,
     )
     (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
@@ -508,7 +510,12 @@ def test_real_session_journal_backed_child_and_rejected_parent(tmp_path) -> None
     )
     assert isinstance(prepared, dict)
     parent_revision = prepared["revision_id"]
-    parent_python = Path(parent_transaction["bundle"]["python_path"]).read_bytes()
+    parent_python_path = Path(parent_transaction["bundle"]["python_path"])
+    parent_python = parent_python_path.read_bytes()
+    parent_sidecar_path = parent_python_path.with_suffix(".vibe.json")
+    parent_sidecar = parent_sidecar_path.read_bytes()
+    parent_receipt_path = root / session_id / "turns" / turn_id / "authority" / "receipt.json"
+    parent_receipt = parent_receipt_path.read_bytes()
     parent_txn = _txn_dir(root, session_id, turn_id, plan_hash) / CANDIDATE_TRANSACTION_FILENAME
     parent_txn_bytes = parent_txn.read_bytes()
 
@@ -535,15 +542,24 @@ def test_real_session_journal_backed_child_and_rejected_parent(tmp_path) -> None
             session_id=session_id,
             label="v2-unknown-parent",
             parent_revision="c" * 64,
+            seed_parent_revision="",
         )
     unknown_turns = sorted(
         path for path in (root / session_id / "turns").iterdir() if path.is_dir()
     )
     unknown_turn = unknown_turns[-1]
     assert not (unknown_turn / "response.json").exists()
+    assert not (unknown_turn / "authority" / "receipt.json").exists()
     assert list(unknown_turn.rglob("candidate.py")) == []
     assert list(unknown_turn.rglob(CANDIDATE_TRANSACTION_FILENAME)) == []
     assert list(unknown_turn.rglob(".pending/candidate.py")) == []
+    assert list(unknown_turn.rglob("finalized.json")) == []
+    assert list(unknown_turn.rglob("lifecycle_events.jsonl")) == []
+    assert list(unknown_turn.rglob("approval*.json")) == []
+    assert parent_txn.read_bytes() == parent_txn_bytes
+    assert parent_python_path.read_bytes() == parent_python
+    assert parent_sidecar_path.read_bytes() == parent_sidecar
+    assert parent_receipt_path.read_bytes() == parent_receipt
 
     with pytest.raises(ValueError, match="parent revision is not backed"):
         _record_v2_turn(
@@ -556,6 +572,8 @@ def test_real_session_journal_backed_child_and_rejected_parent(tmp_path) -> None
         )
     assert parent_txn.read_bytes() == parent_txn_bytes
     assert Path(parent_transaction["bundle"]["python_path"]).read_bytes() == parent_python
+    assert parent_sidecar_path.read_bytes() == parent_sidecar
+    assert parent_receipt_path.read_bytes() == parent_receipt
 
 
 def test_real_session_recapture_invalidates_old_approval(tmp_path, monkeypatch) -> None:
@@ -804,6 +822,7 @@ def test_real_session_publication_failure_keeps_prior_authority(tmp_path, monkey
     prior_python = prior_txn_dir / "candidate.py"
     prior_sidecar = prior_txn_dir / "candidate.vibe.json"
     prior_transaction = prior_txn_dir / CANDIDATE_TRANSACTION_FILENAME
+    prior_receipt = (root / session_id / "turns" / turn_id / "authority" / "receipt.json").read_bytes()
     prior_pair = (prior_python.read_bytes(), prior_sidecar.read_bytes())
     prior_authority = prior_transaction.read_bytes()
     lifecycle = prior_txn_dir / "lifecycle_events.jsonl"
@@ -836,8 +855,12 @@ def test_real_session_publication_failure_keeps_prior_authority(tmp_path, monkey
     assert list(failed_turn_dir.rglob(".pending/candidate.py")) == []
     assert list(failed_turn_dir.rglob(".pending/candidate.vibe.json")) == []
     assert list(failed_turn_dir.rglob("finalized.json")) == []
+    assert list(failed_turn_dir.rglob("lifecycle_events.jsonl")) == []
+    assert list(failed_turn_dir.rglob("approval*.json")) == []
+    assert list(failed_turn_dir.rglob("authority/receipt.json")) == []
     assert (prior_python.read_bytes(), prior_sidecar.read_bytes()) == prior_pair
     assert prior_transaction.read_bytes() == prior_authority
+    assert (root / session_id / "turns" / turn_id / "authority" / "receipt.json").read_bytes() == prior_receipt
     assert (lifecycle.read_bytes() if lifecycle.is_file() else None) == lifecycle_before
     assert not (prior_txn_dir / "finalized.json").exists()
     assert not (prior_txn_dir / ".pending" / "candidate.py").exists()
