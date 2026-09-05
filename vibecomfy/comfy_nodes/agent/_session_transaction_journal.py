@@ -73,6 +73,7 @@ def record_prepared_transaction_impl(
     structural_hash_before: str | None,
     candidate_payload: Mapping[str, Any] | None = None,
     baseline_snapshot: Mapping[str, Any] | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
@@ -106,6 +107,8 @@ def record_prepared_transaction_impl(
         "candidate_transaction": prepared_candidate,
         "phase": "prepared",
     }
+    if runtime_evidence is not None:
+        receipt["runtime_evidence"] = dict(runtime_evidence)
     event = host._append_transaction_lifecycle_event(
         transaction_dir,
         event_type="prepared",
@@ -177,6 +180,7 @@ def record_finalized_transaction_impl(
     structural_hash_after: str | None,
     applied_payload: Mapping[str, Any] | None = None,
     journal_durable: Mapping[str, Any] | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
@@ -202,6 +206,8 @@ def record_finalized_transaction_impl(
             return value
 
         receipt["journal_durable"] = _plain_json(validated_journal)
+    if runtime_evidence is not None:
+        receipt["runtime_evidence"] = dict(runtime_evidence)
     return host._record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
@@ -302,6 +308,7 @@ def record_cancelled_transaction_impl(
     plan_hash: str,
     generation: int,
     reason: str | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
@@ -313,6 +320,8 @@ def record_cancelled_transaction_impl(
         "reason": reason,
         "phase": "superseded",
     }
+    if runtime_evidence is not None:
+        receipt["runtime_evidence"] = dict(runtime_evidence)
     return host._record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
@@ -332,23 +341,28 @@ def record_discarded_transaction_impl(
     turn_id: str,
     plan_hash: str,
     reason: str = "rejected_by_user",
+    generation: int | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
 
+    resolved_generation = 0 if generation is None else generation
     receipt = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
-        "generation": 0,
+        "generation": resolved_generation,
         "reason": reason,
         "phase": "discarded",
     }
+    if runtime_evidence is not None:
+        receipt["runtime_evidence"] = dict(runtime_evidence)
     return host._record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
-        generation=0,
+        generation=resolved_generation,
         event_type="discarded",
         receipt=receipt,
         now_fn=now_fn,

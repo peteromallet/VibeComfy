@@ -8,6 +8,7 @@ import sys
 import types
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
@@ -15,17 +16,20 @@ from vibecomfy.errors import QueueError, RuntimeNodeError
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
 from vibecomfy.artifacts import Artifact
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.schema import NodeSchema
 from vibecomfy.runtime.session import SessionConfig
-from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
-from vibecomfy.workflow_bundle import ApprovedProjectionRecord, load_bundle
+from vibecomfy.workflow_bundle import load_bundle
 
 runtime_run_module = importlib.import_module("vibecomfy.runtime.run")
 
 
 def _workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("runtime-test", WorkflowSource("runtime-test"))
-    workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "test"})
+    workflow.nodes["1"] = VibeNode(
+        "1", "SaveImage", inputs={"filename_prefix": "test", "images": "fixture-image"}
+    )
     return workflow
 
 
@@ -34,16 +38,22 @@ def _approved(workflow: VibeWorkflow):
         if not node.uid:
             node.uid = f"runtime-{node.id}"
     bundle = load_bundle(workflow)
-    api = workflow.compile(backend="api")
-    record = ApprovedProjectionRecord(
-        bundle.revision_id,
-        workflow.default_variant,
-        {},
-        api,
-        bundle.materialize_ui(),
-        canonical_digest(api),
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            return NodeSchema(class_type, None, {}, [])
+
+    entry = ModelEntry(
+        "runtime-fixture-model",
+        ModelSource("local"),
+        0,
+        (ModelTarget("comfy_core", "checkpoints"),),
     )
-    return record, bundle
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+    ):
+        return bundle.compile(schema_provider=_FixtureProvider()), bundle
 
 
 def _command_bundle():
@@ -103,7 +113,9 @@ def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.Monke
     with pytest.raises(ValueError, match="approved API projection"):
         asyncio.run(runtime_run_module.run_embedded(*_approved(_workflow()), backend="missing"))
 
-    assert not (tmp_path / "out/runs").exists()
+    # Rework-1 publishes the record-bearing prepared attempt before schema
+    # preparation, so the run root is durable even when preparation rejects.
+    assert (tmp_path / "out/runs").exists()
 
 
 def test_run_validates_before_queueing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -154,12 +166,60 @@ def test_run_surfaces_queue_failure(monkeypatch: pytest.MonkeyPatch, tmp_path) -
         asyncio.run(runtime_run_module.run(*_approved(workflow), server_url="http://runtime.test"))
 
     assert queued_prompts == [
-        {"1": {"class_type": "SaveImage", "inputs": {"filename_prefix": "test"}}}
+        {
+            "1": {
+                "class_type": "SaveImage",
+                "inputs": {"filename_prefix": "test", "images": "fixture-image"},
+            }
+        }
     ]
     message = str(exc_info.value)
     assert "id_map=" in message
     assert "'save': '1'" in message
     assert "'7': '1'" in message
+
+
+@pytest.mark.parametrize("failure", ["attempt", "journal"])
+def test_run_initial_lifecycle_failure_is_visible_before_transport(
+    failure: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    queue_calls: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def _post_prompt(self, payload: dict) -> dict:
+            queue_calls.append(payload)
+            return {"prompt_id": "must-not-queue"}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    if failure == "attempt":
+        def fail_attempt(*_args, **_kwargs):
+            raise OSError("attempt write failed")
+
+        monkeypatch.setattr(
+            session_module,
+            "write_attempt_json",
+            fail_attempt,
+        )
+    else:
+        from vibecomfy.comfy_nodes.agent import _session_transaction_journal as journal
+
+        def fail_prepare(*_args, **_kwargs):
+            raise OSError("journal append failed")
+
+        monkeypatch.setattr(journal, "record_prepared_transaction_impl", fail_prepare)
+
+    with pytest.raises(QueueError, match="lifecycle could not be persisted"):
+        asyncio.run(runtime_run_module.run(*_approved(_workflow())))
+    assert queue_calls == []
 
 
 def test_run_managed_server_uses_workflow_session_config(
@@ -283,7 +343,7 @@ def test_run_embedded_ignores_hiddenswitch_cleanup_bug_after_success(
             raise AttributeError("'NoneType' object has no attribute 'model_mmap_residency'")
 
         async def queue_prompt_api(self, api_dict):
-            return {"outputs": {"1": {"filename": "output.mp4"}}}
+            return {"prompt_id": "embedded-cleanup", "outputs": {"1": {"filename": "output.mp4"}}}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "comfy", types.ModuleType("comfy"))
@@ -321,7 +381,7 @@ def test_run_embedded_ignores_comfy_kitchen_cleanup_bug_after_success(
             raise cleanup_error
 
         async def queue_prompt_api(self, api_dict):
-            return {"outputs": {"1": {"filename": "output.mp4"}}}
+            return {"prompt_id": "embedded-cleanup", "outputs": {"1": {"filename": "output.mp4"}}}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "comfy", types.ModuleType("comfy"))
@@ -353,6 +413,7 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
 
         async def queue_prompt_api(self, api_dict):
             return {
+                "prompt_id": "embedded-output",
                 "outputs": {
                     "19": {
                         "images": [
@@ -1370,13 +1431,30 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
     attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
     assert attempt["approval_record"] == record.to_dict()
     assert attempt["approved_projection"] == record.to_dict()
-    assert attempt["adapter"]["kind"] == "server"
+    assert attempt["adapter"]["kind"] == "managed"
     assert attempt["adapter"]["backend"] == "api"
-    assert attempt["schema_provenance"] == {
-        "provider": None,
-        "validation": "structural-only",
-    }
+    assert attempt["schema_provenance"]["provider"] is None
+    assert attempt["schema_provenance"]["validation"] == "structural-only"
+    assert attempt["schema_provenance"]["schema_digest"] is None
     assert attempt["queue_acceptance"] == {
+        "status": "accepted",
+        "prompt_id": "accepted-before-wait",
+    }
+    run_dir = attempt_path.parent
+    lifecycle_path = (
+        run_dir
+        / "transactions"
+        / record.api_digest
+        / "lifecycle_events.jsonl"
+    )
+    lifecycle = [
+        json.loads(line)
+        for line in lifecycle_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [event["event_type"] for event in lifecycle] == ["prepared", "discarded"]
+    assert lifecycle[-1]["generation"] == lifecycle[0]["generation"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == {
         "status": "accepted",
         "prompt_id": "accepted-before-wait",
     }
@@ -1418,7 +1496,7 @@ def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
     attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
     attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
     assert attempt["queue_acceptance"] == {
-        "status": "ambiguous",
+        "status": "unknown",
         "prompt_id": None,
     }
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))

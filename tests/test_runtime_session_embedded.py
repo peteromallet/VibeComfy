@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
-from vibecomfy.testing.canonical import canonical_digest
-from vibecomfy.workflow_bundle import ApprovedProjectionRecord, load_bundle
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.porting.object_info import ObjectInfoLookupResult
+from vibecomfy.schema import NodeSchema
+from vibecomfy.workflow_bundle import load_bundle
 
 from tests._runtime_session_helpers import (
     FakeConfiguration,
@@ -24,20 +27,30 @@ def _approved(workflow):
         if not node.uid:
             node.uid = f"runtime-{node.id}"
     bundle = load_bundle(workflow)
-    api = workflow.compile(backend="api")
-    record = ApprovedProjectionRecord(
-        bundle.revision_id,
-        workflow.default_variant,
-        {},
-        api,
-        bundle.materialize_ui(),
-        canonical_digest(api),
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            return NodeSchema(class_type, None, {}, [])
+
+    entry = ModelEntry(
+        "runtime-fixture-model",
+        ModelSource("local"),
+        0,
+        (ModelTarget("comfy_core", "checkpoints"),),
     )
-    return record, bundle
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+        patch(
+            "vibecomfy.porting.object_info.resolve_class_entry",
+            return_value=ObjectInfoLookupResult(entry={}, source="fixture", low_confidence=False),
+        ),
+    ):
+        return bundle.compile(schema_provider=_FixtureProvider()), bundle
 
 
 def _patch_fast_runtime_run(monkeypatch):
-    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False, normalize_approval=None):
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False):
         return session_module.PreparedPrompt(record.to_dict()["api_projection"])
 
     async def fake_maybe_flush(_session, _fp):
@@ -150,10 +163,9 @@ def test_embedded_session_preserves_statusless_raw_output_mapping(
         return {"2": {"images": [{"filename": "raw-output.png"}]}}
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", raw_outputs)
-    result = asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
-
-    assert result.prompt_id is None
-    assert result.outputs == ["raw-output.png"]
+    with pytest.raises(QueueError, match="did not include a prompt_id"):
+        asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
 def test_embedded_session_terminal_error_fails_before_metadata(
     fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

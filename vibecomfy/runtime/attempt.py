@@ -38,6 +38,7 @@ def build_attempt_bundle(
     adapter_kind: str | None = None,
     adapter_endpoint: str | None = None,
     schema_provenance: Mapping[str, Any] | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect the pre-queue attempt snapshot.
 
@@ -119,7 +120,7 @@ def build_attempt_bundle(
     # --- drift block (collected from live filesystem / git state) ----------
     drift: dict[str, Any] = _collect_drift_for_bundle(workflow)
 
-    return {
+    result = {
         "approved_projection": approved,
         "approval_record": approved,
         "adapter": {
@@ -140,6 +141,9 @@ def build_attempt_bundle(
         "comfy_commit": comfy_commit,
         "drift": drift,
     }
+    if runtime_evidence is not None:
+        result["runtime_evidence"] = dict(runtime_evidence)
+    return result
 
 
 def write_attempt_json(

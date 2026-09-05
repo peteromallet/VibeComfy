@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.comfy_nodes.agent import session as S
+from vibecomfy.comfy_nodes.agent import _session_transaction_journal as J
 from vibecomfy.testing.canonical import canonical_digest
 
 
@@ -274,6 +275,132 @@ def test_cancel_marks_terminal_no_receipt_snapshot(tmp_path):
     rec = S.lookup_apply_idempotency_record(state, plan_hash=plan_hash, generation=generation)
     assert rec["phase"] == "superseded"
     assert rec["receipt_path"] is None
+
+
+def test_runtime_evidence_is_sibling_and_discard_keeps_prepared_generation(tmp_path):
+    """Runtime evidence uses the existing journal and direct log is recoverable."""
+    _session_dir, turn_dir, turn_id = _make_session(tmp_path)
+    state = _state()
+    plan_hash = "r" * 64
+    prepared_evidence = {
+        "approved_projection": {
+            "revision_id": "revision-1",
+            "selected_variant": "default",
+            "input_binding": {},
+            "api_projection": {"1": {"class_type": "Integer", "inputs": {"value": 1}}},
+            "ui_projection": {"nodes": []},
+            "api_digest": plan_hash,
+        },
+        "api_digest": plan_hash,
+        "ui_digest": "u" * 64,
+        "record_digest": "d" * 64,
+        "adapter": {"kind": "embedded", "backend": "api", "endpoint": None},
+        "schema_provenance": {"schema_digest": None, "validation": "structural-only"},
+        "queue_acceptance": {"status": "not_attempted", "prompt_id": None},
+        "terminal": {
+            "phase": "prepared",
+            "reason_type": "none",
+            "reason": None,
+            "acceptance_known": False,
+        },
+    }
+    prepared = J.record_prepared_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        lease_nonce=turn_id,
+        structural_hash_before=None,
+        candidate_payload=None,
+        runtime_evidence=prepared_evidence,
+    )
+    generation = prepared["generation"]
+    failed_evidence = {
+        **prepared_evidence,
+        "queue_acceptance": {"status": "unknown", "prompt_id": None},
+        "terminal": {
+            "phase": "acceptance_witness",
+            "reason_type": "missing_prompt_id",
+            "reason": "queue response did not include a usable prompt_id",
+            "acceptance_known": False,
+        },
+    }
+    discarded = J.record_discarded_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        generation=generation,
+        reason="missing_prompt_id",
+        runtime_evidence=failed_evidence,
+    )
+
+    assert prepared["receipt"]["runtime_evidence"] == prepared_evidence
+    assert discarded["receipt"]["runtime_evidence"] == failed_evidence
+    assert "runtime_evidence" not in prepared["receipt"].get("candidate", {})
+    assert "runtime_evidence" not in discarded["receipt"].get("applied", {})
+    prepared_snapshot = _txn_dir(turn_dir, plan_hash) / S.TRANSACTION_PREPARED_RECEIPT_NAME
+    prepared_snapshot.unlink()
+    events = S.read_transaction_lifecycle(_txn_dir(turn_dir, plan_hash))
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["generation"] == generation
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["reason_type"] == "missing_prompt_id"
+
+
+def test_runtime_evidence_finalized_recovers_after_receipt_and_index_loss(tmp_path):
+    session_dir, turn_dir, turn_id = _make_session(tmp_path)
+    state = _state()
+    plan_hash = "s" * 64
+    evidence = {
+        "approved_projection": {
+            "revision_id": "revision-2",
+            "selected_variant": "default",
+            "input_binding": {},
+            "api_projection": {"1": {"class_type": "Integer", "inputs": {"value": 2}}},
+            "ui_projection": {"nodes": []},
+            "api_digest": plan_hash,
+        },
+        "api_digest": plan_hash,
+        "ui_digest": "u" * 64,
+        "record_digest": "d" * 64,
+        "adapter": {"kind": "managed", "backend": "api", "endpoint": "http://local"},
+        "schema_provenance": {"schema_digest": "z" * 64},
+        "queue_acceptance": {"status": "accepted", "prompt_id": "prompt-2"},
+        "terminal": {
+            "phase": "completed",
+            "reason_type": "none",
+            "reason": None,
+            "acceptance_known": True,
+        },
+    }
+    prepared = J.record_prepared_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        lease_nonce=turn_id,
+        structural_hash_before=None,
+        runtime_evidence=evidence,
+    )
+    finalized = J.record_finalized_transaction_impl(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        generation=prepared["generation"],
+        structural_hash_after=None,
+        runtime_evidence=evidence,
+    )
+    assert finalized["receipt"]["runtime_evidence"] == evidence
+    assert "runtime_evidence" not in finalized["receipt"].get("applied", {})
+    txn_dir = _txn_dir(turn_dir, plan_hash)
+    (txn_dir / S.TRANSACTION_PREPARED_RECEIPT_NAME).unlink()
+    (txn_dir / S.TRANSACTION_FINALIZED_RECEIPT_NAME).unlink()
+    recovered = S.recover_transaction_index(session_dir)
+    assert recovered["prepared_transactions"] == {}
+    assert recovered["apply_idempotency_records"][f"{plan_hash}:{prepared['generation']}"]["phase"] == "finalized"
+    events = S.read_transaction_lifecycle(txn_dir)
+    assert events[-1]["receipt"]["runtime_evidence"] == evidence
 
 
 # ── Append-only authority ───────────────────────────────────────────────────
