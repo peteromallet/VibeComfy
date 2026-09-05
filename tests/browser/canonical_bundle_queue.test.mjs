@@ -51,26 +51,58 @@ function approvedContext(fixture, panel, overrides = {}) {
     inputBinding: {},
     receipt: { revision_id: revisionId, parent_revision: parentRevision, api_digest: apiDigest, record_digest: recordDigest },
     approvalIdentity: `${revisionId}:${parentRevision}:${apiDigest}:${recordDigest}`,
+    transactionId: "tx-queue-plan",
+    candidateId: "candidate-queue-plan",
+    planHash: "queue-plan",
+    generation: 1,
+    leaseNonce: "queue-lease",
     ...overrides,
   };
 }
 
 test("owned queue boundary has no native prompt or captured queue bypass", async () => {
   const source = await readFile(new URL("../../vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /\/prompt/);
-  assert.doesNotMatch(source, /(?:originalQueuePrompt|capturedOriginalQueuePrompt|original\.queuePrompt)/);
+  const adapterSource = await readFile(new URL("../../vibecomfy/comfy_nodes/web/comfy_adapter.js", import.meta.url), "utf8");
+  for (const ownedSource of [source, adapterSource]) {
+    assert.doesNotMatch(ownedSource, /\/prompt/);
+    assert.doesNotMatch(ownedSource, /(?:originalQueuePrompt|capturedOriginalQueuePrompt|original\.queuePrompt)/);
+  }
 });
 
 function seedApprovedRecord(runtimeModule, runtime, panel, fixture, overrides = {}) {
   const canonical = overrides.canonical ?? fixture.canonical;
   const parsed = JSON.parse(canonical);
   const context = approvedContext(fixture, panel, overrides);
+  const transaction = makeValidCandidateTransactionV2({
+    sessionId: context.sessionId,
+    turnId: context.turnId,
+    planHash: context.planHash,
+    state: "finalized",
+    generation: context.generation,
+    leaseNonce: context.leaseNonce,
+    overrides: {
+      revision_id: context.revisionId,
+      parent_revision: context.parentRevision,
+    },
+  });
+  panel.state.sessionId = context.sessionId;
+  panel.state.turnId = context.turnId;
+  panel.state.candidateTransaction = transaction;
+  context.graph = runtime.queueGuardMutationHook?.graph || null;
+  context.queueWrapper = runtime.queueGuardHook?.wrapper || null;
+  context.mutationGraph = runtime.queueGuardMutationHook?.graph || null;
+  context.mutationWrapper = runtime.queueGuardMutationHook?.wrapper || null;
   runtimeModule.saveScopeApprovedRecord("queue-scope", {
     canonical,
     revisionId: context.revisionId,
     parentRevision: context.parentRevision,
     sessionId: context.sessionId,
     turnId: context.turnId,
+    transactionId: context.transactionId,
+    candidateId: context.candidateId,
+    planHash: context.planHash,
+    generation: context.generation,
+    leaseNonce: context.leaseNonce,
     transactionRevision: context.transactionRevision,
     transactionParentRevision: context.transactionParentRevision,
     apiDigest: overrides.recordApiDigest ?? parsed.api_digest,
@@ -78,8 +110,13 @@ function seedApprovedRecord(runtimeModule, runtime, panel, fixture, overrides = 
     scopeActivation: context.scopeActivation,
     approvalIdentity: context.approvalIdentity,
     invalidationGeneration: runtime.queueGuardInvalidationGeneration,
+    graph: context.graph,
+    queueWrapper: context.queueWrapper,
+    mutationGraph: context.mutationGraph,
+    mutationWrapper: context.mutationWrapper,
   });
   context.invalidationGeneration = runtime.queueGuardInvalidationGeneration;
+  runtime.queueGuardApproval = context;
   runtime.queueGuardContext = context;
   return context;
 }
@@ -224,13 +261,13 @@ test("real apply/finalize publishes the Python canonical record and queues exact
     assert.equal(savedRecord.apiDigest, approval.api_digest);
     assert.equal(savedRecord.recordDigest, approval.record_digest);
     const result = harness.app.queuePrompt("live-canvas-is-ignored", { output: "ignored" });
-    assert.deepEqual(result, { prompt_id: "prompt-1" }, JSON.stringify({ phase: panel.state.phase, finalizedReceipt: panel.state.finalizedReceipt, accepted: panel.state.responseCompartments, savedRecord, queueGuard: runtime.queueGuardContext, notice: runtime.queueGuardBlockNotice, requests: harness.requests }));
+    assert.deepEqual(result, { prompt_id: "prompt-1" });
     assert.equal(harness.queuePromptCalls.length, 0);
     assert.deepEqual(harness.apiQueuePromptCalls, [[0, {
       output: { "1": { class_type: "Input", inputs: {} } },
       workflow: { nodes: [], links: [] },
     }]]);
-    assert.equal(runtime.queueGuardContext.promptId, "prompt-1");
+    assert.equal(runtime.queueGuardPromptAttempt.promptId, "prompt-1");
   } finally {
     if (originalGlobalApp === undefined) delete globalThis.app;
     else globalThis.app = originalGlobalApp;
@@ -278,38 +315,46 @@ test("canonical queue blocker matrix never calls either queue function", async (
       runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical: canonicalJsonString({ ...JSON.parse(fixture.canonical), selected_variant: 3 }) });
     }],
     ["stale revision", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, revisionId: "rev-other" };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, revisionId: "rev-other" };
     }],
     ["stale parent", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, parentRevision: "parent-other", receipt: { ...context.receipt, parent_revision: "parent-other" } };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, parentRevision: "parent-other", receipt: { ...context.receipt, parent_revision: "parent-other" } };
     }],
     ["binding mismatch", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, inputBinding: { node: "other" } };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, inputBinding: { node: "other" } };
     }],
     ["API digest mismatch", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, api_digest: "0".repeat(64) } };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, api_digest: "0".repeat(64) } };
     }],
     ["record digest mismatch", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, record_digest: "0".repeat(64) } };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, record_digest: "0".repeat(64) } };
     }],
-    ["unsafe positive integer", (fixture, runtimeModule) => {
+    ["unsafe positive integer", (fixture, runtimeModule, runtime, context) => {
       const saved = runtimeModule.getScopeApprovedRecord("queue-scope");
       const record = JSON.parse(fixture.canonical);
       record.api_projection = { unsafe: 9007199254740992 };
-      runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical: canonicalJsonString(record) });
+      record.api_digest = sha256Hex(record.api_projection);
+      const canonical = canonicalJsonString(record);
+      const recordDigest = sha256HexFromString(canonical);
+      runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical, apiDigest: record.api_digest, recordDigest });
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, api_digest: record.api_digest, record_digest: recordDigest } };
     }],
-    ["unsafe negative integer", (fixture, runtimeModule) => {
+    ["unsafe negative integer", (fixture, runtimeModule, runtime, context) => {
       const saved = runtimeModule.getScopeApprovedRecord("queue-scope");
       const record = JSON.parse(fixture.canonical);
       record.api_projection = { unsafe: -9007199254740992 };
-      runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical: canonicalJsonString(record) });
+      record.api_digest = sha256Hex(record.api_projection);
+      const canonical = canonicalJsonString(record);
+      const recordDigest = sha256HexFromString(canonical);
+      runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical, apiDigest: record.api_digest, recordDigest });
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, receipt: { ...context.receipt, api_digest: record.api_digest, record_digest: recordDigest } };
     }],
     ["non-finite value", (fixture, runtimeModule) => {
       const saved = runtimeModule.getScopeApprovedRecord("queue-scope");
       runtimeModule.saveScopeApprovedRecord("queue-scope", { ...saved, canonical: fixture.canonical.replace('"api_digest"', '"bad":NaN,"api_digest"') });
     }],
     ["queue disabled", (fixture, runtimeModule, runtime, context) => {
-      runtime.queueGuardContext = { ...context, queueAllowed: false };
+      runtime.queueGuardApproval = runtime.queueGuardContext = { ...context, queueAllowed: false };
     }],
   ];
   for (const [name, mutate] of cases) {
@@ -334,18 +379,36 @@ test("replaced queue hook and graph mutation fail closed without transport", asy
     const fixture = approvedFixture();
     const panel = extension.ensureAgentPanel();
     seedApprovedRecord(runtimeModule, runtime, panel, fixture);
-    const wrapper = harness.app.queuePrompt;
     harness.setQueuePromptHookFault("replaced");
-    assert.equal(wrapper("caller"), null);
+    assert.equal(harness.app.queuePrompt("caller"), null);
     assert.equal(harness.queuePromptCalls.length, 0);
     assert.equal(harness.apiQueuePromptCalls.length, 0);
+    const wrapper = runtime.queueGuardHook.wrapper;
     harness.app.queuePrompt = wrapper;
     for (const mode of ["missing", "replaced"]) {
       harness.setGraphMutationHookFault(mode);
-      assert.equal(wrapper("caller"), null, mode);
+      assert.equal(harness.app.queuePrompt("caller"), null, mode);
       assert.equal(harness.apiQueuePromptCalls.length, 0, mode);
       if (mode === "missing") harness.app.canvas.graph.change = runtime.queueGuardMutationHook.wrapper;
     }
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("retained old graph callbacks cannot invalidate a replacement live graph scope", async () => {
+  const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+  try {
+    const fixture = approvedFixture();
+    const panel = extension.ensureAgentPanel();
+    seedApprovedRecord(runtimeModule, runtime, panel, fixture);
+    const oldGraph = harness.app.canvas.graph;
+    const before = runtime.queueGuardInvalidationGeneration;
+    harness.replaceLiveGraph({ nodes: [{ id: 2, type: "Replacement", properties: { vibecomfy_uid: "uid-2" } }], links: [] });
+    oldGraph.change();
+    assert.equal(runtime.queueGuardInvalidationGeneration, before);
+    assert.equal(harness.app.queuePrompt("caller"), null);
+    assert.equal(harness.apiQueuePromptCalls.length, 0);
   } finally {
     await harness.dispose();
   }
@@ -376,10 +439,12 @@ test("safe numeric spellings remain queueable", async () => {
     const panel = extension.ensureAgentPanel();
     const record = JSON.parse(fixture.canonical);
     record.api_projection = { negative_zero: -0, float: 1.25, exponent: 1e3 };
+    record.api_digest = sha256Hex(record.api_projection);
     const canonical = canonicalJsonString(record).replace('"negative_zero":0', '"negative_zero":-0');
     const recordDigest = sha256HexFromString(canonical);
     seedApprovedRecord(runtimeModule, runtime, panel, fixture, {
       canonical,
+      apiDigest: record.api_digest,
       recordDigest,
       recordRecordDigest: recordDigest,
     });
@@ -422,20 +487,20 @@ test("queue attribution requires a real prompt_id and ignores foreign lifecycle 
     harness.api.queuePrompt = originalQueuePrompt;
 
     assert.deepEqual(harness.app.queuePrompt({ output: "ignored" }), { prompt_id: "prompt-1" });
-    assert.equal(runtime.queueGuardContext.promptId, "prompt-1");
+    assert.equal(runtime.queueGuardPromptAttempt.promptId, "prompt-1");
     harness.dispatchApiEvent("execution_start", { prompt_id: "foreign" });
     harness.dispatchApiEvent("executing", { prompt_id: "foreign", node: null });
     harness.dispatchApiEvent("progress", {});
-    assert.equal(runtime.queueGuardContext.lifecycleState, "pending");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "pending");
     harness.dispatchApiEvent("execution_start", { prompt_id: "prompt-1" });
-    assert.equal(runtime.queueGuardContext.lifecycleState, "running");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "running");
     harness.dispatchApiEvent("executing", { prompt_id: "prompt-1", node: null });
-    assert.equal(runtime.queueGuardContext.lifecycleState, "ended_observation");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "ended_observation");
     assert.equal(harness.apiEventListeners.execution_error?.length, 1);
     harness.dispatchApiEvent("execution_error", { prompt_id: "prompt-1", error: "boom" });
-    assert.equal(runtime.queueGuardContext.lifecycleState, "error", JSON.stringify({ lifecycle: runtime.queueGuardLifecycle, context: runtime.queueGuardContext }));
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "error", JSON.stringify({ lifecycle: runtime.queueGuardLifecycle, context: runtime.queueGuardPromptAttempt }));
     harness.dispatchApiEvent("executing", { prompt_id: "prompt-1", node: null });
-    assert.equal(runtime.queueGuardContext.lifecycleState, "error");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "error");
   } finally {
     await harness.dispose();
   }
@@ -452,13 +517,33 @@ test("cancel and delete expose unsupported tracked-prompt errors without transpo
     assert.throws(() => extension.requestQueuePromptOperation("delete"), /delete.*prompt-1/);
     assert.equal(harness.interruptCalls.length, 0);
     assert.equal(harness.deleteItemCalls.length, 0);
-    assert.equal(runtime.queueGuardContext.lifecycleState, "unsupported");
-    assert.equal(runtime.queueGuardContext.operationUnsupported, "delete");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "unsupported");
+    assert.equal(runtime.queueGuardPromptAttempt.operationUnsupported, "delete");
     harness.dispatchApiEvent("execution_start", { prompt_id: "prompt-1" });
     harness.dispatchApiEvent("progress", { prompt_id: "prompt-1" });
     harness.dispatchApiEvent("executed", { prompt_id: "prompt-1" });
-    assert.equal(runtime.queueGuardContext.lifecycleState, "unsupported");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "unsupported");
     assert.equal(runtime.queueGuardLifecycle.error.includes("delete"), true);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("prompt lifecycle remains scoped when a newer prompt supersedes an older attempt", async () => {
+  const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+  try {
+    const fixture = approvedFixture();
+    const panel = extension.ensureAgentPanel();
+    seedApprovedRecord(runtimeModule, runtime, panel, fixture);
+    assert.deepEqual(harness.app.queuePrompt("p1"), { prompt_id: "prompt-1" });
+    assert.deepEqual(harness.app.queuePrompt("p2"), { prompt_id: "prompt-2" });
+    harness.dispatchApiEvent("execution_error", { prompt_id: "prompt-1", error: "late p1" });
+    assert.equal(runtime.queueGuardPromptAttempt.promptId, "prompt-2");
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "pending");
+    harness.dispatchApiEvent("execution_start", { prompt_id: "prompt-2" });
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "running");
+    harness.dispatchApiEvent("executed", { prompt_id: "prompt-1" });
+    assert.equal(runtime.queueGuardPromptAttempt.lifecycleState, "running");
   } finally {
     await harness.dispose();
   }

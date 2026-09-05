@@ -557,7 +557,13 @@ export async function createBrowserHarness({
   responses = {},
   withQueuePrompt = true,
   withApiQueuePrompt = true,
+  apiQueuePromptResponder = null,
+  eventErrors = {},
   withGraphMutation = false,
+  queuePromptDescriptorFault = null,
+  graphMutationDescriptorFault = null,
+  setupQueuePromptFault = null,
+  setupGraphMutationFault = null,
   enableVibeComfySidebarTab = true,
   workflowId = "123e4567-e89b-12d3-a456-426614174000",
   // Legacy submits assume an explicit agent-mode choice exists. Tests that
@@ -1222,6 +1228,14 @@ export async function createBrowserHarness({
     mockApi.queuePrompt = (number = 0, payload = {}) => {
       apiQueuePromptPayloadRefs.push(payload);
       apiQueuePromptCalls.push([number, clone(payload)]);
+      if (typeof apiQueuePromptResponder === "function") {
+        return apiQueuePromptResponder({
+          number,
+          payload,
+          index: apiQueuePromptCalls.length,
+          calls: apiQueuePromptCalls,
+        });
+      }
       return { prompt_id: `prompt-${apiQueuePromptCalls.length}` };
     };
   }
@@ -1236,7 +1250,10 @@ export async function createBrowserHarness({
 
   function dispatchApiEvent(event, data) {
     const listeners = apiEventListeners[event] || [];
-    const detail = data != null ? { detail: data } : {};
+    const eventData = eventErrors && Object.prototype.hasOwnProperty.call(eventErrors, event)
+      ? { ...(data && typeof data === "object" ? data : {}), error: eventErrors[event] }
+      : data;
+    const detail = eventData != null ? { detail: eventData } : {};
     for (const listener of listeners) {
       try {
         listener(detail);
@@ -1394,6 +1411,27 @@ export async function createBrowserHarness({
         : leftAgentPanel - rightAgentPanel;
     });
   }
+
+  function applySetupDescriptorFault(target, property, mode) {
+    if (!mode) return;
+    if (mode === "missing") {
+      delete target[property];
+    } else if (mode === "nonconfigurable" || mode === "unwritable") {
+      const descriptor = Object.getOwnPropertyDescriptor(target, property);
+      if (descriptor) Object.defineProperty(target, property, { ...descriptor, configurable: false, writable: false });
+    } else if (mode === "accessor_throw" || mode === "throwing_accessor") {
+      Object.defineProperty(target, property, {
+        configurable: true,
+        enumerable: true,
+        get() { throw new Error(`${property} accessor is unavailable`); },
+        set() {},
+      });
+    } else if (mode === "nonextensible") {
+      Object.preventExtensions(target);
+    }
+  }
+  applySetupDescriptorFault(app, "queuePrompt", queuePromptDescriptorFault || setupQueuePromptFault);
+  applySetupDescriptorFault(app.canvas.graph, "change", graphMutationDescriptorFault || setupGraphMutationFault);
 
   return {
     app,
@@ -1579,6 +1617,15 @@ export async function createBrowserHarness({
       currentGraph = clone(nextGraph);
       _resetGraphLinks(currentGraph?.links);
       syncLiveGraphNodes();
+    },
+    replaceLiveGraph(nextGraph = currentGraph) {
+      liveCanvasRevision += 1;
+      currentGraph = clone(nextGraph);
+      const priorGraph = app.canvas.graph;
+      app.canvas.graph = { ...priorGraph };
+      _resetGraphLinks(currentGraph?.links);
+      syncLiveGraphNodes();
+      return app.canvas.graph;
     },
     bumpLiveCanvasToken() {
       liveCanvasRevision += 1;

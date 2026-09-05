@@ -47,7 +47,133 @@ class DeltaDiagnosticError extends Error {
 // ── Supported frontend version ─────────────────────────────────────────────
 const SUPPORTED_FRONTEND = "1.39.x";
 let inOverlayDraw = false;
-const QUEUE_MUTATION_SUPPRESSION_KEY = "__vibecomfyQueueMutationSuppressed";
+const graphMutationSuppressionDepth = new WeakMap();
+const descriptorCustody = new WeakMap();
+
+function custodyFor(target, property) {
+  return descriptorCustody.get(target)?.get(property) || null;
+}
+
+function rememberCustody(target, property, report) {
+  let entries = descriptorCustody.get(target);
+  if (!entries) {
+    entries = new Map();
+    descriptorCustody.set(target, entries);
+  }
+  entries.set(property, report);
+}
+
+function forgetCustody(target, property, report) {
+  const entries = descriptorCustody.get(target);
+  if (entries?.get(property) === report) entries.delete(property);
+  if (entries?.size === 0) descriptorCustody.delete(target);
+}
+
+export function withGraphMutationSuppressed(graph, callback) {
+  if (!graph || typeof graph !== "object" || typeof callback !== "function") {
+    throw new TypeError("withGraphMutationSuppressed requires a graph and callback");
+  }
+  const depth = graphMutationSuppressionDepth.get(graph) || 0;
+  graphMutationSuppressionDepth.set(graph, depth + 1);
+  try {
+    return callback();
+  } finally {
+    if (depth) graphMutationSuppressionDepth.set(graph, depth);
+    else graphMutationSuppressionDepth.delete(graph);
+  }
+}
+
+export function installGraphMutationGuard(graph, { onMutation, scopeActivation = null } = {}) {
+  if (!graph || typeof graph !== "object" || typeof onMutation !== "function") {
+    return { installed: false, graph: graph || null, wrapper: null, original: null, path: "app.canvas.graph.change" };
+  }
+  const existing = custodyFor(graph, "change");
+  if (existing?.installed) {
+    if (existing.healthy?.() && graph.change === existing.wrapper) return existing;
+    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+  }
+  let descriptor;
+  let original;
+  try {
+    if (!Object.isExtensible(graph)) {
+      return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+    }
+    descriptor = Object.getOwnPropertyDescriptor(graph, "change") || null;
+    original = graph.change;
+  } catch (_error) {
+    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+  }
+  if (typeof original !== "function") {
+    return { installed: false, graph, wrapper: null, original, path: "app.canvas.graph.change" };
+  }
+  if (descriptor && descriptor.configurable === false) {
+    return { installed: false, graph, wrapper: null, original, path: "app.canvas.graph.change" };
+  }
+  let compromised = false;
+  let report = null;
+  const getter = () => wrapper;
+  const setter = (value) => {
+    compromised = true;
+    if (report) report.replacement = value;
+  };
+  const wrapper = function vibecomfyGuardedGraphChange(...args) {
+    if (!report?.healthy()) return null;
+    if (!(graphMutationSuppressionDepth.get(graph) || 0)) onMutation({ graph, wrapper });
+    return original.apply(this, args);
+  };
+  const ownedDescriptor = {
+    configurable: true,
+    enumerable: descriptor?.enumerable ?? true,
+    get: getter,
+    set: setter,
+  };
+  try {
+    Object.defineProperty(graph, "change", ownedDescriptor);
+    if (graph.change !== wrapper) throw new TypeError("graph.change ownership could not be verified");
+  } catch (_error) {
+    try {
+      if (descriptor) Object.defineProperty(graph, "change", descriptor);
+      else delete graph.change;
+    } catch (_restoreError) {
+      // The graph is already unverifiable; retain the failed-closed report.
+    }
+    return { installed: false, graph, wrapper: null, original, path: "app.canvas.graph.change" };
+  }
+  report = {
+    installed: true,
+    graph,
+    wrapper,
+    original,
+    scopeActivation,
+    path: "app.canvas.graph.change",
+    replacement: null,
+    healthy() {
+      try {
+        const current = Object.getOwnPropertyDescriptor(graph, "change");
+        return !compromised
+          && current?.get === getter
+          && current?.set === setter
+          && graph.change === wrapper;
+      } catch (_error) {
+        return false;
+      }
+    },
+    cleanup() {
+      if (!report.healthy()) return false;
+      try {
+        if (descriptor) Object.defineProperty(graph, "change", descriptor);
+        else delete graph.change;
+        forgetCustody(graph, "change", report);
+        graphMutationSuppressionDepth.delete(graph);
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    },
+  };
+  rememberCustody(graph, "change", report);
+  return report;
+}
 
 function safeAdapterLogDetail(value) {
   if (value == null) {
@@ -391,30 +517,8 @@ function getLiveGraph(app) {
  * @param {object} [graph] — optional live graph reference
  */
 function repaintGraph(app, graph = getLiveGraph(app)) {
-  let suppressed = false;
-  let hadSuppressionMarker = false;
-  let priorSuppressionMarker;
-  if (graph && typeof graph === "object") {
-    try {
-      hadSuppressionMarker = Object.prototype.hasOwnProperty.call(graph, QUEUE_MUTATION_SUPPRESSION_KEY);
-      priorSuppressionMarker = graph[QUEUE_MUTATION_SUPPRESSION_KEY];
-      graph[QUEUE_MUTATION_SUPPRESSION_KEY] = true;
-      suppressed = graph[QUEUE_MUTATION_SUPPRESSION_KEY] === true;
-    } catch (_error) {
-      suppressed = false;
-    }
-  }
-  try {
-    if (typeof graph?.change === "function") graph.change();
-  } finally {
-    if (graph && typeof graph === "object" && suppressed) {
-      try {
-        if (hadSuppressionMarker) graph[QUEUE_MUTATION_SUPPRESSION_KEY] = priorSuppressionMarker;
-        else delete graph[QUEUE_MUTATION_SUPPRESSION_KEY];
-      } catch (error) {
-        throw new Error(`VibeComfy graph mutation suppression marker could not be restored: ${error?.message || String(error)}`);
-      }
-    }
+  if (typeof graph?.change === "function") {
+    withGraphMutationSuppressed(graph, () => graph.change());
   }
   if (typeof graph?.setDirtyCanvas === "function") {
     graph.setDirtyCanvas(true, true);
@@ -2440,22 +2544,21 @@ export function installQueueGuard(app, options = {}) {
     };
   }
 
-  let existingInstall = null;
-  try {
-    existingInstall = app?.__vibecomfyQueueGuardInstall;
-  } catch (_error) {
-    existingInstall = null;
-  }
-  if (existingInstall?.installed && typeof existingInstall.wrapper === "function") {
-    try {
-      if (app.queuePrompt === existingInstall.wrapper) return existingInstall;
-    } catch (_error) {
-      // Fall through to an unavailable report below.
-    }
-  }
-
+  let descriptor;
   let original;
   try {
+    if (!Object.isExtensible(app)) {
+      return {
+        capability: { available: false, detail: "app.queuePrompt owner is non-extensible and cannot be owned safely.", path: "app.queuePrompt" },
+        strategy: "unavailable",
+        installed: false,
+        path: "app.queuePrompt",
+        original: null,
+        wrapper: null,
+        cleanup() {},
+      };
+    }
+    descriptor = Object.getOwnPropertyDescriptor(app, "queuePrompt") || null;
     original = app.queuePrompt;
   } catch (error) {
     return {
@@ -2471,6 +2574,33 @@ export function installQueueGuard(app, options = {}) {
   const shouldBlock = typeof options.shouldBlock === "function" ? options.shouldBlock : null;
   const onBlock = typeof options.onBlock === "function" ? options.onBlock : null;
   const queueApproved = typeof options.queueApproved === "function" ? options.queueApproved : null;
+  let existing = null;
+  try {
+    existing = custodyFor(app, "queuePrompt");
+    if (existing?.installed && existing.healthy?.() && app.queuePrompt === existing.wrapper) {
+      return existing;
+    }
+    if (existing?.installed) {
+      return {
+        capability: { available: false, detail: "existing app.queuePrompt custody is compromised or unverifiable.", path: "app.queuePrompt" },
+        strategy: "unavailable",
+        installed: false,
+        path: "app.queuePrompt",
+        original: null,
+        wrapper: null,
+        cleanup() {},
+      };
+    }
+  } catch (_error) {
+    existing = null;
+  }
+  let compromised = false;
+  let report = null;
+  const getter = () => wrapper;
+  const setter = (value) => {
+    compromised = true;
+    if (report) report.replacement = value;
+  };
 
   const wrapper = function guardedQueuePrompt(...args) {
     let currentHook;
@@ -2484,10 +2614,10 @@ export function installQueueGuard(app, options = {}) {
       if (onBlock) onBlock(blockInfo);
       return null;
     }
-    if (currentHook !== wrapper) {
+    if (compromised || currentHook !== wrapper || !report?.healthy()) {
       const blockInfo = {
-        code: "queue_hook_replaced",
-        message: "VibeComfy queue hook was replaced and cannot be verified.",
+        code: compromised ? "queue_hook_compromised" : "queue_hook_replaced",
+        message: "VibeComfy queue hook ownership was compromised and cannot be verified.",
       };
       if (onBlock) onBlock(blockInfo);
       return null;
@@ -2510,24 +2640,9 @@ export function installQueueGuard(app, options = {}) {
     return queueApproved(...args);
   };
 
-  // Safe-install: verify the property is writable before replacing.
-  try {
-    app.queuePrompt = wrapper;
-    if (app.queuePrompt !== wrapper) {
-      throw new TypeError("app.queuePrompt assignment could not be verified");
-    }
-    app.queuePrompt = original;
-    if (app.queuePrompt !== original) {
-      throw new TypeError("app.queuePrompt restoration could not be verified");
-    }
-  } catch (_error) {
-    // Property is not writable; return degraded.
+  if (descriptor && descriptor.configurable === false) {
     return {
-      capability: {
-        available: false,
-        detail: `app.queuePrompt is not safely writable: ${_error?.message || String(_error)}`,
-        path: "app.queuePrompt",
-      },
+      capability: { available: false, detail: "app.queuePrompt is non-configurable and cannot be owned safely.", path: "app.queuePrompt" },
       strategy: "unavailable",
       installed: false,
       path: "app.queuePrompt",
@@ -2536,17 +2651,27 @@ export function installQueueGuard(app, options = {}) {
       cleanup() {},
     };
   }
-
   try {
-    app.queuePrompt = wrapper;
+    Object.defineProperty(app, "queuePrompt", {
+      configurable: true,
+      enumerable: descriptor?.enumerable ?? true,
+      get: getter,
+      set: setter,
+    });
     if (app.queuePrompt !== wrapper) {
-      throw new TypeError("app.queuePrompt installation could not be verified");
+      throw new TypeError("app.queuePrompt ownership could not be verified");
     }
-  } catch (_error) {
+  } catch (error) {
+    try {
+      if (descriptor) Object.defineProperty(app, "queuePrompt", descriptor);
+      else delete app.queuePrompt;
+    } catch (_restoreError) {
+      // The entrypoint is already unverifiable; retain fail-closed behavior.
+    }
     return {
       capability: {
         available: false,
-        detail: `app.queuePrompt installation could not be verified: ${_error?.message || String(_error)}`,
+        detail: `app.queuePrompt is not safely owned: ${error?.message || String(error)}`,
         path: "app.queuePrompt",
       },
       strategy: "unavailable",
@@ -2559,15 +2684,18 @@ export function installQueueGuard(app, options = {}) {
   }
 
   const cleanup = () => {
-    if (app.queuePrompt === wrapper) {
-      app.queuePrompt = original;
-    }
-    if (app?.__vibecomfyQueueGuardInstall === report) {
-      delete app.__vibecomfyQueueGuardInstall;
+    if (!report?.healthy()) return false;
+    try {
+      if (descriptor) Object.defineProperty(app, "queuePrompt", descriptor);
+      else delete app.queuePrompt;
+      forgetCustody(app, "queuePrompt", report);
+      return true;
+    } catch (_error) {
+      return false;
     }
   };
 
-  const report = {
+  report = {
     capability,
     strategy: "wrapper",
     installed: true,
@@ -2575,8 +2703,20 @@ export function installQueueGuard(app, options = {}) {
     original,
     wrapper,
     cleanup,
+    replacement: null,
+    healthy() {
+      try {
+        const current = Object.getOwnPropertyDescriptor(app, "queuePrompt");
+        return !compromised
+          && current?.get === getter
+          && current?.set === setter
+          && app.queuePrompt === wrapper;
+      } catch (_error) {
+        return false;
+      }
+    },
   };
-  app.__vibecomfyQueueGuardInstall = report;
+  rememberCustody(app, "queuePrompt", report);
   return report;
 }
 

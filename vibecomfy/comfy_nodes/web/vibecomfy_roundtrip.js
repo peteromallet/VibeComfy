@@ -74,6 +74,7 @@ import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   applyGraphLayoutInPlace,
+  installGraphMutationGuard,
   installQueueGuard as installQueueGuardAdapter,
   normalizeExecIoObject,
   normalizeExecNodeForSerialization as normalizeExecNodeForSerializationAdapter,
@@ -144,6 +145,7 @@ import {
 } from "./agent_edit_transaction.js";
 import {
   canonicalSessionJsonString,
+  sha256Hex,
   sha256HexFromString,
 } from "./canonical_hash.js";
 import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
@@ -7378,15 +7380,18 @@ function getQueueGuardStateForPanel() {
     hookInstalled: Boolean(runtime.queueGuardHook?.installed),
     hookPath: runtime.queueGuardHook?.path || null,
     fallbackWarning: runtime.queueGuardFallbackWarning,
-    activeContext: runtime.queueGuardContext,
+    activeContext: runtime.queueGuardApproval,
+    promptAttempt: runtime.queueGuardPromptAttempt,
     lastBlockNotice: runtime.queueGuardBlockNotice,
   };
 }
 
 function setQueueGuardContext(nextContext) {
   const runtime = getAgentPanelRuntime();
-  runtime.queueGuardContext = nextContext || null;
-  if (!runtime.queueGuardContext || runtime.queueGuardContext.queueAllowed !== false) {
+  runtime.queueGuardApproval = nextContext || null;
+  runtime.queueGuardContext = runtime.queueGuardApproval;
+  runtime.queueGuardPromptAttempt = null;
+  if (!runtime.queueGuardApproval || runtime.queueGuardApproval.queueAllowed !== false) {
     runtime.queueGuardBlockNotice = null;
   }
   const panel = currentAgentPanel();
@@ -7401,8 +7406,10 @@ function invalidateApprovedRecord(scopeId = _activeScopeId()) {
   if (resolvedScopeId) {
     forgetScopeApprovedRecord(resolvedScopeId);
   }
-  if (!resolvedScopeId || runtime.queueGuardContext?.scopeId === resolvedScopeId) {
+  if (!resolvedScopeId || runtime.queueGuardApproval?.scopeId === resolvedScopeId) {
+    runtime.queueGuardApproval = null;
     runtime.queueGuardContext = null;
+    runtime.queueGuardPromptAttempt = null;
   }
   const generation = advanceQueueGuardInvalidationGeneration();
   const panel = currentAgentPanel();
@@ -7436,9 +7443,60 @@ function assertQueueJsonNumbers(value, path = "record") {
   }
 }
 
+function transactionAuthorityIdentity(transaction) {
+  const authority = transaction?.candidate_authority || transaction?.candidateAuthority || {};
+  return {
+    transactionId: authority.transaction_id ?? transaction?.transaction_id ?? null,
+    candidateId: authority.candidate_id ?? transaction?.candidate_id ?? null,
+    planHash: transaction?.plan_hash ?? null,
+    generation: transaction?.generation ?? null,
+    leaseNonce: transaction?.lease_nonce ?? null,
+    revisionId: transaction?.revision_id ?? null,
+    parentRevision: transaction?.parent_revision ?? null,
+    sessionId: transaction?.session_id ?? null,
+    turnId: transaction?.turn_id ?? null,
+  };
+}
+
+function approvalCustodyStillCurrent(custody, requireQueueHook = true) {
+  const runtime = getAgentPanelRuntime();
+  const state = currentAgentPanel()?.state;
+  const transaction = normalizeCandidateTransaction(state?.candidateTransaction);
+  const live = transactionAuthorityIdentity(transaction);
+  let graph;
+  try {
+    graph = getLiveGraph();
+  } catch (_error) {
+    return false;
+  }
+  const result = Boolean(
+    custody
+    && state?.chatScopeId === custody.scopeId
+    && state.scopeActivationEpoch === custody.scopeActivation
+    && state.sessionId === custody.sessionId
+    && state.turnId === custody.turnId
+    && live.transactionId === custody.transactionId
+    && live.candidateId === custody.candidateId
+    && live.planHash === custody.planHash
+    && live.generation === custody.generation
+    && live.leaseNonce === custody.leaseNonce
+    && live.revisionId === custody.revisionId
+    && live.parentRevision === custody.parentRevision
+    && graph === custody.graph
+    && (!requireQueueHook || (runtime.queueGuardHook?.installed && runtime.queueGuardHook?.healthy?.()))
+    && runtime.queueGuardMutationHook?.installed
+    && runtime.queueGuardMutationHook?.healthy?.()
+    && runtime.queueGuardMutationHook.graph === custody.mutationGraph
+    && runtime.queueGuardMutationHook.wrapper === custody.mutationWrapper
+    && (!requireQueueHook || runtime.queueGuardHook.wrapper === custody.queueWrapper)
+  );
+  return result;
+}
+
 function queueAttemptStillCurrent(attempt) {
   const runtime = getAgentPanelRuntime();
-  const active = runtime.queueGuardContext;
+  const active = runtime.queueGuardApproval;
+  const promptAttempt = runtime.queueGuardPromptAttempt;
   const recordState = getScopeApprovedRecord(attempt.scopeId);
   const mutationHook = runtime.queueGuardMutationHook;
   let mutationHookIsCurrent = false;
@@ -7450,9 +7508,9 @@ function queueAttemptStillCurrent(attempt) {
     hookIsCurrent = false;
     mutationHookIsCurrent = false;
   }
-  return Boolean(
+  const custodyCurrent = approvalCustodyStillCurrent(active);
+  const result = Boolean(
     active
-    && active === attempt.context
     && active.scopeId === attempt.scopeId
     && active.scopeActivation === attempt.scopeActivation
     && active.sessionId === attempt.sessionId
@@ -7470,12 +7528,16 @@ function queueAttemptStillCurrent(attempt) {
     && recordState.turnId === active.turnId
     && recordState.invalidationGeneration === attempt.invalidationGeneration
     && recordState.approvalIdentity === attempt.approvalIdentity
+    && promptAttempt?.attemptId === attempt.attemptId
     && hookIsCurrent
     && runtime.queueGuardHook?.wrapper === attempt.wrapper
+    && runtime.queueGuardHook?.healthy?.()
     && mutationHook?.installed
     && mutationHook.graph === attempt.mutationGraph
     && mutationHookIsCurrent
+    && custodyCurrent
   );
+  return result;
 }
 
 function queueValidationFailure(context, code, message, detail = {}, onFailure = null) {
@@ -7487,7 +7549,7 @@ function queueValidationFailure(context, code, message, detail = {}, onFailure =
 
 function validateApprovedRecordAndQueue(failureContext = {}) {
   const runtime = getAgentPanelRuntime();
-  const context = runtime.queueGuardContext;
+  const context = runtime.queueGuardApproval;
   const scopeId = _activeScopeId();
   const recordState = getScopeApprovedRecord(scopeId);
   const wrapper = runtime.queueGuardHook?.wrapper;
@@ -7504,6 +7566,7 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     wrapper,
     mutationGraph: runtime.queueGuardMutationHook?.graph ?? null,
     mutationWrapper: runtime.queueGuardMutationHook?.wrapper ?? null,
+    attemptId: runtime.queueGuardPromptAttemptId + 1,
   };
   const fail = (code, message, detail = {}) => queueValidationFailure(context, code, message, detail, failureContext.onFailure);
   if (!context || context.queueAllowed === false || !scopeId || !recordState || typeof recordState.canonical !== "string" || !recordState.canonical) {
@@ -7547,6 +7610,7 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     return fail("approved_record_types", "The approved record contains invalid field types.");
   }
   const exactRecordDigest = sha256HexFromString(recordState.canonical);
+  const computedApiDigest = sha256Hex(record.api_projection);
   const receipt = context.receipt;
   if (
     recordState.revisionId !== record.revision_id
@@ -7556,6 +7620,8 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     || context.receiptParentRevision !== recordState.parentRevision
     || recordState.recordDigest !== exactRecordDigest
     || receipt?.record_digest !== exactRecordDigest
+    || !/^[0-9a-f]{64}$/.test(record.api_digest)
+    || record.api_digest !== computedApiDigest
     || recordState.apiDigest !== record.api_digest
     || receipt?.api_digest !== record.api_digest
   ) {
@@ -7573,6 +7639,19 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
     }
   }
   const runAfterValidation = () => {
+    runtime.queueGuardPromptAttemptId = attempt.attemptId;
+    runtime.queueGuardPromptAttempt = {
+      attemptId: attempt.attemptId,
+      scopeId: attempt.scopeId,
+      scopeActivation: attempt.scopeActivation,
+      sessionId: attempt.sessionId,
+      turnId: attempt.turnId,
+      approvalIdentity: attempt.approvalIdentity,
+      lifecycleState: "pending",
+      promptId: null,
+      operationUnsupported: null,
+      error: null,
+    };
     if (!queueAttemptStillCurrent(attempt)) {
       return fail("queue_attempt_stale", "Approved queue attempt became stale before transport.");
     }
@@ -7604,8 +7683,11 @@ function validateApprovedRecordAndQueue(failureContext = {}) {
         if (queueAttemptStillCurrent(attempt)) failureContext.onFailure?.(failure);
         throw new Error(failure.message);
       }
-      const current = getAgentPanelRuntime().queueGuardContext;
-      setQueueGuardContext({ ...current, promptId, lifecycleState: "pending" });
+      const current = getAgentPanelRuntime().queueGuardPromptAttempt;
+      if (!current || current.attemptId !== attempt.attemptId) {
+        throw new Error("Approved queue attempt became stale before prompt attribution.");
+      }
+      getAgentPanelRuntime().queueGuardPromptAttempt = { ...current, promptId, lifecycleState: "pending" };
       return result;
     };
     if (queued && typeof queued.then === "function") {
@@ -7638,6 +7720,10 @@ function finalizePublishObligation(panel, finalized) {
     planHash: custody?.planHash ?? null,
     transactionGeneration: custody?.transactionGeneration ?? null,
     leaseNonce: custody?.leaseNonce ?? null,
+    graph: custody?.graph ?? null,
+    queueWrapper: custody?.queueWrapper ?? null,
+    mutationGraph: custody?.mutationGraph ?? null,
+    mutationWrapper: custody?.mutationWrapper ?? null,
     transactionRevision: transaction?.revision_id ?? null,
     transactionParentRevision: transaction?.parent_revision ?? null,
     responseTransactionId: authority?.transaction_id ?? transaction?.transaction_id ?? null,
@@ -7651,8 +7737,15 @@ function finalizePublishObligation(panel, finalized) {
     responseParentRevision: raw.parent_revision ?? null,
     responseSessionId: raw.session_id ?? raw.sessionId ?? null,
     responseTurnId: raw.turn_id ?? raw.turnId ?? null,
+    transactionSessionId: transaction?.session_id ?? null,
+    transactionTurnId: transaction?.turn_id ?? null,
     receiptRevision: durableReceipt?.revision_id ?? durableReceipt?.receipt?.revision_id ?? null,
     receiptParentRevision: durableReceipt?.parent_revision ?? durableReceipt?.receipt?.parent_revision ?? null,
+    receiptSessionId: durableReceipt?.session_id ?? durableReceipt?.receipt?.session_id ?? null,
+    receiptTurnId: durableReceipt?.turn_id ?? durableReceipt?.receipt?.turn_id ?? null,
+    receiptPlanHash: durableReceipt?.plan_hash ?? durableReceipt?.receipt?.plan_hash ?? null,
+    receiptGeneration: durableReceipt?.generation ?? durableReceipt?.receipt?.generation ?? null,
+    receiptLeaseNonce: durableReceipt?.lease_nonce ?? durableReceipt?.receipt?.lease_nonce ?? null,
     approvalRevision: approval?.revision_id ?? null,
     approvalParentRevision: approval?.parent_revision ?? null,
     approvalIdentity: approval ? `${approval.revision_id || ""}:${approval.parent_revision || ""}:${approval.api_digest || ""}:${approval.record_digest || ""}` : null,
@@ -7666,6 +7759,7 @@ function publishApprovedRecordFromFinalize(obligation) {
   const runtime = getAgentPanelRuntime();
   const panel = currentAgentPanel();
   if (!obligation || typeof obligation.requestGeneration !== "number"
+    || typeof obligation.queueWrapper !== "function"
     || runtime.queueGuardInvalidationGeneration !== obligation.requestGeneration + 1
     || panel?.state?.chatScopeId !== obligation.scopeId
     || panel?.state?.scopeActivationEpoch !== obligation.scopeActivation
@@ -7673,6 +7767,13 @@ function publishApprovedRecordFromFinalize(obligation) {
     || panel?.state?.turnId !== obligation.turnId
     || obligation.responseSessionId !== obligation.sessionId
     || obligation.responseTurnId !== obligation.turnId
+    || (obligation.transactionSessionId != null && obligation.transactionSessionId !== obligation.sessionId)
+    || (obligation.transactionTurnId != null && obligation.transactionTurnId !== obligation.turnId)
+    || (obligation.receiptSessionId != null && obligation.receiptSessionId !== obligation.sessionId)
+    || (obligation.receiptTurnId != null && obligation.receiptTurnId !== obligation.turnId)
+    || (obligation.receiptPlanHash != null && obligation.receiptPlanHash !== obligation.planHash)
+    || (obligation.receiptGeneration != null && obligation.receiptGeneration !== obligation.transactionGeneration)
+    || (obligation.receiptLeaseNonce != null && obligation.receiptLeaseNonce !== obligation.leaseNonce)
     || typeof obligation.canonical !== "string" || !obligation.canonical) {
     return false;
   }
@@ -7744,7 +7845,9 @@ function publishApprovedRecordFromFinalize(obligation) {
   const exactDigest = sha256HexFromString(canonical);
   if (typeof approval.api_digest !== "string" || !approval.api_digest
     || typeof approval.record_digest !== "string" || !approval.record_digest
+    || !/^[0-9a-f]{64}$/.test(approval.api_digest)
     || record.api_digest !== approval.api_digest
+    || record.api_digest !== sha256Hex(record.api_projection)
     || approval.record_digest !== exactDigest) return false;
   const metadata = {
     canonical,
@@ -7752,12 +7855,21 @@ function publishApprovedRecordFromFinalize(obligation) {
     parentRevision: obligation.responseParentRevision,
     sessionId: obligation.sessionId,
     turnId: obligation.turnId,
+    transactionId: obligation.transactionId,
+    candidateId: obligation.candidateId,
+    planHash: obligation.planHash,
+    generation: obligation.transactionGeneration,
+    leaseNonce: obligation.leaseNonce,
     transactionRevision: obligation.transactionRevision,
     transactionParentRevision: obligation.transactionParentRevision,
     apiDigest: approval.api_digest,
     recordDigest: approval.record_digest,
     scopeActivation: obligation.scopeActivation,
     approvalIdentity: obligation.approvalIdentity,
+    graph: obligation.graph,
+    queueWrapper: obligation.queueWrapper,
+    mutationGraph: obligation.mutationGraph,
+    mutationWrapper: obligation.mutationWrapper,
     invalidationGeneration: obligation.requestGeneration + 1,
   };
   saveScopeApprovedRecord(obligation.scopeId, metadata);
@@ -7766,6 +7878,11 @@ function publishApprovedRecordFromFinalize(obligation) {
     scopeActivation: obligation.scopeActivation,
     sessionId: obligation.sessionId,
     turnId: obligation.turnId,
+    transactionId: obligation.transactionId,
+    candidateId: obligation.candidateId,
+    planHash: obligation.planHash,
+    generation: obligation.transactionGeneration,
+    leaseNonce: obligation.leaseNonce,
     queueAllowed: true,
     revisionId: obligation.responseRevision,
     parentRevision: obligation.responseParentRevision,
@@ -7776,14 +7893,55 @@ function publishApprovedRecordFromFinalize(obligation) {
     receipt: approval,
     inputBinding: record.input_binding,
     approvalIdentity: obligation.approvalIdentity,
+    graph: obligation.graph,
+    queueWrapper: obligation.queueWrapper,
+    mutationGraph: obligation.mutationGraph,
+    mutationWrapper: obligation.mutationWrapper,
     invalidationGeneration: obligation.requestGeneration + 1,
   });
   return true;
 }
 
+function finalizeCustodyStillCurrent(obligation) {
+  const runtime = getAgentPanelRuntime();
+  const queueCustodyCurrent = obligation?.queueWrapper
+    ? Boolean(runtime.queueGuardHook?.installed
+      && runtime.queueGuardHook?.healthy?.()
+      && runtime.queueGuardHook.wrapper === obligation.queueWrapper)
+    : !runtime.queueGuardHook?.installed;
+  return Boolean(
+    obligation
+    // The finalize-start transition has already performed its single
+    // invalidation before the request custody is captured. Any later
+    // generation advance means the request is stale.
+    && runtime.queueGuardInvalidationGeneration === obligation.requestGeneration
+    && queueCustodyCurrent
+    && approvalCustodyStillCurrent({
+      scopeId: obligation.scopeId,
+      scopeActivation: obligation.scopeActivation,
+      sessionId: obligation.sessionId,
+      turnId: obligation.turnId,
+      transactionId: obligation.transactionId,
+      candidateId: obligation.candidateId,
+      planHash: obligation.planHash,
+      generation: obligation.transactionGeneration,
+      leaseNonce: obligation.leaseNonce,
+      revisionId: obligation.scopeRevision,
+      parentRevision: obligation.scopeParentRevision,
+      graph: obligation.graph,
+      queueWrapper: obligation.queueWrapper,
+      mutationGraph: obligation.mutationGraph,
+      mutationWrapper: obligation.mutationWrapper,
+    }, false),
+  );
+}
+
 function commitFinalizeSuccessAndPublishRecord(panel, payload = {}) {
   const finalized = payload.accepted || payload.finalizedReceipt || payload.receipt || {};
   const publish = finalizePublishObligation(panel, finalized);
+  if (!finalizeCustodyStillCurrent(publish)) {
+    return { render: false, stale: true, ignored: true, t19ApprovedRecordPublish: null };
+  }
   const obligations = commitFinalizeSuccess(panel, payload);
   return { ...obligations, t19ApprovedRecordPublish: publish };
 }
@@ -7810,7 +7968,7 @@ function installQueuePromptLifecycleListeners(runtime) {
   for (const eventName of eventNames) {
     const listener = (event) => {
       const detail = event?.detail && typeof event.detail === "object" ? event.detail : event;
-      const active = runtime.queueGuardContext;
+      const active = runtime.queueGuardPromptAttempt;
       const eventPromptId = detail?.prompt_id ?? detail?.data?.prompt_id;
       if (!active?.promptId || typeof eventPromptId !== "string" || !eventPromptId.trim()
         || eventPromptId.trim() !== active.promptId) {
@@ -7839,7 +7997,7 @@ function installQueuePromptLifecycleListeners(runtime) {
           : (runtime.queueGuardLifecycle?.error || null),
         detail,
       };
-      runtime.queueGuardContext = { ...active, lifecycleState };
+      runtime.queueGuardPromptAttempt = { ...active, lifecycleState };
       if (eventName === "execution_error" && !active.operationUnsupported) {
         runtime.queueGuardBlockNotice = {
           at: new Date().toISOString(),
@@ -7865,7 +8023,7 @@ function installQueuePromptLifecycleListeners(runtime) {
 
 export function requestQueuePromptOperation(operation) {
   const normalized = operation === "cancel" || operation === "delete" ? operation : null;
-  const active = getAgentPanelRuntime().queueGuardContext;
+  const active = getAgentPanelRuntime().queueGuardPromptAttempt;
   if (!normalized) {
     throw new Error(`Unsupported queue prompt operation: ${String(operation)}`);
   }
@@ -7880,7 +8038,7 @@ export function requestQueuePromptOperation(operation) {
   error.prompt_id = promptId;
   error.operation = normalized;
   const runtime = getAgentPanelRuntime();
-  runtime.queueGuardContext = { ...active, operationUnsupported: normalized, lifecycleState: "unsupported" };
+  runtime.queueGuardPromptAttempt = { ...active, operationUnsupported: normalized, lifecycleState: "unsupported", error: error.message };
   runtime.queueGuardLifecycle = {
     event: "unsupported_operation",
     promptId,
@@ -7913,46 +8071,27 @@ function installQueueMutationInvalidation() {
     return { installed: false, graph: null, wrapper: null, original: null, path: "app.canvas.graph.change" };
   }
   const existing = runtime.queueGuardMutationHook;
-  if (existing && existing.graph === graph) {
-    if (existing.installed) {
-      try {
-        if (graph?.change === existing.wrapper) return existing;
-      } catch (_error) {
-        // The existing graph's custody cannot be verified; fail closed.
+  if (existing?.graph === graph) {
+    if (existing.installed && existing.healthy?.()) {
+      const activation = currentAgentPanel()?.state?.scopeActivationEpoch;
+      if (Number.isSafeInteger(activation)) existing.scopeActivation = activation;
+      return existing;
+    }
+    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
+  }
+  const report = installGraphMutationGuard(graph, {
+    scopeActivation: currentAgentPanel()?.state?.scopeActivationEpoch ?? null,
+    onMutation({ graph: guardedGraph, wrapper }) {
+      const active = currentAgentPanel()?.state;
+      if (report.scopeActivation == null && Number.isSafeInteger(active?.scopeActivationEpoch)) {
+        report.scopeActivation = active.scopeActivationEpoch;
       }
-    }
-    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
-  }
-  let original;
-  try {
-    original = graph?.change;
-  } catch (_error) {
-    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
-  }
-  if (!graph || typeof original !== "function") {
-    return { installed: false, graph, wrapper: null, original: null, path: "app.canvas.graph.change" };
-  }
-  const wrapper = function vibecomfyQueueMutationChange(...args) {
-    let current;
-    let suppressed = false;
-    try {
-      current = graph.change;
-      suppressed = graph.__vibecomfyQueueMutationSuppressed === true;
-    } catch (_error) {
-      return null;
-    }
-    if (current !== wrapper) return null;
-    if (suppressed) return original.apply(this, args);
-    invalidateApprovedRecord(_activeScopeId());
-    return original.apply(this, args);
-  };
-  try {
-    graph.change = wrapper;
-    if (graph.change !== wrapper) throw new TypeError("graph.change installation could not be verified");
-  } catch (_error) {
-    return { installed: false, graph, wrapper: null, original, path: "app.canvas.graph.change" };
-  }
-  const report = { installed: true, graph, wrapper, original, path: "app.canvas.graph.change" };
+      if (guardedGraph !== getLiveGraph() || active?.scopeActivationEpoch !== report.scopeActivation) {
+        return;
+      }
+      invalidateApprovedRecord(active?.chatScopeId || null);
+    },
+  });
   runtime.queueGuardMutationHook = report;
   return report;
 }
@@ -7982,7 +8121,7 @@ function installQueueGuard() {
 
   const report = installQueueGuardAdapter(app, {
     shouldBlock() {
-      const active = runtime.queueGuardContext;
+      const active = runtime.queueGuardApproval;
       if (active?.queueAllowed === false) {
         return {
           turnId: active.turnId || null,
@@ -7994,7 +8133,7 @@ function installQueueGuard() {
       return null;
     },
     queueApproved() {
-      const active = runtime.queueGuardContext;
+      const active = runtime.queueGuardApproval;
       return validateApprovedRecordAndQueue({
         onFailure: (failure) => {
           runtime.queueGuardBlockNotice = {
@@ -8044,6 +8183,9 @@ function installQueueGuard() {
     path: report.path,
     original: report.original,
     wrapper: report.wrapper,
+    healthy: report.healthy,
+    cleanup: report.cleanup,
+    replacement: report.replacement,
   };
   if (mutationReport.installed) runtime.queueGuardFallbackWarning = null;
   return Boolean(mutationReport.installed && report.installed);
@@ -10017,6 +10159,10 @@ async function postAgentLifecycleAction(endpoint, body, action) {
       revisionId,
       parentRevision,
       invalidationGeneration: runtime.queueGuardInvalidationGeneration,
+      graph: getLiveGraph(),
+      queueWrapper: runtime.queueGuardHook?.wrapper || null,
+      mutationGraph: runtime.queueGuardMutationHook?.graph || null,
+      mutationWrapper: runtime.queueGuardMutationHook?.wrapper || null,
     });
     requestBody = { ...body, revision_id: revisionId, parent_revision: parentRevision };
   }
