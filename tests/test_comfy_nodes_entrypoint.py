@@ -72,12 +72,44 @@ def test_comfy_nodes_ping_handler_defined_when_server_absent() -> None:
 
 
 def test_official_pip_prompt_stub_defers_routes_without_headless(monkeypatch) -> None:
+    """Registration defers at the exact pip-stub type boundary.
+
+    The ComfyUI modules are injected so this remains a hermetic registration
+    unit test.  It does not claim interoperability with a real installed
+    ComfyUI package.
+    """
     import vibecomfy.comfy_nodes as mod
     from vibecomfy.comfy_nodes._server_compat import is_official_import_only_stub
 
+    stub_type = type("_PromptServerStub", (), {})
+    instance = stub_type()
+    instance.app = types.SimpleNamespace()
+    vanilla_module = types.ModuleType("comfy.nodes.vanilla_node_importing")
+    vanilla_module._PromptServerStub = stub_type
+    server_class = type("PromptServer", (), {"instance": instance})
+    server_module = types.ModuleType("comfy.cmd.server")
+    server_module.PromptServer = server_class
+    comfy_module = types.ModuleType("comfy")
+    comfy_module.__path__ = []  # type: ignore[attr-defined]
+    cmd_module = types.ModuleType("comfy.cmd")
+    cmd_module.__path__ = []  # type: ignore[attr-defined]
+    nodes_module = types.ModuleType("comfy.nodes")
+    nodes_module.__path__ = []  # type: ignore[attr-defined]
+    comfy_module.cmd = cmd_module
+    comfy_module.nodes = nodes_module
+    cmd_module.server = server_module
+    nodes_module.vanilla_node_importing = vanilla_module
+    monkeypatch.setitem(sys.modules, "comfy", comfy_module)
+    monkeypatch.setitem(sys.modules, "comfy.cmd", cmd_module)
+    monkeypatch.setitem(sys.modules, "comfy.cmd.server", server_module)
+    monkeypatch.setitem(sys.modules, "comfy.nodes", nodes_module)
+    monkeypatch.setitem(
+        sys.modules, "comfy.nodes.vanilla_node_importing", vanilla_module
+    )
+    monkeypatch.delitem(sys.modules, "server", raising=False)
+
     monkeypatch.delenv("VIBECOMFY_HEADLESS", raising=False)
     instance = mod._resolve_prompt_server_instance()
-    stub_type = type(instance)
     assert is_official_import_only_stub(instance)
     _reset_route_state(mod, instance)
     calls = []

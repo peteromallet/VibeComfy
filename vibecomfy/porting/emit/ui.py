@@ -5178,6 +5178,8 @@ def _set_node_field_allowed_ui_paths(
     original_node: Mapping[str, Any],
     candidate_node: Mapping[str, Any],
     field_paths: set[str],
+    *,
+    topology_input_fields: set[str] | None = None,
 ) -> set[str]:
     """Resolve semantic field attribution to the exact LiteGraph paths it owns.
 
@@ -5198,6 +5200,29 @@ def _set_node_field_allowed_ui_paths(
         except Exception:
             widget_names = []
 
+    # A captured UI node is stronger evidence than a registry/object_info
+    # roster.  Registry hydration can fill in a schema for an existing node
+    # without knowing the exact compact widget projection that was serialized
+    # by that canvas.  In that case the captured input records (when present)
+    # are the only reliable source for the widgets_values position.
+    captured_widget_names: list[str] = []
+    original_inputs = original_node.get("inputs")
+    if isinstance(original_inputs, list):
+        for item in original_inputs:
+            if not isinstance(item, Mapping) or item.get("link") is not None:
+                continue
+            widget = item.get("widget")
+            name = widget.get("name") if isinstance(widget, Mapping) else None
+            if isinstance(name, str) and name:
+                captured_widget_names.append(name)
+    if captured_widget_names:
+        # Keep the captured order and only use it when the requested field is
+        # actually represented by an input widget.  A schema may contain
+        # hidden/UI-only rows which are not input records.
+        for field in field_paths:
+            if field in captured_widget_names:
+                allowed.add(f"widgets_values[{captured_widget_names.index(field)}]")
+
     attributed_input_names: set[str] = set()
     for field_path in field_paths:
         field = str(field_path)
@@ -5213,10 +5238,13 @@ def _set_node_field_allowed_ui_paths(
         elif field.startswith("widget_") and field[len("widget_"):].isdigit():
             index = int(field[len("widget_"):])
         else:
-            try:
-                index = widget_names.index(field)
-            except ValueError:
-                index = None
+            if field in captured_widget_names:
+                index = captured_widget_names.index(field)
+            else:
+                try:
+                    index = widget_names.index(field)
+                except ValueError:
+                    index = None
             attributed_input_names.add(field)
         if index is not None:
             allowed.add(f"widgets_values[{index}]")
@@ -5242,6 +5270,30 @@ def _set_node_field_allowed_ui_paths(
         ]
         if candidate_inputs == expected_inputs:
             allowed.add("inputs")
+    if (
+        topology_input_fields
+        and isinstance(original_inputs, list)
+        and isinstance(candidate_inputs, list)
+        and len(original_inputs) == len(candidate_inputs)
+    ):
+        # A cumulative UpsertLink/RemoveLink may legitimately update only the
+        # native link reference of an input socket.  Keep this authorization
+        # byte-precise: a candidate that also changes type/widget/name remains
+        # outside the topology operation and fails the strict guard.
+        for index, (original_input, candidate_input) in enumerate(
+            zip(original_inputs, candidate_inputs)
+        ):
+            diffs = _value_diff_paths(
+                original_input,
+                candidate_input,
+                f"inputs[{index}]",
+            )
+            if (
+                diffs == [f"inputs[{index}].link"]
+                and isinstance(original_input, Mapping)
+                and str(original_input.get("name")) in topology_input_fields
+            ):
+                allowed.add(f"inputs[{index}].link")
     return allowed
 
 
@@ -5515,6 +5567,12 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     removed_scope_ids: set[str] = set()
     changed_scope_ids: set[str] = set()
     set_node_fields: dict[tuple[str, str], set[str]] = {}
+    # ``SetNodeFieldOp`` and topology ops may touch the same node.  The
+    # former owns only its named literal; a target-side link op owns the
+    # current link reference in the input socket.  Keep this distinction so
+    # pinning does not restore an old link from the ingest snapshot after a
+    # cumulative rewire.
+    topology_input_fields: dict[tuple[str, str], set[str]] = {}
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -5536,11 +5594,17 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         if isinstance(op, UpsertLinkOp):
             allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
             allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
+            topology_input_fields.setdefault(
+                (op.target.scope_path, op.target.uid), set()
+            ).add(str(op.target.input_field))
             record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
                 allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+                topology_input_fields.setdefault(
+                    (op.target.scope_path, op.target.uid), set()
+                ).add(str(op.target.input_field))
                 record_link_op(op.target.scope_path, op)
                 link_removal_ops.add(op.target.scope_path)
             continue
@@ -5590,6 +5654,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
         "set_node_fields": set_node_fields,
+        "topology_input_fields": topology_input_fields,
     }
 
 
@@ -6081,6 +6146,113 @@ def _guard_subgraph_state(
     return diagnostics
 
 
+def _socket_link_value(socket: Any) -> Any:
+    if not isinstance(socket, Mapping):
+        return None
+    return socket.get("link")
+
+
+def _socket_name(socket: Any) -> str | None:
+    if not isinstance(socket, Mapping):
+        return None
+    name = socket.get("name")
+    return str(name) if isinstance(name, str) and name else None
+
+
+def _merge_set_field_input_sockets(
+    original_inputs: Sequence[Any],
+    candidate_inputs: Sequence[Any],
+    set_fields: set[str],
+    *,
+    topology_input_fields: set[str] | None = None,
+) -> list[Any]:
+    """Preserve captured input records while applying owned link changes.
+
+    The UI emitter is allowed to reconstruct input sockets from a hydrated
+    schema.  That projection can change harmless presentation bytes (for
+    example ``type: "*"`` to ``type: "UNKNOWN"`` or remove ``widget``), so
+    those bytes must remain sourced from the captured UI.  A topology op is
+    the one exception: its target input's *link* value comes from the current
+    candidate and must win over the captured value.  The named literal field
+    may also remove a linked input, or turn it into an unlinked value-bearing
+    record; no other candidate socket is admitted.
+    """
+    topology_input_fields = topology_input_fields or set()
+    candidates_by_name: dict[str, list[tuple[int, Mapping[str, Any]]]] = defaultdict(list)
+    for index, item in enumerate(candidate_inputs):
+        name = _socket_name(item)
+        if name is not None and isinstance(item, Mapping):
+            candidates_by_name[name].append((index, item))
+    used_candidate_indices: set[int] = set()
+    merged: list[Any] = []
+
+    for original in original_inputs:
+        name = _socket_name(original)
+        matches = candidates_by_name.get(name or "", [])
+        match: tuple[int, Mapping[str, Any]] | None = None
+        for candidate in matches:
+            if candidate[0] not in used_candidate_indices:
+                match = candidate
+                break
+        if match is not None:
+            used_candidate_indices.add(match[0])
+        candidate = match[1] if match is not None else None
+        original_link = _socket_link_value(original)
+        candidate_link = _socket_link_value(candidate)
+
+        if original_link is not None:
+            if candidate is None:
+                # A literal assignment to a linked input removes that
+                # endpoint.  Other missing records remain untouched.
+                if name in set_fields or name in topology_input_fields:
+                    continue
+                merged.append(deepcopy(original))
+                continue
+            if candidate_link is None and name in set_fields:
+                # Some emit paths retain the socket and carry the new literal
+                # in a value field instead of omitting the input record. Keep
+                # captured metadata but apply only that owned projection.
+                replacement = deepcopy(original)
+                replacement["link"] = None
+                if "value" in candidate:
+                    replacement["value"] = deepcopy(candidate["value"])
+                merged.append(replacement)
+                continue
+            if name in topology_input_fields and candidate_link is not None:
+                current = deepcopy(original)
+                current["link"] = deepcopy(candidate_link)
+                merged.append(current)
+                continue
+            # A SetNodeField alone does not authorize any linked socket
+            # rewrite, including a seemingly harmless type/widget change.
+            merged.append(deepcopy(original))
+            continue
+
+        # Unlinked captured records are socket metadata, not the literal
+        # value itself. Preserve them even when hydration omitted the record
+        # or reconstructed it without its widget descriptor. A value-bearing
+        # projection is the only owned exception.
+        current = deepcopy(original)
+        if name in set_fields and isinstance(candidate, Mapping) and "value" in candidate:
+            current["value"] = deepcopy(candidate["value"])
+        merged.append(current)
+
+    # Existing-node field edits cannot invent a new socket. A target-side
+    # topology operation may, however, materialize a previously absent linked
+    # endpoint; retain only those candidate records and discard all other
+    # reconstructed extras.
+    if topology_input_fields:
+        for index, candidate in enumerate(candidate_inputs):
+            if (
+                index in used_candidate_indices
+                or _socket_link_value(candidate) is None
+                or _socket_name(candidate) not in topology_input_fields
+            ):
+                continue
+            merged.append(deepcopy(candidate))
+    return merged
+
+
 def pin_untouched_ui(
     original_ui: Mapping[str, Any],
     candidate_ui: Mapping[str, Any],
@@ -6115,55 +6287,50 @@ def pin_untouched_ui(
                 if key in attributed_nodes:
                     allowed = attribution["node_paths"].get(key, set())
                     merged = deepcopy(dict(original_node))
+                    set_fields = attribution["set_node_fields"].get(key, set())
+                    topology_input_fields = attribution["topology_input_fields"].get(key, set())
                     for field in allowed:
-                        # A named widget write is represented in
-                        # ``widgets_values``. Re-emission may reconstruct
-                        # linked input sockets with a schema-less placeholder
-                        # (``UNKNOWN``) even when the captured UI used ``*``.
-                        # Copying that reconstructed ``inputs`` array here
-                        # would let an unrelated field write launder a socket
-                        # identity change into the replay candidate. Link
-                        # operations still own ``inputs`` through their own
-                        # attribution; SetNodeField only owns the named
-                        # literal field and any explicitly removed inbound
-                        # socket.
-                        preserve_linked_inputs = (
-                            field == "inputs"
-                            and key in attribution["set_node_fields"]
-                            and any(
-                                isinstance(item, Mapping) and item.get("link") is not None
-                                for item in original_node.get("inputs") or ()
-                            )
-                            and any(
-                                isinstance(item, Mapping) and item.get("link") is not None
-                                for item in node.get("inputs") or ()
-                            )
-                        )
-                        if preserve_linked_inputs:
+                        # A SetNodeField owns only the named literal and the
+                        # exact linked endpoint it replaces.  Input socket
+                        # metadata is merged below so registry hydration
+                        # cannot launder captured type/widget bytes.  A
+                        # target-side topology op is allowed to carry the
+                        # candidate's current link value through that merge.
+                        if field == "inputs" and set_fields:
                             continue
                         if field in node:
                             merged[field] = deepcopy(node[field])
-                    set_fields = attribution["set_node_fields"].get(key, set())
-                    if set_fields and isinstance(merged.get("inputs"), list):
-                        candidate_input_names = {
-                            str(item.get("name"))
-                            for item in node.get("inputs") or ()
-                            if isinstance(item, Mapping) and item.get("name") is not None
-                        }
-                        # Assigning a literal to a linked input removes that
-                        # edge in the IR. Preserve all other captured input
-                        # records, but drop precisely the endpoint that the
-                        # SetNodeField operation replaced.
-                        merged["inputs"] = [
-                            item
-                            for item in merged["inputs"]
-                            if not (
-                                isinstance(item, Mapping)
-                                and item.get("link") is not None
-                                and str(item.get("name")) in set_fields
-                                and str(item.get("name")) not in candidate_input_names
-                            )
-                        ]
+                    if (
+                        set_fields
+                        and isinstance(original_node.get("inputs"), list)
+                        and isinstance(node.get("inputs"), list)
+                    ):
+                        merged["inputs"] = _merge_set_field_input_sockets(
+                            original_node["inputs"],
+                            node["inputs"],
+                            set_fields,
+                            topology_input_fields=topology_input_fields,
+                        )
+                    # A concrete schema witness is emit furniture rather
+                    # than an authored property, but a registry-hydrated
+                    # candidate must retain it for the authority receipt. Do
+                    # not carry the emitter's low-information ``unknown``
+                    # marker across the pin boundary; that remains exactly
+                    # the captured property state.
+                    candidate_properties = node.get("properties")
+                    candidate_provider = (
+                        candidate_properties.get("_vibecomfy_schema_provider")
+                        if isinstance(candidate_properties, Mapping)
+                        else None
+                    )
+                    if (
+                        isinstance(candidate_provider, str)
+                        and candidate_provider
+                        and candidate_provider.casefold() != "unknown"
+                    ):
+                        properties = deepcopy(dict(merged.get("properties") or {}))
+                        properties["_vibecomfy_schema_provider"] = candidate_provider
+                        merged["properties"] = properties
                     nodes[index] = merged
                     continue
                 nodes[index] = deepcopy(dict(original_node))
@@ -6461,6 +6628,9 @@ def guard_exit_ui(
                     original_node,
                     candidate_node,
                     set_fields,
+                    topology_input_fields=attribution["topology_input_fields"].get(
+                        key, set()
+                    ),
                 )
             )
         if _all_diffs_op_allowed(diffs, allowed_paths):

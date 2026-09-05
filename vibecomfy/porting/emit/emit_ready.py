@@ -965,6 +965,16 @@ def _canonical_semantic_lines(
             f"allow_missing_target={bool(read('allow_missing_target'))!r}",
         ]
         lines.append(f"wf.register_input({', '.join(register_args)})")
+        # ``register_input`` predates the distinction between an omitted
+        # default and an explicitly-authored ``None`` and therefore falls
+        # back to ``value`` whenever ``default is None``.  Canonical source
+        # must preserve the exact VibeInput descriptor, so restore the
+        # detached authored value after registration instead of broadening
+        # the public API with a second sentinel/overload.
+        if read("default") is None:
+            lines.append(
+                f"wf.inputs[{str(read('name'))!r}].default = {render(read('default'))}"
+            )
 
     # finalize_metadata() already creates the public-output objects for every
     # supported terminal node.  Reuse those objects, select the authored set,

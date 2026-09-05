@@ -48,7 +48,10 @@ def _flat_schema_provider() -> Any:
             return {
                 "CheckpointLoaderSimple": NodeSchema(
                     "CheckpointLoaderSimple", "core",
-                    {"ckpt_name": InputSpec(type="STRING", required=True)},
+                    {
+                        "ckpt_name": InputSpec(type="STRING", required=True),
+                        "widget_1": InputSpec(type="STRING"),
+                    },
                     [OutputSpec("MODEL", "MODEL"), OutputSpec("CLIP", "CLIP"), OutputSpec("VAE", "VAE")],
                 ),
                 "CLIPTextEncode": NodeSchema(
@@ -64,7 +67,9 @@ def _flat_schema_provider() -> Any:
                 "KSampler": NodeSchema(
                     "KSampler", "core",
                     {
-                        "seed": InputSpec("INT"), "steps": InputSpec("INT"), "cfg": InputSpec("FLOAT"),
+                        "seed": InputSpec("INT"),
+                        "control_after_generate": InputSpec("STRING"),
+                        "steps": InputSpec("INT"), "cfg": InputSpec("FLOAT"),
                         "sampler_name": InputSpec("STRING"), "scheduler": InputSpec("STRING"),
                         "denoise": InputSpec("FLOAT"),
                         "model": InputSpec("MODEL", required=True),
@@ -73,6 +78,10 @@ def _flat_schema_provider() -> Any:
                         "latent_image": InputSpec("LATENT", required=True),
                     },
                     [OutputSpec("LATENT", "LATENT")],
+                    widget_input_order=(
+                        "seed", "control_after_generate", "steps", "cfg",
+                        "sampler_name", "scheduler", "denoise",
+                    ),
                 ),
                 "VAEDecode": NodeSchema(
                     "VAEDecode", "core",
@@ -257,27 +266,39 @@ def test_empty_done_on_flat(flat_ui: dict[str, Any]) -> None:
 
 
 def test_empty_done_on_subgraphed_wan(subgraphed_wan_ui: dict[str, Any]) -> None:
-    """Empty-done on subgraphed_wan_i2v.json: render + done produces no changes."""
-    session = EditSession(subgraphed_wan_ui, schema_provider=_wan_schema_provider())
-    session.render()
-    result = session.done()
-    assert result.ok, f"Empty-done failed: {result.summary}"
+    """Native boundary markers are rejected before an empty session opens."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        EditSession(subgraphed_wan_ui, schema_provider=_wan_schema_provider())
 
 
 def test_empty_done_on_ltx_t2v(ltx_t2v_ui: dict[str, Any], ltx_t2v_provider: GraphInferredSchemaProvider) -> None:
-    """Empty-done on LTX t2v: normalization+render path doesn't disturb byte-identity."""
-    session = EditSession(ltx_t2v_ui, schema_provider=ltx_t2v_provider)
-    session.render()
-    result = session.done()
-    assert result.ok, f"Empty-done failed: {result.summary}"
+    """Native boundary markers are rejected before an empty session opens."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        EditSession(ltx_t2v_ui, schema_provider=ltx_t2v_provider)
 
 
 def test_empty_done_on_ltx_i2v(ltx_i2v_ui: dict[str, Any], ltx_i2v_provider: GraphInferredSchemaProvider) -> None:
-    """Empty-done on LTX i2v: normalization+render path doesn't disturb byte-identity."""
-    session = EditSession(ltx_i2v_ui, schema_provider=ltx_i2v_provider)
-    session.render()
-    result = session.done()
-    assert result.ok, f"Empty-done failed: {result.summary}"
+    """Native boundary markers are rejected before an empty session opens."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        EditSession(ltx_i2v_ui, schema_provider=ltx_i2v_provider)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -416,17 +437,19 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
 ) -> None:
     """Recovery nodes should not be dumped past the graph right edge.
 
-    This reproduces the SDXL replacement failure shape: a first batch tries an
-    invalid replacement loader, but still lands field edits, rewires, and deletes.
-    The recovery batch then adds a loader/text-encode cluster and wires it back
-    into the existing sampler/decoder. Placement must infer the downstream
-    rewire anchors even though the original upstream nodes are already gone.
+    This reproduces the SDXL replacement failure shape while preserving atomic
+    batch rollback: a first batch tries an invalid replacement loader and must
+    leave the original graph untouched. A subsequent valid removal batch then
+    constructs the intended post-removal state, after which recovery adds a
+    loader/text-encode cluster and wires it back into the sampler/decoder.
+    Placement must infer the downstream rewire anchors from that explicit state.
     """
     import copy
 
     ui = copy.deepcopy(flat_ui)
     session = EditSession(ui, schema_provider=_flat_schema_provider())
     session.render()
+    before_failed_batch = copy.deepcopy(session.working_ui)
 
     failed = session.apply_batch(
         "dualclip = DualCLIPLoader(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
@@ -439,6 +462,21 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
         "done()\n"
     )
     assert failed.ok is False
+    assert failed.landed_ops == ()
+    assert session.working_ui == before_failed_batch
+    assert {node["type"] for node in session.working_ui["nodes"]} >= {
+        "CheckpointLoaderSimple",
+        "CLIPTextEncode",
+    }
+
+    removed = session.apply_batch(
+        "del cliptextencode\n"
+        "del cliptextencode_2\n"
+        "del checkpointloadersimple\n"
+        "done()\n"
+    )
+    assert removed.ok is True
+    assert len(removed.landed_ops) == 3
 
     recovered = session.apply_batch(
         "checkpointloader = CheckpointLoaderSimple(ckpt_name='juggernautXL_v8Rundiffusion.safetensors')\n"
@@ -582,17 +620,15 @@ def test_describe_named_nodes_flat(flat_ui: dict[str, Any]) -> None:
 def test_describe_ltx_t2v_top_level(
     ltx_t2v_ui: dict[str, Any], ltx_t2v_provider: GraphInferredSchemaProvider
 ) -> None:
-    """describe() returns correct information for top-level LTX t2v nodes."""
-    session = EditSession(ltx_t2v_ui, schema_provider=ltx_t2v_provider)
-    session.render()
-
-    for name in session.uid_by_name:
-        desc = session.describe(name)
-        assert desc.name == name
-        assert desc.uid is not None
-        assert desc.class_type is not None
-        # Top-level nodes have empty scope_path
-        assert desc.scope_path == ""
+    """Native boundary markers are rejected before describe() can run."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        EditSession(ltx_t2v_ui, schema_provider=ltx_t2v_provider)
 
 
 def test_working_ui_unchanged_after_describe(flat_ui: dict[str, Any]) -> None:
@@ -647,7 +683,12 @@ def test_apply_batch_unexpected_exception_restores_session_journal(
     original_interpret = interpret_mod.interpret
 
     def _raise(*args, **kwargs):
-        session.working_ui = {"nodes": [], "links": []}
+        # ``working_ui`` is a read-only projection.  Dirty the retained IR
+        # itself through the real interpretation seam, then verify the
+        # unexpected-exception journal restores it from the snapshot.
+        assert session.workflow is not None
+        session.workflow.nodes.clear()
+        session.workflow.edges.clear()
         session.landed_ops.append("dirty")
         session.touched_uids.add("dirty")
         session.render_count += 7

@@ -10,7 +10,7 @@ import pytest
 from vibecomfy.security import CapabilityFenceError
 from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeInput, VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import (
     ApprovedProjectionRecord,
     WorkflowBundleError,
@@ -808,6 +808,37 @@ def test_real_converter_backed_public_capture_roundtrips_pair(tmp_path: Path) ->
     assert reloaded.ui_digest == bundle.ui_digest
     assert destination.is_file()
     assert destination.with_suffix(".vibe.json").is_file()
+
+
+def test_canonical_roundtrip_preserves_explicit_none_input_default(tmp_path: Path) -> None:
+    workflow = _workflow("explicit-none-default")
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "MysteryModel",
+        inputs={"model": "current-model.safetensors"},
+        uid="model",
+    )
+    # Construct the descriptor directly to represent the authored distinction
+    # that register_input(value=..., default=None) cannot express: the current
+    # model is a value, while the public default is intentionally unset.
+    workflow.inputs["model"] = VibeInput(
+        "model",
+        "1",
+        "model",
+        "current-model.safetensors",
+        type="STRING",
+        default=None,
+    )
+    workflow._manual_input_names.add("model")
+
+    destination = tmp_path / "explicit-none-default.py"
+    bundle = emit_bundle(workflow, destination, {"operation": "authored"})
+    reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+
+    assert reloaded.workflow.inputs["model"].value == "current-model.safetensors"
+    assert reloaded.workflow.inputs["model"].default is None
+    assert reloaded.semantic_digest == bundle.semantic_digest == workflow.semantic_digest()
+    assert reloaded.revision_id == bundle.revision_id
 
 
 def test_native_port_rosters_are_semantic_not_execution_data() -> None:
