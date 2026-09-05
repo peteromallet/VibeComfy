@@ -37,7 +37,6 @@ from .session import (
     _run_metadata,
     _schema_provider_provenance,
     _schema_warn_only,
-    _terminal_event_already_written,
     _wait_for_server_history,
     _workflow_queue_failure_message,
 )
@@ -98,7 +97,6 @@ async def run(
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
         warned = {"emitted": False}
         phase = "schema"
-        failure_exc: BaseException | None = None
 
         def on_unavailable(msg: str) -> None:
             if warned["emitted"] and "schema validation skipped for class types" not in msg:
@@ -200,23 +198,26 @@ async def run(
                 log_path=str(log_path),
             )
         except asyncio.CancelledError as exc:
-            failure_exc, failure_event, failure_interrupted = exc, "superseded", True
-        except KeyboardInterrupt as exc:
-            failure_exc, failure_event, failure_interrupted = exc, "superseded", True
-        except Exception as exc:
-            failure_exc, failure_event, failure_interrupted = exc, "discarded", False
-        if failure_exc is not None:
-            if _terminal_event_already_written(run_dir, record, journal_generation):
-                raise failure_exc
-            if phase in {"queue", "acceptance_witness", "history", "output", "metadata"} and queue_acceptance["status"] == "not_attempted":
-                queue_acceptance = {"status": "unknown", "prompt_id": None}
             _persist_runtime_failure(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
                 run_id=run_id, record=record, generation=journal_generation,
-                event_type=failure_event, original_error=failure_exc, queue_acceptance=queue_acceptance,
-                phase=phase, exc=failure_exc, interrupted=failure_interrupted,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
             )
-            raise failure_exc
+            raise
+        except KeyboardInterrupt as exc:
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
+        except Exception as exc:
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
 
 
 def run_sync(

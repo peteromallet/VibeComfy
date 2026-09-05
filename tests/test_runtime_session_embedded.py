@@ -78,6 +78,17 @@ def _terminal_events(tmp_path: Path, record):
     return attempt, events
 
 
+def _assert_exact_runtime_record(evidence: dict, record) -> None:
+    approved = evidence["approved_projection"]
+    assert set(approved) == {
+        "revision_id", "selected_variant", "input_binding",
+        "api_projection", "ui_projection", "api_digest",
+    }
+    assert approved == record.to_dict()
+    assert "approval_record" not in evidence
+    assert "approved_record" not in evidence
+
+
 def test_embedded_session_reuses_single_comfy_context(
     fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -175,6 +186,84 @@ def test_embedded_session_preserves_statusless_raw_output_mapping(
     with pytest.raises(QueueError, match="did not include a prompt_id"):
         asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+
+
+@pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
+def test_embedded_ambiguous_acceptance_is_unknown_without_statusless_decode(
+    queue_response: dict, fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    queue_calls = 0
+
+    async def ambiguous_queue(_self, _api_dict):
+        nonlocal queue_calls
+        queue_calls += 1
+        return queue_response
+
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", ambiguous_queue)
+    with pytest.raises(QueueError, match="acceptance is ambiguous"):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    assert queue_calls == 1
+    assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
+    assert evidence["terminal"]["acceptance_known"] is False
+    assert events[-1]["event_type"] == "discarded"
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
+    _assert_exact_runtime_record(evidence, record)
+
+
+def test_embedded_output_failure_discards_after_accepted_witness(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    monkeypatch.setattr(
+        session_module, "_collect_output_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("output collection failed")),
+    )
+    with pytest.raises(OSError, match="output collection failed"):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len(fake_comfy.instances[0].queue_calls) == 1
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "discarded"
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["terminal"]["phase"] == "output"
+    assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
+    assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
+    _assert_exact_runtime_record(evidence, record)
+
+
+def test_embedded_finalized_journal_write_failure_is_visible(
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    real_journal = session_module._journal_terminal
+
+    def fail_finalized(*args, **kwargs):
+        if kwargs.get("event_type") == "finalized":
+            raise OSError("finalized journal disk full")
+        return real_journal(*args, **kwargs)
+
+    monkeypatch.setattr(session_module, "_journal_terminal", fail_finalized)
+    with pytest.raises(QueueError, match="finalized evidence could not be persisted"):
+        asyncio.run(EmbeddedSession().run(record, bundle))
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len(fake_comfy.instances[0].queue_calls) == 1
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "discarded"
+    assert list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt["runtime_evidence"], record)
+    _assert_exact_runtime_record(events[-1]["receipt"]["runtime_evidence"], record)
 
 def test_embedded_session_terminal_error_fails_before_metadata(
     fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
