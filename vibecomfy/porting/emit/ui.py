@@ -6225,7 +6225,6 @@ def _topology_owned_refs(
     for op in scope_ops:
         if isinstance(op, UpsertLinkOp):
             if op.target.scope_path == scope_path:
-                inputs.add(str(op.target.input_field))
                 previous = endpoint_sources.get(
                     (op.target.uid, str(op.target.input_field))
                 )
@@ -6239,7 +6238,17 @@ def _topology_owned_refs(
                     op.source.output_slot,
                 )
             if op.source.scope_path == scope_path and op.source.uid == uid:
-                outputs.add(op.source.output_slot)
+                source_node = _scope_node_for_uid(original_scope, uid)
+                output_slot = (
+                    _output_slot_for_ref(source_node, op.source.output_slot)
+                    if source_node is not None
+                    else None
+                )
+                outputs.add(
+                    output_slot
+                    if output_slot is not None
+                    else op.source.output_slot
+                )
             if op.target.scope_path == scope_path and op.target.uid == uid:
                 inputs.add(str(op.target.input_field))
             continue

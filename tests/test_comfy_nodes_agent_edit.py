@@ -9220,7 +9220,10 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             ),
         }
     )
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+    )
 
     wf = VibeWorkflow("batch-transcript", WorkflowSource("batch-transcript"))
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
