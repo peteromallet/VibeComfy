@@ -17,11 +17,11 @@ from typing import Any, Mapping
 import pytest
 
 from vibecomfy.ingest.normalize import from_ui
-from vibecomfy.porting.edit._interpret import interpret
 from vibecomfy.porting.edit.session import EditSession
-from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
-from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, socket_types_compatible
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow_bundle import WorkflowBundleError, validate_sidecar
 from tests.support.corpus_schema import (
     GraphInferredSchemaProvider,
     graph_inferred_schema_provider,
@@ -467,127 +467,45 @@ def test_recovery_add_nodes_anchor_to_downstream_rewire_after_failed_replacement
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Case (d): Subgraph internal edit — set_mode on subgraph node
+# Case (d): Native subgraph boundary fails closed
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
-    """Case (d): Edit a node inside a subgraph using the correct scope_path.
-
-    Uses interpret+emit with a scope_path since subgraph nodes are not
-    accessible via EditSession.apply_batch (they don't receive top-level variable
-    names from render).
-    """
-    import copy
-    from vibecomfy.porting.edit.ops import parse_edit_delta
-
-    original = copy.deepcopy(subgraphed_wan_ui)
-    scope_path = _scope_path_by_name(original, "Image to Video (Wan 2.2)")
-
-    # Find a subgraph node to target
-    sg = original["definitions"]["subgraphs"][0]
-    target_node = sg["nodes"][0]  # Pick the first subgraph node
-    target_uid = str(target_node["id"])
-
-    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
-
-    delta = parse_edit_delta(
-        [{"op": "set_mode", "target": [scope_path, target_uid], "mode": 2}]
-    )
-    provider = _wan_schema_provider()
-    workflow = from_ui(original, schema_provider=provider, use_comfy_converter=False)
-    result = interpret(workflow, delta, schema_provider=provider)
-
-    assert result.ok, f"interpret failed: {[str(d) for d in result.diagnostics]}"
-    candidate = emit_ui_json(
-        result.workflow,
-        schema_provider=provider,
-        include_virtual_wires=True,
-        prior_ui_payload=original,
-    )
-
-    # Verify mode changed
-    updated_node = next(
-        n for n in candidate["definitions"]["subgraphs"][0]["nodes"]
-        if str(n["id"]) == target_uid
-    )
-    assert updated_node["mode"] == 2
-
-    _assert_preserves_out_of_delta_nodes(
-        stamped_before, candidate, touched={(scope_path, target_uid)}
-    )
+def test_case_d_native_subgraph_boundary_fails_closed(
+    subgraphed_wan_ui: dict[str, Any],
+) -> None:
+    """Native ``-10/-20`` carriers cannot masquerade as Python-owned scope."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        from_ui(
+            subgraphed_wan_ui,
+            schema_provider=_wan_schema_provider(),
+            use_comfy_converter=False,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Case (e): Reroute graph analysis — describe() + link tracing
+# Case (e): Native-boundary Reroute graph fails closed
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def test_case_e_reroute_analysis_ltx_i2v(
     ltx_i2v_ui: dict[str, Any], ltx_i2v_provider: GraphInferredSchemaProvider
 ) -> None:
-    """Case (e): Use describe() to inspect Reroute nodes and trace output links.
-
-    The LTX i2v graph has a Reroute node (id 293) in its subgraph.
-    Since subgraph nodes don't get top-level names, we trace links manually.
-    """
-    session = EditSession(ltx_i2v_ui, schema_provider=ltx_i2v_provider)
-    session.render()
-
-    # Use describe() on named top-level nodes
-    # The LTX i2v graph should have at least a savevideo node
-    assert "savevideo" in session.uid_by_name, (
-        f"Expected 'savevideo' in names; got {list(session.uid_by_name.keys())}"
-    )
-
-    savevideo_desc = session.describe("savevideo")
-    assert savevideo_desc.class_type == "SaveVideo"
-    assert savevideo_desc.outputs == ()  # SaveVideo has no outputs
-    assert len(savevideo_desc.fields) > 0  # Has at least video input
-
-    # Find the Reroute node in the subgraph by searching the raw data
-    sg = ltx_i2v_ui["definitions"]["subgraphs"][0]
-    reroute_nodes = [n for n in sg["nodes"] if n["type"] == "Reroute"]
-    if not reroute_nodes:
-        pytest.skip("No Reroute nodes found in LTX i2v subgraph")
-    reroute = reroute_nodes[0]
-    reroute_id = reroute["id"]
-
-    # Verify Reroute schema
-    schema = ltx_i2v_provider.get_schema("Reroute")
-    assert schema is not None
-    assert schema.outputs[0].type == "*", "Reroute output type must be '*'"
-    assert socket_types_compatible("*", "VAE"), "socket_types_compatible('*', 'VAE') must be True"
-
-    # Trace the Reroute's output links
-    reroute_outputs = reroute.get("outputs", [])
-    assert len(reroute_outputs) > 0, "Reroute should have at least one output"
-    output_links = reroute_outputs[0].get("links", [])
-    assert len(output_links) > 0, f"Reroute {reroute_id} has no output links"
-
-    # For each output link, verify the target node receives the link
-    sg_links = sg.get("links", [])
-    for link_id in output_links:
-        found = False
-        for link in sg_links:
-            if isinstance(link, dict) and link.get("id") == link_id:
-                found = True
-                # Verify link type compatibility
-                link_type = link.get("type", "*")
-                target_node = next(
-                    (n for n in sg["nodes"] if n["id"] == link.get("target_id")), None
-                )
-                if target_node:
-                    target_inputs = target_node.get("inputs", [])
-                    if isinstance(link.get("target_slot"), int):
-                        slot = link["target_slot"]
-                        if slot < len(target_inputs):
-                            input_type = target_inputs[slot].get("type", "*")
-                            assert socket_types_compatible(link_type, input_type), (
-                                f"Reroute link {link_id}: {link_type} → {input_type} incompatible"
-                            )
-                break
-        assert found, f"Reroute output link {link_id} not found in subgraph links"
+    """A native-boundary Reroute graph is rejected before a session opens."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported_boundary_encoding.*native inputNode/outputNode markers"
+            ".*explicit Python-owned boundary mapping"
+        ),
+    ):
+        EditSession(ltx_i2v_ui, schema_provider=ltx_i2v_provider)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -820,3 +738,126 @@ def test_session_history_is_workflow_delta_pairs(flat_ui: dict[str, Any]) -> Non
     assert session.history[1][0] is not wf0
     assert session.rollback()
     assert len(session.history) == 1
+
+
+# ── T20 / R3 strict sidecar boundary fixtures ─────────────────────────────────
+
+
+def _t20_connected_workflow() -> VibeWorkflow:
+    workflow = VibeWorkflow("t20-sidecar", WorkflowSource("t20-sidecar"))
+    workflow.nodes["a"] = VibeNode(
+        "a", "Source", uid="source", native_output_names=["out"]
+    )
+    workflow.nodes["b"] = VibeNode(
+        "b", "Target", uid="target", native_input_names=["in"]
+    )
+    workflow.edges.append(VibeEdge("a", "0", "b", "0"))
+    return workflow
+
+
+def _t20_connected_sidecar(workflow: VibeWorkflow) -> dict[str, Any]:
+    return {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": workflow.id,
+            "semantic_digest": workflow.semantic_digest(),
+        },
+        "nodes": {"source": {}, "target": {}},
+        "links": [
+            {
+                "edge_ref": {
+                    "scope_path": "",
+                    "from_uid": "source",
+                    "from_port": 0,
+                    "to_uid": "target",
+                    "to_port": 0,
+                },
+                "occurrence_index": 0,
+            }
+        ],
+        "groups": [],
+        "canvas": {},
+    }
+
+
+@pytest.mark.parametrize("foreign_keys", [("edge_ref", "virtual_wire_ref"), ()])
+def test_t20_sidecar_link_requires_exactly_one_semantic_foreign_key(
+    foreign_keys: tuple[str, ...],
+) -> None:
+    workflow = _t20_connected_workflow()
+    valid = _t20_connected_sidecar(workflow)
+
+    # The valid control proves that the fixture reaches the link boundary.
+    assert len(validate_sidecar(valid, workflow)["links"]) == 1
+
+    invalid = json.loads(json.dumps(valid))
+    link = invalid["links"][0]
+    edge_ref = link.pop("edge_ref")
+    if "edge_ref" in foreign_keys:
+        link["edge_ref"] = edge_ref
+    if "virtual_wire_ref" in foreign_keys:
+        link["virtual_wire_ref"] = {
+            "scope_path": "",
+            "name": "wire",
+            "leg_index": 0,
+        }
+
+    with pytest.raises(
+        WorkflowBundleError, match="exactly one semantic foreign key"
+    ):
+        validate_sidecar(invalid, workflow)
+
+
+def test_t20_sidecar_rejects_ordinary_edge_across_structural_scopes() -> None:
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    workflow = VibeWorkflow("t20-cross-scope", WorkflowSource("t20-cross-scope"))
+    left_definition = {
+        "name": "left-definition",
+        "nodes": [{"id": 10, "uid": "left", "class_type": "Source"}],
+        "links": [],
+    }
+    right_definition = {
+        "name": "right-definition",
+        "nodes": [{"id": 20, "uid": "right", "class_type": "Target"}],
+        "links": [],
+    }
+    workflow.definitions = {
+        "left": left_definition,
+        "right": right_definition,
+    }
+    left_scope = compose_scope_path((sg_key(left_definition),))
+    right_scope = compose_scope_path((sg_key(right_definition),))
+    sidecar = {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": workflow.id,
+            "semantic_digest": workflow.semantic_digest(),
+        },
+        "nodes": {
+            make_uid(left_scope, "left"): {},
+            make_uid(right_scope, "right"): {},
+        },
+        "links": [],
+        "groups": [],
+        "canvas": {},
+    }
+
+    # The valid control proves identity, digest, scopes, and node custody.
+    assert validate_sidecar(sidecar, workflow)["links"] == []
+
+    sidecar["links"] = [
+        {
+            "edge_ref": {
+                "scope_path": left_scope,
+                "from_uid": "left",
+                "from_port": 0,
+                "to_uid": "right",
+                "to_port": 0,
+            },
+            "occurrence_index": 0,
+        }
+    ]
+    with pytest.raises(WorkflowBundleError, match="semantic edge"):
+        validate_sidecar(sidecar, workflow)
