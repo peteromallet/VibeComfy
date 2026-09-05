@@ -7462,13 +7462,44 @@ const TRANSACTION_AUTHORITY_FIELDS = Object.freeze([
   "plan_hash", "generation", "lease_nonce",
 ]);
 
+const CANDIDATE_AUTHORITY_REQUIRED_FIELDS = Object.freeze([
+  "transaction_id", "candidate_id", "workflow_id", "session_id", "turn_id", "plan_hash",
+]);
+
+const AGGREGATE_AUTHORITY_REQUIRED_FIELDS = Object.freeze([
+  "session_id", "turn_id", "plan_hash", "generation", "lease_nonce",
+]);
+
+function authorityAliasSources(transaction, snakeKey, camelKey) {
+  if (!transaction || typeof transaction !== "object") return null;
+  const sources = [snakeKey, camelKey]
+    .filter((key) => Object.prototype.hasOwnProperty.call(transaction, key))
+    .map((key) => transaction[key]);
+  if (!sources.length || sources.some((source) => !isQueueRecordObject(source))) return null;
+  return sources;
+}
+
+function authorityHasFields(source, fields) {
+  return fields.every((field) => Object.prototype.hasOwnProperty.call(source, field));
+}
+
+function transactionAuthorityShapeValid(transaction) {
+  if (!isQueueRecordObject(transaction)
+    || !authorityHasFields(transaction, AGGREGATE_AUTHORITY_REQUIRED_FIELDS)) return false;
+  const candidateSources = authorityAliasSources(transaction, "candidate_authority", "candidateAuthority");
+  const preparedSources = authorityAliasSources(transaction, "prepared_authority", "preparedAuthority");
+  return Boolean(candidateSources && preparedSources
+    && candidateSources.every((source) => authorityHasFields(source, CANDIDATE_AUTHORITY_REQUIRED_FIELDS))
+    && preparedSources.every((source) => authorityHasFields(source, TRANSACTION_AUTHORITY_FIELDS)));
+}
+
 function transactionAuthorityCopies(transaction) {
-  if (!transaction || typeof transaction !== "object") return [];
+  if (!transactionAuthorityShapeValid(transaction)) return [];
   return [
     transaction,
-    transaction.candidate_authority || transaction.candidateAuthority,
-    transaction.prepared_authority || transaction.preparedAuthority,
-  ].filter((source) => source && typeof source === "object");
+    ...authorityAliasSources(transaction, "candidate_authority", "candidateAuthority"),
+    ...authorityAliasSources(transaction, "prepared_authority", "preparedAuthority"),
+  ];
 }
 
 function transactionAuthorityCopiesAgree(transaction, expected = null) {

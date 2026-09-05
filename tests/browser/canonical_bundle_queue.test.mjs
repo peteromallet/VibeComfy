@@ -728,6 +728,17 @@ test("real-shaped finalize rejects each independent receipt, transaction, approv
     ["prepared plan", (response) => { response.candidate_transaction.prepared_authority.plan_hash = "prepared-plan-conflict"; }],
     ["prepared generation", (response) => { response.candidate_transaction.prepared_authority.generation = 9007199254740992; }],
     ["prepared lease", (response) => { response.candidate_transaction.prepared_authority.lease_nonce = "prepared-lease-conflict"; }],
+    ["missing prepared authority", (response) => { delete response.candidate_transaction.prepared_authority; }],
+    ["null prepared authority", (response) => { response.candidate_transaction.prepared_authority = null; }],
+    ["empty prepared authority", (response) => { response.candidate_transaction.prepared_authority = {}; }],
+    ["candidate authority alias conflict", (response) => {
+      response.candidate_transaction.candidateAuthority = structuredClone(response.candidate_transaction.candidate_authority);
+      response.candidate_transaction.candidateAuthority.workflow_id = "candidate-alias-workflow-conflict";
+    }],
+    ["prepared authority alias conflict", (response) => {
+      response.candidate_transaction.preparedAuthority = structuredClone(response.candidate_transaction.prepared_authority);
+      response.candidate_transaction.preparedAuthority.lease_nonce = "prepared-alias-lease-conflict";
+    }],
     ["approval revision", (response) => { response.receipt.receipt.approval.revision_id = "approval-revision-conflict"; }],
     ["approval parent", (response) => { response.receipt.receipt.approval.parent_revision = "approval-parent-conflict"; }],
     ["approval api digest", (response) => { response.receipt.receipt.approval.api_digest = "0".repeat(64); }],
@@ -1071,6 +1082,17 @@ test("live authority mutation after real publication is a named fail-closed caus
     ["prepared plan", (panel) => { panel.state.candidateTransaction.prepared_authority.plan_hash = "prepared-plan-mutated"; }],
     ["prepared generation", (panel) => { panel.state.candidateTransaction.prepared_authority.generation = 9007199254740992; }],
     ["prepared lease", (panel) => { panel.state.candidateTransaction.prepared_authority.lease_nonce = "prepared-lease-mutated"; }],
+    ["missing prepared authority", (panel) => { delete panel.state.candidateTransaction.prepared_authority; }],
+    ["null prepared authority", (panel) => { panel.state.candidateTransaction.prepared_authority = null; }],
+    ["empty prepared authority", (panel) => { panel.state.candidateTransaction.prepared_authority = {}; }],
+    ["candidate authority alias conflict", (panel) => {
+      panel.state.candidateTransaction.candidateAuthority = structuredClone(panel.state.candidateTransaction.candidate_authority);
+      panel.state.candidateTransaction.candidateAuthority.workflow_id = "candidate-alias-workflow-mutated";
+    }],
+    ["prepared authority alias conflict", (panel) => {
+      panel.state.candidateTransaction.preparedAuthority = structuredClone(panel.state.candidateTransaction.prepared_authority);
+      panel.state.candidateTransaction.preparedAuthority.lease_nonce = "prepared-alias-lease-mutated";
+    }],
     ["activation", (panel) => { panel.state.scopeActivationEpoch += 1; }],
     ["fresh graph", (_panel, harness) => { harness.replaceLiveGraph({ nodes: [{ id: 7, type: "Fresh" }], links: [] }); }],
     ["ordinary graph", (_panel, harness) => { harness.app.canvas.graph.change(); }],
