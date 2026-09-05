@@ -23,7 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from vibecomfy.porting.edit._ir_utils import _uids_for_op
+from vibecomfy.porting.edit._ir_utils import (
+    RecursiveEditError,
+    _freeze,
+    _uids_for_op,
+    recursive_state_snapshot,
+)
 from vibecomfy.porting.edit._session_types import CompactDiagnostic, _diag
 from vibecomfy.porting.edit.ops import EditOp, RemoveLinkOp, RemoveNodeOp
 from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
@@ -320,14 +325,6 @@ def _orphaned_output_diagnostic(
     )
 
 
-def _freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return tuple(sorted((str(k), _freeze(v)) for k, v in value.items()))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
 def _node_field_signature(node: Any) -> tuple[Any, ...]:
     widgets = dict(getattr(node, "widgets", None) or {})
     inputs = getattr(node, "inputs", None) or {}
@@ -356,11 +353,31 @@ def _subgraph_interface_signature(workflow: VibeWorkflow) -> tuple[Any, ...]:
     )
 
 
+def _recursive_editable_signature(workflow: VibeWorkflow) -> tuple[Any, ...]:
+    """Return the typed, non-root portion of the editable quotient.
+
+    This is intentionally a projection of the existing ephemeral index and
+    field descriptor.  It does not copy, normalize, emit, or mutate recursive
+    definitions; it only makes admitted field/mode edits visible to the
+    existing replay gate.  Presentation, provenance, occurrence shells, and
+    volatile link IDs are excluded.
+    """
+    try:
+        snapshot = recursive_state_snapshot(workflow)
+    except RecursiveEditError as exc:
+        raise _EditableIdentityError(
+            f"recursive_{exc.code}",
+            **exc.detail,
+        ) from exc
+    return snapshot
+
+
 def editable_signature(
     workflow: VibeWorkflow,
 ) -> tuple[
     dict[str, tuple[Any, ...]],
     tuple[tuple[str, str, str, str], ...],
+    tuple[Any, ...],
     tuple[Any, ...],
 ]:
     """Return the complete canonical editable quotient signature.
@@ -375,7 +392,28 @@ def editable_signature(
         uid_by_id[str(node_id)]: _node_field_signature(node)
         for node_id, node in _node_items(workflow)
     }
-    return nodes, _edge_uid_records(workflow), _subgraph_interface_signature(workflow)
+    return (
+        nodes,
+        _edge_uid_records(workflow),
+        _subgraph_interface_signature(workflow),
+        _recursive_editable_signature(workflow),
+    )
+
+
+def _recursive_error_diagnostic(error: RecursiveEditError) -> CompactDiagnostic:
+    """Convert typed recursive identity/diff failures into gate diagnostics."""
+    structural = error.code == "unsupported_structural_scope"
+    return _diag(
+        "apply_gate_recursive_structural" if structural else "apply_gate_unverifiable_identity",
+        "Apply gate refused success: recursive typed state could not be "
+        "replayed safely; capture -> port through canonical Python -> "
+        "reopen/reload before retrying.",
+        severity="error",
+        detail={
+            "recursive_reason": error.code,
+            **error.detail,
+        },
+    )
 
 
 def verify_apply(
@@ -466,7 +504,16 @@ def verify_apply(
 
     from vibecomfy.porting.edit._diff import diff
 
-    replay_delta = diff(pre, post, schema_provider=schema_provider)
+    try:
+        replay_delta = diff(pre, post, schema_provider=schema_provider)
+    except RecursiveEditError as exc:
+        diagnostics.append(_recursive_error_diagnostic(exc))
+        return _reject(
+            "unsupported_structural_scope"
+            if exc.code == "unsupported_structural_scope"
+            else "unverifiable_identity",
+            diagnostics,
+        )
     if not replay_delta:
         diagnostics.append(
             _diag(
@@ -530,7 +577,8 @@ def _editable_identity_diagnostic(
     return _diag(
         "apply_gate_unverifiable_identity",
         "Apply gate refused success: the editable graph identity is missing, "
-        "non-unique, or has an unresolvable edge endpoint.",
+        "non-unique, or has an unresolvable edge endpoint; capture -> port "
+        "through canonical Python -> reopen/reload.",
         severity="error",
         detail={
             "graph": graph,
@@ -579,8 +627,8 @@ def _replay_reconstruct_diagnostic(
 
     from collections import Counter
 
-    expected_nodes, expected_edges, expected_interfaces = expected
-    actual_nodes, actual_edges, actual_interfaces = actual
+    expected_nodes, expected_edges, expected_interfaces, expected_recursive = expected
+    actual_nodes, actual_edges, actual_interfaces, actual_recursive = actual
     expected_edge_counts = Counter(expected_edges)
     actual_edge_counts = Counter(actual_edges)
     return _diag(
@@ -606,6 +654,14 @@ def _replay_reconstruct_diagnostic(
                 ),
                 "only_in_replay": tuple(
                     item for item in actual_interfaces if item not in expected_interfaces
+                ),
+            },
+            "recursive_delta": {
+                "only_in_post": tuple(
+                    item for item in expected_recursive if item not in actual_recursive
+                ),
+                "only_in_replay": tuple(
+                    item for item in actual_recursive if item not in expected_recursive
                 ),
             },
             "emit_path": "vibecomfy/porting/emit/ui.py:emit_ui_json",

@@ -574,19 +574,25 @@ class _ParseExecuteMixin:
         self,
         ops: tuple[EditOp, ...],
     ) -> tuple[set[str], set[str]]:
+        """Track touched identity once, retaining nested scope in the UID."""
+        from vibecomfy.identity.uid import make_uid
+        from vibecomfy.porting.edit._ir_utils import RecursiveEditError, build_recursive_edit_index
+
         touched_uids: set[str] = set()
         touched_node_ids: set[str] = set()
         workflow = getattr(self, "workflow", None)
-        uid_to_id = {}
-        if workflow is not None:
-            for node in workflow.nodes.values():
-                uid = str(getattr(node, "uid", "") or "")
-                if uid:
-                    uid_to_id[uid] = str(getattr(node, "id", "") or "")
+        index = build_recursive_edit_index(workflow) if workflow is not None else None
         for op in ops:
-            for _scope_path, uid in _uids_for_op(op):
-                touched_uids.add(uid)
-                node_id = uid_to_id.get(uid)
-                if node_id:
-                    touched_node_ids.add(node_id)
+            for scope_path, uid in _uids_for_op(op):
+                touched_uids.add(make_uid(scope_path, uid))
+                if index is None:
+                    continue
+                scope = index.scopes.get(scope_path)
+                if scope is None:
+                    raise RecursiveEditError("scope_unknown", f"unknown touched scope {scope_path!r}")
+                ref = scope.nodes.get(uid)
+                if ref is not None:
+                    touched_node_ids.add(ref.node_id)
+                elif scope_path:
+                    raise RecursiveEditError("unknown_target", f"unknown touched node {uid!r} in {scope_path!r}")
         return touched_uids, touched_node_ids

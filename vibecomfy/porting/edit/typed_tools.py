@@ -73,10 +73,20 @@ def _keys(
         )
 
 
-def resolve_target(session: Any, target: Any) -> str:
+def resolve_target(session: Any, target: Any, *, scope_path: str = "") -> str:
     if not isinstance(target, str) or not target.strip():
         raise EditToolError("invalid_arguments", "target must be a non-empty binding or uid.")
     target = target.strip()
+    if scope_path:
+        from vibecomfy.porting.edit._ir_utils import RecursiveEditError, build_recursive_edit_index
+
+        workflow = getattr(session, "workflow", None)
+        if workflow is None:
+            raise EditToolError("no_edit_session", "the edit session has no retained workflow.", retryable=False)
+        try:
+            return build_recursive_edit_index(workflow).node(scope_path, target).uid
+        except RecursiveEditError as exc:
+            raise EditToolError(exc.code, str(exc), retryable=False) from exc
     nodes = tuple(getattr(getattr(session, "workflow", None), "nodes", {}).values())
     uid_matches = [
         str(node.uid)
@@ -95,12 +105,13 @@ def resolve_target(session: Any, target: Any) -> str:
     return str(uid)
 
 
-def _source_ref(session: Any, payload: Any) -> LinkSourceRef:
+def _source_ref(session: Any, payload: Any, *, scope_path: str = "") -> LinkSourceRef:
     if isinstance(payload, str):
         source, output = payload, 0
     elif isinstance(payload, Mapping):
-        _keys(payload, tool="link source", required=("source",), optional=("output",))
+        _keys(payload, tool="link source", required=("source",), optional=("output", "scope_path"))
         source, output = payload["source"], payload.get("output", 0)
+        scope_path = str(payload.get("scope_path", scope_path) or "")
     elif isinstance(payload, (list, tuple)) and 1 <= len(payload) <= 2:
         source, output = payload[0], payload[1] if len(payload) == 2 else 0
     else:
@@ -108,7 +119,7 @@ def _source_ref(session: Any, payload: Any) -> LinkSourceRef:
             "invalid_arguments",
             "a link source must be a binding, {source, output}, or [source, output].",
         )
-    return LinkSourceRef("", resolve_target(session, source), output)
+    return LinkSourceRef(scope_path, resolve_target(session, source, scope_path=scope_path), output)
 
 
 def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
@@ -133,7 +144,8 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
         return tuple(lowered)
 
     if tool == "edit_node":
-        _keys(args, tool=tool, required=("target", "field", "value"))
+        _keys(args, tool=tool, required=("target", "field", "value"), optional=("scope_path",))
+        scope_path = str(args.get("scope_path", "") or "")
         field = args["field"]
         if not isinstance(field, str) or not field or _POSITIONAL.match(field):
             raise EditToolError(
@@ -142,36 +154,39 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
         return (
             SetNodeFieldOp(
                 "set_node_field",
-                NodeFieldTarget("", resolve_target(session, args["target"]), field),
+                NodeFieldTarget(scope_path, resolve_target(session, args["target"], scope_path=scope_path), field),
                 args["value"],
             ),
         )
 
     if tool == "remove_node":
-        _keys(args, tool=tool, required=("target",))
-        return (RemoveNodeOp("remove_node", NodeTarget("", resolve_target(session, args["target"]))),)
+        _keys(args, tool=tool, required=("target",), optional=("scope_path",))
+        scope_path = str(args.get("scope_path", "") or "")
+        return (RemoveNodeOp("remove_node", NodeTarget(scope_path, resolve_target(session, args["target"], scope_path=scope_path))),)
 
     if tool == "set_node_mode":
-        _keys(args, tool=tool, required=("target", "mode"))
+        _keys(args, tool=tool, required=("target", "mode"), optional=("scope_path",))
+        scope_path = str(args.get("scope_path", "") or "")
         if args["mode"] not in _MODES:
             raise EditToolError("invalid_arguments", "mode must be enabled, muted, or bypassed.")
         return (
             SetModeOp(
                 "set_mode",
-                NodeTarget("", resolve_target(session, args["target"])),
+                NodeTarget(scope_path, resolve_target(session, args["target"], scope_path=scope_path)),
                 _MODES[args["mode"]],
             ),
         )
 
     if tool == "remove_link":
-        _keys(args, tool=tool, required=("target", "target_input"))
+        _keys(args, tool=tool, required=("target", "target_input"), optional=("scope_path",))
+        scope_path = str(args.get("scope_path", "") or "")
         field = args["target_input"]
         if not isinstance(field, str) or not field:
             raise EditToolError("invalid_arguments", "target_input must be a name.")
         return (
             RemoveLinkOp(
                 "remove_link",
-                target=LinkTargetRef("", resolve_target(session, args["target"]), field),
+                target=LinkTargetRef(scope_path, resolve_target(session, args["target"], scope_path=scope_path), field),
             ),
         )
 
@@ -180,10 +195,13 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
             args,
             tool=tool,
             required=("source", "target", "target_input"),
-            optional=("source_output",),
+            optional=("source_output", "scope_path", "source_scope_path", "target_scope_path"),
         )
+        scope_path = str(args.get("scope_path", "") or "")
+        source_scope = str(args.get("source_scope_path", scope_path) or "")
+        target_scope = str(args.get("target_scope_path", scope_path) or "")
         source = LinkSourceRef(
-            "", resolve_target(session, args["source"]), args.get("source_output", 0)
+            source_scope, resolve_target(session, args["source"], scope_path=source_scope), args.get("source_output", 0)
         )
         target_input = args["target_input"]
         if not isinstance(target_input, str) or not target_input:
@@ -192,7 +210,7 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
             UpsertLinkOp(
                 "upsert_link",
                 source,
-                LinkTargetRef("", resolve_target(session, args["target"]), target_input),
+                LinkTargetRef(target_scope, resolve_target(session, args["target"], scope_path=target_scope), target_input),
             ),
         )
 
@@ -201,7 +219,7 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
         args,
         tool=tool,
         required=("class_type",),
-        optional=("fields", "widget_values", "inputs", "uid", "node_id"),
+        optional=("fields", "widget_values", "inputs", "uid", "node_id", "scope_path"),
     )
     if not isinstance(args["class_type"], str) or not args["class_type"]:
         raise EditToolError("invalid_arguments", "class_type must be a non-empty string.")
@@ -216,10 +234,10 @@ def _lower_one(session: Any, tool: str, raw_args: Any) -> tuple[EditOp, ...]:
     return (
         AddNodeOp(
             "add_node",
-            "",
+            str(args.get("scope_path", "") or ""),
             args["class_type"],
             dict(fields),
-            {str(name): _source_ref(session, value) for name, value in inputs.items()},
+            {str(name): _source_ref(session, value, scope_path=str(args.get("scope_path", "") or "")) for name, value in inputs.items()},
             uid=str(args["uid"]) if args.get("uid") is not None else None,
             node_id=str(args["node_id"]) if args.get("node_id") is not None else None,
         ),

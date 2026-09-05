@@ -214,6 +214,21 @@ def _interpret_ops(
     statements: list[StatementOutcome] = []
     landed: list[EditOp] = []
     diagnostics: list[CompactDiagnostic] = []
+    from vibecomfy.porting.edit._ir_utils import _RECURSIVE_GUIDANCE, _has_mixed_recursive_scope
+
+    if _has_mixed_recursive_scope(ops):
+        diagnostic = _diag(
+            "unsupported_structural_scope",
+            f"mixed root and nested scopes are unsupported; {_RECURSIVE_GUIDANCE}",
+            severity="error",
+        )
+        return InterpretationResult(
+            workflow=post,
+            statements=(),
+            ok=False,
+            diagnostics=(diagnostic,),
+            landed_ops=(),
+        )
     for index, op in enumerate(ops):
         try:
             from vibecomfy.porting.edit.admit import (
@@ -238,24 +253,21 @@ def _interpret_ops(
                     admitted.typed_reason,
                 )
                 raise ApplyOpsError(admitted.typed_reason, message)
-            if not _op_has_scoped_target(op):
-                try:
-                    _validate_one(post, op, schema_provider)
-                except ApplyOpsError as exc:
-                    if getattr(exc, "code", None) in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
-                        # Route through single canonical helper from admit.py
-                        # FAIL-CLOSED: authoritative catalog must be present; missing
-                        # catalog must REJECT, never admit via fallback.
-                        pair = admission_snapshot_for(post, schema_provider)
-                        catalog = _schema_catalog_for(pair, pair)
-                        if catalog is None:
-                            raise
-                        if _is_provisional_touched_for_admit(_operation_mapping(op), post, catalog, working_workflow=post):
-                            pass
-                        else:
-                            raise
-                    else:
-                        raise
+            try:
+                _validate_one(post, op, schema_provider)
+            except ApplyOpsError as exc:
+                if _op_has_scoped_target(op) or getattr(exc, "code", None) not in (
+                    "unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target",
+                ):
+                    raise
+                # Root compatibility retains the existing provisional-schema
+                # admission fallback; nested typed ops stay fail-closed.
+                pair = admission_snapshot_for(post, schema_provider)
+                catalog = _schema_catalog_for(pair, pair)
+                if catalog is None or not _is_provisional_touched_for_admit(
+                    _operation_mapping(op), post, catalog, working_workflow=post
+                ):
+                    raise
             # Compute apply diagnostics before the result is consumed.
             before = post
             from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp2

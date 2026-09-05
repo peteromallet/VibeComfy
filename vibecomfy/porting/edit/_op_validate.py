@@ -13,7 +13,15 @@ import re
 
 from typing import Any, Mapping, Sequence
 
-from vibecomfy.porting.edit._ir_utils import apply_edit_cow, _subgraph_node_for_uid
+from vibecomfy.porting.edit._ir_utils import (
+    _RECURSIVE_GUIDANCE,
+    RecursiveEditError,
+    _recursive_field_entries,
+    _recursive_field,
+    _operation_scope_paths,
+    apply_edit_cow,
+    build_recursive_edit_index,
+)
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
@@ -21,6 +29,7 @@ from vibecomfy.porting.edit.ops import (
     RemoveNodeOp,
     SetModeOp,
     SetNodeFieldOp,
+    SubgraphInterfaceOp,
     UpsertLinkOp,
 )
 
@@ -33,6 +42,15 @@ class ApplyOpsError(ValueError):
         self.code = code
         self.message = message
         self.retryable = retryable
+
+
+def _unsupported_recursive(op: EditOp) -> ApplyOpsError:
+    scope = next((path for path in _operation_scope_paths(op) if path), "")
+    return ApplyOpsError(
+        "unsupported_structural_scope",
+        f"{getattr(op, 'op', type(op).__name__)} at scope {scope!r} changes unsupported recursive structure; {_RECURSIVE_GUIDANCE}",
+        retryable=False,
+    )
 
 
 _LITERAL_TYPES: dict[str, tuple[type, ...]] = {
@@ -79,7 +97,82 @@ def _require_node(workflow: Any, uid: str) -> Any:
     return node
 
 
+def _validate_recursive_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
+    try:
+        ref = build_recursive_edit_index(workflow).node(op.target.scope_path, op.target.uid)
+    except RecursiveEditError as exc:
+        raise ApplyOpsError(exc.code, str(exc), retryable=False) from exc
+    node = ref.node
+    field = str(op.target.field_path)
+    resolved = _recursive_field(node, field)
+    if resolved is None:
+        raise ApplyOpsError(
+            "unknown_field",
+            f"field {field!r} is not present on {node.get('type', node.get('class_type', 'Unknown'))!r} ({op.target.uid!r}).",
+        )
+    if resolved[0] == "structural":
+        raise ApplyOpsError(
+            "unsupported_structural_scope",
+            f"field {field!r} changes recursive graph structure; {_RECURSIVE_GUIDANCE}",
+            retryable=False,
+        )
+    if any(
+        name == field and linked
+        for name, _channel, _value, linked in _recursive_field_entries(node)
+    ):
+        raise ApplyOpsError(
+            "unsupported_structural_scope",
+            f"linked recursive field {field!r} requires an authored link transaction; {_RECURSIVE_GUIDANCE}",
+            retryable=False,
+        )
+    unchanged = resolved[1] == op.value
+    if unchanged:
+        raise ApplyOpsError("no_op", f"{field!r} is already set to that value.")
+
+    class_type = str(node.get("type", node.get("class_type", "")))
+    schema = None
+    if provider is not None:
+        from vibecomfy.schema import schema_for
+
+        schema = schema_for(provider, class_type)
+    specs = getattr(schema, "inputs", None) or {}
+    spec = specs.get(field) if isinstance(specs, Mapping) else None
+    if spec is None:
+        return
+    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+
+    if not input_spec_is_literal_widget(spec):
+        raise ApplyOpsError(
+            "wrong_channel",
+            f"field {field!r} is a socket; use a supported authored link operation instead of a literal write.",
+        )
+    from vibecomfy.porting.edit.validate import validate_literal_value
+
+    for issue in validate_literal_value(
+        value=op.value,
+        spec=spec,
+        class_type=class_type,
+        input_name=field,
+        context="typed edit",
+    ):
+        if getattr(issue, "severity", "error") == "error":
+            raise ApplyOpsError(issue.code, issue.message)
+    spec_type = str(getattr(spec, "type", "") or "")
+    accepted = _LITERAL_TYPES.get(spec_type)
+    if accepted is not None and (
+        not isinstance(op.value, accepted)
+        or (isinstance(op.value, bool) and spec_type in {"INT", "FLOAT"})
+    ):
+        raise ApplyOpsError(
+            "type_mismatch",
+            f"field {field!r} expects {spec_type}, got {type(op.value).__name__}.",
+        )
+
+
 def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
+    if op.target.scope_path:
+        _validate_recursive_field(workflow, op, provider)
+        return
     node = _require_node(workflow, op.target.uid)
     field = str(op.target.field_path)
     if field.startswith("widget_") and field[7:].isdigit():
@@ -256,20 +349,25 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
         from vibecomfy.workflow import mode_to_litegraph
 
         if op.target.scope_path:
-            sg_node = _subgraph_node_for_uid(workflow, op.target.scope_path, op.target.uid)
-            if sg_node is None:
-                raise ApplyOpsError("unknown_target", f"no retained subgraph node for uid {op.target.uid!r}.")
-            if int(sg_node.get("mode", 0)) == int(op.mode):
+            try:
+                sg_node = build_recursive_edit_index(workflow).node(op.target.scope_path, op.target.uid).node
+            except RecursiveEditError as exc:
+                raise ApplyOpsError(exc.code, str(exc), retryable=False) from exc
+            if int(sg_node.get("mode", 0) or 0) == int(op.mode):
                 raise ApplyOpsError("no_op", f"node {op.target.uid!r} already has mode {op.mode}.")
         else:
             node = _require_node(workflow, op.target.uid)
             if mode_to_litegraph(node.mode) == op.mode:
                 raise ApplyOpsError("no_op", f"node {op.target.uid!r} already has mode {op.mode}.")
     elif isinstance(op, UpsertLinkOp):
+        if op.source.scope_path or op.target.scope_path:
+            raise _unsupported_recursive(op)
         _validate_link(workflow, op, provider)
     elif isinstance(op, RemoveLinkOp):
         if op.target is None:
             raise ApplyOpsError("wrong_channel", "IR edits remove links by target input, not link id.")
+        if op.target.scope_path:
+            raise _unsupported_recursive(op)
         _require_node(workflow, op.target.uid)
         connected = any(
             str(edge.to_node) == str(next(
@@ -283,12 +381,20 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
         if not connected:
             raise ApplyOpsError("no_op", f"input {op.target.input_field!r} has no link to remove.")
     elif isinstance(op, RemoveNodeOp):
+        if op.target.scope_path:
+            raise _unsupported_recursive(op)
         _require_node(workflow, op.target.uid)
     elif isinstance(op, AddNodeOp):
-        if op.scope_path:
+        anchor = op.anchor
+        if anchor is not None and getattr(anchor, "group_title", None):
             raise ApplyOpsError(
-                "unsupported_scope", "typed add_node currently supports only the root graph."
+                "unsupported_operation",
+                "group/layout edits are unsupported; capture the current canvas/export, "
+                "port through canonical Python, then reopen/reload the resulting workflow.",
+                retryable=False,
             )
+        if any(_operation_scope_paths(op)):
+            raise _unsupported_recursive(op)
         if op.uid is not None and _node_by_uid(workflow, op.uid) is not None:
             raise ApplyOpsError("duplicate_identity", f"uid {op.uid!r} already exists.")
         if op.node_id is not None and str(op.node_id) in {
@@ -339,6 +445,11 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
                         raise ApplyOpsError(
                             "unknown_port", f"input {field!r} is not present on {op.class_type!r}."
                         )
+    elif isinstance(op, SubgraphInterfaceOp):
+        if op.scope_path:
+            raise _unsupported_recursive(op)
+        if getattr(workflow, "definitions", None):
+            raise _unsupported_recursive(op)
 
 
 def validate_typed_ops(
@@ -371,6 +482,8 @@ def validate_typed_ops(
     for op in ops:
         try:
             working = apply_edit_cow(working, op, schema_provider=schema_provider)
+        except RecursiveEditError as exc:
+            raise ApplyOpsError(exc.code, str(exc), retryable=False) from exc
         except ApplyOpsError:
             raise
         except Exception as exc:

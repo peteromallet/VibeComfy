@@ -304,11 +304,10 @@ def _add_node_op_for(uid: str, post: VibeWorkflow, uids: set[str]) -> AddNodeOp:
 
 
 def _subgraph_interfaces(workflow: VibeWorkflow) -> dict[str, tuple[str, tuple, tuple]]:
-    """id → (name, inputs, outputs) for retained ``definitions`` subgraphs.
+    """id → (name, inputs, outputs) for retained metadata definitions.
 
-    Mirrors π_edit's ``_graph_interfaces`` projection exactly (same raw
-    definitions source and same ``_subgraph_definitions_from_raw`` parser) so
-    ``diff`` and the quotient agree on which signatures are grammar-visible.
+    This is the existing Law 3 compatibility projection for root interface
+    deltas.  It is read-only; scoped interface mutation remains fail-closed.
     """
     from vibecomfy.porting.emit.emit_subgraph import _subgraph_definitions_from_raw
 
@@ -397,6 +396,84 @@ def _order_add_uids(add_uids: set[str], post: VibeWorkflow, uids: set[str]) -> l
     return ordered
 
 
+def _recursive_diff(pre: VibeWorkflow, post: VibeWorkflow) -> tuple[EditOp, ...]:
+    """Diff typed recursive value/mode edits; reject identity changes."""
+    from vibecomfy.porting.edit._ir_utils import (
+        _RECURSIVE_GUIDANCE,
+        RecursiveEditError,
+        _recursive_field_entries,
+        build_recursive_edit_index,
+        recursive_state_snapshot,
+    )
+
+    before_index = build_recursive_edit_index(pre)
+    after_index = build_recursive_edit_index(post)
+    before_state = recursive_state_snapshot(pre, index=before_index)
+    after_state = recursive_state_snapshot(post, index=after_index)
+    if before_state[3] != after_state[3]:
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"boundary-port and virtual-wire edits require their canonical typed transaction; {_RECURSIVE_GUIDANCE}",
+        )
+    if (getattr(pre, "definitions", None) or getattr(post, "definitions", None)) and (
+        (getattr(pre, "metadata", {}) or {}).get("definitions")
+        != (getattr(post, "metadata", {}) or {}).get("definitions")
+    ):
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"root subgraph-interface metadata cannot diverge from typed recursive definitions; {_RECURSIVE_GUIDANCE}",
+        )
+    if not getattr(pre, "definitions", None) and not getattr(post, "definitions", None):
+        return ()
+    before, after = before_index, after_index
+    before_defs, before_nodes, before_topology, _ = before_state
+    after_defs, after_nodes, after_topology, _ = after_state
+    if before_defs != after_defs:
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"recursive interface/boundary/group changes require the canonical typed transaction; {_RECURSIVE_GUIDANCE}",
+        )
+    if before_topology != after_topology:
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"recursive link changes are unsupported until canonical mirrored carriers are proven; {_RECURSIVE_GUIDANCE}",
+        )
+    before_identity = tuple((*item[:3], item[4]) for item in before_nodes)
+    after_identity = tuple((*item[:3], item[4]) for item in after_nodes)
+    if before_identity != after_identity:
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"recursive node identity/class/group changes are unsupported; {_RECURSIVE_GUIDANCE}",
+        )
+    paths = (set(before.scopes) | set(after.scopes)) - {""}
+    result: list[EditOp] = []
+    for path in sorted(paths):
+        if path not in before.scopes or path not in after.scopes:
+            raise RecursiveEditError("unsupported_structural_scope", f"recursive definition add/remove is unsupported; {_RECURSIVE_GUIDANCE}")
+        old_scope, new_scope = before.scopes[path], after.scopes[path]
+        if set(old_scope.nodes) != set(new_scope.nodes):
+            raise RecursiveEditError("unsupported_structural_scope", f"recursive node add/remove is unsupported; {_RECURSIVE_GUIDANCE}")
+        for uid in sorted(old_scope.nodes):
+            old, new = old_scope.nodes[uid].node, new_scope.nodes[uid].node
+            if int(old.get("mode", 0) or 0) != int(new.get("mode", 0) or 0):
+                result.append(SetModeOp("set_mode", NodeTarget(path, uid), int(new.get("mode", 0) or 0)))
+            old_fields = {name: (value, linked) for name, _channel, value, linked in _recursive_field_entries(old)}
+            new_fields = {name: (value, linked) for name, _channel, value, linked in _recursive_field_entries(new)}
+            fields = set(old_fields) | set(new_fields)
+            for field in sorted(fields):
+                if field not in old_fields or field not in new_fields:
+                    raise RecursiveEditError("unsupported_structural_scope", f"recursive field {field!r} was added or removed; {_RECURSIVE_GUIDANCE}")
+                old_value, old_linked = old_fields[field]
+                new_value, new_linked = new_fields[field]
+                if old_linked != new_linked:
+                    raise RecursiveEditError("unsupported_structural_scope", f"recursive link carrier {field!r} changed without a canonical mirrored link transaction; {_RECURSIVE_GUIDANCE}")
+                if old_value != new_value:
+                    if old_linked or new_linked:
+                        raise RecursiveEditError("unsupported_structural_scope", f"linked recursive field {field!r} requires a canonical mirrored link transaction; {_RECURSIVE_GUIDANCE}")
+                    result.append(SetNodeFieldOp("set_node_field", NodeFieldTarget(path, uid, field), new_value))
+    return tuple(result)
+
+
 def diff(
     pre: VibeWorkflow,
     post: VibeWorkflow,
@@ -432,6 +509,7 @@ def diff(
 
     rebuild_uids: set[str] = set()
     ops: list[EditOp] = []
+    recursive_ops = _recursive_diff(pre, post)
 
     # 0. Subgraph-interface statements: π_edit includes grammar-visible
     #    subgraph signatures (``metadata["definitions"]``), so a definitions
@@ -440,7 +518,7 @@ def diff(
     #    no root quotient nodes — still emit these ops (do not early-return).
     ops.extend(_subgraph_interface_ops(pre, post))
     if not (common_uids or removed_uids or added_uids):
-        return tuple(ops)
+        return tuple(ops) + recursive_ops
 
     # 1. Node removals (incl. rebuild removals for common nodes whose π_edit
     #    cannot be expressed with set_node_field/set_mode alone).
@@ -532,7 +610,7 @@ def diff(
             )
         )
 
-    return tuple(ops)
+    return tuple(ops) + recursive_ops
 
 
 

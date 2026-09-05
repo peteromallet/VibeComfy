@@ -468,6 +468,34 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         pin_ops = tuple(self.landed_ops if ops is None else ops)
         return pin_untouched_ui(prior_ui, emitted, pin_ops)
 
+    @classmethod
+    def _guard_ops_for_ui(
+        cls, workflow: VibeWorkflow, ops: tuple[Any, ...]
+    ) -> tuple[Any, ...]:
+        """Project only guard attribution onto emitted UI scope names."""
+        from dataclasses import replace
+
+        from vibecomfy.porting.edit._ir_utils import build_recursive_edit_index
+
+        aliases = build_recursive_edit_index(workflow).ui_scope_aliases
+
+        def path(value: str) -> str:
+            return aliases.get(value, value)
+
+        projected: list[Any] = []
+        for op in ops:
+            changes: dict[str, Any] = {}
+            target = getattr(op, "target", None)
+            if target is not None and getattr(target, "scope_path", ""):
+                changes["target"] = replace(target, scope_path=path(target.scope_path))
+            source = getattr(op, "source", None)
+            if source is not None and getattr(source, "scope_path", ""):
+                changes["source"] = replace(source, scope_path=path(source.scope_path))
+            if getattr(op, "scope_path", ""):
+                changes["scope_path"] = path(op.scope_path)
+            projected.append(replace(op, **changes) if changes else op)
+        return tuple(projected)
+
     def node_ui(self, uid: str, scope_path: str = "") -> dict[str, Any] | None:
         """Return the emit-side node dict for *uid*, or None.
 
@@ -476,27 +504,14 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         """
         if self.workflow is None:
             raise RuntimeError("EditSession.node_ui requires a retained IR")
+        if scope_path:
+            raise RuntimeError(
+                "EditSession.node_ui does not expose nested raw nodes; capture the "
+                "current canvas/export, port through canonical Python, then reopen/reload."
+            )
         from vibecomfy.ingest.normalize import door_get_nodes
 
         graph = self._emit_working_snapshot()
-        if scope_path:
-            for part in scope_path.split("/"):
-                if not part.startswith("sg"):
-                    return None
-                try:
-                    index = int(part[2:])
-                except ValueError:
-                    return None
-                definitions = graph.get("definitions")
-                if not isinstance(definitions, Mapping):
-                    return None
-                subgraphs = definitions.get("subgraphs")
-                if not isinstance(subgraphs, list) or index >= len(subgraphs):
-                    return None
-                child = subgraphs[index]
-                if not isinstance(child, Mapping):
-                    return None
-                graph = child
         nodes = door_get_nodes(graph)
         if not isinstance(nodes, list):
             return None
@@ -510,6 +525,42 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
     def _projection_op(self, op: Any) -> Any:
         return op
+
+    @staticmethod
+    def _authorize_emitted_list_values(
+        baseline: dict[str, Any],
+        candidate: Mapping[str, Any],
+        workflow: VibeWorkflow,
+        ops: tuple[Any, ...],
+    ) -> None:
+        """Expose normalized list-field values through the existing UI guard."""
+        from vibecomfy.porting.emit.ui import _index_nodes
+        from vibecomfy.porting.edit._ir_utils import build_recursive_edit_index
+
+        aliases = build_recursive_edit_index(workflow).ui_scope_aliases
+        before = _index_nodes(baseline)
+        after = _index_nodes(candidate)
+        for op in ops:
+            target = getattr(op, "target", None)
+            if not isinstance(op, SetNodeFieldOp) or target is None:
+                continue
+            key = (aliases.get(target.scope_path, target.scope_path), str(target.uid))
+            old, new = before.get(key), after.get(key)
+            if not isinstance(old, dict) or not isinstance(new, Mapping):
+                continue
+            old_inputs, new_inputs = old.get("inputs"), new.get("inputs")
+            if not isinstance(old_inputs, list) or not isinstance(new_inputs, list):
+                continue
+            for old_slot, new_slot in zip(old_inputs, new_inputs):
+                if (
+                    isinstance(old_slot, dict)
+                    and isinstance(new_slot, Mapping)
+                    and old_slot.get("name") == target.field_path
+                    and {k: v for k, v in old_slot.items() if k != "value"}
+                    == {k: v for k, v in new_slot.items() if k != "value"}
+                ):
+                    old_slot["value"] = deepcopy(new_slot.get("value"))
+                    break
 
     def apply_ops(
         self,
@@ -570,6 +621,82 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         snapshot = self._snapshot_mutable_state()
         try:
             pre = _cow_workflow_copy(self.workflow)
+            from vibecomfy.porting.edit._ir_utils import (
+                RecursiveEditError,
+                _RECURSIVE_GUIDANCE,
+                _has_mixed_recursive_scope,
+                _has_recursive_scope,
+                _tag_edit_provenance,
+                build_recursive_edit_index,
+            )
+
+            # Recursive authored nodes are plain typed-definition mappings,
+            # not VibeNode instances with a metadata slot.  Establish the
+            # canonical provenance on the isolated pre-state first so the
+            # emitted baseline and candidate carry the same provenance while
+            # the committed COW state retains the tag.  This is presentation
+            # furniture, not editable semantic authority.
+            try:
+                recursive_index = build_recursive_edit_index(pre)
+                for op in batch:
+                    target = getattr(op, "target", None)
+                    scope_path = str(
+                        getattr(target, "scope_path", "")
+                        or getattr(op, "scope_path", "")
+                    )
+                    if not scope_path or not isinstance(op, (SetNodeFieldOp, SetModeOp)):
+                        continue
+                    uid = getattr(target, "uid", None)
+                    if uid is not None:
+                        _tag_edit_provenance(
+                            recursive_index.node(scope_path, str(uid)).node
+                        )
+            except RecursiveEditError as exc:
+                return ApplyOpsResult(
+                    ok=False,
+                    reason=exc.code,
+                    diagnostics=(
+                        _diag(
+                            exc.code,
+                            f"{exc}; {_RECURSIVE_GUIDANCE}",
+                            severity="error",
+                        ),
+                    ),
+                    revision=self._revision,
+                    retryable=False,
+                )
+
+            if _has_mixed_recursive_scope(batch):
+                return ApplyOpsResult(
+                    ok=False,
+                    reason="unsupported_structural_scope",
+                    diagnostics=(_diag(
+                        "unsupported_structural_scope",
+                        f"mixed root and nested scopes are unsupported; {_RECURSIVE_GUIDANCE}",
+                        severity="error",
+                    ),),
+                    revision=self._revision,
+                    retryable=False,
+                )
+            if any(
+                isinstance(op, AddNodeOp)
+                and not op.scope_path
+                and _has_recursive_scope((op,))
+                for op in batch
+            ):
+                return ApplyOpsResult(
+                    ok=False,
+                    reason="unsupported_structural_scope",
+                    diagnostics=(
+                        _diag(
+                            "unsupported_structural_scope",
+                            f"add_node references a nested scope; {_RECURSIVE_GUIDANCE}",
+                            severity="error",
+                        ),
+                    ),
+                    revision=self._revision,
+                    retryable=False,
+                )
             admitted = admit_operations(
                 admission_snapshot_for(pre, self.schema_provider),
                 batch,
@@ -633,7 +760,14 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             # equality stable across a durable threaded continuation.
             accepted_ops = tuple(self.landed_ops) + canonical_ops
             candidate_ui = self._emit_working_snapshot(post, ops=accepted_ops)
-            exit_guard = guard_exit_ui(baseline_ui, candidate_ui, accepted_ops)
+            self._authorize_emitted_list_values(
+                baseline_ui, candidate_ui, pre, accepted_ops
+            )
+            exit_guard = guard_exit_ui(
+                baseline_ui,
+                candidate_ui,
+                self._guard_ops_for_ui(pre, accepted_ops),
+            )
             if not exit_guard.ok:
                 diagnostics = tuple(
                     _diag(

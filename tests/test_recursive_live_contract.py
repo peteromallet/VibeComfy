@@ -75,6 +75,9 @@ def test_inner_scoped_apply_is_rejected_without_mutating_the_contract() -> None:
         )
     assert exc_info.value.code == DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY
     assert "outer:inner" in exc_info.value.detail["scope_paths"]
+    message = str(exc_info.value)
+    assert "capture" in message and "port through canonical Python" in message
+    assert "reopen/reload" in message
     assert json.dumps(data, sort_keys=True) == before
 
 

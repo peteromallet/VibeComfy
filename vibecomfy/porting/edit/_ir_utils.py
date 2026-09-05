@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 import unicodedata
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
@@ -26,6 +27,481 @@ from vibecomfy.schema import schema_for, schemas_for
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
+
+
+class RecursiveEditError(ValueError):
+    """A recursive edit that cannot be proved against canonical typed IR."""
+
+    def __init__(self, code: str, message: str, *, detail: Mapping[str, Any] | None = None) -> None:
+        self.code = str(code)
+        self.detail = dict(detail or {})
+        super().__init__(message)
+
+
+_RECURSIVE_GUIDANCE = "capture -> port through canonical Python -> reopen/reload"
+_NATIVE_BOUNDARY_SENTINELS = frozenset({"-10", "-20"})
+
+
+@dataclass(slots=True)
+class RecursiveNodeRef:
+    scope_path: str
+    uid: str
+    node: Any
+    node_id: str
+
+
+@dataclass(slots=True)
+class RecursiveScopeRef:
+    scope_path: str
+    sg_key: str | None
+    definition: dict[str, Any] | None
+    nodes: dict[str, RecursiveNodeRef]
+    ui_scope_path: str = ""
+
+
+@dataclass(slots=True)
+class RecursiveEditIndex:
+    """Ephemeral lookup over live canonical definition objects.
+
+    This deliberately contains references into ``workflow.definitions``; it
+    is not a second graph model and never normalizes or serializes nodes.
+    """
+
+    scopes: dict[str, RecursiveScopeRef]
+
+    @property
+    def ui_scope_aliases(self) -> dict[str, str]:
+        """Return disposable emitted ``sgN`` paths for guard attribution only."""
+        return {
+            scope_path: scope.ui_scope_path
+            for scope_path, scope in self.scopes.items()
+        }
+
+    def scope(self, scope_path: str) -> RecursiveScopeRef:
+        if not isinstance(scope_path, str):
+            raise RecursiveEditError("invalid_scope", "scope_path must be a string")
+        from vibecomfy.identity.scope import compose_scope_path
+
+        parts = tuple(scope_path.split("/")) if scope_path else ()
+        try:
+            canonical = compose_scope_path(parts)
+        except ValueError as exc:
+            raise RecursiveEditError("invalid_scope", f"{exc}; {_RECURSIVE_GUIDANCE}", detail={"scope_path": scope_path}) from exc
+        if canonical != scope_path:
+            raise RecursiveEditError("invalid_scope", f"scope_path {scope_path!r} is not canonical; {_RECURSIVE_GUIDANCE}")
+        try:
+            return self.scopes[scope_path]
+        except KeyError as exc:
+            raise RecursiveEditError(
+                "scope_unknown",
+                f"unknown recursive scope {scope_path!r}; {_RECURSIVE_GUIDANCE}",
+                detail={"scope_path": scope_path},
+            ) from exc
+
+    def node(self, scope_path: str, uid: str) -> RecursiveNodeRef:
+        scope = self.scope(scope_path)
+        try:
+            return scope.nodes[str(uid)]
+        except KeyError as exc:
+            raise RecursiveEditError(
+                "unknown_target", f"no node {uid!r} in scope {scope_path!r}",
+                detail={"scope_path": scope_path, "uid": str(uid)},
+            ) from exc
+
+
+def _recursive_entries(raw: Any) -> list[Any]:
+    if not raw:
+        return []
+    if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
+        return list(raw["subgraphs"])
+    if isinstance(raw, Mapping):
+        return list(raw.values())
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    raise RecursiveEditError("definitions_malformed", "definitions must be a mapping or sequence")
+
+
+def _recursive_node_entries(definition: Mapping[str, Any]) -> list[Any]:
+    raw = definition.get("nodes", ())
+    if isinstance(raw, Mapping):
+        return list(raw.values())
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    if raw in (None, ()):
+        return []
+    raise RecursiveEditError("nodes_malformed", "definition nodes must be a mapping or sequence")
+
+
+def _recursive_node_identity(node: Mapping[str, Any], scope_path: str, index: int) -> tuple[str, str]:
+    from vibecomfy.identity.uid import UIDValidationError, validate_local_uid
+
+    uid = node.get("uid")
+    if not isinstance(uid, str) or not uid.strip():
+        props = node.get("properties")
+        uid = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+    if not isinstance(uid, str) or not uid.strip():
+        uid = node.get("id")
+    try:
+        local_uid = validate_local_uid(str(uid), field=f"definition {scope_path!r} node[{index}] uid")
+        node_id = validate_local_uid(str(node.get("id", local_uid)), field="definition node id")
+    except UIDValidationError as exc:
+        raise RecursiveEditError("invalid_node_uid", str(exc), detail={"scope_path": scope_path}) from exc
+    return local_uid, node_id
+
+
+def build_recursive_edit_index(workflow: "VibeWorkflow") -> RecursiveEditIndex:
+    """Index root and typed definitions by canonical ``scope_path``/local UID."""
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+
+    scopes: dict[str, RecursiveScopeRef] = {
+        "": RecursiveScopeRef("", None, None, {}, "")
+    }
+    root = scopes[""]
+    root_aliases: dict[str, str] = {}
+    for node_id, node in (getattr(workflow, "nodes", {}) or {}).items():
+        uid = str(getattr(node, "uid", "") or node_id)
+        if uid in root_aliases or str(node_id) in root_aliases:
+            raise RecursiveEditError("occurrence_collision", f"duplicate root node identity {uid!r}")
+        ref = RecursiveNodeRef("", uid, node, str(node_id))
+        root.nodes[uid] = ref
+        root_aliases[uid] = uid
+        root_aliases[str(node_id)] = uid
+
+    seen_keys: set[str] = set()
+    active: set[int] = set()
+
+    def walk(raw: Any, parent: tuple[str, ...], ui_parent: str) -> None:
+        for index, definition in enumerate(_recursive_entries(raw)):
+            if not isinstance(definition, dict):
+                raise RecursiveEditError("definitions_malformed", "each definition must be a mapping")
+            identity = id(definition)
+            if identity in active:
+                raise RecursiveEditError("recursive_definition_cycle", "recursive definition object graph cannot be edited")
+            active.add(identity)
+            derived = sg_key(definition)
+            supplied = definition.get("sg_key")
+            if supplied is not None and supplied != derived:
+                raise RecursiveEditError("definition_scope_collision", "definition sg_key does not match its structural identity")
+            if derived in seen_keys:
+                raise RecursiveEditError("definition_scope_collision", f"duplicate definition sg_key {derived!r}")
+            try:
+                path = compose_scope_path((*parent, derived))
+            except ValueError as exc:
+                raise RecursiveEditError("invalid_scope", str(exc)) from exc
+            if path in scopes:
+                raise RecursiveEditError("definition_scope_collision", f"duplicate definition scope {path!r}")
+            ui_path = f"{ui_parent}/sg{index}" if ui_parent else f"sg{index}"
+            scope = RecursiveScopeRef(path, derived, definition, {}, ui_path)
+            scopes[path] = scope
+            seen_keys.add(derived)
+            aliases: dict[str, str] = {}
+            for index, node in enumerate(_recursive_node_entries(definition)):
+                if not isinstance(node, dict):
+                    raise RecursiveEditError("nodes_malformed", f"node {index} in {path!r} is not a mapping")
+                uid, node_id = _recursive_node_identity(node, path, index)
+                if uid in scope.nodes or uid in aliases or node_id in aliases:
+                    raise RecursiveEditError("occurrence_collision", f"duplicate node identity {uid!r} in {path!r}")
+                ref = RecursiveNodeRef(path, uid, node, node_id)
+                scope.nodes[uid] = ref
+                aliases[uid] = uid
+                aliases[node_id] = uid
+            # Validate and canonicalize topology through the same helper used
+            # by diff and apply-gate signatures. Link IDs and order are not
+            # semantic; scoped UID/slot/type endpoints are.
+            recursive_scope_topology(scope)
+            _validate_recursive_carriers(scope)
+            walk(definition.get("definitions"), (*parent, derived), ui_path)
+            active.remove(identity)
+
+    walk(getattr(workflow, "definitions", None), (), "")
+
+    # Compiler/materializer interfaces may be keyed by a globally unique
+    # definition ``sg_key`` (the legacy/native-compatible spelling) or by the
+    # canonical nested path.  The edit vocabulary remains path-only: these
+    # aliases are used solely to validate existing typed carriers and are
+    # never accepted as operation scope paths.
+    scope_aliases: dict[str, str] = {"": ""}
+    for scope_path, scope in scopes.items():
+        if scope_path and scope.sg_key:
+            scope_aliases[str(scope.sg_key)] = scope_path
+
+    def canonical_carrier_scope(raw_scope: Any, kind: str) -> str:
+        scope_path = str(raw_scope or "")
+        if not scope_path:
+            return ""
+        if scope_path.startswith("sg") and scope_path[2:].isdigit():
+            raise RecursiveEditError(
+                "invalid_scope",
+                f"ordinal scope path {scope_path!r} is not canonical; {_RECURSIVE_GUIDANCE}",
+            )
+        if scope_path in scopes:
+            return scope_path
+        alias = scope_aliases.get(scope_path)
+        if alias is not None:
+            return alias
+        try:
+            canonical = compose_scope_path(tuple(scope_path.split("/")))
+        except ValueError as exc:
+            raise RecursiveEditError(
+                "invalid_scope",
+                f"{exc}; {_RECURSIVE_GUIDANCE}",
+                detail={"scope_path": scope_path},
+            ) from exc
+        if canonical in scopes:
+            return canonical
+        raise RecursiveEditError(
+            "scope_unknown",
+            f"{kind} scope {scope_path!r} is not indexed; {_RECURSIVE_GUIDANCE}",
+        )
+
+    # These are canonical references, not copied records.  Scope-check their
+    # selectors so an interface/boundary/wire cannot silently bind another
+    # definition; their object mutation remains unsupported in this task.
+    interfaces = getattr(workflow, "interfaces", {})
+    if interfaces and not isinstance(interfaces, Mapping):
+        raise RecursiveEditError("interfaces_malformed", "interfaces must be a mapping")
+    for scope_path in (interfaces or {}):
+        canonical_carrier_scope(scope_path, "interface")
+    boundary_ports = getattr(workflow, "boundary_ports", [])
+    if boundary_ports and not isinstance(boundary_ports, (list, tuple)):
+        raise RecursiveEditError("boundary_ports_malformed", "boundary_ports must be a sequence")
+
+    for port in boundary_ports or ():
+        if not isinstance(port, Mapping):
+            raise RecursiveEditError("boundary_ports_malformed", "boundary port must be a mapping")
+        scope_path = str(port.get("scope_path", ""))
+        scope_path = canonical_carrier_scope(scope_path, "boundary")
+        _reject_native_carrier_values(port, context="boundary_ports")
+    virtual_wires = getattr(workflow, "virtual_wires", {})
+    if virtual_wires and not isinstance(virtual_wires, Mapping):
+        raise RecursiveEditError("virtual_wires_malformed", "virtual_wires must be a mapping")
+    for raw in (virtual_wires or {}).values():
+        if not isinstance(raw, Mapping):
+            raise RecursiveEditError("virtual_wires_malformed", "virtual wire must be a mapping")
+        legs = raw.get("legs", ())
+        if not isinstance(legs, (list, tuple)):
+            raise RecursiveEditError("virtual_wires_malformed", "virtual wire legs must be a sequence")
+        for leg in legs:
+            if not isinstance(leg, Mapping):
+                raise RecursiveEditError("virtual_wires_malformed", "virtual wire leg must be a mapping")
+            scope_path = str(leg.get("scope_path", raw.get("scope_path", "")))
+            scope_path = canonical_carrier_scope(scope_path, "virtual wire")
+            _reject_native_carrier_values(leg, context="virtual_wires")
+
+    if interfaces or boundary_ports or virtual_wires:
+        try:
+            workflow._execution_projection()
+        except Exception as exc:
+            raise RecursiveEditError(
+                str(getattr(exc, "code", "recursive_contract_invalid")),
+                str(exc),
+                detail=getattr(exc, "detail", {}),
+            ) from exc
+    return RecursiveEditIndex(scopes)
+
+
+def _reject_native_carrier_values(value: Any, *, context: str) -> None:
+    """Reject LiteGraph's native boundary sentinels in carrier records."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text in {"link", "links", "from_port", "to_port", "from_output",
+                            "to_input", "origin_slot", "target_slot", "inputNode", "outputNode"}:
+                values = item if key_text == "links" and isinstance(item, (list, tuple)) else (item,)
+                for candidate in values:
+                    if str(candidate) in _NATIVE_BOUNDARY_SENTINELS:
+                        raise RecursiveEditError(
+                            "unsupported_boundary_encoding",
+                            f"native -10/-20 carrier in {context}; {_RECURSIVE_GUIDANCE}",
+                        )
+            _reject_native_carrier_values(item, context=context)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_native_carrier_values(item, context=context)
+
+
+def _validate_recursive_carriers(scope: RecursiveScopeRef) -> None:
+    for ref in scope.nodes.values():
+        _reject_native_carrier_values(ref.node.get("inputs"), context=f"{scope.scope_path} inputs")
+        _reject_native_carrier_values(ref.node.get("outputs"), context=f"{scope.scope_path} outputs")
+    _reject_native_carrier_values(
+        (scope.definition or {}).get("virtual_wires"), context=f"{scope.scope_path} virtual_wires"
+    )
+
+
+def _recursive_link_parts(link: Any) -> tuple[Any, Any, Any, Any, Any, Any] | None:
+    if isinstance(link, Mapping):
+        return (link.get("id"), link.get("origin_id"), link.get("origin_slot", 0), link.get("target_id"), link.get("target_slot", 0), link.get("type", ""))
+    if isinstance(link, (list, tuple)) and len(link) >= 6:
+        return tuple(link[:6])  # type: ignore[return-value]
+    return None
+
+
+def recursive_scope_topology(scope: RecursiveScopeRef) -> tuple[tuple[str, str, str, str, str], ...]:
+    """Canonical same-scope topology, omitting volatile link IDs/order."""
+    by_identity = {
+        str(identity): ref.uid
+        for ref in scope.nodes.values()
+        for identity in (ref.uid, ref.node_id)
+    }
+    records: list[tuple[str, str, str, str, str]] = []
+    for link in (scope.definition or {}).get("links", ()) or ():
+        parts = _recursive_link_parts(link)
+        if parts is None:
+            raise RecursiveEditError("links_malformed", f"malformed link in {scope.scope_path!r}")
+        _link_id, origin, origin_slot, target, target_slot, link_type = parts
+        if str(origin) in _NATIVE_BOUNDARY_SENTINELS or str(target) in _NATIVE_BOUNDARY_SENTINELS:
+            raise RecursiveEditError(
+                "unsupported_boundary_encoding",
+                "native -10/-20 boundary links are unproven; "
+                "capture -> port through canonical Python -> reopen/reload",
+            )
+        origin_uid = by_identity.get(str(origin))
+        target_uid = by_identity.get(str(target))
+        if origin_uid is None or target_uid is None:
+            raise RecursiveEditError(
+                "unknown_target",
+                f"link endpoint is not local to {scope.scope_path!r}",
+            )
+        records.append(
+            (
+                origin_uid,
+                str(origin_slot),
+                target_uid,
+                str(target_slot),
+                str(link_type),
+            )
+        )
+    return tuple(sorted(records))
+
+
+def _operation_scope_paths(op: EditOp) -> tuple[str, ...]:
+    """Extract every operation-owned scope reference, including AddNode refs."""
+    paths: list[str] = []
+    direct = getattr(op, "scope_path", None)
+    if direct is not None:
+        paths.append(str(direct))
+    for attr in ("target", "source"):
+        ref = getattr(op, attr, None)
+        if ref is not None:
+            paths.append(str(getattr(ref, "scope_path", "") or ""))
+    if isinstance(op, AddNodeOp):
+        paths.extend(str(getattr(ref, "scope_path", "") or "") for ref in op.inputs.values())
+        anchor = getattr(op, "anchor", None)
+        if anchor is not None:
+            near = getattr(anchor, "near", None)
+            if near is not None:
+                paths.append(str(getattr(near, "scope_path", "") or ""))
+            paths.extend(
+                str(getattr(ref, "scope_path", "") or "")
+                for ref in (getattr(anchor, "between", None) or ())
+            )
+    return tuple(paths)
+
+
+def _has_recursive_scope(ops: Sequence[EditOp]) -> bool:
+    return any(bool(path) for op in ops for path in _operation_scope_paths(op))
+
+
+def _has_mixed_recursive_scope(ops: Sequence[EditOp]) -> bool:
+    scoped = [_has_recursive_scope((op,)) for op in ops]
+    return bool(scoped) and any(scoped) and not all(scoped)
+
+
+def _recursive_field_entries(
+    node: Mapping[str, Any],
+) -> tuple[tuple[str, str, Any, bool], ...]:
+    """Collect authored recursive fields from mapping and normalized list channels.
+
+    The normalized definition IR retains LiteGraph input sockets as records
+    (``[{name, type, link, value?}]``), while authored widgets may remain a
+    positional ``widgets_values`` list.  This is one shared field authority
+    for validation, COW, and diff; it never serializes or copies a node.
+    """
+    entries: list[tuple[str, str, Any, bool]] = []
+    seen: set[str] = set()
+
+    def add(name: Any, channel: str, value: Any, linked: bool) -> None:
+        key = str(name)
+        if key in seen:
+            return
+        seen.add(key)
+        entries.append((key, channel, value, linked))
+
+    for channel in ("inputs", "widgets", "semantic"):
+        values = node.get(channel)
+        if isinstance(values, Mapping):
+            for name, value in values.items():
+                add(name, channel, value, False)
+        elif isinstance(values, (list, tuple)):
+            for item in values:
+                if not isinstance(item, Mapping) or item.get("name") is None:
+                    continue
+                add(
+                    item["name"],
+                    channel,
+                    item.get("value"),
+                    item.get("link") is not None,
+                )
+    values = node.get("widgets_values")
+    if isinstance(values, (list, tuple)):
+        for index, value in enumerate(values):
+            add(f"widget_{index}", "widgets_values", value, False)
+    return tuple(entries)
+
+
+def _freeze(value: Any) -> Any:
+    """Freeze JSON-shaped authored state for quotient comparison."""
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(key), _freeze(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def recursive_state_snapshot(
+    workflow: "VibeWorkflow",
+    *,
+    index: RecursiveEditIndex | None = None,
+) -> tuple[Any, ...]:
+    """Return the one immutable recursive state/topology quotient.
+
+    Both diff and replay-gate consume this snapshot. It contains authored
+    fields plus interface, boundary, virtual-wire, and group visibility, but
+    omits presentation/provenance and volatile link IDs/order.
+    """
+    indexed = index or build_recursive_edit_index(workflow)
+    definitions: list[Any] = []
+    nodes: list[Any] = []
+    topology: list[Any] = []
+    for scope_path, scope in sorted(indexed.scopes.items()):
+        if not scope_path:
+            continue
+        definition = scope.definition or {}
+        definitions.append((scope_path, str(scope.sg_key or ""), tuple(
+            (field, _freeze(definition.get(field)))
+            for field in ("interface", "interfaces", "boundary_ports",
+                          "virtual_wires", "inputs", "outputs", "groups")
+        )))
+        for uid, ref in sorted(scope.nodes.items()):
+            node = ref.node
+            fields = tuple((str(field), str(channel), _freeze(value), bool(linked))
+                           for field, channel, value, linked in _recursive_field_entries(node))
+            nodes.append((scope_path, str(uid), str(node.get("type", node.get("class_type", ""))),
+                          int(node.get("mode", 0) or 0), _freeze(node.get("group")), fields))
+        topology.extend((scope_path, *record) for record in recursive_scope_topology(scope))
+    carriers = (
+        ("interfaces", _freeze(getattr(workflow, "interfaces", {}))),
+        ("boundary_ports", _freeze(getattr(workflow, "boundary_ports", ()))),
+        ("virtual_wires", _freeze(getattr(workflow, "virtual_wires", {}))),
+        ("groups", _freeze(getattr(workflow, "groups", ()))),
+    )
+    return (
+        tuple(definitions),
+        tuple(nodes),
+        tuple(sorted(topology)),
+        carriers,
+    )
 
 
 def _is_primitive_widget_alias_class(class_type: str) -> bool:
@@ -396,7 +872,7 @@ def _uids_for_op(op: EditOp) -> tuple[tuple[str, str], ...]:
         )
         return tuple(pairs)
     if isinstance(op, SubgraphInterfaceOp) and op.id:
-        return (("", str(op.id)),)
+        return ((str(getattr(op, "scope_path", "") or ""), str(op.id)),)
     return ()
 
 
@@ -527,64 +1003,20 @@ def _root_node_for_uid(
 ) -> tuple[str | None, Any | None]:
     """Resolve a ``(scope_path, uid)`` target to ``(node_id, VibeNode)``.
 
-    The IR is flat: subgraph-internal nodes live in ``metadata.definitions``,
-    not in ``workflow.nodes``, so non-root scopes are not resolvable at IR
-    level (batch 7's ``interpret`` will bridge the subgraph substrate).
+    Root VibeNode resolution remains the existing COW path; typed recursive
+    definitions are resolved by ``build_recursive_edit_index``.
     """
     if scope_path:
-        raise NotImplementedError(
-            f"subgraph-scope target {scope_path!r} is not supported by the "
-            "IR-level copy-on-write edit helpers yet"
+        raise RecursiveEditError(
+            "unsupported_structural_scope",
+            f"subgraph-scope target {scope_path!r} is not a supported root edit; "
+            "capture the current canvas/export, port through canonical Python, "
+            "then reopen/reload the resulting workflow",
         )
     for node_id, node in workflow.nodes.items():
         if str(getattr(node, "uid", "") or "") == str(uid):
             return str(node_id), node
     return None, None
-
-
-def _subgraph_node_for_uid(
-    workflow: "VibeWorkflow", scope_path: str, uid: str
-) -> dict[str, Any] | None:
-    """Resolve a retained raw subgraph node without rebuilding the IR.
-
-    Subgraph definitions remain an opaque, lossless part of the retained IR;
-    edits to their editor-native fields therefore apply copy-on-write to the
-    definition payload and leave the root execution graph untouched.
-    """
-    from vibecomfy.identity.scope import sg_key
-
-    definitions = getattr(workflow, "metadata", {}).get("definitions")
-    if not isinstance(definitions, Mapping):
-        return None
-    graph: Mapping[str, Any] = definitions
-    for segment in str(scope_path).split("/"):
-        if not segment:
-            continue
-        subgraphs = graph.get("subgraphs") if isinstance(graph, Mapping) else None
-        if not isinstance(subgraphs, list):
-            return None
-        match = next(
-            (
-                item
-                for item in subgraphs
-                if isinstance(item, Mapping) and sg_key(item) == segment
-            ),
-            None,
-        )
-        if not isinstance(match, Mapping):
-            return None
-        graph = match
-    nodes = door_get_nodes(graph) if isinstance(graph, Mapping) else None
-    if not isinstance(nodes, list):
-        return None
-    for raw_node in nodes:
-        if not isinstance(raw_node, dict):
-            continue
-        properties = raw_node.get("properties")
-        raw_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
-        if str(raw_uid if raw_uid is not None else raw_node.get("id")) == str(uid):
-            return raw_node
-    return None
 
 
 def _mint_ir_node_id(workflow: "VibeWorkflow") -> str:
@@ -848,38 +1280,93 @@ def _split_add_fields(
     return widgets, inputs
 
 
-def _tag_agent_edit_provenance(node: Any, *source_nodes: Any) -> None:
-    """Tag ``node`` with ``join(existing, agent_generated, *sources)``.
-
-    Max-taint composition: an untrusted source keeps the node untrusted (an
-    agent edit can never launder taint); a trusted node edited by an agent is
-    re-tainted ``agent_generated``; never downgraded below its prior taint.
-    """
+def _tag_edit_provenance(node: Any, *source_nodes: Any, fresh: bool = False) -> None:
+    """Compose one provenance policy across VibeNodes and typed mappings."""
     from vibecomfy.security import provenance as _prov
 
-    merged = _prov.join(
-        _prov.read(node),
-        _prov.Provenance.AGENT_GENERATED,
-        *(_prov.read(source) for source in source_nodes),
+    sources = tuple(_prov.read(source) for source in source_nodes)
+    if isinstance(node, Mapping):
+        metadata = node.get("metadata")
+        if metadata is None:
+            metadata = {}
+            node["metadata"] = metadata  # type: ignore[index]
+        if not isinstance(metadata, dict):
+            raise RecursiveEditError(
+                "provenance_unavailable",
+                "recursive edit cannot establish canonical provenance; "
+                "capture -> port through canonical Python -> reopen/reload",
+            )
+        metadata[_prov.PROVENANCE_KEY] = _prov.join(
+            metadata.get(_prov.PROVENANCE_KEY),
+            _prov.Provenance.AGENT_GENERATED,
+            *sources,
+        )
+        return
+    prior = () if fresh else (_prov.read(node),)
+    _prov.tag(node, _prov.join(*prior, _prov.Provenance.AGENT_GENERATED, *sources))
+
+
+def _recursive_field(node: Mapping[str, Any], field: str) -> tuple[str, Any] | None:
+    """Resolve only authored definition fields; never invent a sidecar field."""
+    if field in {
+        "type", "class_type", "id", "uid", "properties", "metadata",
+        "outputs", "links", "pos", "size", "flags", "order", "groups", "group",
+        "inputs", "widgets", "widgets_values",
+    }:
+        return ("structural", node.get(field))
+    if field == "mode":
+        return ("mode", node.get("mode", 0))
+    if field in node and field not in {"type", "class_type", "id", "uid", "properties", "metadata"}:
+        return (field, node[field])
+    for name, channel, value, _linked in _recursive_field_entries(node):
+        if name == field:
+            return (f"{channel}.{field}", value)
+    return None
+
+
+def _set_recursive_field(node: dict[str, Any], field: str, value: Any) -> None:
+    if field in {
+        "type", "class_type", "id", "uid", "properties", "metadata",
+        "outputs", "links", "pos", "size", "flags", "order", "groups", "group",
+        "inputs", "widgets", "widgets_values",
+    }:
+        raise RecursiveEditError("unsupported_structural_scope", f"field {field!r} changes definition identity")
+    if field == "mode":
+        node["mode"] = int(value)
+        return
+    if field in node and field not in {"inputs", "widgets", "metadata", "semantic", "widgets_values"}:
+        node[field] = deepcopy(value)
+        return
+    for channel in ("inputs", "widgets", "semantic"):
+        values = node.get(channel)
+        if isinstance(values, dict) and field in values:
+            values[field] = deepcopy(value)
+            return
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, dict) and str(item.get("name", "")) == field:
+                    if item.get("link") not in (None,):
+                        raise RecursiveEditError("unsupported_structural_scope", "linked input edits require a canonical link transaction")
+                    item["value"] = deepcopy(value)
+                    return
+    values = node.get("widgets_values")
+    if isinstance(values, list) and field.startswith("widget_") and field[7:].isdigit():
+        index = int(field[7:])
+        if index < len(values):
+            values[index] = deepcopy(value)
+            return
+    raise RecursiveEditError("unknown_field", f"field {field!r} is not authored in the recursive node")
+
+
+def _unsupported_recursive_structure(op: EditOp) -> RecursiveEditError:
+    scope = next((path for path in _operation_scope_paths(op) if path), "")
+    return RecursiveEditError(
+        "unsupported_structural_scope",
+        f"{getattr(op, 'op', type(op).__name__)} at scope {scope!r} changes unsupported recursive structure; "
+        "capture the current canvas/export, port through canonical Python, "
+        "then reopen/reload the resulting workflow",
+        detail={"scope_path": scope, "operation": getattr(op, "op", type(op).__name__)},
     )
-    _prov.tag(node, merged)
-
-
-def _tag_fresh_node_provenance(node: Any, *source_nodes: Any) -> None:
-    """Tag a newly added node with ``join(agent_generated, *sources)``.
-
-    The fresh node's own read is fail-closed ``untrusted_source`` and must
-    NOT participate — otherwise every added node would be poisoned untrusted
-    even when all its sources are trusted. Max-taint still propagates: any
-    untrusted source keeps the added node untrusted.
-    """
-    from vibecomfy.security import provenance as _prov
-
-    merged = _prov.join(
-        _prov.Provenance.AGENT_GENERATED,
-        *(_prov.read(source) for source in source_nodes),
-    )
-    _prov.tag(node, merged)
 
 
 def apply_edit_cow(
@@ -894,9 +1381,18 @@ def apply_edit_cow(
     the changed nodes replaced, so the pre-state IR is byte-identical after
     the edit and the post-state shares no mutable node dicts with it.
     Provenance composes via the monotone lattice join (max-taint) — see
-    :func:`_tag_agent_edit_provenance`.
+    Provenance is composed by the shared edit provenance helper.
     """
     from vibecomfy.workflow import VibeEdge, VibeNode, litegraph_to_mode
+
+    if isinstance(op, AddNodeOp) and any(_operation_scope_paths(op)):
+        raise _unsupported_recursive_structure(op)
+    if isinstance(op, AddNodeOp) and getattr(op.anchor, "group_title", None):
+        raise RecursiveEditError(
+            "unsupported_operation",
+            "group/layout edits are unsupported; capture the current canvas/export, "
+            "port through canonical Python, then reopen/reload the resulting workflow",
+        )
 
     post = _cow_workflow_copy(workflow)
     # P0-WIDGET-CANON: the sealed snapshot table is the sole name authority
@@ -906,12 +1402,17 @@ def apply_edit_cow(
     name_authority = frozen_widget_names_by_uid(workflow)
 
     if isinstance(op, SetNodeFieldOp):
-        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
         if op.target.scope_path:
-            raise NotImplementedError(
-                f"subgraph field target {op.target.scope_path!r} is not supported by "
-                "the retained IR edit surface"
-            )
+            ref = build_recursive_edit_index(post).node(op.target.scope_path, op.target.uid)
+            resolved = _recursive_field(ref.node, op.target.field_path)
+            if resolved is None:
+                raise RecursiveEditError("unknown_field", f"field {op.target.field_path!r} is not authored in the recursive node")
+            if resolved[1] == op.value:
+                raise ValueError(f"set_node_field: {op.target.field_path!r} is already set to that value")
+            _set_recursive_field(ref.node, op.target.field_path, op.value)
+            _tag_edit_provenance(ref.node)
+            return post
+        node_id, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
         if node is None:
             raise KeyError(
                 f"set_node_field: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
@@ -950,17 +1451,17 @@ def apply_edit_cow(
         else:
             # Unknown channel: the IR's canonical value channel is inputs.
             node.inputs[field] = op.value
-        _tag_agent_edit_provenance(node)
+        _tag_edit_provenance(node)
         return post
 
     if isinstance(op, SetModeOp):
         if op.target.scope_path:
-            raw_node = _subgraph_node_for_uid(post, op.target.scope_path, op.target.uid)
-            if raw_node is None:
-                raise KeyError(
-                    f"set_mode: no retained subgraph node for uid {op.target.uid!r}"
-                )
-            raw_node["mode"] = int(op.mode)
+            ref = build_recursive_edit_index(post).node(op.target.scope_path, op.target.uid)
+            current = int(ref.node.get("mode", 0) or 0)
+            if current == int(op.mode):
+                raise ValueError(f"set_mode: node {op.target.uid!r} already has mode {op.mode}")
+            ref.node["mode"] = int(op.mode)
+            _tag_edit_provenance(ref.node)
             return post
         _, node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
         if node is None:
@@ -968,10 +1469,12 @@ def apply_edit_cow(
                 f"set_mode: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         node.mode = litegraph_to_mode(op.mode)
-        _tag_agent_edit_provenance(node)
+        _tag_edit_provenance(node)
         return post
 
     if isinstance(op, RemoveLinkOp):
+        if op.target is not None and op.target.scope_path:
+            raise _unsupported_recursive_structure(op)
         if op.target is None:
             raise ValueError(
                 "remove_link requires a target at IR level (link ids are LiteGraph-only)"
@@ -986,10 +1489,12 @@ def apply_edit_cow(
             for edge in post.edges
             if not (edge.to_node == node_id and edge.to_input == op.target.input_field)
         ]
-        _tag_agent_edit_provenance(node)
+        _tag_edit_provenance(node)
         return post
 
     if isinstance(op, UpsertLinkOp):
+        if op.source.scope_path or op.target.scope_path:
+            raise _unsupported_recursive_structure(op)
         source_id, source_node = _root_node_for_uid(
             post, op.source.scope_path, op.source.uid
         )
@@ -1015,11 +1520,13 @@ def apply_edit_cow(
         post.edges.append(replacement)
         _record_link_hint(post, replacement, _next_link_hint(post))
         # The target's input now combines the source's provenance: max-taint.
-        _tag_agent_edit_provenance(source_node)
-        _tag_agent_edit_provenance(target_node, source_node)
+        _tag_edit_provenance(source_node)
+        _tag_edit_provenance(target_node, source_node)
         return post
 
     if isinstance(op, RemoveNodeOp):
+        if op.target.scope_path:
+            raise _unsupported_recursive_structure(op)
         node_id, _node = _root_node_for_uid(post, op.target.scope_path, op.target.uid)
         if node_id is None:
             raise KeyError(
@@ -1061,6 +1568,10 @@ def apply_edit_cow(
         return post
 
     if isinstance(op, SubgraphInterfaceOp):
+        if getattr(op, "scope_path", ""):
+            raise _unsupported_recursive_structure(op)
+        if getattr(workflow, "definitions", None):
+            raise _unsupported_recursive_structure(op)
         definitions = post.metadata.get("definitions")
         if not isinstance(definitions, dict):
             definitions = {}
@@ -1076,11 +1587,6 @@ def apply_edit_cow(
                 return str(entry.get("id") or entry.get("name") or "")
             return str(entry)
 
-        if op.action == "remove":
-            definitions["subgraphs"] = [
-                entry for entry in subgraphs if _entry_key(entry) != subgraph_id
-            ]
-            return post
         signature = {
             "id": subgraph_id,
             "name": op.name,
@@ -1102,6 +1608,11 @@ def apply_edit_cow(
                 if isinstance(port, (list, tuple)) and port
             ],
         }
+        if op.action == "remove":
+            definitions["subgraphs"] = [
+                entry for entry in subgraphs if _entry_key(entry) != subgraph_id
+            ]
+            return post
         if op.action == "change":
             replaced = False
             updated: list[Any] = []
@@ -1116,7 +1627,7 @@ def apply_edit_cow(
             if not replaced:
                 updated.append({**signature, "nodes": [], "links": []})
             definitions["subgraphs"] = updated
-        else:  # add
+        else:
             definitions["subgraphs"] = [
                 *subgraphs,
                 {**signature, "nodes": [], "links": []},
@@ -1125,10 +1636,8 @@ def apply_edit_cow(
 
     if isinstance(op, AddNodeOp):
         if op.scope_path:
-            raise NotImplementedError(
-                f"subgraph-scope add_node {op.scope_path!r} is not supported by the "
-                "IR-level copy-on-write edit helpers yet"
-            )
+            build_recursive_edit_index(post).scope(op.scope_path)
+            raise _unsupported_recursive_structure(op)
         new_id = str(op.node_id) if op.node_id else _mint_ir_node_id(post)
         if new_id in post.nodes:
             raise ValueError(
@@ -1168,7 +1677,7 @@ def apply_edit_cow(
             post.edges.append(added_edge)
             _record_link_hint(post, added_edge, _next_link_hint(post))
         # New node's provenance = join(agent_generated, *source provenances).
-        _tag_fresh_node_provenance(node, *source_nodes)
+        _tag_edit_provenance(node, *source_nodes, fresh=True)
         post.nodes[new_id] = node
         return post
 

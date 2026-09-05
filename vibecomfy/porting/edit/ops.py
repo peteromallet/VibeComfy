@@ -226,13 +226,11 @@ class SetModeOp:
 
 @dataclass(frozen=True, slots=True)
 class SubgraphInterfaceOp:
-    """Definition-level subgraph signature statement (Law 3, batch 9 fix).
+    """Definition-level signature statement on the typed workflow authority.
 
-    ``diff`` emits these when pre/post ``metadata["definitions"]`` subgraph
-    signatures differ; ``apply_edit_cow`` mirrors what ``interpret``'s
-    ``subgraph_interface(...)`` source statement applies (append/remove/upsert
-    into ``metadata["definitions"]["subgraphs"]``).  ``id`` is the stable
-    identity key; ``name``/``inputs``/``outputs`` are the emitted signature.
+    ``id`` is the stable definition key; ``name``/``inputs``/``outputs`` are
+    the emitted signature.  ``scope_path`` is populated for nested typed
+    definitions and is never a raw metadata selector.
     """
 
     op: Literal["subgraph_interface"]
@@ -241,6 +239,9 @@ class SubgraphInterfaceOp:
     inputs: tuple[tuple[str, Any], ...] = ()
     outputs: tuple[tuple[str, Any], ...] = ()
     id: str | None = None
+    # Canonical owner scope for recursive interface edits.  Interfaces are
+    # stored on the typed workflow, never authored through raw metadata.
+    scope_path: str = ""
 
 
 EditOp = (
@@ -619,6 +620,7 @@ def parse_edit_op(
             inputs=_require_port_list(data.get("inputs"), path="subgraph_interface.inputs"),
             outputs=_require_port_list(data.get("outputs"), path="subgraph_interface.outputs"),
             id=_parse_optional_identity(data.get("id"), path="subgraph_interface.id"),
+            scope_path=_require_string(data.get("scope_path", ""), path="subgraph_interface.scope_path", allow_empty=True),
         )
 
     if op_name == "remove_node":
@@ -758,6 +760,8 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             payload["outputs"] = [list(port) for port in parsed.outputs]
         if parsed.id is not None:
             payload["id"] = parsed.id
+        if parsed.scope_path:
+            payload["scope_path"] = parsed.scope_path
         return payload
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
@@ -868,23 +872,15 @@ def ensure_root_scoped_delta_envelope(
 ) -> CanonicalDeltaEnvelope:
     envelope = normalize_delta_envelope(payload, allow_legacy_list=allow_legacy_list, strict=strict)
     for op in envelope.ops:
-        scoped_paths: list[str] = []
-        if isinstance(op, SetNodeFieldOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, AddNodeOp):
-            scoped_paths.append(op.scope_path)
-        elif isinstance(op, RemoveNodeOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, UpsertLinkOp):
-            scoped_paths.extend((op.source.scope_path, op.target.scope_path))
-        elif isinstance(op, RemoveLinkOp) and op.target is not None:
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, SetModeOp):
-            scoped_paths.append(op.target.scope_path)
+        from vibecomfy.porting.edit._ir_utils import _operation_scope_paths
+
+        scoped_paths = _operation_scope_paths(op)
         bad = sorted({path for path in scoped_paths if path})
         if bad:
             raise EditOpParseError(
-                "Non-root scoped apply is unsupported for canonical delta consumers.",
+                "Non-root scoped apply is unsupported for canonical delta consumers; "
+                "capture the current canvas/export, port through canonical Python, "
+                "then reopen/reload the resulting workflow.",
                 code=DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
                 detail={"scope_paths": bad, "op": op.op},
             )
@@ -1015,6 +1011,17 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
             "target": [op.target.scope_path, op.target.uid],
             "mode": op.mode,
         }
+    if isinstance(op, SubgraphInterfaceOp):
+        payload: dict[str, Any] = {"op": op.op, "action": op.action, "name": op.name}
+        if op.inputs:
+            payload["inputs"] = [list(port) for port in op.inputs]
+        if op.outputs:
+            payload["outputs"] = [list(port) for port in op.outputs]
+        if op.id is not None:
+            payload["id"] = op.id
+        if op.scope_path:
+            payload["scope_path"] = op.scope_path
+        return payload
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
 
