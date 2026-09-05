@@ -14,6 +14,7 @@ from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 from vibecomfy.porting.object_info import ObjectInfoLookupResult
 from vibecomfy.schema import NodeSchema
+from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.workflow_bundle import load_bundle
 
 from tests._runtime_session_helpers import (
@@ -111,6 +112,9 @@ def _assert_exact_runtime_record(document: dict, record) -> None:
         assert len(approved) == 6
         assert set(approved) == _RECORD_KEYS
         assert approved == record_dict
+        assert evidence["api_digest"] == record.api_digest
+        assert evidence["ui_digest"] == canonical_digest(record_dict["ui_projection"])
+        assert evidence["record_digest"] == canonical_digest(record_dict)
         for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
             assert evidence[key] == document.get(key, evidence[key])
     assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
@@ -165,11 +169,18 @@ def test_embedded_session_explicit_empty_success_remains_valid(
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", successful_queue)
 
-    result = asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
+    record, bundle = _approved(_workflow())
+    result = asyncio.run(EmbeddedSession().run(record, bundle))
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    attempt, events = _terminal_events(tmp_path, record)
 
     assert result.prompt_id == "embedded-empty"
     assert result.outputs == []
     assert Path(result.metadata_path).is_file()
+    assert [event["event_type"] for event in events] == ["prepared", "finalized"]
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(metadata, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 

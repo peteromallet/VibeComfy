@@ -15,6 +15,7 @@ from vibecomfy.runtime.session import EmbeddedSession, ServerSession, SessionCon
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 from vibecomfy.porting.object_info import ObjectInfoLookupResult
 from vibecomfy.schema import NodeSchema
+from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.workflow_bundle import load_bundle
 from tests._runtime_session_helpers import (
     FakeAsyncClient,
@@ -66,6 +67,9 @@ def _assert_exact_runtime_record(document: dict, record) -> None:
         assert len(approved) == 6
         assert set(approved) == _RECORD_KEYS
         assert approved == record_dict
+        assert evidence["api_digest"] == record.api_digest
+        assert evidence["ui_digest"] == canonical_digest(record_dict["ui_projection"])
+        assert evidence["record_digest"] == canonical_digest(record_dict)
         for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
             assert evidence[key] == document.get(key, evidence[key])
     assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)

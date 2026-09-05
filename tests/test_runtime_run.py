@@ -18,6 +18,7 @@ import vibecomfy.runtime.session as session_module
 from vibecomfy.artifacts import Artifact
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 from vibecomfy.schema import NodeSchema
+from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.runtime.session import SessionConfig
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import load_bundle
@@ -116,6 +117,9 @@ def _assert_exact_runtime_record(document: dict, record) -> None:
         assert len(approved) == 6
         assert set(approved) == _RECORD_KEYS
         assert approved == record_dict
+        assert evidence["api_digest"] == record.api_digest
+        assert evidence["ui_digest"] == canonical_digest(record_dict["ui_projection"])
+        assert evidence["record_digest"] == canonical_digest(record_dict)
         assert evidence["queue_acceptance"] == document.get("queue_acceptance", evidence["queue_acceptance"])
         assert evidence["terminal"] == document.get("terminal", evidence["terminal"])
         assert evidence["adapter"] == document.get("adapter", evidence["adapter"])
@@ -364,11 +368,12 @@ def _run_one_shot_post_witness_failure(
         def fail_completed_attempt(*args, **kwargs):
             nonlocal persist_calls
             persist_calls += 1
-            if persist_calls == 2:
+            if persist_calls == 3:
                 raise OSError("completion attempt disk full")
             return real_persist(*args, **kwargs)
 
         monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_completed_attempt)
+        monkeypatch.setattr(runtime_run_module, "_persist_runtime_evidence", fail_completed_attempt)
     else:
         async def interrupted_history(*_args, **_kwargs):
             raise KeyboardInterrupt("interrupted after acceptance")
@@ -386,6 +391,8 @@ def _run_one_shot_post_witness_failure(
 
     run_dir, attempt, events = _runtime_events(tmp_path, record)
     assert queue_calls == 1
+    if failure_kind == "completed_attempt":
+        assert persist_calls == 4
     assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "post-witness"}
     assert len([event for event in events if event["event_type"] in {"discarded", "superseded"}]) == 1
     assert len(events) == 2
