@@ -19,6 +19,7 @@ function createAgentPanelRuntimeState() {
     queueGuardFallbackWarned: false,
     queueGuardBlockNotice: null,
     queueGuardInvalidationGeneration: 0,
+    queueGuardMutationHook: null,
     queuePromptLifecycleListenersInstalled: false,
     queuePromptLifecycleListeners: [],
     queuePromptLifecycleApi: null,

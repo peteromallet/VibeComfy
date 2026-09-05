@@ -47,6 +47,7 @@ class DeltaDiagnosticError extends Error {
 // ── Supported frontend version ─────────────────────────────────────────────
 const SUPPORTED_FRONTEND = "1.39.x";
 let inOverlayDraw = false;
+const QUEUE_MUTATION_SUPPRESSION_KEY = "__vibecomfyQueueMutationSuppressed";
 
 function safeAdapterLogDetail(value) {
   if (value == null) {
@@ -390,7 +391,31 @@ function getLiveGraph(app) {
  * @param {object} [graph] — optional live graph reference
  */
 function repaintGraph(app, graph = getLiveGraph(app)) {
-  if (typeof graph?.change === "function") graph.change();
+  let suppressed = false;
+  let hadSuppressionMarker = false;
+  let priorSuppressionMarker;
+  if (graph && typeof graph === "object") {
+    try {
+      hadSuppressionMarker = Object.prototype.hasOwnProperty.call(graph, QUEUE_MUTATION_SUPPRESSION_KEY);
+      priorSuppressionMarker = graph[QUEUE_MUTATION_SUPPRESSION_KEY];
+      graph[QUEUE_MUTATION_SUPPRESSION_KEY] = true;
+      suppressed = graph[QUEUE_MUTATION_SUPPRESSION_KEY] === true;
+    } catch (_error) {
+      suppressed = false;
+    }
+  }
+  try {
+    if (typeof graph?.change === "function") graph.change();
+  } finally {
+    if (graph && typeof graph === "object" && suppressed) {
+      try {
+        if (hadSuppressionMarker) graph[QUEUE_MUTATION_SUPPRESSION_KEY] = priorSuppressionMarker;
+        else delete graph[QUEUE_MUTATION_SUPPRESSION_KEY];
+      } catch (error) {
+        throw new Error(`VibeComfy graph mutation suppression marker could not be restored: ${error?.message || String(error)}`);
+      }
+    }
+  }
   if (typeof graph?.setDirtyCanvas === "function") {
     graph.setDirtyCanvas(true, true);
   } else if (app?.canvas?.setDirty) {

@@ -577,6 +577,7 @@ export async function createBrowserHarness({
   const canvasDrawCalls = [];
   const queuePromptCalls = [];
   const apiQueuePromptCalls = [];
+  const apiQueuePromptPayloadRefs = [];
   const interruptCalls = [];
   const deleteItemCalls = [];
   const serializeCalls = [];
@@ -1219,6 +1220,7 @@ export async function createBrowserHarness({
   };
   if (withApiQueuePrompt) {
     mockApi.queuePrompt = (number = 0, payload = {}) => {
+      apiQueuePromptPayloadRefs.push(payload);
       apiQueuePromptCalls.push([number, clone(payload)]);
       return { prompt_id: `prompt-${apiQueuePromptCalls.length}` };
     };
@@ -1411,6 +1413,7 @@ export async function createBrowserHarness({
     canvasDrawCalls,
     queuePromptCalls,
     apiQueuePromptCalls,
+    apiQueuePromptPayloadRefs,
     interruptCalls,
     deleteItemCalls,
     setQueuePromptHookFault(mode) {
@@ -1442,6 +1445,39 @@ export async function createBrowserHarness({
           value: (...args) => {
             queuePromptCalls.push(args);
             return { queued: true, args: clone(args) };
+          },
+        });
+      }
+    },
+    setGraphMutationHookFault(mode) {
+      if (mode === "missing") {
+        delete app.canvas.graph.change;
+        return;
+      }
+      if (mode === "replaced") {
+        app.canvas.graph.change = (...args) => {
+          graphChangeCalls.push(clone(currentGraph));
+          operationLog.push({ kind: "graph.change.replaced", args: clone(args) });
+        };
+        return;
+      }
+      if (mode === "unwritable") {
+        Object.defineProperty(app.canvas.graph, "change", {
+          configurable: true,
+          enumerable: true,
+          writable: false,
+          value: app.canvas.graph.change,
+        });
+        return;
+      }
+      if (mode === "normal") {
+        Object.defineProperty(app.canvas.graph, "change", {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: (...args) => {
+            graphChangeCalls.push(clone(currentGraph));
+            operationLog.push({ kind: "graph.change", args: clone(args) });
           },
         });
       }
