@@ -5573,6 +5573,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     # pinning does not restore an old link from the ingest snapshot after a
     # cumulative rewire.
     topology_input_fields: dict[tuple[str, str], set[str]] = {}
+    topology_output_refs: dict[tuple[str, str], set[str | int]] = {}
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -5580,6 +5581,13 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     def record_link_op(scope_path: str, op: EditOp) -> None:
         link_ops.add(scope_path)
         link_ops_by_scope.setdefault(scope_path, []).append(op)
+
+    def mark_topology_node(scope_path: str, uid: str) -> None:
+        # Keep a node in the attribution index without granting either of its
+        # socket arrays wholesale.  Exact socket ownership is resolved later
+        # against the captured scope (including RemoveLink source inference).
+        node_paths.setdefault((scope_path, uid), set())
+        touched_scopes.add(scope_path)
 
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
@@ -5592,16 +5600,19 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")
             continue
         if isinstance(op, UpsertLinkOp):
-            allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
-            allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
+            mark_topology_node(op.source.scope_path, op.source.uid)
+            mark_topology_node(op.target.scope_path, op.target.uid)
             topology_input_fields.setdefault(
                 (op.target.scope_path, op.target.uid), set()
             ).add(str(op.target.input_field))
+            topology_output_refs.setdefault(
+                (op.source.scope_path, op.source.uid), set()
+            ).add(op.source.output_slot)
             record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
-                allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+                mark_topology_node(op.target.scope_path, op.target.uid)
                 topology_input_fields.setdefault(
                     (op.target.scope_path, op.target.uid), set()
                 ).add(str(op.target.input_field))
@@ -5655,6 +5666,7 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "changed_scope_ids": changed_scope_ids,
         "set_node_fields": set_node_fields,
         "topology_input_fields": topology_input_fields,
+        "topology_output_refs": topology_output_refs,
     }
 
 
@@ -6159,6 +6171,347 @@ def _socket_name(socket: Any) -> str | None:
     return str(name) if isinstance(name, str) and name else None
 
 
+def _topology_owned_refs(
+    scope_path: str,
+    uid: str,
+    scope_ops: Sequence[EditOp],
+    original_scope: Mapping[str, Any],
+) -> tuple[set[str], set[str | int]]:
+    """Resolve the exact input/output sockets owned by topology ops.
+
+    ``RemoveLinkOp`` names only its target, so its source output is recovered
+    from the current folded endpoint map.  Folding in order is important for
+    a remove/upsert/remove batch: the source being removed may have been
+    introduced by an earlier upsert rather than exist in the ingest snapshot.
+    """
+    inputs: set[str] = set()
+    outputs: set[str | int] = set()
+    endpoint_sources: dict[tuple[str, str], tuple[str, str, str | int]] = {}
+
+    nodes = original_scope.get("nodes")
+    native_to_uid: dict[int, str] = {}
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            native = _native_node_id(node)
+            node_uid = _node_uid(node)
+            if native is not None and node_uid is not None:
+                native_to_uid[native] = node_uid
+
+    for link in original_scope.get("links") or ():
+        parts = _raw_link_parts(link)
+        if parts is None:
+            continue
+        source_native = _canonical_native_int(parts[1])
+        target_native = _canonical_native_int(parts[3])
+        source_uid = native_to_uid.get(source_native) if source_native is not None else None
+        target_uid = native_to_uid.get(target_native) if target_native is not None else None
+        if source_uid is None or target_uid is None:
+            continue
+        target_node = _scope_node_for_uid(original_scope, target_uid)
+        input_name = (
+            _socket_name_at(target_node, "input", parts[4])
+            if target_node is not None
+            else None
+        )
+        if input_name is not None:
+            endpoint_sources[(target_uid, input_name)] = (
+                source_uid,
+                scope_path,
+                parts[2],
+            )
+
+    for op in scope_ops:
+        if isinstance(op, UpsertLinkOp):
+            if op.target.scope_path == scope_path:
+                inputs.add(str(op.target.input_field))
+                previous = endpoint_sources.get(
+                    (op.target.uid, str(op.target.input_field))
+                )
+                if previous is not None:
+                    previous_uid, previous_scope, previous_slot = previous
+                    if previous_scope == scope_path and previous_uid == uid:
+                        outputs.add(previous_slot)
+                endpoint_sources[(op.target.uid, str(op.target.input_field))] = (
+                    op.source.uid,
+                    op.source.scope_path,
+                    op.source.output_slot,
+                )
+            if op.source.scope_path == scope_path and op.source.uid == uid:
+                outputs.add(op.source.output_slot)
+            if op.target.scope_path == scope_path and op.target.uid == uid:
+                inputs.add(str(op.target.input_field))
+            continue
+        if not isinstance(op, RemoveLinkOp) or op.target is None:
+            continue
+        target_key = (op.target.uid, str(op.target.input_field))
+        if op.target.scope_path == scope_path and op.target.uid == uid:
+            inputs.add(str(op.target.input_field))
+        source = endpoint_sources.pop(target_key, None)
+        if source is not None:
+            source_uid, source_scope, source_slot = source
+            if source_scope == scope_path and source_uid == uid:
+                outputs.add(source_slot)
+    return inputs, outputs
+
+
+def _topology_removed_inputs(
+    scope_path: str,
+    uid: str,
+    scope_ops: Sequence[EditOp],
+) -> set[str]:
+    state: dict[tuple[str, str], bool] = {}
+    for op in scope_ops:
+        if isinstance(op, UpsertLinkOp) and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.input_field))] = True
+        elif isinstance(op, RemoveLinkOp) and op.target is not None and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.input_field))] = False
+    return {
+        input_name
+        for (target_uid, input_name), present in state.items()
+        if target_uid == uid and not present
+    }
+
+
+def _topology_allowed_ui_paths(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+) -> set[str]:
+    """Return exact socket paths, never an entire inputs/outputs array."""
+    allowed: set[str] = set()
+    original_inputs = original_node.get("inputs")
+    if isinstance(original_inputs, list):
+        for index, socket in enumerate(original_inputs):
+            if isinstance(socket, Mapping) and str(socket.get("name")) in input_names:
+                allowed.add(f"inputs[{index}].link")
+                # Emitters commonly omit a linked input record after removal.
+                if (
+                    isinstance(candidate_node.get("inputs"), list)
+                    and not any(
+                        isinstance(candidate, Mapping)
+                        and candidate.get("name") == socket.get("name")
+                        for candidate in candidate_node["inputs"]
+                    )
+                ):
+                    allowed.add(f"inputs[{index}]")
+    original_outputs = original_node.get("outputs")
+    if isinstance(original_outputs, list):
+        for index, socket in enumerate(original_outputs):
+            if not isinstance(socket, Mapping):
+                continue
+            name = socket.get("name")
+            slot_index = socket.get("slot_index", index)
+            if any(
+                ref == name or (type(ref) is int and ref == slot_index)
+                for ref in output_refs
+            ):
+                allowed.add(f"outputs[{index}].links")
+    return allowed
+
+
+def _merge_topology_sockets(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+    removed_input_names: set[str] | None = None,
+    candidate_links: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    """Apply only owned link values while preserving socket presentation."""
+    merged = deepcopy(dict(original_node))
+    removed_input_names = removed_input_names or set()
+    candidate_link_parts = [
+        parts
+        for link in candidate_links or ()
+        for parts in [_raw_link_parts(link)]
+        if parts is not None
+    ]
+    native_id = _native_node_id(original_node)
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    if isinstance(original_inputs, list) and isinstance(candidate_inputs, list):
+        candidates = {
+            str(item.get("name")): item
+            for item in candidate_inputs
+            if isinstance(item, Mapping) and item.get("name") is not None
+        }
+        inputs: list[Any] = []
+        for original in original_inputs:
+            name = _socket_name(original)
+            candidate = candidates.get(name or "")
+            if name in input_names:
+                if name in removed_input_names and _socket_link_value(original) is not None:
+                    # A later SetNodeField may reconstruct the stale captured
+                    # link record after RemoveLink; the folded topology is
+                    # authoritative and the removal must survive pinning.
+                    continue
+                if candidate is None and _socket_link_value(original) is not None:
+                    # Canonical remove projection: linked socket record gone.
+                    continue
+                current = deepcopy(original)
+                input_index = next(
+                    (
+                        index
+                        for index, item in enumerate(original_inputs)
+                        if item is original
+                    ),
+                    None,
+                )
+                candidate_target_links = (
+                    [
+                        parts[0]
+                        for parts in candidate_link_parts
+                        if native_id is not None
+                        and _canonical_native_int(parts[3]) == native_id
+                        and input_index is not None
+                        and _canonical_native_int(parts[4]) == input_index
+                    ]
+                    if candidate_links is not None
+                    else []
+                )
+                if candidate_links is not None:
+                    if candidate_target_links:
+                        current["link"] = candidate_target_links[-1]
+                    elif _socket_link_value(original) is not None:
+                        continue
+                    else:
+                        current["link"] = None
+                elif isinstance(candidate, Mapping) and "link" in candidate:
+                    current["link"] = deepcopy(candidate["link"])
+                elif candidate is None:
+                    current["link"] = None
+                inputs.append(current)
+            else:
+                inputs.append(deepcopy(original))
+        original_names = {
+            _socket_name(item) for item in original_inputs if _socket_name(item)
+        }
+        for candidate in candidate_inputs:
+            name = _socket_name(candidate)
+            if name in input_names and name not in original_names:
+                if _socket_link_value(candidate) is not None:
+                    inputs.append(deepcopy(candidate))
+        merged["inputs"] = inputs
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        by_ref: dict[str | int, Mapping[str, Any]] = {}
+        for index, socket in enumerate(candidate_outputs):
+            if not isinstance(socket, Mapping):
+                continue
+            by_ref.setdefault(socket.get("name"), socket)
+            by_ref.setdefault(index, socket)
+            by_ref.setdefault(socket.get("slot_index", index), socket)
+        outputs: list[Any] = []
+        for index, original in enumerate(original_outputs):
+            if not isinstance(original, Mapping):
+                outputs.append(deepcopy(original))
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            current = deepcopy(original)
+            if ref in output_refs or slot_index in output_refs or index in output_refs:
+                candidate = by_ref.get(ref) or by_ref.get(slot_index) or by_ref.get(index)
+                output_link_ids = (
+                    [
+                        parts[0]
+                        for parts in candidate_link_parts
+                        if native_id is not None
+                        and _canonical_native_int(parts[1]) == native_id
+                        and (
+                            _canonical_native_int(parts[2]) == slot_index
+                            or _canonical_native_int(parts[2]) == index
+                        )
+                    ]
+                    if candidate_links is not None
+                    else None
+                )
+                if candidate_links is not None:
+                    current["links"] = output_link_ids or []
+                elif isinstance(candidate, Mapping) and "links" in candidate:
+                    current["links"] = deepcopy(candidate["links"])
+            outputs.append(current)
+        merged["outputs"] = outputs
+    return merged
+
+
+def _topology_socket_changes_exact(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+) -> bool:
+    """Check topology arrays by socket identity, not positional list diffs."""
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    if isinstance(original_inputs, list) and isinstance(candidate_inputs, list):
+        candidate_by_name = {
+            _socket_name(item): item
+            for item in candidate_inputs
+            if _socket_name(item) is not None
+        }
+        original_names = {
+            _socket_name(item) for item in original_inputs if _socket_name(item) is not None
+        }
+        if len(candidate_by_name) != len(
+            [item for item in candidate_inputs if _socket_name(item) is not None]
+        ):
+            return False
+        for original in original_inputs:
+            name = _socket_name(original)
+            candidate = candidate_by_name.get(name)
+            if name in input_names:
+                if candidate is None:
+                    if _socket_link_value(original) is None:
+                        return False
+                    continue
+                left = dict(original) if isinstance(original, Mapping) else {}
+                right = dict(candidate) if isinstance(candidate, Mapping) else {}
+                left.pop("link", None)
+                right.pop("link", None)
+                if left != right:
+                    return False
+            elif candidate != original:
+                return False
+        for name, candidate in candidate_by_name.items():
+            if name not in original_names:
+                if name not in input_names or _socket_link_value(candidate) is None:
+                    return False
+    elif original_inputs != candidate_inputs:
+        return False
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        if len(original_outputs) != len(candidate_outputs):
+            return False
+        for index, (original, candidate) in enumerate(zip(original_outputs, candidate_outputs)):
+            if not isinstance(original, Mapping) or not isinstance(candidate, Mapping):
+                if original != candidate:
+                    return False
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            owned = ref in output_refs or slot_index in output_refs or index in output_refs
+            if not owned:
+                if candidate != original:
+                    return False
+                continue
+            left = dict(original)
+            right = dict(candidate)
+            left.pop("links", None)
+            right.pop("links", None)
+            if left != right:
+                return False
+    elif original_outputs != candidate_outputs:
+        return False
+    return True
+
+
 def _merge_set_field_input_sockets(
     original_inputs: Sequence[Any],
     candidate_inputs: Sequence[Any],
@@ -6269,10 +6622,29 @@ def pin_untouched_ui(
     pinned = deepcopy(dict(candidate_ui))
     original_nodes = _index_nodes(original_ui)
     original_scopes = dict(_iter_scopes(original_ui))
+    # RemoveLinkOp names only the target; include its inferred source node in
+    # the pin set so the exact source output link can be carried forward.
+    for scope_path, scope_ops in attribution["link_ops_by_scope"].items():
+        original_scope = original_scopes.get(scope_path)
+        if not isinstance(original_scope, Mapping):
+            continue
+        for node in original_scope.get("nodes") or ():
+            if not isinstance(node, Mapping):
+                continue
+            uid = _node_uid(node)
+            if uid is None:
+                continue
+            input_refs, output_refs = _topology_owned_refs(
+                scope_path, uid, tuple(scope_ops), original_scope
+            )
+            if input_refs or output_refs:
+                attributed_nodes.add((scope_path, uid))
     for scope_path, scope in _iter_scopes(pinned):
         if not isinstance(scope, dict):
             continue
         nodes = scope.get("nodes")
+        scope_ops = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        original_scope_for_topology = original_scopes.get(scope_path)
         if isinstance(nodes, list):
             for index, node in enumerate(nodes):
                 if not isinstance(node, Mapping):
@@ -6289,6 +6661,22 @@ def pin_untouched_ui(
                     merged = deepcopy(dict(original_node))
                     set_fields = attribution["set_node_fields"].get(key, set())
                     topology_input_fields = attribution["topology_input_fields"].get(key, set())
+                    topology_output_refs = attribution["topology_output_refs"].get(key, set())
+                    resolved_inputs: set[str] = set(topology_input_fields)
+                    resolved_outputs: set[str | int] = set(topology_output_refs)
+                    removed_input_names: set[str] = set()
+                    if isinstance(original_scope_for_topology, Mapping) and scope_ops:
+                        folded_inputs, folded_outputs = _topology_owned_refs(
+                            scope_path,
+                            uid,
+                            scope_ops,
+                            original_scope_for_topology,
+                        )
+                        resolved_inputs.update(folded_inputs)
+                        resolved_outputs.update(folded_outputs)
+                        removed_input_names = _topology_removed_inputs(
+                            scope_path, uid, scope_ops
+                        )
                     for field in allowed:
                         # A SetNodeField owns only the named literal and the
                         # exact linked endpoint it replaces.  Input socket
@@ -6311,6 +6699,19 @@ def pin_untouched_ui(
                             set_fields,
                             topology_input_fields=topology_input_fields,
                         )
+                    if resolved_inputs or resolved_outputs:
+                        topology_merged = _merge_topology_sockets(
+                            merged,
+                            node,
+                            resolved_inputs,
+                            resolved_outputs,
+                            removed_input_names,
+                            scope.get("links"),
+                        )
+                        if resolved_inputs:
+                            merged["inputs"] = topology_merged.get("inputs", merged.get("inputs"))
+                        if resolved_outputs:
+                            merged["outputs"] = topology_merged.get("outputs", merged.get("outputs"))
                     # A concrete schema witness is emit furniture rather
                     # than an authored property, but a registry-hydrated
                     # candidate must retain it for the authority receipt. Do
@@ -6631,6 +7032,42 @@ def guard_exit_ui(
                     topology_input_fields=attribution["topology_input_fields"].get(
                         key, set()
                     ),
+                )
+            )
+        topology_inputs = set(attribution["topology_input_fields"].get(key, set()))
+        topology_outputs = set(attribution["topology_output_refs"].get(key, set()))
+        scope_ops_for_node = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        original_scope_for_node = original_scopes.get(scope_path)
+        if isinstance(original_scope_for_node, Mapping) and scope_ops_for_node:
+            folded_inputs, folded_outputs = _topology_owned_refs(
+                scope_path,
+                uid,
+                scope_ops_for_node,
+                original_scope_for_node,
+            )
+            topology_inputs.update(folded_inputs)
+            topology_outputs.update(folded_outputs)
+        if topology_inputs or topology_outputs:
+            if _topology_socket_changes_exact(
+                original_node,
+                candidate_node,
+                topology_inputs,
+                topology_outputs,
+            ):
+                diffs = [
+                    path
+                    for path in diffs
+                    if not path == "inputs"
+                    and not path.startswith("inputs[")
+                    and not path == "outputs"
+                    and not path.startswith("outputs[")
+                ]
+            allowed_paths.update(
+                _topology_allowed_ui_paths(
+                    original_node,
+                    candidate_node,
+                    topology_inputs,
+                    topology_outputs,
                 )
             )
         if _all_diffs_op_allowed(diffs, allowed_paths):

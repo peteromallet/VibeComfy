@@ -1849,6 +1849,12 @@ def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner
         session_root=tmp_path,
     )
 
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
     _assert_product_failure_contract(
         result,
         failure_kind=FailureKind.MODEL_MISTAKE.value,
@@ -8444,9 +8450,8 @@ def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
         if stage["stage"] == "queue_validate"
     )
     assert queue_stage["ok"] is True
-    # The current recovery report omits untouched schema-less nodes that carry
-    # no changed surface; queue validation therefore has no warning entries.
-    assert queue_stage["issues"] == []
+    assert len(queue_stage["issues"]) == 3
+    assert {issue["severity"] for issue in queue_stage["issues"]} == {"warning"}
     assert result["gates"]["queue_validate_ok"] is True
     assert result["queue_allowed"] is True
 
@@ -21287,7 +21292,7 @@ def test_admit_operation_provisional_add_survives_for_schema_known_classes() -> 
     snapshot = capture_schema_snapshot(
         class_types=["LoadImage", "SaveImage"],
         connected_object_info={
-            "LoadImage": {"input": {}, "output": ["IMAGE"]},
+            "LoadImage": {"input": {}, "output": ["IMAGE", "MASK"]},
             "SaveImage": {"input": {}, "output": []},
         },
         connected_object_info_verified=True,
@@ -21917,3 +21922,160 @@ def test_successful_turn_does_not_write_failure_evidence_artifact(
     assert (turn_dir / "model_response.json").is_file()
     assert (turn_dir / "messages.jsonl").is_file()
     assert not (turn_dir / BATCH_FAILURE_EVIDENCE_FILENAME).exists()
+
+
+def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> None:
+    """A rewire owns both source output link lists and the target link only."""
+    from vibecomfy.porting.edit.ops import (
+        LinkSourceRef,
+        LinkTargetRef,
+        RemoveLinkOp,
+        UpsertLinkOp,
+    )
+    from vibecomfy.porting.emit.ui import guard_exit_ui
+
+    original = {
+        "last_node_id": 3,
+        "last_link_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "OldSource",
+                "properties": {"vibecomfy_uid": "old"},
+                "inputs": [],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": [2]},
+                    {"name": "OTHER", "type": "MASK", "links": []},
+                ],
+            },
+            {
+                "id": 2,
+                "type": "NewSource",
+                "properties": {"vibecomfy_uid": "new"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+            },
+            {
+                "id": 3,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 2}],
+                "outputs": [],
+            },
+        ],
+        "links": [[2, 1, 0, 3, 0, "IMAGE"]],
+    }
+    candidate = _json_clone(original)
+    candidate["last_link_id"] = 3
+    candidate["links"] = [[3, 2, 0, 3, 0, "IMAGE"]]
+    candidate["nodes"][0]["outputs"][0]["links"] = []
+    candidate["nodes"][1]["outputs"][0]["links"] = [3]
+    candidate["nodes"][2]["inputs"][0]["link"] = 3
+    op = UpsertLinkOp(
+        op="upsert_link",
+        source=LinkSourceRef("", "new", "IMAGE"),
+        target=LinkTargetRef("", "target", "image"),
+    )
+    accepted = guard_exit_ui(original, candidate, (op,))
+    assert accepted.ok is True, accepted.diagnostics
+
+    drifted = _json_clone(candidate)
+    drifted["nodes"][0]["outputs"][1]["type"] = "STRING"
+    drifted["nodes"][2]["inputs"][0]["type"] = "MASK"
+    rejected = guard_exit_ui(original, drifted, (op,))
+    assert rejected.ok is False
+    assert all(
+        issue.code == "full_ui_node_changed_unattributed"
+        for issue in rejected.diagnostics
+    )
+
+    remove = RemoveLinkOp(
+        op="remove_link",
+        link_id=None,
+        target=LinkTargetRef("", "target", "image"),
+    )
+    final = _json_clone(original)
+    final["last_link_id"] = 0
+    final["links"] = []
+    final["nodes"][0]["outputs"][0]["links"] = []
+    final["nodes"][1]["outputs"][0]["links"] = []
+    final["nodes"][2]["inputs"] = []
+    folded = guard_exit_ui(
+        original,
+        final,
+        (
+            remove,
+            UpsertLinkOp(
+                op="upsert_link",
+                source=LinkSourceRef("", "new", "IMAGE"),
+                target=LinkTargetRef("", "target", "image"),
+            ),
+            remove,
+        ),
+    )
+    assert folded.ok is True, folded.diagnostics
+
+
+def test_remove_then_set_field_does_not_repin_removed_link() -> None:
+    """Cumulative topology + field edits retain the candidate removal."""
+    from vibecomfy.porting.edit.ops import (
+        LinkTargetRef,
+        NodeFieldTarget,
+        RemoveLinkOp,
+        SetNodeFieldOp,
+    )
+    from vibecomfy.porting.emit.ui import guard_exit_ui, pin_untouched_ui
+
+    original = {
+        "last_node_id": 2,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "source"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}],
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                "widgets_values": ["before"],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+    }
+    ops = (
+        RemoveLinkOp(
+            op="remove_link",
+            link_id=None,
+            target=LinkTargetRef("", "target", "image"),
+        ),
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "target", "widgets_values[0]"),
+            value="after",
+        ),
+    )
+    candidate = _json_clone(original)
+    candidate["last_link_id"] = 0
+    candidate["links"] = []
+    candidate["nodes"][0]["outputs"][0]["links"] = []
+    # Reconstructive field emission may still carry the stale input record;
+    # pinning must follow the folded removal, not this stale presentation.
+    candidate["nodes"][1]["widgets_values"] = ["after"]
+    pinned = pin_untouched_ui(original, candidate, ops)
+    target = next(node for node in pinned["nodes"] if node["id"] == 2)
+    assert target["inputs"] == []
+    assert pinned["links"] == []
+    assert all(
+        1 not in (socket.get("links") or [])
+        for node in pinned["nodes"]
+        for socket in node.get("outputs") or []
+        if isinstance(socket, dict)
+    )
+    checked = guard_exit_ui(original, pinned, ops)
+    assert checked.ok is True, checked.diagnostics

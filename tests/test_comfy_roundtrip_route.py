@@ -464,7 +464,14 @@ def test_exec_emit_rebuilds_raw_ui_generic_port_pool_from_widgets_io() -> None:
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
     raw_ui = {
         "nodes": [
-            {"id": 2, "type": "LoadImage", "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}]},
+            {
+                "id": 2,
+                "type": "LoadImage",
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0},
+                    {"name": "MASK", "type": "MASK", "links": [], "slot_index": 1},
+                ],
+            },
             {
                 "id": 1,
                 "type": "vibecomfy.exec",
