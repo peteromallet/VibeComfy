@@ -2140,6 +2140,30 @@ def test_public_outcome_kinds_are_the_closed_contract_set() -> None:
     assert len(set(PUBLIC_OUTCOME_KINDS)) == 6
 
 
+def test_public_candidate_envelope_carries_bundle_revision_lineage() -> None:
+    revision_id = "a" * 64
+    parent_revision = "b" * 64
+    projected = ensure_agent_edit_response_contract(
+        {
+            "ok": True,
+            "session_id": "sess-1",
+            "turn_id": "0001",
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate": {
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
+            },
+        },
+        stage="submit",
+    )
+    assert projected["revision_id"] == revision_id
+    assert projected["parent_revision"] == parent_revision
+    assert projected["candidate"]["revision_id"] == revision_id
+    assert projected["candidate"]["parent_revision"] == parent_revision
+
+
 def test_internal_to_public_outcome_is_closed_authoritative_mapping() -> None:
     """Every internal kind has one declared public default; budget defaults to
     noop and is promoted only when a candidate payload exists."""

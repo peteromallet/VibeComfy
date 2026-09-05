@@ -172,6 +172,7 @@ def _journal_prepare(
     run_dir: Path,
     run_id: str,
     record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     evidence: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
     from vibecomfy.comfy_nodes.agent import _session_transaction_journal as journal
@@ -182,11 +183,15 @@ def _journal_prepare(
         turn_dir=run_dir,
         turn_id=run_id,
         plan_hash=record.api_digest,
+        revision_id=record.revision_id,
+        parent_revision=bundle.parent_revision,
         lease_nonce=run_id,
         structural_hash_before=None,
         candidate_payload=None,
         runtime_evidence=evidence,
     )
+    state["revision_id"] = record.revision_id
+    state["parent_revision"] = bundle.parent_revision
     return state, int(event["generation"])
 
 
@@ -208,6 +213,8 @@ def _journal_terminal(
         "turn_dir": run_dir,
         "turn_id": run_id,
         "plan_hash": record.api_digest,
+        "revision_id": record.revision_id,
+        "parent_revision": state.get("parent_revision"),
         "generation": generation,
         "runtime_evidence": evidence,
     }
@@ -489,7 +496,7 @@ def _begin_runtime_lifecycle(
     attempt_bundle = _initial_attempt_bundle(record, evidence)
     try:
         write_attempt_json(run_dir, attempt_bundle)
-        state, generation = _journal_prepare(run_dir, run_id, record, evidence)
+        state, generation = _journal_prepare(run_dir, run_id, record, bundle, evidence)
     except Exception as exc:
         raise QueueError(
             "runtime approval lifecycle could not be persisted before queueing; "

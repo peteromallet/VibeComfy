@@ -1934,6 +1934,8 @@ def _valid_candidate_transaction() -> dict:
         session_id="session",
         turn_id="0001",
         plan_hash="plan",
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=[],
@@ -1948,6 +1950,15 @@ def _valid_candidate_transaction() -> dict:
         candidate_matches=True,
         applyable=True,
         verification_kind="delta_replay",
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
 
 

@@ -33,6 +33,12 @@ from vibecomfy.porting.edit.ops import EditOpParseError, normalize_delta_v1
 
 CORPUS = json.loads((Path(__file__).parent / "fixtures/agent_edit/m1_projection_golden_v1.json").read_text())
 UUID = "123e4567-e89b-12d3-a456-426614174000"
+REVISION_ID = "a" * 64
+PARENT_REVISION = ""
+
+
+def _bundle_metadata() -> dict[str, object]:
+    return {"revision_id": REVISION_ID, "parent_revision": PARENT_REVISION, "workflow_identity": UUID, "python_path": "/tmp/candidate.py", "semantic_digest": "b" * 64, "sidecar_state": "present", "ui_digest": "c" * 64, "sidecar_path": "/tmp/candidate.vibe.json"}
 
 
 def _baseline_ref_restoration() -> dict[str, object]:
@@ -98,6 +104,7 @@ def _authority(*, family: str = "structural") -> dict[str, object]:
     value: dict[str, object] = {
         "contract_version": PREPARED_AUTHORITY_V1,
         "transaction_id": "tx-1", "candidate_id": "candidate-1", "workflow_id": UUID,
+        "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
         "scope": {"kind": "root", "path": ""}, "session_id": "session-1", "turn_id": "turn-1",
         "operation": operation,
         "operation_family": family, "precondition": _ref(projection), "postcondition": _ref(projection),
@@ -338,8 +345,10 @@ def test_delta_v1_and_prepared_authority_are_strict_and_immutable() -> None:
     assert validate_candidate_transaction_v2({
         "contract_version": CANDIDATE_TRANSACTION_V2,
         "state": "prepared",
+        "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "bundle": _bundle_metadata(),
         "plan": _tx_plan(),
     })
     with pytest.raises(ContractError) as caught:
@@ -457,8 +466,9 @@ def test_layout_undo_and_legacy_policies_fail_closed() -> None:
         "contract_version": "journal_durable_v1",
         "state": "finalized",
         "workflow_id": UUID,
+        "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
         "baseline": {"structural_hash_before": "a" * 64, "structural_hash_after": "b" * 64},
-        "identity_fence": {"transaction_id": "tx", "candidate_id": "candidate", "plan_hash": "plan", "generation": 1, "lease_nonce": "nonce"},
+        "identity_fence": {"transaction_id": "tx", "candidate_id": "candidate", "plan_hash": "plan", "generation": 1, "lease_nonce": "nonce", "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION},
         "inverse_or_restore": {"contract_version": "inverse_delta_v1", "digest": "c" * 64, "payload": []},
     })
 
@@ -510,7 +520,9 @@ def test_candidate_authority_rejects_compensation():
         validate_candidate_transaction_v2({
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "candidate_ready",
+            "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
             "candidate_authority": candidate,
+            "bundle": _bundle_metadata(),
             "plan": _tx_plan(),
         })
     assert caught.value.code == "candidate_compensation_forbidden"
@@ -526,7 +538,9 @@ def test_candidate_authority_rejects_null_compensation():
         validate_candidate_transaction_v2({
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "candidate_ready",
+            "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
             "candidate_authority": candidate,
+            "bundle": _bundle_metadata(),
             "plan": _tx_plan(),
         })
     assert caught.value.code == "candidate_compensation_forbidden"
@@ -539,8 +553,10 @@ def test_prepared_authority_without_compensation_is_valid():
     assert validate_candidate_transaction_v2({
         "contract_version": CANDIDATE_TRANSACTION_V2,
         "state": "prepared",
+        "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "bundle": _bundle_metadata(),
         "plan": _tx_plan(),
     })
 
@@ -553,8 +569,10 @@ def test_prepared_authority_with_valid_compensation_is_valid():
     assert validate_candidate_transaction_v2({
         "contract_version": CANDIDATE_TRANSACTION_V2,
         "state": "prepared",
+        "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
         "candidate_authority": candidate,
         "prepared_authority": prepared,
+        "bundle": _bundle_metadata(),
         "plan": _tx_plan(),
     })
 
@@ -570,8 +588,10 @@ def test_prepared_authority_compensation_fence_unbound():
         validate_candidate_transaction_v2({
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "prepared",
+            "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "bundle": _bundle_metadata(),
             "plan": _tx_plan(),
         })
     assert caught.value.code == "compensation_fence_unbound"
@@ -586,8 +606,10 @@ def test_prepared_authority_compensation_digest_mismatch():
         validate_candidate_transaction_v2({
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "prepared",
+            "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "bundle": _bundle_metadata(),
             "plan": _tx_plan(),
         })
     assert caught.value.code == "compensation_digest_mismatch"
@@ -604,8 +626,10 @@ def test_prepared_authority_malformed_compensation():
         validate_candidate_transaction_v2({
             "contract_version": CANDIDATE_TRANSACTION_V2,
             "state": "prepared",
+            "revision_id": REVISION_ID, "parent_revision": PARENT_REVISION,
             "candidate_authority": candidate,
             "prepared_authority": prepared,
+            "bundle": _bundle_metadata(),
             "plan": _tx_plan(),
         })
     assert caught.value.code == "malformed_restoration_compensation"

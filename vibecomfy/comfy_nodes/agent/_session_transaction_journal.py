@@ -69,14 +69,21 @@ def record_prepared_transaction_impl(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     lease_nonce: str,
     structural_hash_before: str | None,
     candidate_payload: Mapping[str, Any] | None = None,
     baseline_snapshot: Mapping[str, Any] | None = None,
     runtime_evidence: Mapping[str, Any] | None = None,
+    bundle_digests: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
+
+    from .projection_registry_v1 import revision_identity_v1
+
+    revision_identity_v1(revision_id, parent_revision)
 
     generation = host.allocate_generation(state)
     transaction_dir = host.transaction_dir_for(turn_dir, plan_hash)
@@ -94,11 +101,20 @@ def record_prepared_transaction_impl(
         ok, error = validate_candidate_transaction(prepared_candidate)
         if not ok:
             raise ValueError(error or "invalid_prepared_candidate_transaction")
+        authority = prepared_candidate.get("prepared_authority")
+        if (
+            not isinstance(authority, Mapping)
+            or authority.get("revision_id") != revision_id
+            or authority.get("parent_revision") != parent_revision
+        ):
+            raise ValueError("prepared candidate revision identity mismatch")
     elif candidate_payload:
         prepared_candidate = dict(candidate_payload)
     receipt: dict[str, Any] = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "generation": generation,
         "lease_nonce": lease_nonce,
         "structural_hash_before": structural_hash_before,
@@ -107,6 +123,17 @@ def record_prepared_transaction_impl(
         "candidate_transaction": prepared_candidate,
         "phase": "prepared",
     }
+    if bundle_digests is not None:
+        receipt["bundle"] = {
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
+            **{
+                str(key): value
+                for key, value in bundle_digests.items()
+                if str(key) in {"semantic_digest", "ui_digest"}
+                and isinstance(value, str)
+            },
+        }
     if runtime_evidence is not None:
         receipt["runtime_evidence"] = dict(runtime_evidence)
     event = host._append_transaction_lifecycle_event(
@@ -124,6 +151,8 @@ def record_prepared_transaction_impl(
         "generation": generation,
         "lease_nonce": lease_nonce,
         "structural_hash_before": structural_hash_before,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "timestamp": event["timestamp"],
     }
     return event
@@ -162,6 +191,8 @@ def record_resolved_transaction_impl(
             "turn_id": turn_id,
             "plan_hash": plan_hash,
             "generation": generation,
+            "revision_id": receipt.get("revision_id"),
+            "parent_revision": receipt.get("parent_revision"),
             "phase": event_type,
             "receipt_path": host._PHASE_TO_RECEIPT_NAME.get(event_type),
             "timestamp": event["timestamp"],
@@ -176,18 +207,27 @@ def record_finalized_transaction_impl(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     structural_hash_after: str | None,
     applied_payload: Mapping[str, Any] | None = None,
     journal_durable: Mapping[str, Any] | None = None,
     runtime_evidence: Mapping[str, Any] | None = None,
+    approval_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     from . import session as host
 
+    from .projection_registry_v1 import revision_identity_v1
+
+    revision_identity_v1(revision_id, parent_revision)
+
     receipt: dict[str, Any] = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "generation": generation,
         "structural_hash_after": structural_hash_after,
         "applied": dict(applied_payload) if applied_payload else {},
@@ -208,6 +248,20 @@ def record_finalized_transaction_impl(
         receipt["journal_durable"] = _plain_json(validated_journal)
     if runtime_evidence is not None:
         receipt["runtime_evidence"] = dict(runtime_evidence)
+    if approval_evidence is not None:
+        allowed = {
+            "revision_id",
+            "parent_revision",
+            "semantic_digest",
+            "ui_digest",
+            "api_digest",
+            "record_digest",
+        }
+        receipt["approval"] = {
+            str(key): value
+            for key, value in approval_evidence.items()
+            if str(key) in allowed and isinstance(value, str)
+        }
     return host._record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
@@ -225,6 +279,8 @@ def record_canvas_verified_transaction_impl(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     lease_nonce: str,
     post_apply_graph_hash: str,
@@ -234,9 +290,15 @@ def record_canvas_verified_transaction_impl(
 ) -> dict[str, Any]:
     from . import session as host
 
+    from .projection_registry_v1 import revision_identity_v1
+
+    revision_identity_v1(revision_id, parent_revision)
+
     receipt = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "generation": generation,
         "lease_nonce": lease_nonce,
         "post_apply_graph_hash": post_apply_graph_hash,
@@ -272,6 +334,8 @@ def record_rolled_back_transaction_impl(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     restored_structural_hash: str | None,
     compensation: Mapping[str, Any] | None = None,
@@ -279,9 +343,15 @@ def record_rolled_back_transaction_impl(
 ) -> dict[str, Any]:
     from . import session as host
 
+    from .projection_registry_v1 import revision_identity_v1
+
+    revision_identity_v1(revision_id, parent_revision)
+
     receipt: dict[str, Any] = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "generation": generation,
         "restored_structural_hash": restored_structural_hash,
         "phase": "rollback_complete",
@@ -372,6 +442,8 @@ def record_discarded_transaction_impl(
 def normalize_prepared_transactions_index_impl(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         return {}
+    from .projection_registry_v1 import ContractError, revision_identity_v1
+
     result: dict[str, Any] = {}
     for turn_id, entry in raw.items():
         if not isinstance(turn_id, str) or not turn_id or not isinstance(entry, Mapping):
@@ -382,11 +454,19 @@ def normalize_prepared_transactions_index_impl(raw: Any) -> dict[str, Any]:
             continue
         if not isinstance(generation, int) or generation < 1:
             continue
+        try:
+            revision_id, parent_revision = revision_identity_v1(
+                entry.get("revision_id"), entry.get("parent_revision")
+            )
+        except ContractError:
+            continue
         result[turn_id] = {
             "plan_hash": plan_hash,
             "generation": generation,
             "lease_nonce": entry.get("lease_nonce"),
             "structural_hash_before": entry.get("structural_hash_before"),
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
             "timestamp": entry.get("timestamp"),
         }
     return result

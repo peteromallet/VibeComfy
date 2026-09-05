@@ -45,6 +45,9 @@ from .projection_registry_v1 import (
     ContractError as _RegistryContractError,
     classify_legacy_migration_v1,
     projection_reference_v1,
+    revision_identity_v1,
+    revision_identity_from_mapping,
+    staged_bundle_metadata_v1,
     validate_candidate_transaction_v2,
     validate_prepared_authority_v1,
     workflow_identity_v1,
@@ -803,6 +806,8 @@ def build_candidate_transaction(
     session_id: str,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     submit_graph: Mapping[str, Any],
     candidate_graph: Mapping[str, Any],
     accepted_batch: Sequence[Mapping[str, Any]] | None = None,
@@ -822,6 +827,7 @@ def build_candidate_transaction(
     state: str = "candidate_ready",
     layout_operation_envelope: Mapping[str, Any] | None = None,
     mutation_materialization_envelope: Mapping[str, Any] | None = None,
+    bundle_digests: Mapping[str, Any],
 ) -> dict[str, Any]:
     if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
@@ -836,6 +842,10 @@ def build_candidate_transaction(
     canonical_state = state
     actions = available_actions_for_state(canonical_state) if applyable else ()
     workflow_identity_v1(workflow_id)
+    revision_identity_v1(revision_id, parent_revision)
+    bundle_metadata = staged_bundle_metadata_v1(bundle_digests)
+    if bundle_metadata["workflow_identity"] != workflow_id:
+        raise ValueError("Candidate bundle workflow identity does not match workflow_id.")
     if derived_envelope.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
         raise ValueError("New candidate authority requires delta wire schema 2.0.0.")
     if (
@@ -908,6 +918,8 @@ def build_candidate_transaction(
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "operation": operation,
         "operation_family": family,
         "precondition": precondition,
@@ -932,6 +944,7 @@ def build_candidate_transaction(
             "precondition_digest": structural_pre["digest"],
             "postcondition_digest": structural_post["digest"],
         }
+    revision_identity_from_mapping(candidate_authority, bundle_metadata)
     return {
         "contract_version": CANDIDATE_TRANSACTION_CONTRACT_VERSION,
         "candidate_authority": candidate_authority,
@@ -941,6 +954,9 @@ def build_candidate_transaction(
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
+        "bundle": bundle_metadata,
         "generation": None,
         "lease_nonce": None,
         "plan": {

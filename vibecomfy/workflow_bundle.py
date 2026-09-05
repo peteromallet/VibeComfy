@@ -806,12 +806,21 @@ def _lineage_records(workflow: VibeWorkflow) -> list[Mapping[str, Any]]:
     return records
 
 
-def _resolve_parent(workflow: VibeWorkflow, parent_revision: str) -> str:
+def _resolve_parent(
+    workflow: VibeWorkflow,
+    parent_revision: str,
+    parent_evidence: Mapping[str, Any] | None = None,
+) -> str:
     if not isinstance(parent_revision, str):
         raise WorkflowBundleError("parent_revision must be a revision string")
     if not parent_revision:
         return ""
-    for record in _lineage_records(workflow):
+    records = _lineage_records(workflow)
+    if parent_evidence is not None:
+        if not isinstance(parent_evidence, Mapping):
+            raise WorkflowBundleError("parent evidence must be a mapping")
+        records.append(parent_evidence)
+    for record in records:
         if record.get("revision_id") != parent_revision:
             continue
         identity = record.get("workflow_identity", record.get("workflow_id"))
@@ -977,6 +986,12 @@ def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
         provenance=bundle.provenance,
         operation=operation,
         parent_revision=bundle.parent_revision,
+        parent_evidence={
+            "revision_id": bundle.parent_revision,
+            "workflow_identity": bundle.workflow.id,
+        }
+        if bundle.parent_revision
+        else None,
     )
     if bound_current.revision_id != bundle.revision_id:
         raise WorkflowBundleError("workflow bundle revision is stale; bound provenance changed")
@@ -997,6 +1012,12 @@ def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
         provenance=live_provenance,
         operation=operation,
         parent_revision=bundle.parent_revision,
+        parent_evidence={
+            "revision_id": bundle.parent_revision,
+            "workflow_identity": bundle.workflow.id,
+        }
+        if bundle.parent_revision
+        else None,
     )
     if live_current.revision_id != bundle.revision_id:
         raise WorkflowBundleError("workflow bundle revision is stale; live source provenance differs")
@@ -1374,6 +1395,7 @@ def _make_bundle(
     provenance: Any,
     operation: str,
     parent_revision: str = "",
+    parent_evidence: Mapping[str, Any] | None = None,
 ) -> WorkflowBundle:
     # This ordering is intentional: identity checks precede sidecar checks,
     # semantic digesting, UI digesting, revision creation, and source writes.
@@ -1386,17 +1408,48 @@ def _make_bundle(
     sidecar = validate_sidecar(ui_sidecar, workflow) if ui_sidecar is not None else None
     ui_digest = canonical_digest(sidecar) if sidecar is not None else ""
     filtered = filter_provenance(provenance, default_operation=operation)
-    parent = _resolve_parent(workflow, parent_revision)
+    parent = _resolve_parent(workflow, parent_revision, parent_evidence)
     revision_id = canonical_digest(
         [workflow.id, semantic_digest, ui_digest, filtered, parent]
     )
+    # Keep the lineage needed to reload this exact pair in the generated
+    # Python source provenance.  This is identity evidence only; it is not
+    # executable workflow state and is excluded from the revision digest by
+    # ``filter_provenance``.
+    bound_provenance = dict(filtered)
+    lineage: list[dict[str, Any]] = []
+    for record in _lineage_records(workflow):
+        revision = record.get("revision_id")
+        identity = record.get("workflow_identity", record.get("workflow_id"))
+        if isinstance(revision, str) and isinstance(identity, str):
+            lineage.append({"revision_id": revision, "workflow_identity": identity})
+    if isinstance(parent_evidence, Mapping):
+        lineage.append(
+            {
+                "revision_id": parent_evidence.get("revision_id"),
+                "workflow_identity": parent_evidence.get(
+                    "workflow_identity", parent_evidence.get("workflow_id")
+                ),
+            }
+        )
+    lineage.append({"revision_id": revision_id, "workflow_identity": workflow.id})
+    # Deduplicate while preserving deterministic order.
+    seen_lineage: set[tuple[Any, Any]] = set()
+    bound_provenance["revision_evidence"] = []
+    for record in lineage:
+        key = (record.get("revision_id"), record.get("workflow_identity"))
+        if key in seen_lineage or not all(isinstance(item, str) for item in key):
+            continue
+        seen_lineage.add(key)
+        bound_provenance["revision_evidence"].append(record)
+    bound_provenance["parent_revision"] = parent
     bundle = WorkflowBundle(
         workflow=workflow,
         python_path=python_path,
         ui_sidecar=sidecar,
         semantic_digest=semantic_digest,
         ui_digest=ui_digest,
-        provenance=filtered,
+        provenance=bound_provenance,
         parent_revision=parent,
         revision_id=revision_id,
     )
@@ -1576,12 +1629,19 @@ def load_bundle(
     # check it before any digesting so a registry stem cannot become identity.
     declarations = ({"workflow_identity": declared_identity},) if declared_identity else ()
     _check_identity(workflow, *declarations)
+    loaded_parent = (
+        source_provenance.get("parent_revision", "")
+        if isinstance(source_provenance, Mapping)
+        else ""
+    )
     return _make_bundle(
         workflow,
         python_path=python_path,
         ui_sidecar=sidecar,
         provenance=source_provenance,
         operation=operation,
+        parent_revision=loaded_parent,
+        parent_evidence=None,
     )
 
 
@@ -1738,6 +1798,7 @@ def capture_bundle(
     destination: str | Path,
     provenance: Any,
     parent_revision: str = "",
+    parent_evidence: Mapping[str, Any] | None = None,
 ) -> WorkflowBundle:
     """Convert a captured UI/API graph into a candidate canonical revision."""
     if isinstance(ui_graph, VibeWorkflow):
@@ -1780,6 +1841,7 @@ def capture_bundle(
         provenance,
         candidate,
         parent_revision=parent_revision,
+        parent_evidence=parent_evidence,
         operation="captured",
     )
 
@@ -1791,6 +1853,7 @@ def emit_bundle_with_candidate(
     candidate: Mapping[str, Any] | None,
     *,
     parent_revision: str = "",
+    parent_evidence: Mapping[str, Any] | None = None,
     operation: str = "authored",
 ) -> WorkflowBundle:
     """Internal shared writer for emit/capture candidate bundles."""
@@ -1803,6 +1866,7 @@ def emit_bundle_with_candidate(
         provenance=provenance,
         operation=operation,
         parent_revision=parent_revision,
+        parent_evidence=parent_evidence,
     )
     from vibecomfy.porting.emit import emit_scratchpad_python
 

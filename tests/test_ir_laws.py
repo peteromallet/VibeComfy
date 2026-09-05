@@ -866,6 +866,8 @@ def test_accepted_batch_is_the_sole_durable_delta() -> None:
         session_id="s",
         turn_id="t",
         plan_hash="p",
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=graph,
         candidate_graph=graph,
         accepted_batch=accepted_batch,
@@ -879,6 +881,15 @@ def test_accepted_batch_is_the_sole_durable_delta() -> None:
         replay_ok=True,
         candidate_matches=True,
         applyable=False,
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
     tx_dump = json.dumps(transaction)
     assert transaction["plan"]["accepted_batch"] == accepted_batch

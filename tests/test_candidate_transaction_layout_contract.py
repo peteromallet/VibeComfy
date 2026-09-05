@@ -10,6 +10,23 @@ from vibecomfy.comfy_nodes.agent.layout_operation_v1 import (
 )
 
 
+REVISION_ID = "a" * 64
+PARENT_REVISION = ""
+WORKFLOW_ID = "123e4567-e89b-12d3-a456-426614174000"
+
+
+def _bundle_metadata():
+    return {
+        "revision_id": REVISION_ID,
+        "parent_revision": PARENT_REVISION,
+        "workflow_identity": WORKFLOW_ID,
+        "python_path": "/tmp/candidate.py",
+        "semantic_digest": "b" * 64,
+        "sidecar_state": "absent",
+        "ui_digest": "",
+    }
+
+
 def _layout_operation_envelope():
     ops = [{"op": "set_node_geometry", "uid": "node-1", "pos": [300, 100]}]
     digest = compute_layout_operation_digest(ops)
@@ -39,10 +56,12 @@ def _transaction(*, layout_verification=None, state="candidate_ready"):
         "nodes": [{**submit_graph["nodes"][0], "pos": [300, 100]}],
     }
     return build_candidate_transaction(
-        workflow_id="123e4567-e89b-12d3-a456-426614174000",
+        workflow_id=WORKFLOW_ID,
         session_id="session",
         turn_id="0001",
         plan_hash="plan",
+        revision_id=REVISION_ID,
+        parent_revision=PARENT_REVISION,
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=[],
@@ -61,6 +80,7 @@ def _transaction(*, layout_verification=None, state="candidate_ready"):
         layout_verification=layout_verification,
         layout_operation_envelope=_layout_operation_envelope(),
         state=state,
+        bundle_digests=_bundle_metadata(),
     )
 
 
@@ -107,6 +127,8 @@ def test_new_candidate_authority_requires_explicit_workflow_uuid_and_receipt_dig
             session_id=transaction["session_id"],
             turn_id=transaction["turn_id"],
             plan_hash=transaction["plan_hash"],
+            revision_id=REVISION_ID,
+            parent_revision=PARENT_REVISION,
             submit_graph=transaction["candidate_authority"]["precondition"]["canonical"],
             candidate_graph=transaction["candidate_authority"]["postcondition"]["canonical"],
             accepted_batch=transaction["plan"]["accepted_batch"],
@@ -120,14 +142,17 @@ def test_new_candidate_authority_requires_explicit_workflow_uuid_and_receipt_dig
             replay_ok=True,
             candidate_matches=True,
             applyable=True,
+            bundle_digests=_bundle_metadata(),
         )
 
     with pytest.raises(ValueError, match="64-hex"):
         build_candidate_transaction(
-            workflow_id="123e4567-e89b-12d3-a456-426614174000",
+            workflow_id=WORKFLOW_ID,
             session_id="session",
             turn_id="0001",
             plan_hash="plan",
+            revision_id=REVISION_ID,
+            parent_revision=PARENT_REVISION,
             submit_graph={"nodes": [], "links": [], "groups": []},
             candidate_graph={"nodes": [], "links": [], "groups": []},
             accepted_batch=[],
@@ -141,4 +166,5 @@ def test_new_candidate_authority_requires_explicit_workflow_uuid_and_receipt_dig
             replay_ok=True,
             candidate_matches=True,
             applyable=True,
+            bundle_digests=_bundle_metadata(),
         )

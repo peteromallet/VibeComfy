@@ -24,6 +24,61 @@ from vibecomfy.comfy_nodes.agent import _session_transaction_journal as J
 from vibecomfy.testing.canonical import canonical_digest
 
 
+REVISION_ID = "a" * 64
+PARENT_REVISION = ""
+
+
+def _journal_identity(kwargs: dict) -> dict:
+    result = dict(kwargs)
+    result.setdefault("revision_id", REVISION_ID)
+    result.setdefault("parent_revision", PARENT_REVISION)
+    durable = result.get("journal_durable")
+    if isinstance(durable, dict):
+        durable = dict(durable)
+        durable.update(revision_id=REVISION_ID, parent_revision=PARENT_REVISION)
+        fence = durable.get("identity_fence")
+        if isinstance(fence, dict):
+            fence = dict(fence)
+            fence.update(revision_id=REVISION_ID, parent_revision=PARENT_REVISION)
+            durable["identity_fence"] = fence
+        result["journal_durable"] = durable
+    return result
+
+
+_record_prepared = S.record_prepared_transaction
+_record_finalized = S.record_finalized_transaction
+_record_rolled_back = S.record_rolled_back_transaction
+_journal_prepared = J.record_prepared_transaction_impl
+_journal_finalized = J.record_finalized_transaction_impl
+
+
+def _prepared(**kwargs):
+    return _record_prepared(**_journal_identity(kwargs))
+
+
+def _finalized(**kwargs):
+    return _record_finalized(**_journal_identity(kwargs))
+
+
+def _rolled_back(**kwargs):
+    return _record_rolled_back(**_journal_identity(kwargs))
+
+
+def _journal_prepare(**kwargs):
+    return _journal_prepared(**_journal_identity(kwargs))
+
+
+def _journal_finalize(**kwargs):
+    return _journal_finalized(**_journal_identity(kwargs))
+
+
+S.record_prepared_transaction = _prepared
+S.record_finalized_transaction = _finalized
+S.record_rolled_back_transaction = _rolled_back
+J.record_prepared_transaction_impl = _journal_prepare
+J.record_finalized_transaction_impl = _journal_finalize
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -104,6 +159,8 @@ def test_prepare_writes_append_only_log_and_receipt_and_index(tmp_path):
         "generation": 1,
         "lease_nonce": "nonce-abc",
         "structural_hash_before": "struct-before",
+        "revision_id": REVISION_ID,
+        "parent_revision": PARENT_REVISION,
         "timestamp": event["timestamp"],
     }
 
@@ -601,7 +658,13 @@ def test_now_fn_is_injected_for_deterministic_timestamps(tmp_path):
 
 def test_normalize_prepared_transactions_drops_invalid_entries():
     raw = {
-        "turn-1": {"plan_hash": "ab", "generation": 1, "lease_nonce": "n"},
+        "turn-1": {
+            "plan_hash": "ab",
+            "generation": 1,
+            "lease_nonce": "n",
+            "revision_id": REVISION_ID,
+            "parent_revision": PARENT_REVISION,
+        },
         "turn-2": {"plan_hash": "cd", "generation": -1},  # bad generation
         "turn-3": {"generation": 1},  # missing plan_hash
         "turn-4": "not-a-dict",

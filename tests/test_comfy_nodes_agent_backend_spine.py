@@ -12472,7 +12472,6 @@ def _setup_v2_session_with_candidate(
         request_payload=request,
     )
     turn_id = str(allocation.context.turn_id)
-    (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
 
     submit_structural_hash = structural_graph_hash(request["graph"])
     envelope = {
@@ -12512,6 +12511,20 @@ def _setup_v2_session_with_candidate(
         structural_hash_before=submit_structural_hash,
         structural_hash_after=structural_hash,
     )
+    from vibecomfy.comfy_nodes.agent.session import _resolve_stable_workflow_id
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    workflow_id = _resolve_stable_workflow_id(
+        request, request.get("scope_metadata"), session_id, request["graph"]
+    )
+    seed_graph = dict(candidate_graph)
+    seed_graph["workflow_id"] = workflow_id
+    seed = capture_bundle(seed_graph, allocation.turn_dir / "seed.py", {"operation": "captured"})
+    (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
+    (allocation.turn_dir / "seed.vibe.json").unlink(missing_ok=True)
+    request["revision_id"] = seed.revision_id
+    request["parent_revision"] = ""
+    (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
 
     immediate_response = {
         "ok": True,
@@ -12598,6 +12611,11 @@ def prepare_turn_transaction(**kwargs):
         )
     except (OSError, KeyError, TypeError, ValueError):
         pass
+    transaction = json.loads(
+        (Path(kwargs["session_root"]) / str(kwargs["session_id"]) / "turns" / str(kwargs["turn_id"]) / "response.json").read_text(encoding="utf-8")
+    )["candidate_transaction"]
+    payload.setdefault("revision_id", transaction["revision_id"])
+    payload.setdefault("parent_revision", transaction["parent_revision"])
     return _prepare_turn_transaction(**{**kwargs, "request_payload": payload})
 
 
@@ -12616,6 +12634,11 @@ def finalize_turn_transaction(**kwargs):
         )
     except (OSError, KeyError, TypeError, ValueError):
         pass
+    transaction = json.loads(
+        (Path(kwargs["session_root"]) / str(kwargs["session_id"]) / "turns" / str(kwargs["turn_id"]) / "response.json").read_text(encoding="utf-8")
+    )["candidate_transaction"]
+    payload.setdefault("revision_id", transaction["revision_id"])
+    payload.setdefault("parent_revision", transaction["parent_revision"])
     return _finalize_turn_transaction(**{**kwargs, "request_payload": payload})
 
 
@@ -14399,6 +14422,8 @@ def _persist_false_replay_pair(tmp_path, *, session_id="sess-fix3f"):
         session_id=session_id,
         turn_id="0001",
         plan_hash=plan_hash,
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=[{"op": op} for op in envelope["ops"]],
@@ -14413,6 +14438,15 @@ def _persist_false_replay_pair(tmp_path, *, session_id="sess-fix3f"):
         # The tamper under test: ONLY the transaction copies claim success.
         candidate_matches=True,
         applyable=True,
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
     turn_dir = turn_dir_for(session_dir_for(tmp_path / "sessions", session_id), session_id, "0001")
     turn_dir.mkdir(parents=True, exist_ok=True)
@@ -14633,6 +14667,8 @@ def _fix2_production_receipt_and_transaction(seed_value=16.0):
         session_id="s-fix4",
         turn_id="0001",
         plan_hash=plan_hash,
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=[{"op": op} for op in envelope["ops"]],
@@ -14647,6 +14683,15 @@ def _fix2_production_receipt_and_transaction(seed_value=16.0):
         replay_ok=receipt.replay.replay_ok,
         candidate_matches=receipt.replay.candidate_matches,
         applyable=True,
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
     return receipt, transaction
 

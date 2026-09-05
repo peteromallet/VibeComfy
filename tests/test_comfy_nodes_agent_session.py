@@ -27,6 +27,47 @@ from vibecomfy.schema import (
 )
 
 
+_REVISION_ID = "a" * 64
+_PARENT_REVISION = ""
+_record_prepared = S.record_prepared_transaction
+_record_finalized = S.record_finalized_transaction
+_record_rolled_back = S.record_rolled_back_transaction
+
+
+def _record_with_identity(fn, kwargs):
+    payload = dict(kwargs)
+    payload.setdefault("revision_id", _REVISION_ID)
+    payload.setdefault("parent_revision", _PARENT_REVISION)
+    durable = payload.get("journal_durable")
+    if isinstance(durable, dict):
+        durable = dict(durable)
+        durable.update(revision_id=_REVISION_ID, parent_revision=_PARENT_REVISION)
+        fence = durable.get("identity_fence")
+        if isinstance(fence, dict):
+            fence = dict(fence)
+            fence.update(revision_id=_REVISION_ID, parent_revision=_PARENT_REVISION)
+            durable["identity_fence"] = fence
+        payload["journal_durable"] = durable
+    return fn(**payload)
+
+
+def _prepared(**kwargs):
+    return _record_with_identity(_record_prepared, kwargs)
+
+
+def _finalized(**kwargs):
+    return _record_with_identity(_record_finalized, kwargs)
+
+
+def _rolled_back(**kwargs):
+    return _record_with_identity(_record_rolled_back, kwargs)
+
+
+S.record_prepared_transaction = _prepared
+S.record_finalized_transaction = _finalized
+S.record_rolled_back_transaction = _rolled_back
+
+
 # ── normalize_path_component ────────────────────────────────────────────────
 
 
@@ -859,7 +900,13 @@ def test_read_state_drops_corrupt_prepared_entries(tmp_path):
     # Write state with one valid and several invalid prepared entries.
     state_data = S.default_state()
     state_data["prepared_transactions"] = {
-        "turn-ok": {"plan_hash": "p" * 64, "generation": 5, "lease_nonce": "ok"},
+        "turn-ok": {
+            "plan_hash": "p" * 64,
+            "generation": 5,
+            "lease_nonce": "ok",
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+        },
         "turn-bad-gen": {"plan_hash": "q" * 64, "generation": 0},
         "turn-no-hash": {"generation": 3},
         "turn-not-dict": ["list"],
@@ -1240,6 +1287,8 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         session_id=session_id,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=accepted_batch,
@@ -1253,6 +1302,15 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         replay_ok=True,
         candidate_matches=True,
         applyable=True,
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": workflow_id,
+            "python_path": str(turn_dir / "candidate.py"),
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
     S.write_candidate_transaction(turn_dir, transaction)
     response["candidate_transaction"] = transaction
