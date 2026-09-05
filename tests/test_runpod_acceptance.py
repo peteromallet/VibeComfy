@@ -2,41 +2,32 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("runpod_lifecycle", reason="requires sibling runpod-lifecycle package")
-
 from scripts import runpod_acceptance
 
 
-def test_remote_script_covers_core_representations() -> None:
-    script = runpod_acceptance._remote_script()
-
-    assert "API_JSON=tests/snapshots/empty_image_red_smoke_required.api.json" in script
-    assert "run_step api_direct_queue api_json" in script
-    assert "vibecomfy.cli port check \"$API_JSON\" --json" in script
-    assert "vibecomfy.cli port convert \"$API_JSON\" --out \"$SCRATCHPAD\" --json" in script
-    assert "run_step run_ready_python_embedded python_ready" in script
-    assert "run_step run_converted_json_embedded json_python" in script
-    assert "vibecomfy.cli session start --id \"$SERVER_ID\"" in script
-    assert "run_step run_ready_python_existing_server python_ready_server" in script
-    assert "run_step run_converted_json_existing_server json_python_server" in script
-    assert "direct_api_json" in script
-    assert "existing_server_json_derived_python" in script
-
-
-def test_remote_script_model_template_is_optional() -> None:
-    default_script = runpod_acceptance._remote_script()
-    model_script = runpod_acceptance._remote_script(
-        model_template="image/z_image",
-        model_phase="core",
-    )
-
-    assert "unset VIBECOMFY_ACCEPTANCE_MODEL_TEMPLATE" in default_script
-    assert "export VIBECOMFY_ACCEPTANCE_MODEL_TEMPLATE=image/z_image" in model_script
-    assert "export VIBECOMFY_ACCEPTANCE_MODEL_PHASE=core" in model_script
-    assert "run_step model_stage model" in model_script
-    assert "run_step run_model_template model" in model_script
+def test_main_hard_fails_before_any_live_work(capsys: pytest.CaptureFixture[str]) -> None:
+    assert runpod_acceptance.main([]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == runpod_acceptance._FAILURE_TEXT + "\n"
 
 
 def test_main_rejects_model_phase_without_template() -> None:
     with pytest.raises(SystemExit):
         runpod_acceptance.main(["--model-phase", "core"])
+
+
+def test_remote_script_is_fail_closed_and_has_no_raw_queue() -> None:
+    script = runpod_acceptance._remote_script()
+    assert "exit 1" in script
+    assert "queue_prompt" not in script
+    assert "api_direct_queue" not in script
+    assert "API_JSON=" not in script
+    assert "pip install" not in script
+    assert "vibecomfy.cli run" not in script
+
+
+def test_remote_script_ignores_live_options() -> None:
+    assert runpod_acceptance._remote_script() == runpod_acceptance._remote_script(
+        model_template="image/z_image", model_phase="core"
+    )
