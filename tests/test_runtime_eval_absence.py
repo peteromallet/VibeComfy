@@ -60,3 +60,23 @@ def test_no_live_code_imports_removed_flat_runtime_eval_modules() -> None:
         findings.extend(_runtime_eval_imports(path))
 
     assert findings == []
+
+
+def test_eval_and_owned_commands_have_no_raw_queue_authority() -> None:
+    roots = [
+        REPO_ROOT / "vibecomfy" / "runtime" / "eval",
+        REPO_ROOT / "vibecomfy" / "commands" / "runtime.py",
+        REPO_ROOT / "vibecomfy" / "commands" / "run.py",
+    ]
+    forbidden = {"queue_prompt", "queue_prompt_api", "_post_prompt", "ComfyClient", "comfy_server", "queue_api_for_plan"}
+    findings: list[str] = []
+    paths = [roots[-2], roots[-1]]
+    paths.extend(path for path in roots[0].glob("*.py"))
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in forbidden:
+                findings.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{node.id}")
+            if isinstance(node, ast.Attribute) and node.attr in forbidden:
+                findings.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}:{node.attr}")
+    assert findings == []

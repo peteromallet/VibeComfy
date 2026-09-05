@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
-from vibecomfy.runtime.session import active_session_metadata, find_active_session
+from vibecomfy.runtime.run import run_embedded_sync, run_sync
+from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
 from vibecomfy.schema import get_schema_provider
 
 
@@ -93,21 +94,40 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 print(_override_unwired_message(workflow.id, "--steps", "steps"), file=sys.stderr)
                 return 2
             run_inputs["steps"] = args.steps
-        # Runtime/receipt transport is T14-owned.  Do not pass this mutable
-        # candidate to the legacy bare-workflow runtime while that handoff is
-        # unavailable; compile only through the canonical approval seam and
-        # fail closed rather than silently authorizing a second path.
         try:
-            _approved_record = bundle.compile(run_inputs=run_inputs, schema_provider=schema_provider)
+            record = bundle.compile(run_inputs=run_inputs, schema_provider=schema_provider)
         except Exception as exc:
             print(f"run failed: {exc}", file=sys.stderr)
             return 1
-        print(
-            "run failed: approved-record runtime transport is not available; "
-            "use the T14 runtime boundary before executing this workflow",
-            file=sys.stderr,
+        config = SessionConfig(
+            memory_profile=memory_profile,
+            extra={"quiet_schema_degradation": bool(getattr(args, "quiet_schema_degradation", False))},
         )
-        return 1
+        if runtime == "embedded" or (runtime == "auto" and session_url is None):
+            result = run_embedded_sync(
+                record,
+                bundle,
+                backend=getattr(args, "backend", "api"),
+                ensure_packs=ensure_packs,
+                ensure_models=bool(getattr(args, "ensure_models", False)),
+                config=config,
+            )
+        else:
+            result = run_sync(
+                record,
+                bundle,
+                server_url=session_url,
+                backend=getattr(args, "backend", "api"),
+                ensure_models=bool(getattr(args, "ensure_models", False)),
+                shared_models_root=getattr(args, "shared_models_root", None),
+                config=config,
+            )
+        print(
+            f"run_id: {result.run_id}\n"
+            f"prompt_id: {result.prompt_id}\n"
+            f"metadata_path: {result.metadata_path}"
+        )
+        return 0
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"run failed: {exc}", file=sys.stderr)
         return 1

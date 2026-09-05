@@ -214,10 +214,10 @@ def test_production_inspection_enters_bundle_boundary(monkeypatch: pytest.Monkey
     assert analyze._load_workflow("inspection") is workflow
 
 
-def test_run_command_blocks_bare_runtime_after_bundle_compile(
+def test_run_command_hands_compiled_record_to_t14(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """T13 must fail closed until the T14 approved-record transport exists."""
+    """T13 hands its compiled source record to the T14 sync boundary."""
     from vibecomfy.commands import run as run_command
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
@@ -234,6 +234,7 @@ def test_run_command_blocks_bare_runtime_after_bundle_compile(
 
     monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
     monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(run_command, "run_embedded_sync", lambda record, bundle, **kwargs: (calls.append("run"), SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))[1])
     args = run_command.argparse.Namespace(
         path="run-boundary",
         runtime="embedded",
@@ -244,8 +245,8 @@ def test_run_command_blocks_bare_runtime_after_bundle_compile(
         steps=None,
     )
 
-    assert run_command._cmd_run(args) == 1
-    assert calls == ["compile"]
+    assert run_command._cmd_run(args) == 0
+    assert calls == ["compile", "run"]
 
 
 def test_run_binds_public_inputs_without_mutating_candidate(
@@ -277,6 +278,7 @@ def test_run_binds_public_inputs_without_mutating_candidate(
 
     monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
     monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(run_command, "run_embedded_sync", lambda record, bundle, **kwargs: SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))
     args = argparse.Namespace(
         path="run-inputs",
         runtime="embedded",
@@ -293,7 +295,7 @@ def test_run_binds_public_inputs_without_mutating_candidate(
         steps=23,
     )
 
-    assert run_command._cmd_run(args) == 1
+    assert run_command._cmd_run(args) == 0
     assert calls[0]["run_inputs"] == {"prompt": "new prompt", "seed": 17, "steps": 23}
     assert set(calls[0]) == {"run_inputs", "schema_provider"}
 
@@ -679,16 +681,11 @@ def test_canonical_eval_message_is_t16_only(
     from vibecomfy.commands import runtime
 
     monkeypatch.setattr(runtime, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=object()))
-    monkeypatch.setattr(runtime, "get_schema_provider", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runtime, "eval_node_sync", lambda *_args, **_kwargs: SimpleNamespace(to_json=lambda: {"queued": False}))
     assert runtime._cmd_runtime_eval_node(
         argparse.Namespace(path="canonical.py", node="1", server_url=None, runtime="embedded")
-    ) == 2
-    message = capsys.readouterr().err
-    assert message == (
-        "eval-node stopped: approved-record eval transport is not available; "
-        "use the T16 bundle-bound eval route\n"
-    )
-    assert "port check" not in message
+    ) == 0
+    assert capsys.readouterr().err == ""
 
 
 def test_runtime_eval_and_queue_guards_fail_before_legacy_paths(
@@ -697,16 +694,11 @@ def test_runtime_eval_and_queue_guards_fail_before_legacy_paths(
     from vibecomfy.commands import runtime
 
     monkeypatch.setattr(runtime, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=object()))
-    monkeypatch.setattr(runtime, "get_schema_provider", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(runtime, "compile_eval_subgraph", lambda *_args: pytest.fail("eval compiled before handoff"))
+    monkeypatch.setattr(runtime, "eval_node_sync", lambda *_args, **_kwargs: SimpleNamespace(to_json=lambda: {"queued": False}))
     code = runtime._cmd_runtime_eval_node(
         argparse.Namespace(path="workflow.py", node="1", server_url=None, runtime="embedded")
     )
-    assert code == 2
-    with pytest.raises(RuntimeError, match="T16-owned"):
-        asyncio.run(runtime._queue_embedded({}))
-    with pytest.raises(RuntimeError, match="T16-owned"):
-        asyncio.run(runtime._queue_server({}, "http://example.invalid"))
+    assert code == 0
 
 
 def test_warm_smoke_retains_two_records_and_never_starts_session(

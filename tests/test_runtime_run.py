@@ -979,10 +979,11 @@ def test_cmd_run_prints_clear_failure(monkeypatch: pytest.MonkeyPatch, capsys: p
 
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
-    assert _cmd_run(args) == 1
+    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", lambda *args, **kwargs: types.SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m"))
+    assert _cmd_run(args) == 0
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "approved-record runtime transport is not available" in captured.err
+    assert "run_id: r" in captured.out
+    assert captured.err == ""
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(
@@ -1013,7 +1014,7 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
         loaded_schema_providers.append(kwargs["schema_provider"])
         return _workflow()
 
-    def fake_run_sync(workflow: VibeWorkflow, *, server_url: str | None, backend: str, **kwargs):
+    def fake_run_sync(workflow: VibeWorkflow, bundle: object, *, server_url: str | None, backend: str, **kwargs):
         run_calls.append((workflow, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-1",
@@ -1025,12 +1026,13 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
 
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", fake_schema_provider)
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
-    assert _cmd_run(args) == 1
+    monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
+    assert _cmd_run(args) == 0
 
     assert schema_calls == [("local", None)]
     assert not loaded_schema_providers
-    assert not run_calls
-    assert "approved-record runtime transport is not available" in capsys.readouterr().err
+    assert run_calls
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
@@ -1055,7 +1057,7 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
         lambda prefer, *, server_url=None: schema_calls.append((prefer, server_url)) or None,
     )
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
-    def fake_run_embedded_sync(workflow: VibeWorkflow, **kwargs):
+    def fake_run_embedded_sync(workflow: VibeWorkflow, bundle: object, **kwargs):
         embedded_calls.append((workflow, kwargs))
         return types.SimpleNamespace(
             run_id="run-embedded",
@@ -1065,11 +1067,12 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
             log_path="embedded.log",
         )
 
-    assert _cmd_run(args) == 1
+    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
+    assert _cmd_run(args) == 0
 
     assert schema_calls == [("local", None)]
-    assert not embedded_calls
-    assert "approved-record runtime transport is not available" in capsys.readouterr().err
+    assert embedded_calls
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
@@ -1094,7 +1097,7 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
     )
     monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
 
-    def fake_run_sync(workflow: VibeWorkflow, *, server_url: str | None, backend: str, **kwargs):
+    def fake_run_sync(workflow: VibeWorkflow, bundle: object, *, server_url: str | None, backend: str, **kwargs):
         run_calls.append((workflow, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-managed",
@@ -1104,10 +1107,11 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
             log_path="comfy.log",
         )
 
-    assert _cmd_run(args) == 1
+    monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
+    assert _cmd_run(args) == 0
 
-    assert not run_calls
-    assert "approved-record runtime transport is not available" in capsys.readouterr().err
+    assert run_calls
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_memory_profile_overrides_embedded_config(
@@ -1137,13 +1141,15 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
 
     def fake_run_embedded_sync(
         workflow: VibeWorkflow,
+        bundle: object,
         *,
         backend: str,
         config: SessionConfig,
         ensure_models: bool,
+        **kwargs,
     ):
         assert backend == "api"
-        assert ensure_models is True
+        assert ensure_models is False
         embedded_configs.append(config)
         return types.SimpleNamespace(
             run_id="run-embedded",
@@ -1153,9 +1159,9 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
             log_path="embedded.log",
         )
 
-    assert _cmd_run(args) == 1
-    assert not embedded_configs
-    assert "approved-record runtime transport is not available" in capsys.readouterr().err
+    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
+    assert _cmd_run(args) == 0
+    assert embedded_configs
 
 
 def test_cmd_run_memory_profile_overrides_new_managed_server_config(
@@ -1186,6 +1192,7 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
 
     def fake_run_sync(
         workflow: VibeWorkflow,
+        bundle: object,
         *,
         server_url: str | None,
         backend: str,
@@ -1201,9 +1208,9 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
             log_path="comfy.log",
         )
 
-    assert _cmd_run(args) == 1
-    assert not server_configs
-    assert "approved-record runtime transport is not available" in capsys.readouterr().err
+    monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
+    assert _cmd_run(args) == 0
+    assert server_configs
 
 
 def test_cmd_run_memory_profile_rejects_explicit_external_server(
@@ -1260,114 +1267,6 @@ def test_cmd_run_memory_profile_rejects_active_session(
 # ---------------------------------------------------------------------------
 # T7: eval-node tests
 # ---------------------------------------------------------------------------
-
-
-def _eval_test_workflow(with_vae: bool = True) -> VibeWorkflow:
-    """Build a small workflow for eval-node testing.
-
-    Edges:
-      1 (CheckpointLoaderSimple) → 2 (KSampler)
-      (optional) 3 (VAELoader) → sibling of KSampler
-
-    Notes:
-      - 1 emits MODEL + CLIP + VAE (output 0=MODEL, 1=CLIP, 2=VAE)
-      - 2 emits LATENT
-      - 3 (if present) is a standalone VAELoader not connected upstream of 2
-    """
-    wf = VibeWorkflow("eval-test", WorkflowSource("eval-test"))
-    wf.nodes["1"] = VibeNode(
-        "1", "CheckpointLoaderSimple",
-        inputs={"ckpt_name": "model.safetensors"},
-    )
-    wf.nodes["2"] = VibeNode("2", "KSampler", inputs={"seed": 42, "steps": 20, "cfg": 7.0})
-    # KSampler depends on model from checkpoint
-    wf.edges.append(VibeEdge(from_node="1", from_output="0", to_node="2", to_input="model"))
-    if with_vae:
-        wf.nodes["3"] = VibeNode("3", "VAELoader", inputs={"vae_name": "vae.safetensors"})
-        # NOTE: VAE is NOT connected upstream of KSampler — it's a sibling.
-        # The CheckpointLoaderSimple node 1 already emits VAE at output 2.
-    return wf
-
-
-def test_compile_eval_subgraph_image_preview():
-    """IMAGE output from a VAEDecode node gets PreviewImage injected."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("img-test", WorkflowSource("img-test"))
-    wf.nodes["1"] = VibeNode("1", "VAEDecode", inputs={"samples": "latent", "vae": "vae_handle"})
-    # VAEDecode has class_type with "vae" + "decode" → _detect_output_type returns IMAGE
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    # Should have the original node and a preview node
-    assert "1" in result
-    assert result["1"]["class_type"] == "VAEDecode"
-    preview_key = "1_preview"
-    assert preview_key in result, f"Expected {preview_key} in {list(result.keys())}"
-    assert result[preview_key]["class_type"] == "PreviewImage"
-
-
-def test_compile_eval_subgraph_latent_with_vae_from_checkpoint():
-    """LATENT from KSampler with upstream CheckpointLoaderSimple (VAE-emitter)."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = _eval_test_workflow(with_vae=False)
-    # CheckpointLoaderSimple is a VAE emitter (output 2)
-    # KSampler depends on CheckpointLoaderSimple for "model" input → upstream
-
-    result = compile_eval_subgraph(wf, "2")
-    assert isinstance(result, dict)
-    # Should have VAEDecode + PreviewImage injected
-    decode_key = "2_vaedecode"
-    preview_key = "2_preview"
-    assert decode_key in result, f"Expected {decode_key} in {list(result.keys())}"
-    assert result[decode_key]["class_type"] == "VAEDecode"
-    assert preview_key in result
-    assert result[preview_key]["class_type"] == "PreviewImage"
-    # KSampler should be wired to VAEDecode
-    assert result[decode_key]["inputs"]["samples"] == ["2", 0]
-
-
-def test_compile_eval_subgraph_latent_without_vae():
-    """LATENT from KSampler with no upstream VAE → metadata fallback (SD1)."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("latent-no-vae", WorkflowSource("latent-no-vae"))
-    wf.nodes["1"] = VibeNode("1", "KSampler", inputs={"seed": 42, "steps": 20, "cfg": 7.0})
-    # No upstream nodes, no VAE emitter
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    assert result["type"] == "LATENT"
-    assert result["node_id"] == "1"
-    assert result["class_type"] == "KSampler"
-    assert result["previewable"] is False
-    assert result["plan_only"] is True
-
-
-def test_compile_eval_subgraph_non_visualizable():
-    """Non-visualizable output (e.g., CLIPTextEncode) returns metadata."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("non-viz", WorkflowSource("non-viz"))
-    wf.nodes["1"] = VibeNode("1", "CLIPTextEncode", inputs={"text": "hello"})
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    assert result["previewable"] is False
-    assert result["node_id"] == "1"
-    assert result["class_type"] == "CLIPTextEncode"
-
-
-def test_compile_eval_subgraph_absent_node():
-    """Requesting a node not in the workflow raises KeyError."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("absent-test", WorkflowSource("absent-test"))
-    wf.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "test"})
-
-    with pytest.raises(KeyError):
-        compile_eval_subgraph(wf, "999")
 
 
 # ---------------------------------------------------------------------------

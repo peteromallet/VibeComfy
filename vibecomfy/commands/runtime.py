@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
-import os
 import sys
 from pathlib import Path
 
-from vibecomfy.errors import RuntimeNodeError
 from vibecomfy.cli_loader import load_bundle
-from vibecomfy.runtime.client import ComfyClient
-from vibecomfy.runtime.eval import compile_eval_subgraph  # noqa: F401 - T16 handoff symbol
+from vibecomfy.runtime.eval import eval_node_sync
 from vibecomfy.runtime.run import smoke_runtime_sync
-from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
-from vibecomfy.schema import get_schema_provider
 
 
 def _cmd_runtime_doctor(args: argparse.Namespace) -> int:
@@ -95,126 +89,22 @@ def _cmd_runtime_smoke(args: argparse.Namespace) -> int:
 
 def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
     try:
-        schema_provider = get_schema_provider("auto", server_url=args.server_url)
-        workflow = load_bundle(
-            args.path,
-            schema_provider=schema_provider,
-        ).workflow
-
-        target_node = args.node
-        subgraph = None  # T16 owns eval compilation after this boundary.
-        # Eval-node's direct queue transport is T16-owned.  Refuse the legacy
-        # bare subgraph here rather than allowing it to bypass the bundle /
-        # approved-record boundary or compiling a subgraph as a fallback.
-        print(
-            "eval-node stopped: approved-record eval transport is not available; "
-            "use the T16 bundle-bound eval route",
-            file=sys.stderr,
+        bundle = load_bundle(args.path)
+        result = eval_node_sync(
+            bundle,
+            args.node,
+            runtime=getattr(args, "runtime", "embedded"),
+            server_url=getattr(args, "server_url", None),
         )
-        return 2
-
-        # Build base result metadata
-        node_info = workflow.lookup_id(target_node)
-        result: dict = {
-            "node_id": target_node,
-            "class_type": node_info.get("class_type"),
-            "previewable": True,
-            "outputs": {},
-        }
-
-        if isinstance(subgraph, dict) and subgraph.get("previewable") is False:
-            result["previewable"] = False
-            result["outputs"] = subgraph
-            if args.json:
-                print(json.dumps(result, indent=2))
-            else:
-                print(
-                    f"Node {target_node} ({subgraph.get('class_type')}) "
-                    f"is not visualizable (output type: {subgraph.get('type')})"
-                )
-            return 0
-
-        # Queue through the selected runtime
-        runtime = getattr(args, "runtime", "embedded")
-        if runtime == "runpod":
-            if not _has_runpod_credentials():
-                print(
-                    "RunPod eval-node not available without credentials. "
-                    "Use --runtime embedded or --runtime server.",
-                    file=sys.stderr,
-                )
-                return 2
-            raise RuntimeNodeError(
-                "RunPod eval-node is not yet implemented",
-                next_action="vibecomfy runtime doctor",
-            )
-
-        elif runtime == "embedded":
-            queue_result = asyncio.run(_queue_embedded(subgraph))
-
-        elif runtime == "server":
-            server_url = args.server_url
-            if not server_url:
-                print(
-                    "--server-url is required for --runtime server",
-                    file=sys.stderr,
-                )
-                return 2
-            queue_result = asyncio.run(_queue_server(subgraph, server_url))
-
+        if getattr(args, "json", False):
+            print(json.dumps(result.to_json(), indent=2, sort_keys=True))
         else:
-            print(f"unknown runtime: {runtime}", file=sys.stderr)
-            return 2
-
-        result["outputs"] = queue_result
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            node_id = result["node_id"]
-            class_type = result["class_type"]
-            print(f"node_id: {node_id}")
-            print(f"class_type: {class_type}")
-            print(f"previewable: {result['previewable']}")
-            outputs = result.get("outputs", {})
-            if isinstance(outputs, dict):
-                prompt_id = outputs.get("prompt_id")
-                if prompt_id:
-                    print(f"prompt_id: {prompt_id}")
+            print(json.dumps(result.to_json(), indent=2, sort_keys=True))
         return 0
 
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print(f"eval-node failed: {exc}", file=sys.stderr)
         return 1
-
-
-async def _queue_embedded(api_dict: dict) -> dict:
-    """Queue an eval subgraph through an embedded ComfyUI session."""
-    raise RuntimeError("embedded eval queue is T16-owned and unavailable")
-    session = EmbeddedSession(SessionConfig())
-    try:
-        await session.start()
-        assert session._comfy is not None
-        queued = await session._comfy.queue_prompt_api(api_dict)
-    finally:
-        await session.stop()
-    return queued if isinstance(queued, dict) else {"prompt_id": str(queued)}
-
-
-async def _queue_server(api_dict: dict, server_url: str) -> dict:
-    """Queue an eval subgraph through a server ComfyUI instance."""
-    raise RuntimeError("server eval queue is T16-owned and unavailable")
-    client = ComfyClient(server_url)
-    return await client.queue_prompt(api_dict)
-
-
-def _has_runpod_credentials() -> bool:
-    """Check whether RunPod credentials are configured."""
-    if os.environ.get("RUNPOD_API_KEY"):
-        return True
-    runpod_config = os.environ.get("RUNPOD_CONFIG_PATH")
-    if runpod_config and os.path.exists(runpod_config):
-        return True
-    return False
 
 
 def register(subparsers) -> None:
