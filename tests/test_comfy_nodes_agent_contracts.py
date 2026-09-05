@@ -2164,6 +2164,134 @@ def test_public_candidate_envelope_carries_bundle_revision_lineage() -> None:
     assert projected["candidate"]["parent_revision"] == parent_revision
 
 
+def test_real_public_submit_prepare_finalize_rollback_chat_envelopes_carry_revision(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+        canonical_candidate_graph,
+        finalize_turn_transaction,
+        prepare_turn_transaction,
+        rollback_turn_transaction,
+    )
+    from vibecomfy.comfy_nodes.agent.edit import read_session_chat
+    from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle
+    from vibecomfy.testing.canonical import canonical_digest
+
+    compile_calls: list[str] = []
+
+    def compile_once(self):
+        compile_calls.append(self.revision_id)
+        api_projection = {"workflow_revision": self.revision_id}
+        return ApprovedProjectionRecord(
+            revision_id=self.revision_id,
+            selected_variant=self.workflow.default_variant,
+            input_binding={},
+            api_projection=api_projection,
+            ui_projection={},
+            api_digest=canonical_digest(api_projection),
+        )
+
+    monkeypatch.setattr(WorkflowBundle, "compile", compile_once)
+    root, session_id, turn_id, candidate_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    submit = json.loads(
+        (root / session_id / "turns" / turn_id / "response.json").read_text(encoding="utf-8")
+    )
+    revision_id = submit["revision_id"]
+    parent_revision = submit["parent_revision"]
+    submit_public = ensure_agent_edit_response_contract(
+        {
+            **submit,
+            "session_id": session_id,
+            "outcome": submit.get("outcome") or {"kind": "candidate_transaction"},
+        },
+        stage="submit",
+    )
+    assert submit_public["revision_id"] == revision_id
+    assert submit_public["parent_revision"] == parent_revision
+    assert submit_public["candidate"]["revision_id"] == revision_id
+    assert submit_public["candidate"]["parent_revision"] == parent_revision
+    assert submit_public["candidate_transaction"]["revision_id"] == revision_id
+    assert submit_public["candidate_transaction"]["parent_revision"] == parent_revision
+
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert isinstance(prepared, dict)
+    assert prepared["revision_id"] == revision_id
+    assert prepared["parent_revision"] == parent_revision
+
+    chat = public_chat_rehydrate_payload(read_session_chat(root, session_id))
+    lifecycle = chat["latest_turn_lifecycle"]
+    assert lifecycle is not None
+    assert lifecycle["candidate_transaction"]["revision_id"] == revision_id
+    assert lifecycle["candidate_transaction"]["parent_revision"] == parent_revision
+    latest = chat.get("latest_candidate")
+    if latest is not None:
+        assert latest["candidate_transaction"]["revision_id"] == revision_id
+        assert latest["candidate_transaction"]["parent_revision"] == parent_revision
+        candidate = latest.get("candidate")
+        if isinstance(candidate, dict):
+            assert candidate["revision_id"] == revision_id
+            assert candidate["parent_revision"] == parent_revision
+
+    graph = canonical_candidate_graph(root, session_id, turn_id)
+    finalized = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": structural_hash,
+            "post_apply_graph": graph,
+            "applied_delta_hash": prepared["candidate_transaction"]["plan"]["delta_hash"],
+            "post_apply_hash_verified": True,
+            "browser_verified": True,
+        },
+    )
+    assert isinstance(finalized, dict), getattr(finalized, "agent_failure_context", repr(finalized))
+    assert finalized["revision_id"] == revision_id
+    assert finalized["parent_revision"] == parent_revision
+
+    rollback_root, rollback_session, rollback_turn, rollback_hash, _structural, rollback_plan = (
+        _setup_v2_session_with_candidate(tmp_path / "rollback")
+    )
+    rollback_submit = json.loads(
+        (rollback_root / rollback_session / "turns" / rollback_turn / "response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rollback_prepared = prepare_turn_transaction(
+        session_root=rollback_root,
+        session_id=rollback_session,
+        turn_id=rollback_turn,
+        request_payload={"plan_hash": rollback_plan, "candidate_graph_hash": rollback_hash},
+    )
+    assert isinstance(rollback_prepared, dict)
+    rolled = rollback_turn_transaction(
+        session_root=rollback_root,
+        session_id=rollback_session,
+        turn_id=rollback_turn,
+        request_payload={
+            "plan_hash": rollback_plan,
+            "generation": rollback_prepared["generation"],
+            "lease_nonce": rollback_prepared["lease_nonce"],
+            "revision_id": rollback_prepared["revision_id"],
+            "parent_revision": rollback_prepared["parent_revision"],
+        },
+    )
+    assert isinstance(rolled, dict), getattr(rolled, "agent_failure_context", repr(rolled))
+    assert rolled["revision_id"] == rollback_submit["revision_id"]
+    assert rolled["parent_revision"] == rollback_submit["parent_revision"]
+
+
 def test_internal_to_public_outcome_is_closed_authoritative_mapping() -> None:
     """Every internal kind has one declared public default; budget defaults to
     noop and is promoted only when a candidate payload exists."""

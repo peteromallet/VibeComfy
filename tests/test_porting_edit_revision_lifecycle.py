@@ -175,13 +175,7 @@ def test_bundle_parent_requires_explicit_journal_evidence() -> None:
     assert bundle.provenance["revision_evidence"]
 
 
-def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp_path, monkeypatch) -> None:
-    from tests.test_comfy_nodes_agent_backend_spine import (
-        _setup_v2_session_with_candidate,
-        canonical_candidate_graph,
-        finalize_turn_transaction,
-        prepare_turn_transaction,
-    )
+def _stub_bundle_compile(monkeypatch):
     from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle
 
     compile_calls: list[str] = []
@@ -190,10 +184,6 @@ def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp
     def compile_once(self):
         compile_calls.append(self.revision_id)
         compile_paths.append(self.python_path)
-        # The staged source is real and reloadable, but this fixture's
-        # SaveImage node is intentionally absent from the local Comfy schema.
-        # Keep the compile boundary real (and count it exactly once) with a
-        # deterministic approval seam rather than weakening finalize guards.
         api_projection = {"workflow_revision": self.revision_id}
         return ApprovedProjectionRecord(
             revision_id=self.revision_id,
@@ -205,7 +195,159 @@ def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp
         )
 
     monkeypatch.setattr(WorkflowBundle, "compile", compile_once)
+    return compile_calls, compile_paths
 
+
+def _txn_dir(root: Path, session_id: str, turn_id: str, plan_hash: str) -> Path:
+    return root / session_id / "turns" / turn_id / "transactions" / plan_hash
+
+
+def _response_transaction(root: Path, session_id: str, turn_id: str) -> dict:
+    return json.loads(
+        (root / session_id / "turns" / turn_id / "response.json").read_text(encoding="utf-8")
+    )["candidate_transaction"]
+
+
+def _record_v2_turn(
+    tmp_path: Path,
+    *,
+    root: Path | None = None,
+    session_id: str = "s1",
+    label: str = "v2-prep-test",
+    parent_revision: str = "",
+    workflow_id: str | None = None,
+    submit_graph: dict | None = None,
+):
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _Provider,
+        _frozen_ingest_provider,
+        _request_graph,
+        _schema_with_inputs,
+        allocate_turn,
+        payload_hash,
+        record_idempotent_response,
+        structural_graph_hash,
+        v2_mutation_plan_hash,
+    )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.comfy_nodes.agent.session import _resolve_stable_workflow_id
+    from vibecomfy.schema import InputSpec
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    sessions = root if root is not None else tmp_path / "sessions"
+    request = _request_graph(label)
+    if submit_graph is not None:
+        request["graph"] = json.loads(json.dumps(submit_graph))
+    if workflow_id is not None:
+        request["workflow_id"] = workflow_id
+    request["client_live_canvas_token"] = f"live:rev:1:client-{label}"
+    allocation = allocate_turn(
+        session_root=sessions,
+        session_id=session_id,
+        request_payload=request,
+    )
+    turn_id = str(allocation.context.turn_id)
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": f"{label}-cand",
+            }
+        ],
+    }
+    schema_provider = _Provider(
+        {
+            "SaveImage": _schema_with_inputs(
+                "SaveImage",
+                filename_prefix=InputSpec(type="STRING", required=True, default="ComfyUI"),
+            )
+        }
+    )
+    ok, candidate_graph, error, _ = recompute_apply(
+        request["graph"],
+        envelope,
+        schema_provider=schema_provider,
+    )
+    assert ok and candidate_graph is not None, error
+    candidate_graph_hash = payload_hash(candidate_graph)
+    structural_hash = structural_graph_hash(candidate_graph)
+    submit_structural_hash = structural_graph_hash(request["graph"])
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=submit_structural_hash,
+        structural_hash_after=structural_hash,
+    )
+    resolved_workflow_id = _resolve_stable_workflow_id(
+        request, request.get("scope_metadata"), session_id, request["graph"]
+    )
+    seed_graph = dict(candidate_graph)
+    seed_graph["workflow_id"] = resolved_workflow_id
+    parent_evidence = None
+    if parent_revision:
+        parent_evidence = {
+            "revision_id": parent_revision,
+            "workflow_identity": resolved_workflow_id,
+        }
+    seed = capture_bundle(
+        seed_graph,
+        allocation.turn_dir / "seed.py",
+        {"operation": "captured"},
+        parent_revision=parent_revision,
+        parent_evidence=parent_evidence,
+    )
+    (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
+    (allocation.turn_dir / "seed.vibe.json").unlink(missing_ok=True)
+    request["revision_id"] = seed.revision_id
+    request["parent_revision"] = parent_revision
+    (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
+    immediate_response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "graph": candidate_graph,
+        "candidate": {
+            "graph": candidate_graph,
+            "plan_hash": plan_hash,
+            "structural_hash_before": submit_structural_hash,
+            "structural_hash_after": structural_hash,
+        },
+        "eligibility": {"applyable": True},
+        "agent_edit_protocol": "v2_delta",
+        "accepted_batch": [{"op": op} for op in envelope["ops"]],
+    }
+    record_idempotent_response(
+        session_root=sessions,
+        session_id=session_id,
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=immediate_response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+        schema_provider=_frozen_ingest_provider(schema_provider, request["graph"]),
+    )
+    return (
+        sessions,
+        session_id,
+        turn_id,
+        candidate_graph_hash,
+        structural_hash,
+        plan_hash,
+        immediate_response,
+    )
+
+
+def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp_path, monkeypatch) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+        canonical_candidate_graph,
+        finalize_turn_transaction,
+        prepare_turn_transaction,
+    )
+
+    compile_calls, compile_paths = _stub_bundle_compile(monkeypatch)
     root, session_id, turn_id, candidate_hash, structural_hash, plan_hash = (
         _setup_v2_session_with_candidate(tmp_path)
     )
@@ -268,6 +410,30 @@ def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp
     assert compile_calls == [transaction["revision_id"]]
     assert compile_paths == [final_python]
 
+    wrong_revision = dict(finalize_payload)
+    wrong_revision["revision_id"] = "0" * 64
+    mismatched_revision = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload=wrong_revision,
+    )
+    assert not isinstance(mismatched_revision, dict)
+    assert mismatched_revision.ok is False
+
+    wrong_generation = dict(finalize_payload)
+    wrong_generation["generation"] = int(prepared["generation"]) + 1
+    mismatched_generation = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload=wrong_generation,
+    )
+    assert not isinstance(mismatched_generation, dict)
+    assert mismatched_generation.ok is False
+    assert compile_calls == [transaction["revision_id"]]
+    assert compile_paths == [final_python]
+
 
 def test_real_session_rejects_identity_and_staged_metadata_damage_before_replay(tmp_path) -> None:
     from tests.test_comfy_nodes_agent_backend_spine import _setup_v2_session_with_candidate
@@ -323,50 +489,355 @@ def test_real_session_rejects_identity_and_staged_metadata_damage_before_replay(
     assert (lifecycle_path.read_bytes() if lifecycle_path.is_file() else None) == lifecycle_before
 
 
-def test_failed_pair_publication_restores_prior_pair_and_writes_no_final_event(
-    tmp_path, monkeypatch
-) -> None:
+def test_real_session_journal_backed_child_and_rejected_parent(tmp_path) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+        prepare_turn_transaction,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import CANDIDATE_TRANSACTION_FILENAME
+
+    root, session_id, turn_id, candidate_hash, _structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    parent_transaction = _response_transaction(root, session_id, turn_id)
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert isinstance(prepared, dict)
+    parent_revision = prepared["revision_id"]
+    parent_python = Path(parent_transaction["bundle"]["python_path"]).read_bytes()
+    parent_txn = _txn_dir(root, session_id, turn_id, plan_hash) / CANDIDATE_TRANSACTION_FILENAME
+    parent_txn_bytes = parent_txn.read_bytes()
+
+    child = _record_v2_turn(
+        tmp_path,
+        root=root,
+        session_id=session_id,
+        label="v2-child",
+        parent_revision=parent_revision,
+    )
+    child_turn = child[2]
+    child_plan = child[5]
+    child_transaction = _response_transaction(root, session_id, child_turn)
+    assert child_transaction["parent_revision"] == parent_revision
+    assert child_transaction["revision_id"] != parent_revision
+    assert child_transaction["bundle"]["parent_revision"] == parent_revision
+    assert Path(child_transaction["bundle"]["python_path"]).is_file()
+    assert not (_txn_dir(root, session_id, child_turn, child_plan) / ".pending").exists()
+
+    with pytest.raises(ValueError, match="parent revision is not backed"):
+        _record_v2_turn(
+            tmp_path,
+            root=root,
+            session_id=session_id,
+            label="v2-unknown-parent",
+            parent_revision="c" * 64,
+        )
+    unknown_turns = sorted(
+        path for path in (root / session_id / "turns").iterdir() if path.is_dir()
+    )
+    unknown_turn = unknown_turns[-1]
+    assert not (unknown_turn / "response.json").exists()
+    assert list(unknown_turn.rglob("candidate.py")) == []
+    assert list(unknown_turn.rglob(CANDIDATE_TRANSACTION_FILENAME)) == []
+    assert list(unknown_turn.rglob(".pending/candidate.py")) == []
+
+    with pytest.raises(ValueError, match="parent revision is not backed"):
+        _record_v2_turn(
+            tmp_path,
+            root=root,
+            session_id=session_id,
+            label="v2-mismatched-parent",
+            parent_revision=parent_revision,
+            workflow_id="123e4567-e89b-12d3-a456-426614174999",
+        )
+    assert parent_txn.read_bytes() == parent_txn_bytes
+    assert Path(parent_transaction["bundle"]["python_path"]).read_bytes() == parent_python
+
+
+def test_real_session_recapture_invalidates_old_approval(tmp_path, monkeypatch) -> None:
     from tests.test_comfy_nodes_agent_backend_spine import (
         _setup_v2_session_with_candidate,
         canonical_candidate_graph,
+        finalize_turn_transaction,
+        prepare_turn_transaction,
     )
+
+    compile_calls, _compile_paths = _stub_bundle_compile(monkeypatch)
+    root, session_id, turn_id, candidate_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    parent_transaction = _response_transaction(root, session_id, turn_id)
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert isinstance(prepared, dict)
+    graph = canonical_candidate_graph(root, session_id, turn_id)
+    finalized = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": structural_hash,
+            "post_apply_graph": graph,
+            "applied_delta_hash": prepared["candidate_transaction"]["plan"]["delta_hash"],
+            "post_apply_hash_verified": True,
+            "browser_verified": True,
+        },
+    )
+    assert isinstance(finalized, dict), getattr(finalized, "agent_failure_context", repr(finalized))
+    parent_revision = finalized["revision_id"]
+    assert compile_calls == [parent_revision]
+    assert finalized["receipt"]["receipt"]["approval"]["revision_id"] == parent_revision
+
+    child = _record_v2_turn(
+        tmp_path,
+        root=root,
+        session_id=session_id,
+        label="v2-recapture",
+        parent_revision=parent_revision,
+        submit_graph=graph,
+    )
+    child_turn, child_hash, child_plan = child[2], child[3], child[5]
+    child_transaction = _response_transaction(root, session_id, child_turn)
+    assert child_transaction["revision_id"] != parent_revision
+    assert child_transaction["parent_revision"] == parent_revision
+    stale_parent = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=child_turn,
+        request_payload={
+            "plan_hash": child_plan,
+            "candidate_graph_hash": child_hash,
+            "revision_id": parent_revision,
+            "parent_revision": parent_transaction["parent_revision"],
+        },
+    )
+    assert not isinstance(stale_parent, dict)
+    assert "exact captured bundle revision" in stale_parent.agent_failure_context["explanation"]
+    stale_finalized_turn = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert not isinstance(stale_finalized_turn, dict)
+    child_prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=child_turn,
+        request_payload={"plan_hash": child_plan, "candidate_graph_hash": child_hash},
+    )
+    assert isinstance(child_prepared, dict)
+    assert child_prepared["revision_id"] == child_transaction["revision_id"]
+    assert compile_calls == [parent_revision]
+
+
+def test_real_session_revision_scoped_monotonic_rollback(tmp_path) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+        prepare_turn_transaction,
+        read_state,
+        rollback_turn_transaction,
+    )
+
+    root, session_id, turn_id, candidate_hash, _structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    transaction = _response_transaction(root, session_id, turn_id)
+    pair_python = Path(transaction["bundle"]["python_path"])
+    pair_sidecar = pair_python.with_suffix(".vibe.json")
+    pair_before = (pair_python.read_bytes(), pair_sidecar.read_bytes() if pair_sidecar.is_file() else None)
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert isinstance(prepared, dict)
+    generation_after_prepare = read_state(root / session_id)["next_generation"]
+    unscoped = rollback_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+        },
+    )
+    assert not isinstance(unscoped, dict)
+    assert "exact prepared bundle revision" in unscoped.agent_failure_context["explanation"]
+    mismatched = rollback_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "revision_id": "0" * 64,
+            "parent_revision": prepared["parent_revision"],
+        },
+    )
+    assert not isinstance(mismatched, dict)
+    assert "revision identity" in mismatched.agent_failure_context["explanation"]
+    rolled = rollback_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "revision_id": prepared["revision_id"],
+            "parent_revision": prepared["parent_revision"],
+        },
+    )
+    assert isinstance(rolled, dict), getattr(rolled, "agent_failure_context", repr(rolled))
+    assert rolled["revision_id"] == prepared["revision_id"]
+    assert rolled["parent_revision"] == prepared["parent_revision"]
+    assert rolled["phase"] == "rollback_complete"
+    state_after = read_state(root / session_id)
+    assert state_after["next_generation"] >= generation_after_prepare
+    assert (pair_python.read_bytes(), pair_sidecar.read_bytes() if pair_sidecar.is_file() else None) == pair_before
+
+
+def test_real_session_untouched_sidecar_survives_capture_apply_rollback(tmp_path, monkeypatch) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+        canonical_candidate_graph,
+        finalize_turn_transaction,
+        prepare_turn_transaction,
+        rollback_turn_transaction,
+    )
+    from vibecomfy.security.provenance import Provenance
+    from vibecomfy.workflow_bundle import load_bundle
+
+    _stub_bundle_compile(monkeypatch)
+    root, session_id, turn_id, candidate_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    transaction = _response_transaction(root, session_id, turn_id)
+    python_path = Path(transaction["bundle"]["python_path"])
+    sidecar_path = python_path.with_suffix(".vibe.json")
+    assert sidecar_path.is_file()
+    sidecar_before = sidecar_path.read_bytes()
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": candidate_hash},
+    )
+    assert isinstance(prepared, dict)
+    graph = canonical_candidate_graph(root, session_id, turn_id)
+    finalized = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": structural_hash,
+            "post_apply_graph": graph,
+            "applied_delta_hash": prepared["candidate_transaction"]["plan"]["delta_hash"],
+            "post_apply_hash_verified": True,
+            "browser_verified": True,
+        },
+    )
+    assert isinstance(finalized, dict), getattr(finalized, "agent_failure_context", repr(finalized))
+    assert sidecar_path.read_bytes() == sidecar_before
+    reopened = load_bundle(python_path, trust=Provenance.USER_CONFIRMED)
+    assert reopened.revision_id == transaction["revision_id"]
+    assert sidecar_path.read_bytes() == sidecar_before
+
+    rollback_root, rollback_session, rollback_turn, rollback_hash, _structural, rollback_plan = (
+        _setup_v2_session_with_candidate(tmp_path / "rollback")
+    )
+    rollback_transaction = _response_transaction(rollback_root, rollback_session, rollback_turn)
+    rollback_sidecar = Path(rollback_transaction["bundle"]["python_path"]).with_suffix(".vibe.json")
+    rollback_sidecar_before = rollback_sidecar.read_bytes()
+    rollback_prepared = prepare_turn_transaction(
+        session_root=rollback_root,
+        session_id=rollback_session,
+        turn_id=rollback_turn,
+        request_payload={"plan_hash": rollback_plan, "candidate_graph_hash": rollback_hash},
+    )
+    assert isinstance(rollback_prepared, dict)
+    rolled = rollback_turn_transaction(
+        session_root=rollback_root,
+        session_id=rollback_session,
+        turn_id=rollback_turn,
+        request_payload={
+            "plan_hash": rollback_plan,
+            "generation": rollback_prepared["generation"],
+            "lease_nonce": rollback_prepared["lease_nonce"],
+            "revision_id": rollback_prepared["revision_id"],
+            "parent_revision": rollback_prepared["parent_revision"],
+        },
+    )
+    assert isinstance(rolled, dict), getattr(rolled, "agent_failure_context", repr(rolled))
+    assert rollback_sidecar.read_bytes() == rollback_sidecar_before
+    load_bundle(Path(rollback_transaction["bundle"]["python_path"]), trust=Provenance.USER_CONFIRMED)
+    assert rollback_sidecar.read_bytes() == rollback_sidecar_before
+
+
+def test_real_session_publication_failure_keeps_prior_authority(tmp_path, monkeypatch) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import _setup_v2_session_with_candidate
     from vibecomfy.comfy_nodes.agent import session as agent_session
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import CANDIDATE_TRANSACTION_FILENAME
 
     root, session_id, turn_id, _candidate_hash, _structural_hash, plan_hash = (
         _setup_v2_session_with_candidate(tmp_path)
     )
-    turn_dir = root / session_id / "turns" / turn_id
-    transaction = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))["candidate_transaction"]
-    metadata, pending = agent_session._capture_candidate_bundle(
-        graph=canonical_candidate_graph(root, session_id, turn_id),
-        turn_dir=turn_dir,
-        workflow_id=transaction["bundle"]["workflow_identity"],
-        parent_revision=transaction["parent_revision"],
-        session_dir=root / session_id,
-        plan_hash=plan_hash,
-    )
-    final_python = Path(metadata["python_path"])
-    final_sidecar = Path(metadata["sidecar_path"])
-    previous_pair = (final_python.read_bytes(), final_sidecar.read_bytes())
-    lifecycle = final_python.parent / "lifecycle_events.jsonl"
+    prior_txn_dir = _txn_dir(root, session_id, turn_id, plan_hash)
+    prior_python = prior_txn_dir / "candidate.py"
+    prior_sidecar = prior_txn_dir / "candidate.vibe.json"
+    prior_transaction = prior_txn_dir / CANDIDATE_TRANSACTION_FILENAME
+    prior_pair = (prior_python.read_bytes(), prior_sidecar.read_bytes())
+    prior_authority = prior_transaction.read_bytes()
+    lifecycle = prior_txn_dir / "lifecycle_events.jsonl"
     lifecycle_before = lifecycle.read_bytes() if lifecycle.is_file() else None
-    pending["python_path"].write_bytes(b"injected staged source")
-    real_replace = agent_session.os.replace
-    calls = 0
 
-    def fail_after_python(source, destination):
-        nonlocal calls
-        calls += 1
-        if calls == 2:
+    real_replace = agent_session.os.replace
+
+    def fail_sidecar_publish(source, destination):
+        if Path(destination).name == "candidate.vibe.json":
             raise OSError("injected sidecar publication failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(agent_session.os, "replace", fail_after_python)
+    monkeypatch.setattr(agent_session.os, "replace", fail_sidecar_publish)
     with pytest.raises(OSError, match="injected sidecar publication failure"):
-        agent_session._publish_pending_bundle(metadata, pending)
+        _record_v2_turn(
+            tmp_path,
+            root=root,
+            session_id=session_id,
+            label="v2-failed-publish",
+        )
 
-    assert (final_python.read_bytes(), final_sidecar.read_bytes()) == previous_pair
-    assert not pending["python_path"].exists()
-    assert not pending["sidecar_path"].exists()
+    failed_turns = sorted(
+        path.name for path in (root / session_id / "turns").iterdir() if path.is_dir()
+    )
+    failed_turn = failed_turns[-1]
+    assert failed_turn != turn_id
+    failed_turn_dir = root / session_id / "turns" / failed_turn
+    assert list(failed_turn_dir.rglob("candidate.py")) == []
+    assert list(failed_turn_dir.rglob(CANDIDATE_TRANSACTION_FILENAME)) == []
+    assert list(failed_turn_dir.rglob(".pending/candidate.py")) == []
+    assert list(failed_turn_dir.rglob(".pending/candidate.vibe.json")) == []
+    assert list(failed_turn_dir.rglob("finalized.json")) == []
+    assert (prior_python.read_bytes(), prior_sidecar.read_bytes()) == prior_pair
+    assert prior_transaction.read_bytes() == prior_authority
     assert (lifecycle.read_bytes() if lifecycle.is_file() else None) == lifecycle_before
-    assert not (final_python.parent / "finalized.json").exists()
+    assert not (prior_txn_dir / "finalized.json").exists()
+    assert not (prior_txn_dir / ".pending" / "candidate.py").exists()

@@ -1899,33 +1899,38 @@ def _capture_candidate_bundle(
         }
     txn_dir = transaction_dir_for(turn_dir, plan_hash)
     pending_dir = txn_dir / ".pending"
-    pending_dir.mkdir(parents=True, exist_ok=True)
     destination = pending_dir / "candidate.py"
-    bundle = capture_bundle(
-        captured,
-        destination,
-        {"operation": "captured"},
-        parent_revision=parent_revision,
-        parent_evidence=parent_evidence,
-    )
-    sidecar_state = "present" if bundle.ui_digest else "absent"
-    metadata = {
-        "revision_id": bundle.revision_id,
-        "parent_revision": bundle.parent_revision,
-        "workflow_identity": bundle.workflow_identity,
-        "semantic_digest": bundle.semantic_digest,
-        "sidecar_state": sidecar_state,
-        "ui_digest": bundle.ui_digest if sidecar_state == "present" else "",
-        "python_path": str(txn_dir / "candidate.py"),
-    }
-    if sidecar_state == "present":
-        metadata["sidecar_path"] = str(txn_dir / "candidate.vibe.json")
-    staged_bundle_metadata_v1(metadata)
     pending = {
         "python_path": destination,
         "sidecar_path": destination.with_suffix(".vibe.json"),
     }
-    return metadata, pending
+    _cleanup_pending_bundle(pending)
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        bundle = capture_bundle(
+            captured,
+            destination,
+            {"operation": "captured"},
+            parent_revision=parent_revision,
+            parent_evidence=parent_evidence,
+        )
+        sidecar_state = "present" if bundle.ui_digest else "absent"
+        metadata = {
+            "revision_id": bundle.revision_id,
+            "parent_revision": bundle.parent_revision,
+            "workflow_identity": bundle.workflow_identity,
+            "semantic_digest": bundle.semantic_digest,
+            "sidecar_state": sidecar_state,
+            "ui_digest": bundle.ui_digest if sidecar_state == "present" else "",
+            "python_path": str(txn_dir / "candidate.py"),
+        }
+        if sidecar_state == "present":
+            metadata["sidecar_path"] = str(txn_dir / "candidate.vibe.json")
+        staged_bundle_metadata_v1(metadata)
+        return metadata, pending
+    except Exception:
+        _cleanup_pending_bundle(pending)
+        raise
 
 
 def _cleanup_pending_bundle(pending: Mapping[str, Path]) -> None:
@@ -1945,42 +1950,59 @@ def _cleanup_pending_bundle(pending: Mapping[str, Path]) -> None:
                 pass
 
 
-def _publish_pending_bundle(
+def _existing_file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def _restore_file_bytes(path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(previous)
+
+
+def _publish_staged_candidate(
+    *,
+    turn_dir: Path,
+    transaction: Mapping[str, Any],
     metadata: Mapping[str, Any],
     pending: Mapping[str, Path],
 ) -> None:
     checked = staged_bundle_metadata_v1(metadata)
     final_python = Path(checked["python_path"])
     final_sidecar = final_python.with_suffix(".vibe.json")
+    plan_hash = transaction.get("plan_hash")
+    if not isinstance(plan_hash, str) or not plan_hash:
+        raise ValueError("Candidate transaction requires plan_hash.")
+    candidate_path = transaction_dir_for(turn_dir, plan_hash) / CANDIDATE_TRANSACTION_FILENAME
+    previous = {
+        candidate_path: _existing_file_bytes(candidate_path),
+        final_python: _existing_file_bytes(final_python),
+        final_sidecar: _existing_file_bytes(final_sidecar),
+    }
     pending_python = pending["python_path"]
     pending_sidecar = pending["sidecar_path"]
-    destinations = (final_python, final_sidecar)
-    previous = {
-        path: path.read_bytes() for path in destinations if path.is_file()
-    }
-    replaced: list[Path] = []
     try:
         if not pending_python.is_file():
             raise ValueError("pending staged Python source is missing")
         if checked["sidecar_state"] == "present" and not pending_sidecar.is_file():
             raise ValueError("pending staged sidecar is missing")
+        write_candidate_transaction(turn_dir, transaction)
         os.replace(pending_python, final_python)
-        replaced.append(final_python)
         if checked["sidecar_state"] == "present":
             os.replace(pending_sidecar, final_sidecar)
-            replaced.append(final_sidecar)
         elif final_sidecar.exists():
             final_sidecar.unlink()
-            replaced.append(final_sidecar)
+        _cleanup_pending_bundle(pending)
     except Exception:
-        for path in replaced:
-            if path in previous:
-                path.write_bytes(previous[path])
-            elif path.exists():
-                path.unlink()
+        for path, snapshot in previous.items():
+            _restore_file_bytes(path, snapshot)
         _cleanup_pending_bundle(pending)
         raise
-    _cleanup_pending_bundle(pending)
 
 
 def _reload_captured_bundle(
@@ -4621,127 +4643,132 @@ def record_idempotent_response(
         )
         workflow_identity_v1(workflow_id)
         requested_revision, requested_parent = revision_identity_from_mapping(request_payload)
-        bundle_metadata, pending_bundle = _capture_candidate_bundle(
-            graph=candidate_graph,
-            turn_dir=turn_dir,
-            workflow_id=workflow_id,
-            parent_revision=requested_parent,
-            session_dir=session_dir_for(session_root, session_id),
-            plan_hash=candidate_plan_hash,
-        )
-        revision_id = bundle_metadata["revision_id"]
-        parent_revision = bundle_metadata["parent_revision"]
-        if requested_revision != revision_id:
-            _cleanup_pending_bundle(pending_bundle)
-            raise ValueError("captured bundle revision does not match the submitted revision")
-        eligibility = stamped_response.get("eligibility")
-        if not isinstance(eligibility, Mapping):
-            eligibility = stamped_response.get("apply_eligibility")
-        applyable = (
-            authority_receipt.is_applyable
-            and isinstance(eligibility, Mapping)
-            and eligibility.get("applyable") is True
-        )
-        layout_verification = None
-        layout_operation_envelope = None
-        if authority_receipt.replay.verification_kind == "layout_structural_noop":
-            layout_verification = (
-                {
-                    "contract_version": LAYOUT_VERIFICATION_CONTRACT_VERSION,
-                    "projection": LAYOUT_VERIFICATION_PROJECTION,
-                    "candidate_layout_graph_hash": candidate_layout_graph_hash,
-                }
-                if isinstance(candidate_layout_graph_hash, str)
-                else None
+        pending_bundle = None
+        try:
+            bundle_metadata, pending_bundle = _capture_candidate_bundle(
+                graph=candidate_graph,
+                turn_dir=turn_dir,
+                workflow_id=workflow_id,
+                parent_revision=requested_parent,
+                session_dir=session_dir_for(session_root, session_id),
+                plan_hash=candidate_plan_hash,
             )
-            applyable = applyable and layout_verification is not None
-            layout_operation_envelope = build_layout_operation_envelope(
-                submit_graph, candidate_graph
+            revision_id = bundle_metadata["revision_id"]
+            parent_revision = bundle_metadata["parent_revision"]
+            if requested_revision != revision_id:
+                raise ValueError("captured bundle revision does not match the submitted revision")
+            eligibility = stamped_response.get("eligibility")
+            if not isinstance(eligibility, Mapping):
+                eligibility = stamped_response.get("apply_eligibility")
+            applyable = (
+                authority_receipt.is_applyable
+                and isinstance(eligibility, Mapping)
+                and eligibility.get("applyable") is True
             )
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admit_operations,
-                snapshot_from_schema_witness,
-            )
+            layout_verification = None
+            layout_operation_envelope = None
+            if authority_receipt.replay.verification_kind == "layout_structural_noop":
+                layout_verification = (
+                    {
+                        "contract_version": LAYOUT_VERIFICATION_CONTRACT_VERSION,
+                        "projection": LAYOUT_VERIFICATION_PROJECTION,
+                        "candidate_layout_graph_hash": candidate_layout_graph_hash,
+                    }
+                    if isinstance(candidate_layout_graph_hash, str)
+                    else None
+                )
+                applyable = applyable and layout_verification is not None
+                layout_operation_envelope = build_layout_operation_envelope(
+                    submit_graph, candidate_graph
+                )
+                from vibecomfy.porting.edit.admit import (
+                    AdmissionRejected,
+                    admit_operations,
+                    snapshot_from_schema_witness,
+                )
 
-            admission_snapshot = snapshot_from_schema_witness(
-                authority_receipt.schema_witness,
-                submit_graph=submit_graph,
-            )
-            layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
-            if isinstance(layout_ops, list) and layout_ops:
-                admitted_layout = admit_operations(admission_snapshot, layout_ops)
-                if isinstance(admitted_layout, AdmissionRejected):
-                    applyable = False
-                    layout_operation_envelope = None
-        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
-
-        accepted_batch = stamped_response.get("accepted_batch")
-        if not isinstance(accepted_batch, list):
-            accepted_batch = []
-        accepted_ops = list(_ops_from_accepted_batch(stamped_response))
-        if accepted_ops:
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admit_operations,
-                snapshot_from_schema_witness,
-            )
-
-            admitted_ops = admit_operations(
-                snapshot_from_schema_witness(
+                admission_snapshot = snapshot_from_schema_witness(
                     authority_receipt.schema_witness,
                     submit_graph=submit_graph,
-                ),
-                accepted_ops,
-            )
-            if isinstance(admitted_ops, AdmissionRejected):
-                applyable = False
-                accepted_batch = []
-                accepted_ops = []
-        transaction = build_candidate_transaction(
-            workflow_id=workflow_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            plan_hash=candidate_plan_hash,
-            revision_id=revision_id,
-            parent_revision=parent_revision,
-            submit_graph=submit_graph,
-            candidate_graph=candidate_graph,
-            accepted_batch=accepted_batch,
-            delta_hash=authority_receipt.cumulative_delta_hash,
-            submit_graph_hash=authority_receipt.submit_graph_hash,
-            submit_structural_graph_hash=(
-                stamped_response.get("submit_structural_graph_hash")
-                if isinstance(stamped_response.get("submit_structural_graph_hash"), str)
-                else candidate_structural_hash_before
-            ),
-            candidate_graph_hash=candidate_graph_hash,
-            candidate_structural_graph_hash=candidate_structural_graph_hash,
-            candidate_layout_graph_hash=candidate_layout_graph_hash,
-            layout_verification=layout_verification,
-            authority_receipt_hash=authority_receipt_digest_v2(authority_receipt),
-            schema_witness=authority_receipt.schema_witness,
-            replay_ok=authority_receipt.replay.replay_ok,
-            candidate_matches=authority_receipt.replay.candidate_matches,
-            verification_kind=authority_receipt.replay.verification_kind,
-            layout_operation_envelope=layout_operation_envelope,
-            applyable=applyable,
-            state="candidate_ready" if applyable else "recoverable_error",
-            mutation_materialization_envelope=(
-                build_mutation_materialization_v1(accepted_ops)
-                if any(
-                    isinstance(op, Mapping) and op.get("op") == "add_node"
-                    for op in accepted_ops
                 )
-                else None
-            ),
-            bundle_digests=bundle_metadata,
-        )
-        try:
-            write_candidate_transaction(response_path.parent, transaction)
-            _publish_pending_bundle(bundle_metadata, pending_bundle)
+                layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
+                if isinstance(layout_ops, list) and layout_ops:
+                    admitted_layout = admit_operations(admission_snapshot, layout_ops)
+                    if isinstance(admitted_layout, AdmissionRejected):
+                        applyable = False
+                        layout_operation_envelope = None
+            from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+            accepted_batch = stamped_response.get("accepted_batch")
+            if not isinstance(accepted_batch, list):
+                accepted_batch = []
+            accepted_ops = list(_ops_from_accepted_batch(stamped_response))
+            if accepted_ops:
+                from vibecomfy.porting.edit.admit import (
+                    AdmissionRejected,
+                    admit_operations,
+                    snapshot_from_schema_witness,
+                )
+
+                admitted_ops = admit_operations(
+                    snapshot_from_schema_witness(
+                        authority_receipt.schema_witness,
+                        submit_graph=submit_graph,
+                    ),
+                    accepted_ops,
+                )
+                if isinstance(admitted_ops, AdmissionRejected):
+                    applyable = False
+                    accepted_batch = []
+                    accepted_ops = []
+            transaction = build_candidate_transaction(
+                workflow_id=workflow_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                plan_hash=candidate_plan_hash,
+                revision_id=revision_id,
+                parent_revision=parent_revision,
+                submit_graph=submit_graph,
+                candidate_graph=candidate_graph,
+                accepted_batch=accepted_batch,
+                delta_hash=authority_receipt.cumulative_delta_hash,
+                submit_graph_hash=authority_receipt.submit_graph_hash,
+                submit_structural_graph_hash=(
+                    stamped_response.get("submit_structural_graph_hash")
+                    if isinstance(stamped_response.get("submit_structural_graph_hash"), str)
+                    else candidate_structural_hash_before
+                ),
+                candidate_graph_hash=candidate_graph_hash,
+                candidate_structural_graph_hash=candidate_structural_graph_hash,
+                candidate_layout_graph_hash=candidate_layout_graph_hash,
+                layout_verification=layout_verification,
+                authority_receipt_hash=authority_receipt_digest_v2(authority_receipt),
+                schema_witness=authority_receipt.schema_witness,
+                replay_ok=authority_receipt.replay.replay_ok,
+                candidate_matches=authority_receipt.replay.candidate_matches,
+                verification_kind=authority_receipt.replay.verification_kind,
+                layout_operation_envelope=layout_operation_envelope,
+                applyable=applyable,
+                state="candidate_ready" if applyable else "recoverable_error",
+                mutation_materialization_envelope=(
+                    build_mutation_materialization_v1(accepted_ops)
+                    if any(
+                        isinstance(op, Mapping) and op.get("op") == "add_node"
+                        for op in accepted_ops
+                    )
+                    else None
+                ),
+                bundle_digests=bundle_metadata,
+            )
+            _publish_staged_candidate(
+                turn_dir=turn_dir,
+                transaction=transaction,
+                metadata=bundle_metadata,
+                pending=pending_bundle,
+            )
         except Exception:
-            _cleanup_pending_bundle(pending_bundle)
+            if pending_bundle is not None:
+                _cleanup_pending_bundle(pending_bundle)
             raise
         stamped_response = dict(stamped_response)
         stamped_response["revision_id"] = revision_id
@@ -4756,6 +4783,8 @@ def record_idempotent_response(
         if isinstance(stamped_candidate, Mapping):
             stamped_candidate = dict(stamped_candidate)
             stamped_candidate["state"] = transaction["state"]
+            stamped_candidate["revision_id"] = revision_id
+            stamped_candidate["parent_revision"] = parent_revision
             stamped_response["candidate"] = stamped_candidate
     response_digest = payload_hash(stamped_response)
     record = {

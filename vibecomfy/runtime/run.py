@@ -89,6 +89,7 @@ async def run(
             run_dir=run_dir,
             run_id=run_id,
             record=record,
+            bundle=bundle,
             adapter_kind=adapter_kind,
             backend=backend,
             endpoint=active_url,
