@@ -6512,6 +6512,82 @@ def _topology_socket_changes_exact(
     return True
 
 
+def _topology_socket_values_match_links(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+    candidate_links: Sequence[Any],
+) -> bool:
+    """Require owned socket link values to agree with candidate ``links``."""
+    candidate_parts = [
+        parts
+        for link in candidate_links
+        for parts in [_raw_link_parts(link)]
+        if parts is not None
+    ]
+    native_id = _native_node_id(original_node)
+    if native_id is None:
+        return False
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    candidate_by_name = {
+        _socket_name(item): item
+        for item in candidate_inputs or ()
+        if isinstance(item, Mapping) and _socket_name(item) is not None
+    }
+    if isinstance(original_inputs, list):
+        for index, original in enumerate(original_inputs):
+            name = _socket_name(original)
+            if name not in input_names:
+                continue
+            expected = [
+                parts[0]
+                for parts in candidate_parts
+                if _canonical_native_int(parts[3]) == native_id
+                and _canonical_native_int(parts[4]) == index
+            ]
+            candidate = candidate_by_name.get(name)
+            actual = (
+                candidate.get("link")
+                if isinstance(candidate, Mapping)
+                else None
+            )
+            if expected:
+                if actual != expected[-1]:
+                    return False
+            elif actual is not None:
+                return False
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        for index, original in enumerate(original_outputs):
+            if not isinstance(original, Mapping):
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            if ref not in output_refs and slot_index not in output_refs and index not in output_refs:
+                continue
+            if index >= len(candidate_outputs) or not isinstance(candidate_outputs[index], Mapping):
+                return False
+            expected = [
+                parts[0]
+                for parts in candidate_parts
+                if _canonical_native_int(parts[1]) == native_id
+                and (
+                    _canonical_native_int(parts[2]) == slot_index
+                    or _canonical_native_int(parts[2]) == index
+                )
+            ]
+            actual = candidate_outputs[index].get("links")
+            if actual is None:
+                actual = []
+            if actual != expected:
+                return False
+    return True
+
+
 def _merge_set_field_input_sockets(
     original_inputs: Sequence[Any],
     candidate_inputs: Sequence[Any],
@@ -7048,6 +7124,25 @@ def guard_exit_ui(
             topology_inputs.update(folded_inputs)
             topology_outputs.update(folded_outputs)
         if topology_inputs or topology_outputs:
+            if not _topology_socket_values_match_links(
+                original_node,
+                candidate_node,
+                topology_inputs,
+                topology_outputs,
+                candidate_scope.get("links") or [],
+            ):
+                diagnostics.append(
+                    _issue(
+                        "full_ui_node_changed_unattributed",
+                        "Candidate socket link values disagree with its top-level topology.",
+                        detail={
+                            "scope_path": scope_path,
+                            "uid": uid,
+                            "field_paths": ["inputs/outputs link topology"],
+                        },
+                    )
+                )
+                continue
             if _topology_socket_changes_exact(
                 original_node,
                 candidate_node,

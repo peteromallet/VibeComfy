@@ -8450,8 +8450,23 @@ def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
         if stage["stage"] == "queue_validate"
     )
     assert queue_stage["ok"] is True
-    assert len(queue_stage["issues"]) == 3
-    assert {issue["severity"] for issue in queue_stage["issues"]} == {"warning"}
+    # This legacy recovery-only queue call remains silent for unchanged
+    # preexisting schema-less nodes. The enriched candidate contract emits the
+    # three explicit warning entries below.
+    assert queue_stage["issues"] == []
+    from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
+
+    recovery = _recovery_report_from_ui_payload(
+        graph,
+        _batch_repl_provider(),
+        original_ui_payload=graph,
+    )
+    enriched = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": ["2"], "preserved": []}},
+    )
+    assert len(enriched.issues) == 3
+    assert {issue["severity"] for issue in enriched.issues} == {"warning"}
     assert result["gates"]["queue_validate_ok"] is True
     assert result["queue_allowed"] is True
 
@@ -21979,6 +21994,11 @@ def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> Non
     accepted = guard_exit_ui(original, candidate, (op,))
     assert accepted.ok is True, accepted.diagnostics
 
+    malformed_upsert = _json_clone(candidate)
+    malformed_upsert["nodes"][0]["outputs"][0]["links"] = [999]
+    malformed_upsert["nodes"][2]["inputs"][0]["link"] = None
+    assert guard_exit_ui(original, malformed_upsert, (op,)).ok is False
+
     drifted = _json_clone(candidate)
     drifted["nodes"][0]["outputs"][1]["type"] = "STRING"
     drifted["nodes"][2]["inputs"][0]["type"] = "MASK"
@@ -22014,6 +22034,12 @@ def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> Non
         ),
     )
     assert folded.ok is True, folded.diagnostics
+
+    stale_remove = _json_clone(original)
+    stale_remove["last_link_id"] = 1
+    stale_remove["links"] = []
+    stale_remove["nodes"][0]["outputs"][0]["links"] = [2]
+    assert guard_exit_ui(original, stale_remove, (remove,)).ok is False
 
 
 def test_remove_then_set_field_does_not_repin_removed_link() -> None:

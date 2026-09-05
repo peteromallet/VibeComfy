@@ -340,6 +340,24 @@ def queue_stage_diagnostics(
             continue
         if entry.get("schema_less") is True:
             safety = entry.get("schema_less_safety")
+            # Legacy callers that only provide the recovery report use this
+            # stage as a boolean queue gate; a fully unchanged preexisting
+            # surface remains silent there.  Enriched candidate paths provide
+            # ``change_report`` and receive the explicit warning diagnostic.
+            if (
+                not change_report
+                and entry.get("preexisting_ui_node") is True
+                and (
+                    entry.get("schema_less_queue_safe") is True
+                    or entry.get("ui_connection_shape_unchanged") is True
+                    or safety in {
+                        "connection_shape_unchanged",
+                        "preexisting_output_destinations_safe",
+                        "transitive_output_destinations_safe",
+                    }
+                )
+            ):
+                continue
             if (
                 entry.get("schema_less_queue_safe") is True
                 or safety == "preexisting_schema_less_widget_values_changed"
