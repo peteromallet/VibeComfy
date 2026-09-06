@@ -890,8 +890,8 @@ def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids()
     definition = {
         "name": "inner",
         "nodes": [
-            {"id": 10, "uid": "left", "class_type": "A"},
-            {"id": 20, "uid": "right", "class_type": "B"},
+            {"id": 10, "uid": "left", "class_type": "A", "outputs": [{"name": "out"}]},
+            {"id": 20, "uid": "right", "class_type": "B", "inputs": [{"name": None}, {"name": "value"}]},
         ],
         "links": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}],
         "virtual_wires": {"vw": {"legs": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}]}},
@@ -910,3 +910,171 @@ def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids()
     }
     normalized = validate_sidecar(sidecar, workflow)
     assert len(normalized["links"]) == 2
+
+
+def test_normalized_virtual_wire_legs_materialize_through_native_port_rosters() -> None:
+    from vibecomfy.ingest.normalize import _normalize_virtual_wires
+
+    workflow = _workflow("canonical-virtual-wire")
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", uid="source", native_output_names=["out"]
+    )
+    workflow.nodes["target"] = VibeNode(
+        "target",
+        "Target",
+        uid="target",
+        inputs={"value": None},
+        native_input_names=["value"],
+    )
+    workflow.virtual_wires = _normalize_virtual_wires(
+        {
+            "bus": {
+                "legs": [
+                    {
+                        "scope_path": "",
+                        "leg_index": 0,
+                        "occurrence_index": 0,
+                        "from_node": "source",
+                        "from_output": "out",
+                        "to_node": "target",
+                        "to_input": "value",
+                    }
+                ]
+            }
+        }
+    )
+
+    bundle = load_bundle(workflow)
+    assert bundle.workflow.compile("api")["target"]["inputs"]["value"] == [
+        "source",
+        0,
+    ]
+    ui = bundle.materialize_ui()
+    assert [1, 1, 0, 2, 0, ""] in ui["links"]
+
+
+def test_shared_virtual_wire_resolver_preserves_nested_occurrences() -> None:
+    from vibecomfy.workflow import _resolve_virtual_wire_legs
+
+    scope = "definition:inner"
+    nodes = {
+        "source": {
+            "id": 10,
+            "properties": {"vibecomfy_uid": "source"},
+            "outputs": [{"name": "out"}],
+        },
+        "target": {
+            "id": 20,
+            "properties": {"vibecomfy_uid": "target"},
+            "inputs": [{"name": None}, {"name": "value"}],
+        },
+    }
+    resolved = _resolve_virtual_wire_legs(
+        nodes,
+        {
+            "bus": {
+                "scope_path": scope,
+                "legs": [
+                    {
+                        "scope_path": scope,
+                        "leg_index": 0,
+                        "occurrence_index": 0,
+                        "from_uid": "source",
+                        "from_port": "out",
+                        "to_uid": "target",
+                        "to_port": "value",
+                    },
+                    {
+                        "scope_path": scope,
+                        "leg_index": 0,
+                        "occurrence_index": 1,
+                        "from_uid": "source",
+                        "from_port": 0,
+                        "to_uid": "target",
+                        "to_port": 1,
+                    },
+                ],
+            }
+        },
+        scope_path=scope,
+    )
+    assert [(item.leg_index, item.occurrence_index) for item in resolved] == [(0, 0), (0, 1)]
+    assert all(item.scope_path == scope for item in resolved)
+    assert all(item.from_node == f"{scope}#source" for item in resolved)
+    assert all(item.to_node == f"{scope}#target" for item in resolved)
+
+
+def test_shared_virtual_wire_resolver_rejects_conflicting_occurrence_aliases() -> None:
+    from vibecomfy.workflow import WorkflowCompileError, _resolve_virtual_wire_legs
+
+    nodes = {
+        "a": {"id": 1, "uid": "a", "outputs": [{"name": "out"}, {"name": "other"}]},
+        "b": {"id": 2, "uid": "b", "inputs": [{"name": "value"}]},
+    }
+    with pytest.raises(WorkflowCompileError, match="conflicting port aliases"):
+        _resolve_virtual_wire_legs(
+            nodes,
+            {
+                "bus": {
+                    "legs": [
+                        {
+                            "leg_index": 0,
+                            "occurrence_index": 0,
+                            "from_uid": "a",
+                            "from_port": 0,
+                            "origin_slot": "other",
+                            "to_uid": "b",
+                            "to_port": 0,
+                        }
+                    ]
+                }
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("from_node", "from_output", "message"),
+    [
+        ("ghost", 0, "endpoint is not local"),
+        ("source", "missing", "cannot derive from port"),
+    ],
+)
+def test_normalized_virtual_wire_legs_reject_malformed_materialization(
+    from_node: str,
+    from_output: str | int,
+    message: str,
+) -> None:
+    from vibecomfy.ingest.normalize import _normalize_virtual_wires
+
+    workflow = _workflow("malformed-canonical-virtual-wire")
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", uid="source", native_output_names=["out"]
+    )
+    workflow.nodes["target"] = VibeNode(
+        "target",
+        "Target",
+        uid="target",
+        inputs={"value": None},
+        native_input_names=["value"],
+    )
+    workflow.virtual_wires = _normalize_virtual_wires(
+        {
+            "bus": {
+                "legs": [
+                    {
+                        "scope_path": "",
+                        "leg_index": 0,
+                        "occurrence_index": 0,
+                        "from_node": from_node,
+                        "from_output": from_output,
+                        "to_node": "target",
+                        "to_input": "value",
+                    }
+                ]
+            }
+        }
+    )
+
+    bundle = load_bundle(workflow)
+    with pytest.raises(WorkflowBundleError, match=message):
+        bundle.materialize_ui()

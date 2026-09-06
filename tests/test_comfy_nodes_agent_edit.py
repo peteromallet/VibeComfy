@@ -2009,28 +2009,20 @@ def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
             ),
         }
     )
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit import interpret
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
-    def _client(_messages):
-        return {
-            "message": "Inserted a PIL processing code node.",
-            "batch": batch,
-        }
-
-    result = handle_agent_edit(
-        {
-            "graph": _ui_graph(),
-            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-            "task": "Add a code node that processes images with PIL",
-            "session_id": "batch-exec-insert",
-        },
-        schema_provider=_batch_repl_provider(),
-        deepseek_client=_client,
-        session_root=tmp_path,
+    interpreted = interpret(
+        from_ui(_ui_graph(), use_comfy_converter=False),
+        batch,
+        schema_provider=fixture_provider,
     )
-
-    assert result["ok"] is True
-    assert result["batch_turns"]
-    assert result["debug"]["batch_repl"]["done_summary"]
+    assert interpreted.ok is True
+    assert not any(d.code == "unknown_port" for d in interpreted.diagnostics)
+    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
+    assert any(node["type"] == "vibecomfy.exec" for node in candidate["nodes"])
+    assert len(candidate["links"]) == 2
 
 
 def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blockers(
@@ -2038,6 +2030,10 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+    )
     graph = _json_clone(_ui_graph())
     graph["nodes"].append(
         {
@@ -2085,28 +2081,22 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
             "batch": batch,
         }
 
-    result = handle_agent_edit(
-        {
-            "graph": graph,
-            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-            "task": "Add a code node that processes images with PIL",
-            "session_id": "batch-exec-insert-messy-graph",
-            "revision_id": _fixture_candidate_revision(
-                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
-                name="batch-exec-insert-messy-graph",
-            ),
-            "parent_revision": "",
-        },
-        schema_provider=_batch_repl_provider(),
-        deepseek_client=_client,
-        session_root=tmp_path,
-    )
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit import interpret
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
-    assert provider_calls >= 1
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] == "noop"
-    assert result.get("candidate") is None
-    assert result["apply_allowed"] is False
+    workflow = from_ui(graph, use_comfy_converter=False)
+    interpreted = interpret(workflow, batch, schema_provider=fixture_provider)
+    assert interpreted.ok is True
+    assert len(interpreted.landed_ops) == 2
+    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
+    exec_node = next(node for node in candidate["nodes"] if node["type"] == "vibecomfy.exec")
+    assert "ImageOps.autocontrast" in exec_node["properties"]["vibecomfy"]["intent"]["source"]
+    assert exec_node["inputs"][0]["link"] is not None
+    assert candidate["nodes"][-1]["type"] == "vibecomfy.exec"
+    assert any(node["type"] == "VHS_VideoCombine" for node in candidate["nodes"])
+    assert len(candidate["links"]) == 2
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate["links"])
 
 
 def test_batch_repl_code_node_addition_accepts_dict_io_format(
@@ -2116,6 +2106,10 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
     """Regression: the prompt example allows io={'inputs': {'image': 'IMAGE'},
     'outputs': {'image': 'IMAGE'}}; the emit/validation path must parse it."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+    )
     graph = _json_clone(_ui_graph())
     source = (
         "from PIL import ImageOps\n"
@@ -2148,27 +2142,23 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
     def _client(_messages):
         return {"message": "Inserted a PIL processing code node.", "batch": batch}
 
-    result = handle_agent_edit(
-        {
-            "graph": graph,
-            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
-            "task": "Add a code node that processes images with PIL",
-            "session_id": "batch-exec-dict-io",
-            "revision_id": _fixture_candidate_revision(
-                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
-                name="batch-exec-dict-io",
-            ),
-            "parent_revision": "",
-        },
-        schema_provider=_batch_repl_provider(),
-        deepseek_client=_client,
-        session_root=tmp_path,
-    )
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.edit import interpret
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
-    assert result["ok"] is True
-    assert result["apply_allowed"] is False
-    assert result["outcome"]["kind"] == "noop"
-    assert result.get("candidate") is None
+    workflow = from_ui(graph, use_comfy_converter=False)
+    interpreted = interpret(workflow, batch, schema_provider=fixture_provider)
+    assert interpreted.ok is True
+    assert interpreted.landed_ops
+    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
+    exec_node = next(node for node in candidate["nodes"] if node["type"] == "vibecomfy.exec")
+    assert exec_node["properties"]["vibecomfy"]["io"] == {
+        "inputs": [["image", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
+    }
+    assert "ImageOps.autocontrast" in exec_node["properties"]["vibecomfy"]["intent"]["source"]
+    assert any(link[1] == exec_node["id"] and link[3] == 2 for link in candidate["links"])
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate["links"])
 
 
 def test_localized_code_node_addition_keeps_new_candidate_blockers(tmp_path: Path) -> None:
@@ -3172,27 +3162,27 @@ def test_agent_edit_batch_failed_edits_cannot_be_reported_as_successful_noop(
             "task": "Add a decode and save chain",
             "session_id": "failed-edits-not-noop",
             "max_batches": 3,
-            "max_consecutive_errors": 1,
+            "max_consecutive_errors": 3,
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
         session_root=tmp_path,
     )
 
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] == "noop"
-    assert result.get("candidate") is None
-    assert result["graph_unchanged"] is True
-    assert any(
-        diagnostic.get("code") == "unknown_add_node_class_type"
-        for turn in result["batch_turns"]
-        for diagnostic in turn.get("diagnostics", [])
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
     )
+    assert result["outcome"]["kind"] != "noop"
+    assert "already matches" not in result["message"]
     response_path = tmp_path / "failed-edits-not-noop" / "turns" / "0001" / "response.json"
     assert response_path.is_file()
     response = json.loads(response_path.read_text(encoding="utf-8"))
-    assert response["ok"] is True
-    assert response["outcome"]["kind"] == "noop"
+    assert response["ok"] is False
+    assert response["kind"] == FailureKind.MODEL_MISTAKE.value
+    assert response["outcome"]["failure_kind"] == FailureKind.MODEL_MISTAKE.value
 
 
 def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
@@ -22059,10 +22049,23 @@ def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> Non
         ],
         "links": [[1, 1, 0, 2, 0, "IMAGE"]],
     }
+    stale_original["definitions"] = {
+        "subgraphs": [
+            {**_json_clone(stale_original), "id": "untouched-definition"}
+        ]
+    }
     stale_remove = _json_clone(stale_original)
     stale_remove["last_link_id"] = 0
     stale_remove["links"] = []
     assert guard_exit_ui(stale_original, stale_remove, (remove,)).ok is False
+    malformed_remove = _json_clone(stale_remove)
+    malformed_remove["nodes"][0]["outputs"][0]["links"] = [999]
+    malformed_remove["nodes"][1]["inputs"][0]["link"] = 999
+    assert guard_exit_ui(stale_original, malformed_remove, (remove,)).ok is False
+    correct_remove = _json_clone(stale_remove)
+    correct_remove["nodes"][0]["outputs"][0]["links"] = []
+    correct_remove["nodes"][1]["inputs"] = []
+    assert guard_exit_ui(stale_original, correct_remove, (remove,)).ok is True
 
 
 def test_remove_then_set_field_does_not_repin_removed_link() -> None:

@@ -24,7 +24,13 @@ from vibecomfy.security.provenance import Provenance
 from vibecomfy.testing.canonical import canonical_digest, canonical_json
 from vibecomfy.identity.uid import make_uid, validate_local_uid
 from vibecomfy.identity.uid import parse_uid
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import (
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowSource,
+    _port_index_for_node,
+    _resolve_virtual_wire_legs,
+)
 
 
 class WorkflowBundleError(ValueError):
@@ -131,31 +137,6 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
     by_id = {str(node_id): node for node_id, node in workflow.nodes.items()}
     by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
 
-    def port(node: Any, value: Any, direction: str) -> int:
-        roster = getattr(node, f"native_{'output' if direction == 'from' else 'input'}_names", None)
-        if type(value) is int:
-            index = value
-        elif isinstance(value, str) and value.isdigit():
-            index = int(value)
-        elif isinstance(roster, list):
-            try:
-                index = roster.index(value)
-            except ValueError as exc:
-                raise WorkflowBundleError(
-                    f"cannot derive {direction} port {value!r} from native Python roster"
-                ) from exc
-        else:
-            raise WorkflowBundleError(
-                f"cannot derive {direction} port {value!r}: native Python roster is missing"
-            )
-        if index < 0:
-            raise WorkflowBundleError(f"{direction} port {index} must be nonnegative")
-        if isinstance(roster, list) and (index >= len(roster) or roster[index] is None):
-            raise WorkflowBundleError(
-                f"{direction} port {index} is outside or a hole in the native Python roster"
-            )
-        return index
-
     result: set[tuple[str, str, int, str, int]] = set()
     for edge in workflow.edges:
         source = by_id.get(str(edge.from_node)) or by_uid.get(str(edge.from_node))
@@ -168,7 +149,16 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
         target_scope, target_local = parse_uid(target_uid)
         if source_scope != target_scope:
             raise WorkflowBundleError("ordinary cross-scope edge must be represented by a Python virtual wire")
-        result.add((source_scope, source_local, port(source, edge.from_output, "from"), target_local, port(target, edge.to_input, "to")))
+        try:
+            source_port = _port_index_for_node(
+                source, edge.from_output, "output", "edge from_port", require_roster=True
+            )
+            target_port = _port_index_for_node(
+                target, edge.to_input, "input", "edge to_port", require_roster=True
+            )
+        except WorkflowCompileError as exc:
+            raise WorkflowBundleError(str(exc)) from exc
+        result.add((source_scope, source_local, source_port, target_local, target_port))
 
     # Definitions are existing Python JSON-shaped semantics.  Derive their
     # structural scope through sg_key, never through ordinal UI indexes.
@@ -218,13 +208,13 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
     return result
 
 
-def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[str, str, int, str, int], ...]]:
+def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[str, str, int, str, int, int, int], ...]]:
     """Read already-materialized Python-owned virtual-wire legs.
 
     No Comfy ``-10/-20`` meaning is inferred.  Such an encoding is accepted
     only when a caller has provided explicit, ordinary endpoint legs.
     """
-    result: dict[tuple[str, str], tuple[tuple[str, str, int, str, int], ...]] = {}
+    result: dict[tuple[str, str], tuple[tuple[str, str, int, str, int, int, int], ...]] = {}
     from vibecomfy.identity.scope import compose_scope_path, sg_key
 
     def definition_entries(raw: Any) -> list[Mapping[str, Any]]:
@@ -239,46 +229,31 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
             return
         if not isinstance(raw, Mapping):
             raise WorkflowBundleError(f"virtual wires at {scope!r} must be a mapping")
-        aliases: dict[str, str] = {}
-        for key, value in node_map.items():
-            if isinstance(value, Mapping):
-                canonical = value.get("uid", value.get("id", key))
-            else:
-                canonical = getattr(value, "uid", None) or getattr(value, "id", key)
-            aliases[str(key)] = str(canonical)
-            aliases.setdefault(str(canonical), str(canonical))
-        for name, wire in raw.items():
+        try:
+            resolved = _resolve_virtual_wire_legs(node_map, raw, scope_path=scope)
+        except WorkflowCompileError as exc:
+            raise WorkflowBundleError(str(exc)) from exc
+        for name in raw:
             if not isinstance(name, str) or not name.strip():
                 raise WorkflowBundleError(f"virtual wire name at {scope!r} must be a nonblank string")
-            if not isinstance(wire, Mapping):
-                raise WorkflowBundleError(f"virtual wire {name!r} must be a mapping")
-            declared_scope = str(wire.get("scope_path", scope))
-            if declared_scope != scope: raise WorkflowBundleError(f"virtual wire {name!r} scope does not match structural definition path")
-            legs = wire.get("legs")
-            if legs is None:
-                # Native-only encodings, including -10/-20, have no Python
-                # meaning and must never be inferred at this boundary. Keep
-                # the name unresolved so unrelated presentation can survive;
-                # a sidecar reference below rejects it explicitly.
-                result[(scope, name)] = None  # type: ignore[assignment]
-                continue
-            if not isinstance(legs, list):
-                raise WorkflowBundleError(f"virtual wire {name!r} legs must be a list")
-            parsed: list[tuple[str, str, int, str, int]] = []
-            for leg in legs:
-                if not isinstance(leg, Mapping): raise WorkflowBundleError(f"virtual wire {name!r} has malformed Python leg")
-                try:
-                    fu_raw = leg.get("from_uid", leg.get("origin_id")); tu_raw = leg.get("to_uid", leg.get("target_id"))
-                    if str(fu_raw) not in aliases or str(tu_raw) not in aliases:
-                        raise WorkflowBundleError(f"virtual wire {name!r} leg endpoint is not local to {scope!r}")
-                    fu, tu = aliases[str(fu_raw)], aliases[str(tu_raw)]
-                    validate_local_uid(fu, field="virtual wire from_uid"); validate_local_uid(tu, field="virtual wire to_uid")
-                    leg_scope = str(leg.get("scope_path", scope))
-                    if leg_scope != scope:
-                        raise WorkflowBundleError(f"virtual wire {name!r} leg scope does not match structural definition path")
-                    parsed.append((leg_scope, fu, _integer(leg.get("from_port", leg.get("origin_slot")), "virtual wire from_port", nonnegative=True), tu, _integer(leg.get("to_port", leg.get("target_slot")), "virtual wire to_port", nonnegative=True)))
-                except (KeyError, TypeError) as exc: raise WorkflowBundleError(f"virtual wire {name!r} has incomplete Python leg") from exc
-            result[(scope, name)] = tuple(sorted(set(parsed)))
+            legs = [item for item in resolved if item.wire_name == name]
+            if not legs:
+                wire = raw[name]
+                if isinstance(wire, Mapping) and wire.get("legs") is None:
+                    result[(scope, name)] = None  # type: ignore[assignment]
+                    continue
+            result[(scope, name)] = tuple(
+                (
+                    item.scope_path,
+                    item.from_node.split("#", 1)[-1],
+                    item.from_port,
+                    item.to_node.split("#", 1)[-1],
+                    item.to_port,
+                    item.leg_index,
+                    item.occurrence_index,
+                )
+                for item in legs
+            )
 
     def walk(defs: Any, parent: tuple[str, ...]) -> None:
         for definition in definition_entries(defs):
@@ -294,7 +269,7 @@ def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[s
         root = getattr(workflow, "metadata", {}).get("virtual_wires", {})
     if root is None:
         root = {}
-    read_wires(root, "", {str(k): v for k, v in workflow.nodes.items()} | {str(v.uid): v for v in workflow.nodes.values() if v.uid})
+    read_wires(root, "", {str(k): v for k, v in workflow.nodes.items()})
     walk(workflow.definitions or getattr(workflow, "metadata", {}).get("definitions", {}), ())
     return result
 
@@ -413,10 +388,16 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
             if key not in expected: raise WorkflowBundleError(f"sidecar link {index} edge_ref does not match a Python semantic edge")
         else:
             if not isinstance(ref.get("name"), str) or not ref["name"].strip(): raise WorkflowBundleError(f"sidecar link {index} virtual wire name must be nonblank")
-            key = (scope, ref["name"], _integer(ref.get("leg_index"), f"sidecar link {index} leg_index", nonnegative=True))
+            leg_index = _integer(ref.get("leg_index"), f"sidecar link {index} leg_index", nonnegative=True)
             legs = virtual.get((scope, ref["name"]))
-            if legs is None or key[2] >= len(legs): raise WorkflowBundleError(f"sidecar link {index} virtual_wire_ref does not match a Python materialized leg")
+            if legs is None or not any(leg[5] == leg_index for leg in legs):
+                raise WorkflowBundleError(f"sidecar link {index} virtual_wire_ref does not match a Python materialized leg")
+            key = (scope, ref["name"], leg_index)
         occurrence = _integer(entry.get("occurrence_index"), f"sidecar link {index} occurrence_index", nonnegative=True)
+        if has_virtual:
+            legs = virtual.get((scope, ref["name"]))
+            if legs is None or not any(leg[5] == key[2] and leg[6] == occurrence for leg in legs):
+                raise WorkflowBundleError(f"sidecar link {index} virtual_wire_ref does not match a Python materialized occurrence")
         seen_occ.setdefault(key, []).append(occurrence)
         if "id" in entry:
             native = _integer(entry["id"], f"sidecar link {index} id")

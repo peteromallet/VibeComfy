@@ -1042,45 +1042,46 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                 inner_nodes_by_alias[str(inner_node["id"])] = inner_node
         virtual_wires = sg.get("virtual_wires", {})
         if isinstance(virtual_wires, Mapping):
-            existing = {
-                (str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))
-                for link in sg.get("links", []) if isinstance(link, Mapping)
+            from vibecomfy.workflow import WorkflowCompileError, _resolve_virtual_wire_legs
+
+            existing = defaultdict(int)
+            for link in sg.get("links", []):
+                if isinstance(link, Mapping):
+                    existing[(str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))] += 1
+            resolver_nodes = {
+                str(inner_node.get("id", inner_node.get("uid"))): inner_node
+                for inner_node in sg.get("nodes", [])
+                if isinstance(inner_node, Mapping)
             }
             next_id = max(
                 [int(link.get("id")) for link in sg.get("links", []) if isinstance(link, Mapping) and type(link.get("id")) is int]
                 + [0]
             ) + 1
-            for wire in virtual_wires.values():
-                if not isinstance(wire, Mapping) or not isinstance(wire.get("legs"), (list, tuple)):
-                    continue
-                for leg in wire["legs"]:
-                    if not isinstance(leg, Mapping):
-                        raise ValueError("Python virtual-wire leg must be a mapping")
-                    from_ref = leg.get("from_uid", leg.get("origin_id", leg.get("from_node")))
-                    to_ref = leg.get("to_uid", leg.get("target_id", leg.get("to_node")))
-                    from_port = leg.get("from_port", leg.get("origin_slot", leg.get("from_output")))
-                    to_port = leg.get("to_port", leg.get("target_slot", leg.get("to_input")))
-                    source = inner_nodes_by_alias.get(str(from_ref))
-                    target = inner_nodes_by_alias.get(str(to_ref))
+            try:
+                resolved_legs = _resolve_virtual_wire_legs(
+                    resolver_nodes,
+                    virtual_wires,
+                    scope_path=str(sg.get("scope_path", "")),
+                )
+            except WorkflowCompileError as exc:
+                raise ValueError(str(exc)) from exc
+            for leg in resolved_legs:
+                    source = resolver_nodes.get(leg.from_node.rsplit("#", 1)[-1])
+                    target = resolver_nodes.get(leg.to_node.rsplit("#", 1)[-1])
                     if source is None or target is None:
                         raise ValueError("Python virtual-wire leg endpoint is not local to its definition")
-                    try:
-                        from_port = int(from_port)
-                        to_port = int(to_port)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError("Python virtual-wire leg ports must be integer ordinals") from exc
-                    key = (str(source.get("id")), from_port, str(target.get("id")), to_port)
-                    if key in existing:
+                    key = (str(source.get("id")), leg.from_port, str(target.get("id")), leg.to_port)
+                    if existing[key]:
+                        existing[key] -= 1
                         continue
                     sg.setdefault("links", []).append({
                         "id": next_id,
                         "origin_id": source.get("id"),
-                        "origin_slot": from_port,
+                        "origin_slot": leg.from_port,
                         "target_id": target.get("id"),
-                        "target_slot": to_port,
+                        "target_slot": leg.to_port,
                         "type": "",
                     })
-                    existing.add(key)
                     next_id += 1
         nested = sg.get("definitions")
         if nested:
@@ -1108,11 +1109,10 @@ def _root_virtual_display_edges(wf: Any) -> list[VibeEdge]:
 
     by_uid = {str(node.uid): str(node.id) for node in wf.nodes.values() if node.uid}
     result: list[VibeEdge] = []
-    seen: set[tuple[str, str, str, str]] = set()
     for (scope, _name), legs in sorted(_virtual_legs(wf).items()):
         if scope != "" or legs is None:
             continue
-        for _leg_scope, from_uid, from_port, to_uid, to_port in legs:
+        for _leg_scope, from_uid, from_port, to_uid, to_port, _leg_index, _occurrence_index in legs:
             source = by_uid.get(str(from_uid))
             target = by_uid.get(str(to_uid))
             if source is None or target is None:
@@ -1139,11 +1139,7 @@ def _root_virtual_display_edges(wf: Any) -> list[VibeEdge]:
                 and target_roster[to_port] is not None
                 else str(to_port)
             )
-            edge = (source, str(source_name), target, str(target_name))
-            if edge in seen:
-                continue
-            seen.add(edge)
-            result.append(VibeEdge(*edge))
+            result.append(VibeEdge(source, str(source_name), target, str(target_name)))
     return result
 
 
@@ -4314,9 +4310,13 @@ def _overlay_validated_presentation(
                 raise ValueError("validated sidecar link has no semantic reference")
             from vibecomfy.workflow_bundle import _virtual_legs
             legs = _virtual_legs(wf).get((str(ref["scope_path"]), str(ref["name"])))
-            if legs is None or int(ref["leg_index"]) >= len(legs):
+            matching = [
+                leg for leg in (legs or ())
+                if leg[5] == int(ref["leg_index"]) and leg[6] == int(item.get("occurrence_index", 0))
+            ]
+            if not matching:
                 raise ValueError("virtual sidecar link has no Python-owned materialized leg")
-            leg = legs[int(ref["leg_index"])]
+            leg = matching[0]
             key = (str(leg[1]), int(leg[2]), str(leg[3]), int(leg[4]))
         candidates = emitted_by_key.get(key, [])
         if not candidates:
@@ -4585,9 +4585,13 @@ def _overlay_nested_presentation(
                         from vibecomfy.workflow_bundle import _virtual_legs
                         legs = _virtual_legs(wf).get((scope, str(virtual_ref.get("name"))))
                         leg_index = virtual_ref.get("leg_index")
-                        if legs is None or type(leg_index) is not int or leg_index >= len(legs):
+                        matching = [
+                            leg for leg in (legs or ())
+                            if leg[5] == leg_index and leg[6] == int(item.get("occurrence_index", 0))
+                        ]
+                        if not matching:
                             continue
-                        leg = legs[leg_index]
+                        leg = matching[0]
                         from_local, from_port, to_local, to_port = str(leg[1]), leg[2], str(leg[3]), leg[4]
                     matching = [
                         link for link in raw_def_links
@@ -7079,6 +7083,9 @@ def guard_exit_ui(
     for key, original_node in original_nodes.items():
         scope_path, uid = key
         candidate_node = candidate_nodes.get(key)
+        candidate_scope_for_node = candidate_scopes.get(scope_path)
+        if not isinstance(candidate_scope_for_node, Mapping):
+            candidate_scope_for_node = {}
         if candidate_node is None:
             if key in attribution["removed_nodes"]:
                 continue
@@ -7140,7 +7147,7 @@ def guard_exit_ui(
                 candidate_node,
                 topology_inputs,
                 topology_outputs,
-                candidate_scope.get("links") or [],
+                candidate_scope_for_node.get("links") or [],
             ):
                 diagnostics.append(
                     _issue(
