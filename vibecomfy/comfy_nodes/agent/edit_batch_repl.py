@@ -1590,6 +1590,20 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         _entry_mod.begin_turn_event_buffer()
         _journal_failed = False
         try:
+            # Retain the canonical pre-batch authority before the session
+            # commits this turn.  The lint gate must replay against this exact
+            # state, not the immutable ingress UI (which is stale on turn 2+)
+            # and not the already-mutated candidate.  The UI copy is index /
+            # furniture evidence only; schema_snapshot is the same frozen
+            # generation that admission used for this turn.
+            from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+            pre_batch_workflow = _cow_workflow_copy(session.workflow)
+            pre_batch_ui = json.loads(json.dumps(session.working_ui))
+            pre_batch_schema_snapshot = (
+                getattr(state, "schema_snapshot", None)
+                or getattr(state, "admission_schema_snapshot", None)
+            )
             batch_result = session.apply_batch(editable_batch)
             _batch_journal_mod.maybe_inject_batch_fault("after_apply")
             deps._enrich_schema_provider_from_resolver_candidates(
@@ -1622,21 +1636,15 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 LintIndex, lint_delta = _import_from("vibecomfy.porting.edit.lint", "LintIndex"), _import_from("vibecomfy.porting.edit.lint", "lint_delta")
                 RemoveLinkOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp = _import_from("vibecomfy.porting.edit.ops", "RemoveLinkOp"), _import_from("vibecomfy.porting.edit.ops", "SetModeOp"), _import_from("vibecomfy.porting.edit.ops", "SetNodeFieldOp"), _import_from("vibecomfy.porting.edit.ops", "UpsertLinkOp")
 
-                index = LintIndex.build(state.graph)
+                index = LintIndex.build(pre_batch_ui)
                 lint_result = lint_delta(
                     batch_result.landed_ops,
                     index,
                     schema_provider=state.schema_provider,
+                    pre_workflow=pre_batch_workflow,
+                    pre_ui_payload=pre_batch_ui,
+                    schema_snapshot=pre_batch_schema_snapshot,
                 )
-
-                landed_add_uids = {
-                    str(item.detail.get("minted_uid"))
-                    for item in batch_result.statements
-                    if item.ok
-                    and str(item.op_kind or "") == "node_call"
-                    and isinstance(item.detail, Mapping)
-                    and item.detail.get("minted_uid") is not None
-                }
 
                 # Build (uid, field_path) identities for lint-dropped ops.
                 _dropped_keys: list[tuple[str, str]] = []
@@ -1675,14 +1683,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         "source": "lint",
                     }
 
-                lint_issues = tuple(
-                    issue
-                    for issue in lint_result.issues
-                    if not (
-                        issue.code == "unknown_target"
-                        and issue.uid in landed_add_uids
-                    )
-                )
+                lint_issues = tuple(lint_result.issues)
                 lint_diag_dicts = tuple(
                     _lint_issue_to_dict(issue) for issue in lint_issues
                 )

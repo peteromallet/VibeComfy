@@ -209,69 +209,28 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
 
 
 def _virtual_legs(workflow: VibeWorkflow) -> dict[tuple[str, str], tuple[tuple[str, str, int, str, int, int, int], ...]]:
-    """Read already-materialized Python-owned virtual-wire legs.
+    """Project shared resolved records into the legacy sidecar tuple shape."""
+    from vibecomfy.workflow import _resolve_workflow_virtual_wire_records
 
-    No Comfy ``-10/-20`` meaning is inferred.  Such an encoding is accepted
-    only when a caller has provided explicit, ordinary endpoint legs.
-    """
-    result: dict[tuple[str, str], tuple[tuple[str, str, int, str, int, int, int], ...]] = {}
-    from vibecomfy.identity.scope import compose_scope_path, sg_key
-
-    def definition_entries(raw: Any) -> list[Mapping[str, Any]]:
-        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
-            return [x for x in raw["subgraphs"] if isinstance(x, Mapping)]
-        if isinstance(raw, Mapping): return [x for x in raw.values() if isinstance(x, Mapping)]
-        if isinstance(raw, (list, tuple)): return [x for x in raw if isinstance(x, Mapping)]
-        return []
-
-    def read_wires(raw: Any, scope: str, node_map: Mapping[str, Any]) -> None:
-        if raw is None or raw == {}:
-            return
-        if not isinstance(raw, Mapping):
-            raise WorkflowBundleError(f"virtual wires at {scope!r} must be a mapping")
-        try:
-            resolved = _resolve_virtual_wire_legs(node_map, raw, scope_path=scope)
-        except WorkflowCompileError as exc:
-            raise WorkflowBundleError(str(exc)) from exc
-        for name in raw:
-            if not isinstance(name, str) or not name.strip():
-                raise WorkflowBundleError(f"virtual wire name at {scope!r} must be a nonblank string")
-            legs = [item for item in resolved if item.wire_name == name]
-            if not legs:
-                wire = raw[name]
-                if isinstance(wire, Mapping) and wire.get("legs") is None:
-                    result[(scope, name)] = None  # type: ignore[assignment]
-                    continue
-            result[(scope, name)] = tuple(
-                (
-                    item.scope_path,
-                    item.from_node.split("#", 1)[-1],
-                    item.from_port,
-                    item.to_node.split("#", 1)[-1],
-                    item.to_port,
-                    item.leg_index,
-                    item.occurrence_index,
-                )
-                for item in legs
+    try:
+        records = _resolve_workflow_virtual_wire_records(workflow)
+    except WorkflowCompileError as exc:
+        raise WorkflowBundleError(str(exc)) from exc
+    return {
+        key: tuple(
+            (
+                item.scope_path,
+                item.from_node.split("#", 1)[-1],
+                item.from_port,
+                item.to_node.split("#", 1)[-1],
+                item.to_port,
+                item.leg_index,
+                item.occurrence_index,
             )
-
-    def walk(defs: Any, parent: tuple[str, ...]) -> None:
-        for definition in definition_entries(defs):
-            key = sg_key(definition); scope = compose_scope_path((*parent, key))
-            raw_nodes = definition.get("nodes", [])
-            node_values = raw_nodes if isinstance(raw_nodes, list) else raw_nodes.values() if isinstance(raw_nodes, Mapping) else []
-            node_map = {str(n.get("id", n.get("uid"))): n for n in node_values if isinstance(n, Mapping)}
-            read_wires(definition.get("virtual_wires", {}), scope, node_map)
-            walk(definition.get("definitions"), (*parent, key))
-
-    root = workflow.virtual_wires
-    if root == {}:
-        root = getattr(workflow, "metadata", {}).get("virtual_wires", {})
-    if root is None:
-        root = {}
-    read_wires(root, "", {str(k): v for k, v in workflow.nodes.items()})
-    walk(workflow.definitions or getattr(workflow, "metadata", {}).get("definitions", {}), ())
-    return result
+            for item in legs
+        )
+        for key, legs in records.items()
+    }
 
 
 def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
@@ -627,7 +586,10 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
     workflow_by_uid = {str(node.uid): node for node in workflow.nodes.values() if node.uid}
     from vibecomfy.porting.emit.emit_prepare import _schema_status_from_node
 
-    standard_properties = {"vibecomfy_uid", "vibecomfy_id", "Node name for S&R", "cnr_id", "aux_id", "ver"}
+    standard_properties = {
+        "vibecomfy_uid", "vibecomfy_id", "Node name for S&R", "cnr_id",
+        "aux_id", "ver", "_vibecomfy_schema_provider", "vibecomfy",
+    }
     raw_groups = candidate.get("groups", [])
     if not isinstance(raw_groups, list):
         raise WorkflowBundleError("captured groups must be a list")

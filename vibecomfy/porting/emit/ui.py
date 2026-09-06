@@ -998,11 +998,16 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
         subgraphs = []
     if not subgraphs:
         return None
-    def emit_subgraph(raw_sg: Mapping[str, Any]) -> dict[str, Any]:
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    def emit_subgraph(raw_sg: Mapping[str, Any], parent_scope: tuple[str, ...] = ()) -> dict[str, Any]:
         # Detached copy: stamping uids/state below must never mutate the IR's
         # metadata definitions (``dict(raw_sg)`` alone would alias the inner
         # ``nodes`` list into the caller's data).
         sg = deepcopy(raw_sg)
+        scope_key = sg_key(raw_sg)
+        scope = compose_scope_path((*parent_scope, scope_key))
         links = sg.get("links")
         if isinstance(links, list):
             sg["links"] = [
@@ -1048,11 +1053,17 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
             for link in sg.get("links", []):
                 if isinstance(link, Mapping):
                     existing[(str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))] += 1
-            resolver_nodes = {
-                str(inner_node.get("id", inner_node.get("uid"))): inner_node
-                for inner_node in sg.get("nodes", [])
-                if isinstance(inner_node, Mapping)
-            }
+            resolver_nodes: dict[str, Mapping[str, Any]] = {}
+            for inner_node in sg.get("nodes", []):
+                if not isinstance(inner_node, Mapping):
+                    continue
+                properties = inner_node.get("properties")
+                local_uid = inner_node.get("uid")
+                if not isinstance(local_uid, str) or not local_uid.strip():
+                    local_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+                if not isinstance(local_uid, str) or not local_uid.strip():
+                    local_uid = str(inner_node.get("id", ""))
+                resolver_nodes[make_uid(scope, local_uid)] = inner_node
             next_id = max(
                 [int(link.get("id")) for link in sg.get("links", []) if isinstance(link, Mapping) and type(link.get("id")) is int]
                 + [0]
@@ -1061,13 +1072,13 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                 resolved_legs = _resolve_virtual_wire_legs(
                     resolver_nodes,
                     virtual_wires,
-                    scope_path=str(sg.get("scope_path", "")),
+                    scope_path=scope,
                 )
             except WorkflowCompileError as exc:
                 raise ValueError(str(exc)) from exc
             for leg in resolved_legs:
-                    source = resolver_nodes.get(leg.from_node.rsplit("#", 1)[-1])
-                    target = resolver_nodes.get(leg.to_node.rsplit("#", 1)[-1])
+                    source = resolver_nodes.get(leg.from_lookup)
+                    target = resolver_nodes.get(leg.to_lookup)
                     if source is None or target is None:
                         raise ValueError("Python virtual-wire leg endpoint is not local to its definition")
                     key = (str(source.get("id")), leg.from_port, str(target.get("id")), leg.to_port)
@@ -1093,7 +1104,12 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                 nested_items = list(nested)
             else:
                 raise ValueError("definition definitions must be a mapping or sequence")
-            sg["definitions"] = {"subgraphs": [emit_subgraph(item) for item in nested_items if isinstance(item, Mapping)]}
+            sg["definitions"] = {
+                "subgraphs": [
+                    emit_subgraph(item, (*parent_scope, scope_key))
+                    for item in nested_items if isinstance(item, Mapping)
+                ]
+            }
         return sg
 
     out_subgraphs: list[dict[str, Any]] = []
@@ -1105,41 +1121,28 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
 
 def _root_virtual_display_edges(wf: Any) -> list[VibeEdge]:
     """Materialize explicit root Python virtual legs for the UI display graph."""
-    from vibecomfy.workflow_bundle import _virtual_legs
+    from vibecomfy.workflow import _resolve_workflow_virtual_wire_records
 
-    by_uid = {str(node.uid): str(node.id) for node in wf.nodes.values() if node.uid}
+    # The resolver records the detached lookup identity that was used to find
+    # each endpoint.  Build the root lookup table once; do not decode a
+    # qualified UID or re-resolve aliases in this consumer.
+    by_lookup: dict[str, str] = {}
+    for key, node in wf.nodes.items():
+        by_lookup[str(key)] = str(node.id)
+        if node.uid:
+            by_lookup[str(node.uid)] = str(node.id)
     result: list[VibeEdge] = []
-    for (scope, _name), legs in sorted(_virtual_legs(wf).items()):
-        if scope != "" or legs is None:
+    for (scope, _name), legs in sorted(_resolve_workflow_virtual_wire_records(wf).items()):
+        if scope != "":
             continue
-        for _leg_scope, from_uid, from_port, to_uid, to_port, _leg_index, _occurrence_index in legs:
-            source = by_uid.get(str(from_uid))
-            target = by_uid.get(str(to_uid))
+        for leg in legs:
+            source = by_lookup.get(leg.from_lookup)
+            target = by_lookup.get(leg.to_lookup)
             if source is None or target is None:
                 raise ValueError(
-                    f"Python virtual-wire leg endpoint is not a root node: {from_uid!r}->{to_uid!r}"
+                    f"Python virtual-wire leg endpoint is not a root node: {leg.from_node!r}->{leg.to_node!r}"
                 )
-            source_node = wf.nodes[source]
-            target_node = wf.nodes[target]
-            source_roster = getattr(source_node, "native_output_names", None)
-            target_roster = getattr(target_node, "native_input_names", None)
-            source_name = (
-                source_roster[int(from_port)]
-                if isinstance(source_roster, list)
-                and type(from_port) is int
-                and 0 <= from_port < len(source_roster)
-                and source_roster[from_port] is not None
-                else str(from_port)
-            )
-            target_name = (
-                target_roster[int(to_port)]
-                if isinstance(target_roster, list)
-                and type(to_port) is int
-                and 0 <= to_port < len(target_roster)
-                and target_roster[to_port] is not None
-                else str(to_port)
-            )
-            result.append(VibeEdge(source, str(source_name), target, str(target_name)))
+            result.append(VibeEdge(source, leg.from_output, target, leg.to_input))
     return result
 
 
@@ -4326,6 +4329,7 @@ def _overlay_validated_presentation(
     def materialize_link(
         link: list[Any], item: Mapping[str, Any] | None = None
     ) -> list[Any]:
+        nonlocal next_link_id
         result = list(link)
         result[1] = old_to_new.get(result[1], result[1])
         result[3] = old_to_new.get(result[3], result[3])
@@ -4349,7 +4353,18 @@ def _overlay_validated_presentation(
     for key, candidates in emitted_by_key.items():
         overrides = side_overrides.get(key)
         if overrides:
-            rebuilt_links.extend(materialize_link(candidates[0], item) for item in overrides)
+            # A sidecar is optional presentation evidence.  It may override
+            # only the first authored occurrence; omitted Python occurrences
+            # must remain visible.  Extra sidecar rows intentionally duplicate
+            # the first Python endpoint, preserving the v1 occurrence model.
+            rebuilt_links.extend(
+                materialize_link(candidates[min(index, len(candidates) - 1)], item)
+                for index, item in enumerate(overrides)
+            )
+            rebuilt_links.extend(
+                materialize_link(candidate)
+                for candidate in candidates[len(overrides):]
+            )
         else:
             rebuilt_links.extend(materialize_link(candidate) for candidate in candidates)
 

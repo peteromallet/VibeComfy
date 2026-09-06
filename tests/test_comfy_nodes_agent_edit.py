@@ -43,6 +43,13 @@ from vibecomfy.comfy_nodes.agent.edit import (
     split_terminal_clarify,
 )
 from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.edit._interpret import (
+    _input_socket_type,
+    _output_socket_type,
+    _raw_output_slot,
+    _resolve_output_slot,
+    canonical_renderer_output,
+)
 from vibecomfy.comfy_nodes.agent.contracts import (
     AGENT_EDIT_TURN_CONTRACT_VERSION,
     FailureEnvelope,
@@ -841,14 +848,43 @@ def _fixture_request_identity(
     *,
     workflow_id: str,
     name: str,
+    batch: str | None = None,
+    schema_provider: object = None,
 ) -> dict[str, str]:
-    """Return complete baseline V2 identity fields for a fixture request."""
+    """Return complete V2 identity fields for a fixture request."""
+    revision_id = (
+        _fixture_batch_revision(
+            root,
+            graph,
+            workflow_id=workflow_id,
+            name=name,
+            batch=batch,
+            schema_provider=schema_provider,
+        )
+        if batch is not None and schema_provider is not None
+        else _fixture_candidate_revision(root, graph, workflow_id=workflow_id, name=name)
+    )
     return {
-        "revision_id": _fixture_candidate_revision(
-            root, graph, workflow_id=workflow_id, name=name
-        ),
+        "revision_id": revision_id,
         "parent_revision": "",
     }
+
+
+def _assert_exec_splice(candidate_graph: dict[str, object], source: str) -> dict[str, object]:
+    nodes = candidate_graph["nodes"]
+    assert isinstance(nodes, list)
+    exec_node = next(node for node in nodes if node["type"] == "vibecomfy.exec")
+    assert exec_node["properties"]["vibecomfy"]["io"] == {
+        "inputs": [["image", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
+    }
+    assert exec_node["properties"]["vibecomfy"]["intent"]["source"] == source
+    links = candidate_graph["links"]
+    assert isinstance(links, list)
+    exec_id = exec_node["id"]
+    assert any(link[1] == 1 and link[3] == exec_id for link in links)
+    assert any(link[1] == exec_id and link[3] == 2 for link in links)
+    return exec_node
 
 
 def _fake_deepseek_replace(
@@ -1981,7 +2017,12 @@ def test_batch_repl_fixture_fallback_refusal_never_applies_batch(
 
 def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
+    )
     source = (
         "from PIL import ImageOps\n"
         "processed = ImageOps.autocontrast(image)\n"
@@ -2009,20 +2050,131 @@ def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
             ),
         }
     )
-    from vibecomfy.ingest.normalize import from_ui
-    from vibecomfy.porting.edit import interpret
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    graph = _ui_graph()
+    executor_calls = 0
 
-    interpreted = interpret(
-        from_ui(_ui_graph(), use_comfy_converter=False),
-        batch,
+    def _client(_messages):
+        nonlocal executor_calls
+        executor_calls += 1
+        return {
+            "message": "Inserted a PIL processing code node.",
+            "batch": batch,
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Add a code node that processes images with PIL",
+            "session_id": "batch-exec-insert",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-insert",
+                batch=batch, schema_provider=fixture_provider,
+            ),
+        },
         schema_provider=fixture_provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
     )
-    assert interpreted.ok is True
-    assert not any(d.code == "unknown_port" for d in interpreted.diagnostics)
-    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
-    assert any(node["type"] == "vibecomfy.exec" for node in candidate["nodes"])
-    assert len(candidate["links"]) == 2
+
+    if not result["ok"]:
+        print("DEBUG_INSERT_RESULT", json.dumps(result, indent=2, default=str))
+    assert result["ok"] is True, result
+    assert executor_calls == 1
+    assert len(result["batch_turns"]) == 1
+    assert result["debug"]["batch_repl"]["done_summary"]
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["apply_allowed"] is True
+    assert result["eligibility"] == result["apply_eligibility"]
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    _assert_exec_splice(candidate_graph, source)
+    assert len(candidate_graph["links"]) == 2
+
+
+def test_exec_authored_io_is_exact_renderer_evidence_across_carriers() -> None:
+    outputs = [["mask", "MASK"], ["image", "IMAGE"], ["audio", "AUDIO"]]
+    inputs = [["source", "IMAGE"], ["control", "MASK"]]
+    metadata = {
+        "output_names": ["stale_0", "stale_1", "stale_2", "stale_3"],
+        "output_types": ["STALE", "STALE", "STALE", "STALE"],
+        "_ui": {"outputs": [{"name": f"out_{index}"} for index in range(16)]},
+    }
+    interpret_node = VibeNode(
+        id="exec-interpret",
+        uid="exec-interpret",
+        class_type="vibecomfy.exec",
+        inputs={"io": {"inputs": inputs, "outputs": outputs}, "in_0": None},
+        metadata=metadata,
+    )
+    replay_node = VibeNode(
+        id="exec-replay",
+        uid="exec-replay",
+        class_type="vibecomfy.exec",
+        widgets={"io": json.dumps({"inputs": inputs, "outputs": outputs})},
+        metadata=metadata,
+    )
+
+    for node in (interpret_node, replay_node):
+        assert canonical_renderer_output(node, "out_1") == "image"
+        assert canonical_renderer_output(node, "IMAGE_1") == "image"
+        assert canonical_renderer_output(node, "image") == "image"
+        assert canonical_renderer_output(node, "AUDIO_2") == "audio"
+        assert canonical_renderer_output(node, "unknown_15") is None
+        assert canonical_renderer_output(node, "AUDIO_0") is None
+        assert canonical_renderer_output(node, "MASK_1") is None
+        assert canonical_renderer_output(node, 3) is None
+        assert _resolve_output_slot(node, "image") == "IMAGE_1"
+        assert _resolve_output_slot(node, "out_1") == "IMAGE_1"
+        assert _raw_output_slot(node, "IMAGE_1") == "out_1"
+        assert _raw_output_slot(node, "AUDIO_0") == "AUDIO_0"
+        assert _output_socket_type(node, "IMAGE_1") == "IMAGE"
+        assert _output_socket_type(node, "out_1") == "IMAGE"
+        assert _input_socket_type(node, "in_0", None) == "IMAGE"
+        assert _input_socket_type(node, "control", None) == "MASK"
+
+
+@pytest.mark.parametrize(
+    "io_value",
+    [
+        {"inputs": [], "outputs": [["image"]]},
+        {"inputs": [], "outputs": [["image", "IMAGE"], ["image", "MASK"]]},
+        {"inputs": [], "outputs": [{"type": "IMAGE"}]},
+        {"inputs": [], "outputs": "not-a-roster"},
+    ],
+)
+def test_exec_malformed_authored_io_fails_closed_without_generic_fallback(io_value: object) -> None:
+    node = VibeNode(
+        id="exec-malformed",
+        uid="exec-malformed",
+        class_type="vibecomfy.exec",
+        inputs={"io": io_value},
+        metadata={
+            "output_names": ["generic_0", "generic_1", "generic_15"],
+            "output_types": ["IMAGE", "IMAGE", "IMAGE"],
+            "_ui": {"outputs": [{"name": "generic_0", "type": "IMAGE"}] * 16},
+        },
+    )
+    assert canonical_renderer_output(node, "IMAGE_0") is None
+    assert canonical_renderer_output(node, "unknown_15") is None
+    assert _output_socket_type(node, "IMAGE_0") is None
+
+
+def test_exec_conflicting_inputs_and_widgets_io_fails_closed() -> None:
+    node = VibeNode(
+        id="exec-conflict",
+        uid="exec-conflict",
+        class_type="vibecomfy.exec",
+        inputs={"io": {"inputs": [], "outputs": [["image", "IMAGE"]]}},
+        widgets={"io": {"inputs": [], "outputs": [["image", "MASK"]]}},
+        metadata={"output_names": ["image"], "output_types": ["IMAGE"]},
+    )
+    assert canonical_renderer_output(node, "IMAGE_0") is None
+    assert _output_socket_type(node, "IMAGE_0") is None
 
 
 def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blockers(
@@ -2032,7 +2184,7 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     monkeypatch.setattr(
         "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
-        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
     )
     graph = _json_clone(_ui_graph())
     graph["nodes"].append(
@@ -2081,22 +2233,39 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
             "batch": batch,
         }
 
-    from vibecomfy.ingest.normalize import from_ui
-    from vibecomfy.porting.edit import interpret
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Add a code node that processes images with PIL",
+            "session_id": "batch-exec-insert-messy-graph",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-insert-messy-graph",
+                batch=batch, schema_provider=fixture_provider,
+            ),
+        },
+        schema_provider=fixture_provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
 
-    workflow = from_ui(graph, use_comfy_converter=False)
-    interpreted = interpret(workflow, batch, schema_provider=fixture_provider)
-    assert interpreted.ok is True
-    assert len(interpreted.landed_ops) == 2
-    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
-    exec_node = next(node for node in candidate["nodes"] if node["type"] == "vibecomfy.exec")
-    assert "ImageOps.autocontrast" in exec_node["properties"]["vibecomfy"]["intent"]["source"]
+    assert provider_calls == 1
+    assert len(result["batch_turns"]) == 1
+    assert result["ok"] is True, result
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["apply_allowed"] is True
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    exec_node = _assert_exec_splice(candidate_graph, source)
     assert exec_node["inputs"][0]["link"] is not None
-    assert candidate["nodes"][-1]["type"] == "vibecomfy.exec"
-    assert any(node["type"] == "VHS_VideoCombine" for node in candidate["nodes"])
-    assert len(candidate["links"]) == 2
-    assert not any(link[1] == 1 and link[3] == 2 for link in candidate["links"])
+    assert candidate_graph["nodes"][-1]["type"] == "vibecomfy.exec"
+    assert any(node["type"] == "VHS_VideoCombine" for node in candidate_graph["nodes"])
+    assert len(candidate_graph["links"]) == 2
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate_graph["links"])
 
 
 def test_batch_repl_code_node_addition_accepts_dict_io_format(
@@ -2108,7 +2277,7 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     monkeypatch.setattr(
         "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
-        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
     )
     graph = _json_clone(_ui_graph())
     source = (
@@ -2138,27 +2307,74 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
             ),
         }
     )
+    executor_calls = 0
 
     def _client(_messages):
+        nonlocal executor_calls
+        executor_calls += 1
         return {"message": "Inserted a PIL processing code node.", "batch": batch}
 
-    from vibecomfy.ingest.normalize import from_ui
-    from vibecomfy.porting.edit import interpret
-    from vibecomfy.porting.emit.ui import emit_ui_json
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Add a code node that processes images with PIL",
+            "session_id": "batch-exec-dict-io",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-dict-io",
+                batch=batch, schema_provider=fixture_provider,
+            ),
+        },
+        schema_provider=fixture_provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
 
-    workflow = from_ui(graph, use_comfy_converter=False)
-    interpreted = interpret(workflow, batch, schema_provider=fixture_provider)
-    assert interpreted.ok is True
-    assert interpreted.landed_ops
-    candidate = emit_ui_json(interpreted.workflow, schema_provider=fixture_provider)
-    exec_node = next(node for node in candidate["nodes"] if node["type"] == "vibecomfy.exec")
-    assert exec_node["properties"]["vibecomfy"]["io"] == {
-        "inputs": [["image", "IMAGE"]],
-        "outputs": [["image", "IMAGE"]],
-    }
-    assert "ImageOps.autocontrast" in exec_node["properties"]["vibecomfy"]["intent"]["source"]
-    assert any(link[1] == exec_node["id"] and link[3] == 2 for link in candidate["links"])
-    assert not any(link[1] == 1 and link[3] == 2 for link in candidate["links"])
+    assert result["ok"] is True, result
+    assert executor_calls == 1
+    assert len(result["batch_turns"]) == 1
+    assert result["apply_allowed"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    exec_node = _assert_exec_splice(candidate_graph, source)
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate_graph["links"])
+
+
+def test_all_route_positive_insertions_fail_always_noop_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route assertions must reject a handler that never inserts a node."""
+    def _always_noop(*_args, **_kwargs):
+        return {
+            "ok": True,
+            "graph": _ui_graph(),
+            "candidate": None,
+            "batch_turns": [],
+            "apply_allowed": False,
+            "eligibility": False,
+            "apply_eligibility": False,
+            "outcome": {"kind": "noop"},
+            "debug": {"batch_repl": {"done_summary": ""}, "turn_identity": None},
+        }
+
+    monkeypatch.setattr(sys.modules[__name__], "handle_agent_edit", _always_noop)
+    for positive in (
+        test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid,
+        test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blockers,
+        test_batch_repl_code_node_addition_accepts_dict_io_format,
+    ):
+        local = pytest.MonkeyPatch()
+        try:
+            with pytest.raises(AssertionError):
+                positive(tmp_path / positive.__name__, local)
+        finally:
+            local.undo()
 
 
 def test_localized_code_node_addition_keeps_new_candidate_blockers(tmp_path: Path) -> None:

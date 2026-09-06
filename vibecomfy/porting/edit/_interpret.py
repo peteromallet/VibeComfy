@@ -1612,7 +1612,23 @@ class _InterpretRunner:
             if issues:
                 return None, issues
             assert node is not None
-            ports = _agent_edit_output_ports(node)
+            if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+                authored_io, authored, valid = _exec_authored_io(node)
+                if authored:
+                    ports = (
+                        {
+                            index: f"{socket_type}_{index}"
+                            for index, (_name, socket_type) in enumerate(
+                                authored_io["outputs"]
+                            )
+                        }
+                        if valid and authored_io is not None
+                        else {}
+                    )
+                else:
+                    ports = _agent_edit_output_ports(node)
+            else:
+                ports = _agent_edit_output_ports(node)
             if len(ports) == 1:
                 slot = _raw_output_slot(node, next(iter(ports.values())))
                 return LinkSourceRef("", str(node.uid), slot), ()
@@ -2322,6 +2338,31 @@ def _attach_emitted_ports(node: Any, source: str, schema_provider: Any) -> None:
 
 def _resolve_output_slot(node: Any, attr: str) -> str | None:
     if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return None
+            outputs = authored_io["outputs"]
+            mapped_index: int | None = None
+            if attr.startswith("out_") and attr[4:].isdigit():
+                mapped_index = int(attr[4:])
+            else:
+                typed = _TYPED_PORT.fullmatch(attr)
+                if typed is not None:
+                    mapped_index = int(typed.group(2))
+                    if not 0 <= mapped_index < len(outputs):
+                        return None
+                    if outputs[mapped_index][1].casefold() != typed.group(1).casefold():
+                        return None
+                else:
+                    for index, (name, _socket_type) in enumerate(outputs):
+                        if name == attr:
+                            mapped_index = index
+                            break
+            if mapped_index is None or not 0 <= mapped_index < len(outputs):
+                return None
+            socket_type = outputs[mapped_index][1]
+            return f"{socket_type}_{mapped_index}"
         io_value = None
         if isinstance(getattr(node, "inputs", None), Mapping):
             io_value = node.inputs.get("io")
@@ -2401,6 +2442,24 @@ def _resolve_output_slot(node: Any, attr: str) -> str | None:
 def _raw_output_slot(node: Any, slot: str) -> str:
     """Map a typed emit alias (IMAGE_0) back to the UI/raw slot name."""
     if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return slot
+            typed = _TYPED_PORT.fullmatch(slot)
+            if typed is not None:
+                index = int(typed.group(2))
+                if (
+                    0 <= index < len(authored_io["outputs"])
+                    and typed.group(1).casefold()
+                    == authored_io["outputs"][index][1].casefold()
+                ):
+                    return f"out_{index}"
+                return slot
+            for index, (name, _socket_type) in enumerate(authored_io["outputs"]):
+                if name == slot:
+                    return f"out_{index}"
+            return slot
         if slot.startswith("out_") or slot.startswith("in_"):
             return slot
         typed = _TYPED_PORT.fullmatch(slot)
@@ -2542,6 +2601,19 @@ def _frozen_output_evidence(
     sources: list[str] = []
     slot_count = 0
 
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return {}, {}, ("invalid_authored_exec_io",), 0
+            outputs = authored_io["outputs"]
+            return (
+                {index: name for index, (name, _socket_type) in enumerate(outputs)},
+                {index: socket_type for index, (_name, socket_type) in enumerate(outputs)},
+                ("authored_exec_io",),
+                len(outputs),
+            )
+
     def _absorb(names_obj: Any, types_obj: Any, label: str) -> None:
         nonlocal slot_count
         if isinstance(names_obj, (list, tuple)):
@@ -2613,6 +2685,103 @@ def _frozen_output_evidence(
         except Exception:  # noqa: BLE001 - schema lookup failure is simply no evidence
             pass
     return names, types, tuple(dict.fromkeys(sources)), slot_count
+
+
+def _exec_authored_io(
+    node: Any,
+) -> tuple[dict[str, list[tuple[str, str]]] | None, bool, bool]:
+    """Return the retained authored exec IO, without admitting a loose copy.
+
+    ``_normalize_exec_io`` remains the one parser for the contract.  The
+    shape checks here only reject the parser's intentionally permissive
+    repair/default behavior (missing names/types, malformed rows, duplicate
+    names), so a malformed authored declaration cannot fall through to a
+    provider's generic output roster.
+    """
+    values: list[Any] = []
+    for channel in ("inputs", "widgets"):
+        carrier = getattr(node, channel, None)
+        if isinstance(carrier, Mapping) and "io" in carrier:
+            values.append(carrier["io"])
+    if not values:
+        return None, False, True
+
+    def _decoded(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            import json
+
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _strict(value: Any) -> dict[str, list[tuple[str, str]]] | None:
+        decoded = _decoded(value)
+        normalized = _normalize_exec_io(value)
+        if normalized is None or not isinstance(decoded, Mapping):
+            return None
+        for direction in ("inputs", "outputs"):
+            if direction not in decoded:
+                continue
+            raw_entries = decoded[direction]
+            if isinstance(raw_entries, Mapping):
+                rows = list(raw_entries.items())
+                if any(
+                    not isinstance(name, str) or not name.strip()
+                    or not isinstance(socket_type, str) or not socket_type.strip()
+                    for name, socket_type in rows
+                ):
+                    return None
+                seen: set[str] = set()
+                for name, _socket_type in rows:
+                    folded = name.strip().casefold()
+                    if folded in seen:
+                        return None
+                    seen.add(folded)
+            elif isinstance(raw_entries, list):
+                rows: list[tuple[Any, Any]] = []
+                for row in raw_entries:
+                    if isinstance(row, Mapping):
+                        if (
+                            "name" not in row
+                            or "type" not in row
+                            or not isinstance(row["name"], str)
+                            or not row["name"].strip()
+                            or not isinstance(row["type"], str)
+                            or not row["type"].strip()
+                        ):
+                            return None
+                        rows.append((row["name"], row["type"]))
+                    elif isinstance(row, (list, tuple)) and len(row) == 2:
+                        if (
+                            not isinstance(row[0], str)
+                            or not row[0].strip()
+                            or not isinstance(row[1], str)
+                            or not row[1].strip()
+                        ):
+                            return None
+                        rows.append((row[0], row[1]))
+                    else:
+                        return None
+                seen = set()
+                for name, _socket_type in rows:
+                    folded = name.strip().casefold()
+                    if folded in seen:
+                        return None
+                    seen.add(folded)
+            else:
+                return None
+        return normalized
+
+    normalized_values = [_strict(value) for value in values]
+    if any(value is None for value in normalized_values):
+        return None, True, False
+    first = normalized_values[0]
+    if any(value != first for value in normalized_values[1:]):
+        return None, True, False
+    assert first is not None
+    return first, True, True
 
 
 def renderer_output_slots(
@@ -2691,6 +2860,12 @@ def canonical_renderer_output(
         folded = base.casefold()
         name = names.get(index)
         out_type = types.get(index)
+        if (
+            str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE
+            and folded == "out"
+            and name is not None
+        ):
+            return name
         agrees = bool(
             (name and name.casefold() == folded)
             or (out_type and out_type.casefold() == folded)
@@ -2713,6 +2888,21 @@ def _output_socket_type(node: Any, slot: str | int) -> str | None:
         resolved = canonical_renderer_output(node, slot)
         if resolved is not None:
             lookup = resolved
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return None
+            resolved_name = lookup if isinstance(lookup, str) else None
+            for index, (name, socket_type) in enumerate(authored_io["outputs"]):
+                if resolved_name == name or (
+                    isinstance(slot, str)
+                    and slot.startswith("out_")
+                    and slot[4:].isdigit()
+                    and int(slot[4:]) == index
+                ):
+                    return socket_type
+            return None
     ports = _agent_edit_output_ports(node)
     if isinstance(lookup, str):
         for index, name in ports.items():
@@ -2727,6 +2917,19 @@ def _output_socket_type(node: Any, slot: str | int) -> str | None:
 
 
 def _input_socket_type(node: Any, field_name: str, schema_provider: Any) -> str | None:
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return None
+            inputs = authored_io["inputs"]
+            if field_name.startswith("in_") and field_name[3:].isdigit():
+                index = int(field_name[3:])
+                return inputs[index][1] if 0 <= index < len(inputs) else None
+            for name, socket_type in inputs:
+                if name == field_name:
+                    return socket_type
+            return None
     schema = schema_for(schema_provider, node.class_type)
     spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
     if spec is not None and getattr(spec, "type", None):

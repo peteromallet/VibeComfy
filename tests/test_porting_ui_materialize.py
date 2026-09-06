@@ -203,19 +203,28 @@ def test_materialize_depth_two_virtual_leg_uses_structural_scope() -> None:
     inner = {
         "name": "inner",
         "nodes": [
-            {"id": 10, "uid": "left", "class_type": "A"},
-            {"id": 20, "uid": "right", "class_type": "B"},
+            {"id": 10, "uid": "left", "class_type": "A",
+             "outputs": [{"name": "out"}]},
+            {"id": 20, "uid": "right", "class_type": "B",
+             "inputs": [{"name": "value"}]},
         ],
         "links": [{"id": 1, "origin_id": 10, "origin_slot": 0,
                     "target_id": 20, "target_slot": 0, "type": "X"}],
-        "virtual_wires": {"bus": {"legs": [{
-            "origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 0,
-        }]}},
+        "virtual_wires": {"bus": {"legs": []}},
     }
     outer = {"name": "outer", "nodes": [], "links": [], "definitions": {"subgraphs": [inner]}}
     wf.definitions = {"subgraphs": [outer]}
     wf.metadata["definitions"] = {"subgraphs": [{"name": "RAW_WRONG", "nodes": [], "links": []}]}
     scope = compose_scope_path((sg_key(outer), sg_key(inner)))
+    inner["virtual_wires"]["bus"]["legs"] = [{
+        "scope_path": scope,
+        "leg_index": 0,
+        "occurrence_index": 0,
+        "from_node": "left",
+        "from_output": "out",
+        "to_node": "right",
+        "to_input": "value",
+    }]
     ref = {"scope_path": scope, "name": "bus", "leg_index": 0}
     root_group = {"scope_path": "", "presentation_id": "shared", "bounds": [1, 2, 300, 200], "title": "Root group"}
     nested_group = {"scope_path": scope, "presentation_id": "shared", "bounds": [11, 12, 130, 140], "title": "Nested group"}

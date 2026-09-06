@@ -2829,6 +2829,16 @@ def _port_index_for_node(
             "unknown_virtual_wire_port",
             f"cannot derive {direction} port {value!r}: native {direction} roster is missing at {where}",
         )
+    if isinstance(roster, (list, tuple)):
+        # A roster is evidence, not merely a length hint.  Empty rosters and
+        # holes are authoritative; malformed entries must never be converted
+        # into a guessed slot or a dictionary-order fallback.
+        for position, name in enumerate(roster):
+            if name is not None and (not isinstance(name, str) or not name.strip()):
+                raise WorkflowCompileError(
+                    "unknown_virtual_wire_port",
+                    f"{direction} roster entry {position} at {where} is malformed",
+                )
     if isinstance(value, bool) or isinstance(value, float) or not isinstance(value, (int, str)):
         raise WorkflowCompileError(
             "unknown_virtual_wire_port",
@@ -2869,6 +2879,28 @@ def _port_index_for_node(
             f"{direction} port {value!r} at {where} is outside or a hole in the native Python roster",
         )
     return index
+
+
+def _port_name_for_node(node: Any, index: int, direction: str, where: str) -> str:
+    """Return the exact authored field name for one resolved socket."""
+    roster = _port_roster(node, direction)
+    if not isinstance(roster, (list, tuple)):
+        raise WorkflowCompileError(
+            "unknown_virtual_wire_port",
+            f"cannot derive {direction} port name at {where}: native {direction} roster is missing",
+        )
+    if index < 0 or index >= len(roster) or roster[index] is None:
+        raise WorkflowCompileError(
+            "unknown_virtual_wire_port",
+            f"{direction} port {index} at {where} is outside or a hole in the native Python roster",
+        )
+    name = roster[index]
+    if not isinstance(name, str) or not name.strip():
+        raise WorkflowCompileError(
+            "unknown_virtual_wire_port",
+            f"{direction} port {index} at {where} has no exact declared field name",
+        )
+    return name
 
 
 def _input_slot_for_node(node: Any, value: Any, where: str = "input") -> int:
@@ -2979,6 +3011,7 @@ def _virtual_wire_nodes(nodes: Mapping[str, Any], scope: str) -> tuple[dict[str,
     from vibecomfy.identity.uid import make_uid
 
     aliases: dict[str, str] = {}
+    aliases_folded: dict[str, str] = {}
     by_qualified: dict[str, Any] = {}
     lookup_by_qualified: dict[str, str] = {}
     for key, node in nodes.items():
@@ -2996,6 +3029,11 @@ def _virtual_wire_nodes(nodes: Mapping[str, Any], scope: str) -> tuple[dict[str,
         else:
             local_uid = getattr(node, "uid", None) or getattr(node, "id", raw_key)
         qualified = str(local_uid) if "#" in str(local_uid) else make_uid(scope, str(local_uid))
+        if qualified in by_qualified:
+            raise WorkflowCompileError(
+                "virtual_wire_ambiguous_endpoint",
+                f"duplicate node UID {local_uid!r} is ambiguous in scope {scope!r}",
+            )
         candidates = [raw_key]
         if isinstance(node, Mapping):
             candidates.extend(str(node.get(field)) for field in ("uid", "id") if node.get(field) is not None)
@@ -3010,8 +3048,17 @@ def _virtual_wire_nodes(nodes: Mapping[str, Any], scope: str) -> tuple[dict[str,
             if prior is not None and prior != qualified:
                 raise WorkflowCompileError("virtual_wire_ambiguous_endpoint", f"endpoint alias {alias!r} is ambiguous in scope {scope!r}")
             aliases[alias] = qualified
+            folded = alias.casefold()
+            prior_folded = aliases_folded.get(folded)
+            if prior_folded is not None and prior_folded != qualified:
+                raise WorkflowCompileError("virtual_wire_ambiguous_endpoint", f"endpoint alias {alias!r} is ambiguous in scope {scope!r}")
+            aliases_folded[folded] = qualified
         by_qualified[qualified] = node
         lookup_by_qualified[qualified] = lookup
+    # Keep exact aliases in the first map and case-insensitive aliases in the
+    # same detached lookup table.  Node identity is local and unambiguous;
+    # consumers never need to invent another alias rule.
+    aliases.update({key: value for key, value in aliases_folded.items() if key not in aliases})
     return aliases, by_qualified, lookup_by_qualified
 
 
@@ -3062,6 +3109,7 @@ def _resolve_virtual_wire_legs(
         declared_scope = raw.get("scope_path")
         if declared_scope is not None and not isinstance(declared_scope, str):
             raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} scope_path must be a string")
+        wire_declares_scope = declared_scope is not None
         if declared_scope is None:
             declared_scope = scope_path
         occurrences_by_leg: dict[tuple[str, int], list[int]] = {}
@@ -3076,19 +3124,48 @@ def _resolve_virtual_wire_legs(
                 leg = authored
             else:
                 raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} leg {ordinal} is a malformed Python leg")
-            legacy_unindexed = (
-                "leg_index" not in leg
-                and "occurrence_index" not in leg
+            # Normalized canonical legs carry all seven fields.  Complete
+            # unindexed endpoint legs remain accepted as the one compatibility
+            # normalization boundary; scope depth alone must not turn those
+            # legacy records into a partially canonical record.
+            canonical_leg = (
+                "scope_path" in leg
+                or wire_declares_scope
+                or "from_output" in leg
             )
-            leg_index = ordinal if legacy_unindexed else leg.get("leg_index")
-            occurrence_index = 0 if legacy_unindexed else leg.get("occurrence_index")
+            if canonical_leg:
+                required = {"scope_path", "leg_index", "occurrence_index"}
+                missing = sorted(required.difference(leg))
+                endpoint_aliases = (
+                    ("from_node", "from_uid", "origin_id"),
+                    ("to_node", "to_uid", "target_id"),
+                    ("from_output", "from_port", "origin_slot"),
+                    ("to_input", "to_port", "target_slot"),
+                )
+                missing.extend(
+                    "/".join(options)
+                    for options in endpoint_aliases
+                    if not any(option in leg for option in options)
+                )
+                if missing:
+                    raise WorkflowCompileError(
+                        "virtual_wire_malformed",
+                        f"virtual wire {name!r} leg {ordinal} lacks canonical field(s): {', '.join(missing)}",
+                    )
+            legacy_unindexed = not canonical_leg and "leg_index" not in leg and "occurrence_index" not in leg
+            leg_index = ordinal if "leg_index" not in leg else leg.get("leg_index")
+            occurrence_index = 0 if "occurrence_index" not in leg else leg.get("occurrence_index")
             if isinstance(leg_index, bool) or not isinstance(leg_index, int) or leg_index < 0:
                 raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg {ordinal} has invalid leg_index")
             if isinstance(occurrence_index, bool) or not isinstance(occurrence_index, int) or occurrence_index < 0:
                 raise WorkflowCompileError("virtual_wire_index", f"virtual wire {name!r} leg {ordinal} has invalid occurrence_index")
             scope = leg.get("scope_path", declared_scope)
-            if not isinstance(scope, str) or (raw.get("scope_path") is not None and scope != declared_scope):
+            if not isinstance(scope, str):
+                raise WorkflowCompileError("virtual_wire_cross_scope", f"virtual wire {name!r} leg {ordinal} has an invalid scope")
+            if wire_declares_scope and scope != declared_scope:
                 raise WorkflowCompileError("virtual_wire_cross_scope", f"virtual wire {name!r} leg {ordinal} crosses scope {declared_scope!r}")
+            if scope != scope_path:
+                raise WorkflowCompileError("virtual_wire_cross_scope", f"virtual wire {name!r} leg {ordinal} crosses scope {scope_path!r}")
             aliases, by_qualified, lookup_by_qualified = _virtual_wire_nodes(nodes, scope)
             if any(part.startswith("sg") and part[2:].isdigit() for part in scope.split("/") if part):
                 raise WorkflowCompileError("ordinal_scope_path", f"virtual wire {name!r} uses an ordinal scope path")
@@ -3105,7 +3182,7 @@ def _resolve_virtual_wire_legs(
                     if "#" in value:
                         qualified = value
                     else:
-                        qualified = aliases.get(value, make_uid(scope, value))
+                        qualified = aliases.get(value) or aliases.get(value.casefold()) or make_uid(scope, value)
                     if qualified not in by_qualified:
                         raise WorkflowCompileError("virtual_wire_unresolved", f"virtual wire {name!r} leg endpoint is not local to {scope!r}")
                     endpoint_scope, local = parse_uid(qualified)
@@ -3121,16 +3198,32 @@ def _resolve_virtual_wire_legs(
             from_values = _virtual_wire_port_values(leg, "from", ("from_output", "from_port", "origin_slot"))
             to_values = _virtual_wire_port_values(leg, "to", ("to_input", "to_port", "target_slot"))
             if not from_values:
+                if canonical_leg:
+                    raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} leg {ordinal} lacks a source port")
                 from_values = [0]
             if not to_values:
                 raise WorkflowCompileError("virtual_wire_malformed", f"virtual wire {name!r} leg {ordinal} lacks a port")
-            from_indexes = [_port_index_for_node(source_node, value, "output", f"virtual wire {name!r} leg {ordinal}") for value in from_values]
-            to_indexes = [_port_index_for_node(target_node, value, "input", f"virtual wire {name!r} leg {ordinal}") for value in to_values]
+            from_indexes = [_port_index_for_node(source_node, value, "output", f"virtual wire {name!r} leg {ordinal}", require_roster=canonical_leg) for value in from_values]
+            to_indexes = [_port_index_for_node(target_node, value, "input", f"virtual wire {name!r} leg {ordinal}", require_roster=canonical_leg) for value in to_values]
             if len(set(from_indexes)) != 1 or len(set(to_indexes)) != 1:
                 raise WorkflowCompileError("virtual_wire_conflict", f"virtual wire {name!r} leg {ordinal} has conflicting port aliases")
             from_index, to_index = from_indexes[0], to_indexes[0]
-            from_output = next((value for value in from_values if isinstance(value, str) and not value.strip().isdigit()), str(from_index))
-            to_input = next((value for value in to_values if isinstance(value, str) and not value.strip().isdigit()), str(to_index))
+            if canonical_leg:
+                from_output = _port_name_for_node(source_node, from_index, "output", f"virtual wire {name!r} leg {ordinal}")
+                to_input = _port_name_for_node(target_node, to_index, "input", f"virtual wire {name!r} leg {ordinal}")
+            else:
+                # Complete legacy legs remain a single normalization boundary.
+                # When a roster is present, retain its exact semantic field
+                # name for downstream display consumers; otherwise preserve
+                # the authored compatibility spelling.
+                try:
+                    from_output = _port_name_for_node(source_node, from_index, "output", f"virtual wire {name!r} leg {ordinal}")
+                except WorkflowCompileError:
+                    from_output = next((value for value in from_values if isinstance(value, str) and not value.strip().isdigit()), str(from_index))
+                try:
+                    to_input = _port_name_for_node(target_node, to_index, "input", f"virtual wire {name!r} leg {ordinal}")
+                except WorkflowCompileError:
+                    to_input = next((value for value in to_values if isinstance(value, str) and not value.strip().isdigit()), str(to_index))
             resolved = _ResolvedVirtualWireLeg(
                 name,
                 scope,
@@ -3166,13 +3259,92 @@ def _resolve_virtual_wire_legs(
     return result
 
 
+def _resolve_workflow_virtual_wire_records(workflow: Any) -> dict[tuple[str, str], tuple[_ResolvedVirtualWireLeg, ...]]:
+    """Resolve every authored virtual leg for a workflow into detached records.
+
+    This is the shared projection boundary for bundle and UI consumers.  The
+    records retain structural scope, local endpoint identity, UI slots, and
+    exact API field names; consumers must not decode ports or endpoint aliases
+    again.
+    """
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+
+    resolved: dict[tuple[str, str], tuple[_ResolvedVirtualWireLeg, ...]] = {}
+
+    def entries(raw: Any) -> list[Mapping[str, Any]]:
+        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
+            return [item for item in raw["subgraphs"] if isinstance(item, Mapping)]
+        if isinstance(raw, Mapping):
+            return [item for item in raw.values() if isinstance(item, Mapping)]
+        if isinstance(raw, (list, tuple)):
+            return [item for item in raw if isinstance(item, Mapping)]
+        return []
+
+    def node_map(raw_nodes: Any) -> dict[str, Any]:
+        values = raw_nodes.values() if isinstance(raw_nodes, Mapping) else raw_nodes
+        if not isinstance(values, (list, tuple)) and not hasattr(values, "__iter__"):
+            return {}
+        result: dict[str, Any] = {}
+        for ordinal, node in enumerate(values):
+            if not isinstance(node, Mapping):
+                continue
+            props = node.get("properties")
+            local = node.get("uid")
+            if not isinstance(local, str) or not local.strip():
+                local = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+            if not isinstance(local, str) or not local.strip():
+                local = node.get("id")
+            if local is not None:
+                # Keep every source record visible to the shared collision
+                # checker.  Keying this temporary map by local UID would
+                # overwrite a duplicate before `_virtual_wire_nodes` could
+                # reject it.
+                result[f"__resolver_node_{ordinal}"] = node
+        return result
+
+    def visit(definitions: Any, parent: tuple[str, ...]) -> None:
+        for definition in entries(definitions):
+            key = sg_key(definition)
+            scope = compose_scope_path((*parent, key))
+            wires = definition.get("virtual_wires", {})
+            if wires not in (None, {}):
+                for record in _resolve_virtual_wire_legs(node_map(definition.get("nodes", [])), wires, scope_path=scope):
+                    resolved.setdefault((scope, record.wire_name), tuple())
+                    resolved[(scope, record.wire_name)] += (record,)
+            visit(definition.get("definitions"), (*parent, key))
+
+    root_wires = getattr(workflow, "virtual_wires", {})
+    if root_wires == {}:
+        metadata = getattr(workflow, "metadata", None)
+        if isinstance(metadata, Mapping):
+            root_wires = metadata.get("virtual_wires", {})
+    if root_wires not in (None, {}):
+        for record in _resolve_virtual_wire_legs(getattr(workflow, "nodes", {}), root_wires, scope_path=""):
+            resolved.setdefault(("", record.wire_name), tuple())
+            resolved[("", record.wire_name)] += (record,)
+    definitions = getattr(workflow, "definitions", None)
+    if not definitions:
+        metadata = getattr(workflow, "metadata", None)
+        definitions = metadata.get("definitions", {}) if isinstance(metadata, Mapping) else {}
+    visit(definitions, ())
+    return {
+        key: tuple(sorted(value, key=lambda item: (item.leg_index, item.occurrence_index)))
+        for key, value in resolved.items()
+    }
+
+
 def _virtual_wire_edges(
     nodes: Mapping[str, VibeNode], virtual_wires: Mapping[str, Any]
 ) -> list[VibeEdge]:
     """Materialize explicit Python-owned virtual-wire legs for this view."""
     result: list[VibeEdge] = []
     seen: set[tuple[str, str, int]] = set()
-    for leg in _resolve_virtual_wire_legs(nodes, virtual_wires):
+    # Root execution owns root nodes and root virtual wires.  Splitting one
+    # authored wire into per-scope fragments before resolution loses index
+    # contiguity and lets a nested definition's local IDs leak into the root.
+    # Resolve the complete detached record set once, then collapse only the
+    # execution endpoint tuple (occurrence identity remains available to UI).
+    for leg in _resolve_virtual_wire_legs(nodes, virtual_wires, scope_path=""):
         if (leg.wire_name, leg.scope_path, leg.leg_index) in seen:
             continue
         seen.add((leg.wire_name, leg.scope_path, leg.leg_index))

@@ -621,8 +621,40 @@ def _link_target_slot(link: Any) -> int | None:
 
 def _resolve_output_slot_index(
     index: LintIndex, scope_path: str, uid: str, output_slot: str | int,
-    *, schema_provider: Any = None,
+    *, schema_provider: Any = None, workflow: Any = None,
 ) -> int | None:
+    # The canonical IR node is the shared exec-output authority.  The UI
+    # projection intentionally carries the physical ``out_N`` row name,
+    # while authored exec IO may expose the semantic/typed renderer alias
+    # (for example ``IMAGE_0``).  Ask the existing interpreter seam for the
+    # exact name and then use its frozen evidence to recover the physical
+    # index; do not infer a generic capacity or parse a second IO schema.
+    if workflow is not None and not scope_path:
+        node = (getattr(workflow, "nodes", {}) or {}).get(str(uid))
+        if node is not None:
+            try:
+                from vibecomfy.porting.edit._interpret import (
+                    _frozen_output_evidence,
+                    canonical_renderer_output,
+                )
+
+                resolved_name = canonical_renderer_output(
+                    node, output_slot, provider=schema_provider
+                )
+                if resolved_name is not None:
+                    names, _types, _sources, _arity = _frozen_output_evidence(
+                        node, provider=schema_provider
+                    )
+                    for slot_index, name in names.items():
+                        if name == resolved_name:
+                            return slot_index
+            except Exception:
+                if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+                    return None
+            if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+                # Authored exec IO is complete authority.  Never fall back to
+                # the generic UI/provider roster when its alias is absent.
+                return None
     result = _ctx.resolve_output_slot_index(
         LintIndexBackend(index),
         scope_path,
@@ -974,6 +1006,7 @@ def _lint_upsert_link(
     op_index: int,
     index: LintIndex,
     schema_provider: Any = None,
+    workflow: Any = None,
 ) -> tuple[EditOp | None, LintIssue | None, str]:
     """Lint an ``upsert_link`` op.
 
@@ -1000,6 +1033,7 @@ def _lint_upsert_link(
         source.uid,
         source.output_slot,
         schema_provider=schema_provider,
+        workflow=workflow,
     )
     if output_slot_idx is None:
         return None, _make_issue(
@@ -1185,6 +1219,10 @@ def lint_delta(
     delta: Sequence[EditOp],
     index: LintIndex,
     schema_provider: Any = None,
+    *,
+    pre_workflow: Any = None,
+    pre_ui_payload: Mapping[str, Any] | None = None,
+    schema_snapshot: Any = None,
 ) -> LintResult:
     """Lint a sequence of :class:`EditOp` objects against *index*.
 
@@ -1199,6 +1237,19 @@ def lint_delta(
         Optional schema provider for class-type and input-name validation
         on ``add_node`` ops.  When ``None`` (the default), schema checks
         are skipped.
+    pre_workflow:
+        The retained canonical workflow immediately before this batch.  The
+        batch lint gate passes this authority from :class:`EditSession`; it
+        is intentionally distinct from the ingress UI and from the post-edit
+        candidate.
+    pre_ui_payload:
+        The UI projection captured immediately before the batch.  It is used
+        only as the immutable presentation/index evidence for the first
+        operation and as furniture when projecting later detached states.
+    schema_snapshot:
+        The frozen schema generation used to admit this batch, when one is
+        already retained by the route.  It is passed through unchanged; lint
+        never recaptures or completes schema authority.
 
     Returns
     -------
@@ -1221,54 +1272,6 @@ def lint_delta(
         "set_mode": _lint_set_mode,
     }
 
-    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link", "set_node_field"})
-
-    # Link/field ops may legitimately depend on nodes added earlier in the
-    # same ordered delta.  LintIndex is intentionally immutable and normally
-    # describes the submit graph, so linting every op against that one index
-    # incorrectly classifies those dependent ops as ``unknown_target``.  The
-    # apply engine already resolves AddNodeOps sequentially; mirror that
-    # contract here by validating the additions first and building a virtual
-    # post-add index for the remaining operations.
-    add_results: dict[int, tuple[EditOp | None, LintIssue | None, str]] = {}
-    passed_adds: list[EditOp] = []
-    for i, op in enumerate(delta):
-        if not isinstance(op, AddNodeOp):
-            continue
-        result = _lint_add_node(op, i, index, schema_provider=schema_provider)
-        add_results[i] = result
-        normalized, _issue, disposition = result
-        if disposition == "passed" and normalized is not None:
-            passed_adds.append(normalized)
-
-    dependency_index = index
-    if passed_adds:
-        # Local import avoids coupling the lint module's import graph to the
-        # apply engine.  Failure to materialise the virtual graph is left for
-        # the ordinary per-op checks/apply gate to report; it must never make
-        # lint more permissive than the authoritative apply path.
-        from vibecomfy.ingest.normalize import from_ui
-        from vibecomfy.porting.edit._interpret import interpret
-        from vibecomfy.porting.emit.ui import emit_ui_json
-
-        try:
-            pre = from_ui(
-                dict(index.graph),
-                schema_provider=schema_provider,
-                use_comfy_converter=False,
-            )
-            interpreted = interpret(pre, tuple(passed_adds), schema_provider=schema_provider)
-            if interpreted.ok:
-                candidate = emit_ui_json(
-                    interpreted.workflow,
-                    schema_provider=schema_provider,
-                    include_virtual_wires=True,
-                    prior_ui_payload=index.graph,
-                )
-                dependency_index = LintIndex.build(candidate)
-        except Exception:
-            dependency_index = index
-
     from vibecomfy.porting.edit.admit import (
         AdmissionRejected,
         admission_snapshot_for,
@@ -1276,21 +1279,48 @@ def lint_delta(
         rejected_ops_are_invisible,
     )
 
-    lint_workflow = None
-    try:
+    # The route supplies the retained pre-batch IR.  The UI-only conversion is
+    # retained solely for direct callers of this historical helper; the real
+    # handler path never reconstructs authority from its stale ingress graph.
+    supplied_pre_workflow = pre_workflow is not None
+    lint_workflow = pre_workflow
+    if lint_workflow is None:
         from vibecomfy.ingest.normalize import from_ui
 
         lint_workflow = from_ui(
-            dict(index.graph),
+            dict(pre_ui_payload or index.graph),
             schema_provider=schema_provider,
             use_comfy_converter=False,
         )
-    except Exception:
-        lint_workflow = None
-    admission_pair = admission_snapshot_for(lint_workflow, schema_provider)
+    from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy, apply_edit_cow
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    working_workflow = _cow_workflow_copy(lint_workflow)
+    working_ui = dict(pre_ui_payload or index.graph)
+    working_index = index
+    admission_pair = admission_snapshot_for(
+        lint_workflow,
+        schema_provider,
+        schema_snapshot=schema_snapshot,
+    )
     for i, op in enumerate(delta):
-        admitted = admit_operation(admission_pair, op, working_workflow=lint_workflow)
-        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
+        # Admission and lint both see the state before this operation.  A
+        # rejected add therefore cannot authorize a later dependent link,
+        # while an accepted add becomes visible only after this iteration.
+        # Historical direct lint callers provide only a UI index.  Their
+        # canonical apply/admission boundary is not available (and UI aliases
+        # such as ``widgets_values`` are intentionally broader than the IR
+        # field validator), so retain the index linter as their authority.
+        # The real route always supplies pre_workflow and therefore takes the
+        # strict frozen admission path below.
+        admitted = (
+            admit_operation(admission_pair, op, working_workflow=working_workflow)
+            if supplied_pre_workflow
+            else None
+        )
+        if admitted is not None and (
+            rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected)
+        ):
             issue = _make_issue(
                 admitted.typed_reason,
                 admitted.typed_reason,
@@ -1316,23 +1346,26 @@ def lint_delta(
             )
             continue
 
-        if i in add_results:
-            normalized, issue, disposition = add_results[i]
-        elif op.op in _SP_AWARE:  # type: ignore[union-attr]
+        if isinstance(op, UpsertLinkOp):
             normalized, issue, disposition = linter(
                 op,
                 i,
-                dependency_index,
+                working_index,
                 schema_provider=schema_provider,
+                workflow=working_workflow,
+            )
+        elif isinstance(op, (AddNodeOp, RemoveLinkOp, SetNodeFieldOp)):
+            normalized, issue, disposition = linter(
+                op, i, working_index, schema_provider=schema_provider
             )
         else:
-            normalized, issue, disposition = linter(op, i, dependency_index)
+            normalized, issue, disposition = linter(op, i, working_index)
         # S2 orphan add_node lint (r12 e8c20a): bare add_node with no wiring
         # when graph already has same class is a widget-edit hallucination.
         # Only flag when fields carry intent (non-empty) and no wiring exists.
         if isinstance(op, AddNodeOp) and disposition == "passed" and normalized is not None and op.fields:
             class_type = op.class_type.strip()
-            has_existing = any(m.class_type == class_type for m in index._node_meta.values())
+            has_existing = any(m.class_type == class_type for m in working_index._node_meta.values())
             if has_existing:
                 cand_ids = {str(_v) for _v in (op.uid, getattr(normalized, "uid", None)) if _v}
                 cand_ids |= {str(_v) for _v in (op.node_id, getattr(normalized, "node_id", None)) if _v}
@@ -1369,7 +1402,57 @@ def lint_delta(
             )
         )
         if disposition == "passed" and normalized is not None:
+            pre_operation_workflow = working_workflow
+            try:
+                working_workflow = apply_edit_cow(
+                    working_workflow,
+                    normalized,
+                    schema_provider=schema_provider,
+                )
+            except Exception as exc:
+                if not supplied_pre_workflow:
+                    # UI-only direct callers can lint LiteGraph operations
+                    # (notably remove_link by numeric id) that have no IR
+                    # application form.  Keep their historical read-only
+                    # contract; the handler path above is strict because it
+                    # always supplies retained canonical authority.
+                    surviving.append(normalized)
+                    continue
+                issue = _make_issue(
+                    "apply_failed",
+                    f"lint simulation could not apply '{getattr(op, 'op', 'operation')}': {exc}",
+                    op_index=i,
+                    op_kind=getattr(op, "op", None),
+                )
+                issues.append(issue)
+                normalizations[-1] = LintNormalization(
+                    op_index=i, op=op, disposition="rejected", issue=issue
+                )
+                continue
             surviving.append(normalized)
+            try:
+                working_ui = emit_ui_json(
+                    working_workflow,
+                    schema_provider=schema_provider,
+                    include_virtual_wires=True,
+                    prior_ui_payload=working_ui,
+                )
+                working_index = LintIndex.build(working_ui)
+            except Exception as exc:
+                if not supplied_pre_workflow:
+                    continue
+                issue = _make_issue(
+                    "projection_failed",
+                    f"lint simulation could not project the accepted operation: {exc}",
+                    op_index=i,
+                    op_kind=getattr(op, "op", None),
+                )
+                issues.append(issue)
+                normalizations[-1] = LintNormalization(
+                    op_index=i, op=op, disposition="rejected", issue=issue
+                )
+                working_workflow = pre_operation_workflow
+                surviving.pop()
 
     return LintResult(
         surviving=tuple(surviving),

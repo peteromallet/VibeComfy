@@ -509,6 +509,7 @@ def test_upsert_link_valid_passes() -> None:
 def test_upsert_links_from_node_added_in_same_delta_survive_lint() -> None:
     """Dependent rewires must be linted against the virtual post-add graph."""
     from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+    from vibecomfy.ingest.normalize import from_ui
 
     graph = {
         "nodes": [
@@ -572,11 +573,20 @@ def test_upsert_links_from_node_added_in_same_delta_survive_lint() -> None:
         ),
     ]
 
-    result = lint_delta(ops, LintIndex.build(graph), schema_provider=_StubProvider())
+    pre_workflow = from_ui(graph, use_comfy_converter=False)
+    result = lint_delta(
+        ops,
+        LintIndex.build(graph),
+        schema_provider=_StubProvider(),
+        pre_workflow=pre_workflow,
+        pre_ui_payload=graph,
+    )
 
     assert result.rejected_count == 0
     assert result.dropped_count == 0
     assert result.surviving == tuple(ops)
+    assert "n1" not in pre_workflow.nodes
+    assert not any(edge.from_node == "n1" for edge in pre_workflow.edges)
 
 
 def test_upsert_link_unknown_source_rejected() -> None:
