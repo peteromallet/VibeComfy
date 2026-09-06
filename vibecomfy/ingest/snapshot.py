@@ -103,6 +103,8 @@ def _capture_widget_names(
     node: Any,
     node_id: str,
     incoming: Mapping[str, list],
+    *,
+    schema_provider: Any | None = None,
 ) -> tuple[str, ...]:
     """Seal one node's canonical compact-widget name roster (P0-WIDGET-CANON).
 
@@ -122,6 +124,8 @@ def _capture_widget_names(
         resolution = compact_widget_names_for_node(
             node,
             linked_inputs=linked_inputs,
+            schema_provider=schema_provider,
+            allow_object_info_fallback=schema_provider is None,
         )
     except Exception:  # noqa: BLE001 - sealing must never fail on exotic nodes
         return ()
@@ -131,6 +135,8 @@ def _capture_widget_names(
 def capture_ingest_snapshot(
     raw_ui_or_api: dict[str, Any] | None,
     ir_workflow: "VibeWorkflow",
+    *,
+    schema_provider: Any | None = None,
 ) -> dict[str, NodeFieldSnapshot]:
     """Capture a uid-keyed field snapshot of every node in *ir_workflow*.
 
@@ -195,7 +201,12 @@ def capture_ingest_snapshot(
             "incoming_edge_sig": incoming_sig,
             "outgoing_edge_sig": outgoing_sig,
             "public_input_binding": binding_sig,
-            "widget_names_sig": _capture_widget_names(node, node_id, incoming),
+            "widget_names_sig": _capture_widget_names(
+                node,
+                node_id,
+                incoming,
+                schema_provider=schema_provider,
+            ),
         }
 
     # Recursive definitions are already canonicalized by the ingest boundary;
@@ -473,6 +484,7 @@ def capture_workflow_snapshot(
     *,
     source_representation: str,
     lineage: WorkflowLineage | None = None,
+    schema_provider: Any | None = None,
 ) -> WorkflowSnapshot:
     """Freeze a copy/handle of *ir_workflow* plus lossless raw sidecar.
 
@@ -483,6 +495,7 @@ def capture_workflow_snapshot(
     field_snapshot = capture_ingest_snapshot(
         dict(raw_ui_or_api) if isinstance(raw_ui_or_api, Mapping) else None,
         ir_workflow,
+        schema_provider=schema_provider,
     )
     identity, topology = _identity_and_topology(ir_workflow)
     sidecar_src = _freeze_jsonable(raw_ui_or_api if isinstance(raw_ui_or_api, Mapping) else {})

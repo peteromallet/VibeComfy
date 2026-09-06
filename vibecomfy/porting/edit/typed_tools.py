@@ -256,27 +256,12 @@ def apply_edit_tool_call(
     *,
     expected_revision: int | None = None,
 ) -> Any:
-    """Lower and atomically apply a typed call through ``EditSession``."""
-    from vibecomfy.porting.edit.admit import (
-        AdmissionRejected,
-        admission_snapshot_for,
-        admit_operations,
-    )
-    from vibecomfy.porting.edit._session_types import ApplyOpsResult, _diag
+    """Lower and atomically apply a typed call through ``EditSession``.
 
+    ``EditSession.apply_ops`` owns the single evaluator/admission pass and
+    returns its transition report for accepted, rejected, and no-op batches.
+    """
     ops = lower_edit_tool_call(session, tool, args)
-    admitted = admit_operations(
-        admission_snapshot_for(getattr(session, "workflow", None), getattr(session, "schema_provider", None)),
-        ops,
-        working_workflow=getattr(session, "workflow", None),
-    )
-    if isinstance(admitted, AdmissionRejected):
-        return ApplyOpsResult(
-            ok=False,
-            reason=admitted.typed_reason,
-            diagnostics=(_diag(admitted.typed_reason, admitted.typed_reason, severity="error"),),
-            revision=getattr(session, "revision", 0),
-        )
     return session.apply_ops(ops, expected_revision=expected_revision)
 
 

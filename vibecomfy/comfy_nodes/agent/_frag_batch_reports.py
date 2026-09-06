@@ -118,9 +118,9 @@ def _duplicate_search_cycle_feedback(
 
 
 
-def _format_diagnostic_detail_text(detail: dict[str, Any]) -> str:
+def _format_diagnostic_detail_text(detail: Mapping[str, Any]) -> str:
     """Format engine diagnostic detail keys as stable, capped text."""
-    if not isinstance(detail, dict):
+    if not isinstance(detail, Mapping):
         return ""
     parts: list[str] = []
     for key in _DIAGNOSTIC_DETAIL_KEYS:
@@ -139,7 +139,7 @@ def _format_diagnostic_detail_text(detail: dict[str, Any]) -> str:
                 label += "]"
                 parts.append(label)
         elif key == "semantic_aliases":
-            if isinstance(value, dict):
+            if isinstance(value, Mapping):
                 items = [(str(k), str(v)) for k, v in value.items() if k and v and k != v]
                 if not items:
                     continue
@@ -213,9 +213,9 @@ def _format_batch_report(
         if extras:
             line += f" ({'; '.join(extras)})"
         statement_lines.append(line)
-        query_output = statement.detail.get("query_output") if isinstance(statement.detail, dict) else None
+        query_output = statement.detail.get("query_output") if isinstance(statement.detail, Mapping) else None
         if isinstance(query_output, str) and query_output:
-            query_name = statement.detail.get("query") if isinstance(statement.detail, dict) else None
+            query_name = statement.detail.get("query") if isinstance(statement.detail, Mapping) else None
             statement_lines.append(
                 _format_query_output(
                     query_output,
@@ -235,7 +235,7 @@ def _format_batch_report(
         for d in lint_diagnostics:
             diagnostic_lines.append(f"! [lint] {d['code']}: {d['message']}")
             lint_detail = d.get("detail") if isinstance(d, dict) else None
-            lint_detail_text = _format_diagnostic_detail_text(lint_detail) if isinstance(lint_detail, dict) else ""
+            lint_detail_text = _format_diagnostic_detail_text(lint_detail) if isinstance(lint_detail, Mapping) else ""
             if lint_detail_text:
                 diagnostic_lines.append(f"  detail: {lint_detail_text}")
     lint_note = (
@@ -271,7 +271,7 @@ def _format_batch_report(
 
 def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
     """Cap list/dict values in a diagnostic detail for stable, bounded JSON."""
-    if not isinstance(detail, dict):
+    if not isinstance(detail, Mapping):
         return {}
     capped: dict[str, Any] = {}
     for key in _DIAGNOSTIC_DETAIL_KEYS:
@@ -284,7 +284,7 @@ def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
             else:
                 capped[key] = value
         elif key == "semantic_aliases":
-            if isinstance(value, dict):
+            if isinstance(value, Mapping):
                 items = [(str(k), str(v)) for k, v in value.items() if k and v and k != v]
                 items.sort()
                 capped[key] = dict(items[:_DETAIL_ALIAS_CAP])
@@ -331,7 +331,7 @@ def _statement_report_entry(item: Any) -> dict[str, Any]:
     }
     op = _statement_op_payload(item)
     if op is not None:
-        entry["op"] = op
+        entry["op"] = _json_safe(op)
     return entry
 
 
@@ -376,7 +376,7 @@ def _format_batch_report_json(
 def _compact_diag_with_capped_detail(diagnostic: Any) -> dict[str, Any]:
     d = _compact_diag_to_dict(diagnostic)
     raw_detail = d.get("detail")
-    if isinstance(raw_detail, dict):
+    if isinstance(raw_detail, Mapping):
         d["detail"] = _cap_diagnostic_detail(raw_detail)
     return d
 
@@ -384,7 +384,7 @@ def _compact_diag_with_capped_detail(diagnostic: Any) -> dict[str, Any]:
 def _lint_diag_with_capped_detail(d: dict[str, Any]) -> dict[str, Any]:
     result = dict(d)
     raw_detail = result.get("detail")
-    if isinstance(raw_detail, dict):
+    if isinstance(raw_detail, Mapping):
         result["detail"] = _cap_diagnostic_detail(raw_detail)
     return result
 
@@ -790,13 +790,15 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
         "unbound_graph_name",
         "batch_syntax_error",
         "unsupported_query_call",
-        "batch_transaction_rolled_back",
-        "batch_consecutive_errors_exhausted",
-        "batch_budget_exhausted",
     }
     _TYPED_SCHEMA_GAP_CODES = {
         "missing_touched_schema",
         "schema_less_queue_blocker",
+    }
+    _BOOKKEEPING_CODES = {
+        "batch_transaction_rolled_back",
+        "batch_consecutive_errors_exhausted",
+        "batch_budget_exhausted",
     }
     category_turn_hits = {
         FailureKind.MODEL_MISTAKE: 0,
@@ -813,6 +815,8 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
             haystack = " ".join((code, message, teaching_hint))
             # Preserve typed kinds before haystack; prevents unknown_schema
             # containing "schema" from being misclassified as SCHEMA_GAP.
+            if code in _BOOKKEEPING_CODES:
+                continue
             if code in _BATCH_UNREPRESENTABLE_DIAGNOSTIC_CODES:
                 turn_categories.add(FailureKind.UNREPRESENTABLE)
                 continue
@@ -830,6 +834,15 @@ def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
                 continue
             turn_categories.add(FailureKind.MODEL_MISTAKE)
         for category in turn_categories:
+            # A failed model-authored edit can carry both the canonical
+            # schema-closure diagnostic and the transaction rollback marker.
+            # That mixed turn is a model mistake, not a standalone schema
+            # gap; do not let the schema marker mask the actionable failure.
+            if (
+                category == FailureKind.SCHEMA_GAP
+                and FailureKind.MODEL_MISTAKE in turn_categories
+            ):
+                continue
             category_turn_hits[category] += 1
     ranked = sorted(
         category_turn_hits.items(),

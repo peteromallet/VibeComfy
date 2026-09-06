@@ -10,8 +10,6 @@ from typing import Any
 
 import pytest
 
-from vibecomfy._compile._graph import is_canonical_api_link
-from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
 from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
@@ -33,6 +31,286 @@ from vibecomfy.workflow import (
 
 def _wf(wf_id: str = "test") -> VibeWorkflow:
     return VibeWorkflow(wf_id, WorkflowSource(wf_id))
+
+
+def _native_boundary_markers(raw: dict[str, Any]) -> tuple[str, ...]:
+    """Classify only the legacy definition carriers rejected by ``from_ui``.
+
+    This is deliberately structural.  Corpus tests use it to exercise the
+    exact negative contract separately; it never catches an ingest exception
+    or turns an unexpected failure into a skipped positive.
+    """
+
+    markers: list[str] = []
+
+    def contains_sentinel(value: Any) -> bool:
+        if isinstance(value, dict):
+            return any(contains_sentinel(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(contains_sentinel(item) for item in value)
+        return value in {-10, -20, "-10", "-20"}
+
+    def visit(definition: Any, path: str) -> None:
+        if not isinstance(definition, dict):
+            return
+        for name in ("inputNode", "outputNode"):
+            if name in definition:
+                markers.append(f"{path}.{name}")
+        for name in ("config", "extra"):
+            if contains_sentinel(definition.get(name)):
+                markers.append(f"{path}.{name}")
+        nodes = definition.get("nodes") or ()
+        if isinstance(nodes, dict):
+            nodes = nodes.values()
+        for index, node in enumerate(nodes if isinstance(nodes, (list, tuple)) else tuple(nodes)):
+            if isinstance(node, dict) and str(node.get("id")) in {"-10", "-20"}:
+                markers.append(f"{path}.nodes[{index}].id")
+        for index, link in enumerate(definition.get("links") or ()):
+            if isinstance(link, dict):
+                endpoints = (link.get("origin_id"), link.get("target_id"))
+            elif isinstance(link, (list, tuple)) and len(link) == 6:
+                endpoints = (link[1], link[3])
+            else:
+                endpoints = ()
+            if any(str(endpoint) in {"-10", "-20"} for endpoint in endpoints):
+                markers.append(f"{path}.links[{index}]")
+        nested = definition.get("definitions")
+        if isinstance(nested, dict):
+            for index, item in enumerate(nested.get("subgraphs") or ()):
+                visit(item, f"{path}.definitions[{index}]")
+
+    definitions = raw.get("definitions")
+    if isinstance(definitions, dict):
+        for index, definition in enumerate(definitions.get("subgraphs") or ()):
+            visit(definition, f"definitions[{index}]")
+    return tuple(markers)
+
+
+def _assert_native_boundary_rejected(raw: dict[str, Any], *, source_path: str) -> None:
+    from vibecomfy.ingest.normalize import from_ui
+
+    markers = _native_boundary_markers(raw)
+    assert markers, f"{source_path}: expected a structurally classified native boundary"
+    with pytest.raises(ValueError, match=r"^unsupported_boundary_encoding:"):
+        from_ui(raw, source_path=source_path, use_comfy_converter=False)
+
+
+def _assert_native_definition_payload_rejected(
+    raw: dict[str, Any], *, source_path: str
+) -> None:
+    """Exercise the recursive-definition boundary even if root UI is malformed."""
+    from vibecomfy.ingest.normalize import _normalize_recursive_definitions
+
+    markers = _native_boundary_markers(raw)
+    assert markers, f"{source_path}: expected a structurally classified native boundary"
+    with pytest.raises(ValueError, match=r"^unsupported_boundary_encoding:"):
+        _normalize_recursive_definitions(raw["definitions"])
+
+
+def _resolvable_helper_custody(workflow: VibeWorkflow) -> tuple[tuple[Any, ...], ...]:
+    """Return identity, literal state, and complete outgoing fan-out for helpers."""
+    from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
+
+    helper_types = frozenset(RESOLVABLE_HELPER_CLASS_TYPES)
+    nodes = workflow.nodes
+    records: list[tuple[Any, ...]] = []
+    for node_id, node in nodes.items():
+        if node.class_type not in helper_types:
+            continue
+        outgoing: list[tuple[Any, ...]] = []
+        for edge in workflow.edges:
+            if str(edge.from_node) != str(node_id):
+                continue
+            target = nodes.get(str(edge.to_node))
+            outgoing.append(
+                (
+                    str(node.uid or node_id),
+                    str(node_id),
+                    str(edge.from_output),
+                    str(target.uid or edge.to_node) if target is not None else str(edge.to_node),
+                    str(edge.to_node),
+                    str(edge.to_input),
+                )
+            )
+        records.append(
+            (
+                str(node.uid or node_id),
+                str(node_id),
+                node.class_type,
+                tuple(sorted((str(key), repr(value)) for key, value in node.inputs.items())),
+                tuple(sorted((str(key), repr(value)) for key, value in node.widgets.items())),
+                tuple(sorted(outgoing)),
+            )
+        )
+    return tuple(sorted(records))
+
+
+def _assert_resolvable_helper_custody(before: VibeWorkflow, after: VibeWorkflow, *, source_path: str) -> None:
+    """Require helper identity/state/fan-out to survive emit and reingest."""
+    before_helpers = _resolvable_helper_custody(before)
+    after_helpers = _resolvable_helper_custody(after)
+    assert before_helpers, f"{source_path}: expected resolvable helper evidence"
+    assert after_helpers == before_helpers, (
+        f"{source_path}: resolvable helper custody changed\n"
+        f"before={before_helpers!r}\nafter={after_helpers!r}"
+    )
+
+
+def _python_owned_boundary_workflow() -> VibeWorkflow:
+    """One supported typed definition occurrence with root boundary edges."""
+    from vibecomfy.identity.scope import sg_key
+
+    definition = {
+        "id": "python-owned-boundary",
+        "name": "Boundary",
+        "inputs": [{"name": "image", "type": "IMAGE"}],
+        "outputs": [{"name": "image", "type": "IMAGE"}],
+        "nodes": [
+            {
+                "id": "core",
+                "uid": "core",
+                "type": "EchoImage",
+                "inputs": [
+                    {"name": "image", "type": "IMAGE", "link": None, "value": None}
+                ],
+                "outputs": [{"name": "image", "type": "IMAGE", "links": []}],
+            }
+        ],
+        "links": [],
+    }
+    key = sg_key(definition)
+    source = VibeNode(
+        "source",
+        "Source",
+        uid="source",
+        native_output_names=["image"],
+        metadata={"output_names": ["image"], "output_types": ["IMAGE"]},
+    )
+    occurrence = VibeNode(
+        "occurrence",
+        key,
+        uid="occurrence",
+        native_input_names=["image"],
+        native_output_names=["image"],
+        metadata={"input_types": ["IMAGE"], "output_types": ["IMAGE"]},
+    )
+    sink = VibeNode(
+        "sink",
+        "Sink",
+        uid="sink",
+        native_input_names=["image"],
+        metadata={"input_types": ["IMAGE"]},
+    )
+    return VibeWorkflow(
+        "python-owned-boundary",
+        WorkflowSource("python-owned-boundary"),
+        nodes={"source": source, "occurrence": occurrence, "sink": sink},
+        edges=[
+            VibeEdge("source", "image", "occurrence", "image"),
+            VibeEdge("occurrence", "image", "sink", "image"),
+        ],
+        definitions={"subgraphs": [definition]},
+        interfaces={
+            key: {
+                "inputs": [{"name": "image", "direction": "input", "type": "IMAGE"}],
+                "outputs": [{"name": "image", "direction": "output", "type": "IMAGE"}],
+            }
+        },
+        boundary_ports=[
+            {
+                "scope_path": key,
+                "name": "image",
+                "direction": "input",
+                "node_uid": "core",
+                "field": "image",
+            },
+            {
+                "scope_path": key,
+                "name": "image",
+                "direction": "output",
+                "node_uid": "core",
+                "field": "image",
+            },
+        ],
+    )
+
+
+def _canonical_python_owned_boundary_door() -> tuple[dict[str, Any], VibeWorkflow]:
+    """Return a stable UI door produced solely from the typed Python IR."""
+    from vibecomfy.ingest.normalize import from_ui
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        first = emit_ui_json(_python_owned_boundary_workflow())
+    normalized = from_ui(
+        first,
+        source_path="python-owned:boundary",
+        use_comfy_converter=False,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        door = emit_ui_json(normalized)
+    return door, from_ui(
+        door,
+        source_path="python-owned:boundary",
+        use_comfy_converter=False,
+    )
+
+
+def _partition_ui_corpus(
+    paths: list[str] | list[Path],
+) -> tuple[
+    list[tuple[str, dict[str, Any]]],
+    list[tuple[str, dict[str, Any]]],
+    list[tuple[str, dict[str, Any]]],
+]:
+    """Partition UI JSON into supported, native-boundary, and dangling-root sets."""
+    supported: list[tuple[str, dict[str, Any]]] = []
+    native: list[tuple[str, dict[str, Any]]] = []
+    dangling: list[tuple[str, dict[str, Any]]] = []
+    for path in paths:
+        label = str(path)
+        with open(path) as handle:
+            raw = json.load(handle)
+        if not isinstance(raw.get("nodes"), list):
+            continue
+        node_ids = {
+            str(node.get("id"))
+            for node in raw["nodes"]
+            if isinstance(node, dict) and "id" in node
+        }
+        has_dangling_root = any(
+            str(link.get("origin_id") if isinstance(link, dict) else link[1]) not in node_ids
+            or str(link.get("target_id") if isinstance(link, dict) else link[3]) not in node_ids
+            for link in (raw.get("links") or ())
+            if (isinstance(link, dict) or isinstance(link, (list, tuple)) and len(link) == 6)
+        )
+        target = (
+            native
+            if _native_boundary_markers(raw)
+            else dangling
+            if has_dangling_root
+            else supported
+        )
+        target.append((label, raw))
+    return supported, native, dangling
+
+
+def _pin_local_object_info_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the already-local object-info generation for deterministic corpus scans."""
+    import vibecomfy.porting.object_info.consume as consume
+
+    consume._load_index()
+    monkeypatch.setattr(consume, "_sync_reader", lambda: False)
+
+
+def _assert_dangling_root_rejected(raw: dict[str, Any], *, source_path: str) -> None:
+    from vibecomfy.ingest.normalize import from_ui
+
+    with pytest.raises(
+        ValueError, match=r"^UI link \d+ references unknown endpoint "
+    ):
+        from_ui(raw, source_path=source_path, use_comfy_converter=False)
 
 
 class _Provider:
@@ -208,77 +486,42 @@ def test_emit_ui_json_preserves_edge_only_connectivity() -> None:
 
 
 def test_subgraph_boundary_connectivity_uses_edges_not_node_inputs() -> None:
-    subgraph = _build_subgraph_def(
-        {
-            "id": "sg-boundary",
-            "name": "Boundary",
-            "inputs": [{"name": "switch", "type": "BOOLEAN", "linkIds": [1]}],
-            "outputs": [{"name": "out", "type": "BOOLEAN"}],
-            "nodes": [
-                {
-                    "id": 10,
-                    "type": "LazySwitchKJ",
-                    "inputs": [
-                        {"name": "switch", "link": 1},
-                        {"name": "external", "link": 2},
-                    ],
-                    "outputs": [{"name": "out"}],
-                    "widgets_values": [],
-                }
-            ],
-            "links": [
-                {
-                    "id": 1,
-                    "origin_id": -10,
-                    "origin_slot": 0,
-                    "target_id": 10,
-                    "target_slot": 0,
-                    "type": "BOOLEAN",
-                },
-                {
-                    "id": 2,
-                    "origin_id": 99,
-                    "origin_slot": 0,
-                    "target_id": 10,
-                    "target_slot": 1,
-                    "type": "BOOLEAN",
-                },
-                {
-                    "id": 3,
-                    "origin_id": 10,
-                    "origin_slot": 0,
-                    "target_id": -20,
-                    "target_slot": 0,
-                    "type": "BOOLEAN",
-                },
-            ],
-        },
-        slug="boundary",
-        source_path=None,
+    workflow = _python_owned_boundary_workflow()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(workflow)
+
+    by_uid = {
+        node["properties"]["vibecomfy_uid"]: node for node in emitted["nodes"]
+    }
+    occurrence = by_uid["occurrence"]
+    assert len(occurrence["inputs"]) == len(occurrence["outputs"]) == 1
+    assert occurrence["inputs"][0]["name"] == "image"
+    assert occurrence["inputs"][0]["link"] is not None
+    assert occurrence["outputs"][0]["name"] == "image"
+    assert len(occurrence["outputs"][0]["links"]) == 1
+    assert len(emitted["links"]) == len(workflow.edges) == 2
+    occurrence_id = occurrence["id"]
+    assert any(
+        link[0] == occurrence["inputs"][0]["link"] and link[3] == occurrence_id
+        for link in emitted["links"]
+    )
+    assert any(
+        link[0] == occurrence["outputs"][0]["links"][0]
+        and link[1] == occurrence_id
+        for link in emitted["links"]
+    )
+    assert all(
+        str(endpoint) not in {"-10", "-20"}
+        for link in emitted["links"]
+        for endpoint in (link[1], link[3])
     )
 
-    assert all(
-        not is_canonical_api_link(value)
-        for node in subgraph.nodes.values()
-        for value in node.inputs.values()
-    )
-    assert subgraph.edges_in["10"] == [
-        VibeEdge("-10", "0", "10", "switch"),
-        VibeEdge("-10", "1", "10", "external"),
-    ]
-    assert subgraph.input_refs == {
-        ("10", "switch"): "switch",
-        ("10", "external"): "external",
-    }
-    source = "\n".join(
-        _emit_subgraph_functions(
-            {"subgraph_definitions": {subgraph.id: subgraph}},
-            diagnostics=[],
-            constant_map={},
-        )
-    )
-    assert "external=external" in source
-    assert "switch=switch" in source
+
+def test_legacy_native_subgraph_boundary_is_an_exact_negative() -> None:
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    _assert_native_boundary_rejected(raw, source_path=str(path))
 
 
 # ---------------------------------------------------------------------------
@@ -645,7 +888,7 @@ def test_schema_less_node_skips_length_check() -> None:
     assert "skipped" in report[0]["widget_length_check"]
 
 
-def test_corpus_roundtrip_parity_with_compile_api() -> None:
+def test_corpus_roundtrip_parity_with_compile_api(monkeypatch: pytest.MonkeyPatch) -> None:
     """The parity oracle: _normalize_ui_to_api(emit_ui_json(wf)) is compile_equivalent
     to wf.compile('api') for every UI-shaped official corpus workflow."""
     import glob
@@ -653,19 +896,34 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
     from vibecomfy.ingest.normalize import _normalize_ui_to_api, from_ui
     from vibecomfy.porting.parity import compile_equivalent
 
+    _pin_local_object_info_reader(monkeypatch)
+
     paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
+    supported, native, dangling = _partition_ui_corpus(paths)
+    assert len(native) == 10, [path for path, _raw in native]
+    assert dangling == []
+    for path, raw in native:
+        _assert_native_definition_payload_rejected(raw, source_path=path)
+
     checked = 0
-    for path in paths:
-        with open(path) as handle:
-            raw = json.load(handle)
-        if not isinstance(raw.get("nodes"), list):
-            continue
-        wf = from_ui(raw)
+    for path, raw in supported:
+        wf = from_ui(raw, source_path=path, use_comfy_converter=False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             ui = emit_ui_json(wf)
         api = wf.compile("api")
-        equal, diffs = compile_equivalent(_normalize_ui_to_api(ui), api)
+        reingested = from_ui(ui, source_path=path, use_comfy_converter=False)
+        from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
+
+        has_resolvable_helpers = any(
+            node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
+            for node in wf.nodes.values()
+        )
+        if has_resolvable_helpers:
+            _assert_resolvable_helper_custody(wf, reingested, source_path=path)
+            equal, diffs = compile_equivalent(reingested.compile("api"), api)
+        else:
+            equal, diffs = compile_equivalent(_normalize_ui_to_api(ui), api)
         assert equal, f"{path}: {diffs[:5]}"
         checked += 1
     assert checked > 0
@@ -676,7 +934,7 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_corpus_compile_api_byte_identity() -> None:
+def test_corpus_compile_api_byte_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """Step 5b (T7): Across the real corpus, compile('api') output is
     byte-identical and independent of display-side changes (virtual wires etc.).
 
@@ -693,6 +951,8 @@ def test_corpus_compile_api_byte_identity() -> None:
 
     from vibecomfy.ingest.normalize import from_ui
 
+    _pin_local_object_info_reader(monkeypatch)
+
     corpus_root = Path("ready_templates/sources")
     exclude = {
         "manifests/coverage.json",
@@ -708,13 +968,17 @@ def test_corpus_compile_api_byte_identity() -> None:
     compile_hashes: dict[str, str] = {}
     compile_errors: list[str] = []
 
-    for path in json_paths:
-        with open(path) as fh:
-            raw = json.load(fh)
-        # Only process UI-shaped workflows (nodes is a list)
-        if not isinstance(raw.get("nodes"), list):
-            continue
-        wf = from_ui(raw)
+    supported, native, dangling = _partition_ui_corpus(json_paths)
+    assert len(native) == 19, [path for path, _raw in native]
+    assert len(dangling) == 4, [path for path, _raw in dangling]
+    for path, raw in native:
+        _assert_native_definition_payload_rejected(raw, source_path=path)
+    for path, raw in dangling:
+        _assert_dangling_root_rejected(raw, source_path=path)
+
+    for path_text, raw in supported:
+        path = Path(path_text)
+        wf = from_ui(raw, source_path=path_text, use_comfy_converter=False)
 
         # First compile: baseline.  Some custom-node workflows carry orphaned
         # broadcast edges that fail compile(); these are pre-existing and not
@@ -774,7 +1038,7 @@ def test_corpus_compile_api_byte_identity() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_corpus_mode_zero_compile_byte_identity() -> None:
+def test_corpus_mode_zero_compile_byte_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """Step 9b (T12): Confirm byte-identical compile for all mode==0 graphs.
 
     After T11 adds muted/bypassed node dropping, this test verifies that
@@ -786,6 +1050,8 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
 
     from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.workflow import _get_node_mode
+
+    _pin_local_object_info_reader(monkeypatch)
 
     corpus_root = Path("ready_templates/sources")
     exclude = {
@@ -804,12 +1070,17 @@ def test_corpus_mode_zero_compile_byte_identity() -> None:
     skipped_no_modes = 0
     compile_errors = 0
 
-    for path in json_paths:
-        with open(path) as fh:
-            raw = json.load(fh)
-        if not isinstance(raw.get("nodes"), list):
-            continue
-        wf = from_ui(raw)
+    supported, native, dangling = _partition_ui_corpus(json_paths)
+    assert len(native) == 19, [path for path, _raw in native]
+    assert len(dangling) == 4, [path for path, _raw in dangling]
+    for path, raw in native:
+        _assert_native_definition_payload_rejected(raw, source_path=path)
+    for path, raw in dangling:
+        _assert_dangling_root_rejected(raw, source_path=path)
+
+    for path_text, raw in supported:
+        path = Path(path_text)
+        wf = from_ui(raw, source_path=path_text, use_comfy_converter=False)
 
         # Determine if ALL nodes are mode==0
         all_mode0 = True
@@ -978,7 +1249,7 @@ def test_definitions_emit_object_links_and_last_reroute_id() -> None:
     state.lastRerouteId is emitted at both subgraph and top level."""
     wf = _wf()
     wf.nodes["1"] = VibeNode("1", "LoadImage")
-    wf.metadata["definitions"] = {
+    wf.definitions = {
         "subgraphs": [
             {
                 "id": "sg-uuid",
@@ -1019,14 +1290,66 @@ def test_no_definitions_omits_definitions_and_state() -> None:
 # T8 — offline parity gate + structural validation
 # ---------------------------------------------------------------------------
 
-_STARTER_SET = [
+_STARTER_SET = (
+    "image-empty-latent",
+    "image-load-preview",
+    "video-wan-t2v",
+    "video-wan-i2v",
+    "edit-load-preview",
+    "edit-source-sink",
+)
+
+_LEGACY_NATIVE_STARTERS = (
     "ready_templates/sources/official/image/z_image.json",
     "ready_templates/sources/official/image/flux2_klein_4b_t2i.json",
-    "ready_templates/sources/official/video/wan_t2v.json",
-    "ready_templates/sources/official/video/wan_i2v.json",
     "ready_templates/sources/official/edit/qwen_image_edit.json",
     "ready_templates/sources/official/edit/flux2_klein_4b_image_edit_base.json",
-]
+)
+
+
+def _starter_workflow(case: str) -> VibeWorkflow:
+    """Load a supported real workflow or build its Python-owned category peer."""
+    from vibecomfy.ingest.normalize import from_ui
+
+    official = {
+        "video-wan-t2v": "ready_templates/sources/official/video/wan_t2v.json",
+        "video-wan-i2v": "ready_templates/sources/official/video/wan_i2v.json",
+    }
+    if case in official:
+        path = official[case]
+        with open(path) as handle:
+            return from_ui(json.load(handle), source_path=path, use_comfy_converter=False)
+
+    workflow = _wf(f"python-owned-{case}")
+    if case == "image-empty-latent":
+        workflow.nodes["1"] = VibeNode(
+            "1",
+            "EmptyLatentImage",
+            inputs={"width": 512, "height": 512, "batch_size": 1},
+            uid="image-latent",
+        )
+        return workflow
+
+    source_class = "LoadImage" if case in {"image-load-preview", "edit-load-preview"} else "EditSource"
+    sink_class = "PreviewImage" if case in {"image-load-preview", "edit-load-preview"} else "EditSink"
+    source_inputs = {"image": "input.png"} if source_class == "LoadImage" else {}
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        source_class,
+        inputs=source_inputs,
+        uid=f"{case}-source",
+        native_output_names=["IMAGE"],
+        metadata={"output_names": ["IMAGE"], "output_types": ["IMAGE"]},
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2",
+        sink_class,
+        uid=f"{case}-sink",
+        native_input_names=["images"],
+        metadata={"input_types": {"images": "IMAGE"}},
+    )
+    workflow.edges.append(VibeEdge("1", "IMAGE", "2", "images"))
+    return workflow
 
 
 def _local_provider():
@@ -1035,18 +1358,22 @@ def _local_provider():
     return get_schema_provider("local")
 
 
-@pytest.mark.parametrize("path", _STARTER_SET)
-def test_offline_parity_gate_green_on_starter_set(path: str) -> None:
+@pytest.mark.parametrize("case", _STARTER_SET)
+def test_offline_parity_gate_green_on_starter_set(case: str) -> None:
     """compile_equivalent(_normalize_ui_to_api(emit_ui_json(wf)), compile('api')) — never
     imports ComfyUI — is green for a >=5 starter set spanning image/video/edit."""
-    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
+    wf = _starter_workflow(case)
+    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
+    assert ok, f"{case}: {diffs[:5]}"
+
+
+@pytest.mark.parametrize("path", _LEGACY_NATIVE_STARTERS)
+def test_offline_parity_legacy_native_starters_are_exact_negatives(path: str) -> None:
     with open(path) as handle:
         raw = json.load(handle)
-    wf = from_ui(raw)
-    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
-    assert ok, f"{path}: {diffs[:5]}"
+    _assert_native_boundary_rejected(raw, source_path=path)
 
 
 def test_offline_parity_never_imports_comfy() -> None:
@@ -1139,20 +1466,17 @@ def test_structural_validate_skips_schema_less_and_records() -> None:
     assert any(s["class_type"] == "TotallyUnknownNode" for s in report["skipped"])
 
 
-@pytest.mark.parametrize("path", _STARTER_SET)
-def test_structural_validate_green_on_starter_set(path: str) -> None:
-    from vibecomfy.ingest.normalize import from_ui
+@pytest.mark.parametrize("case", _STARTER_SET)
+def test_structural_validate_green_on_starter_set(case: str) -> None:
     from vibecomfy.porting.emit.ui import structural_validate
 
-    with open(path) as handle:
-        raw = json.load(handle)
-    wf = from_ui(raw)
+    wf = _starter_workflow(case)
     provider = _local_provider()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ui = emit_ui_json(wf, schema_provider=provider)
     report = structural_validate(ui, schema_provider=provider)
-    assert report["ok"], f"{path}: {report['errors'][:5]}"
+    assert report["ok"], f"{case}: {report['errors'][:5]}"
 
 
 @pytest.mark.comfy
@@ -1703,7 +2027,7 @@ def test_breadcrumb_stamped_at_top_level_extra() -> None:
 def test_breadcrumb_stamped_on_each_subgraph_definition() -> None:
     wf = _wf()
     wf.nodes["1"] = VibeNode("1", "LoadImage")
-    wf.metadata["definitions"] = {
+    wf.definitions = {
         "subgraphs": [{"id": "sg-uuid", "name": "Sub", "nodes": [], "links": []}]
     }
     provider = _Provider({"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])})
@@ -2002,7 +2326,7 @@ def test_inner_subgraph_nodes_carry_vibecomfy_uid() -> None:
         {"id": 10, "type": "InnerA", "pos": [0, 0], "size": [100, 100], "properties": {}},
         {"id": 20, "type": "InnerB", "pos": [50, 50], "size": [100, 100]},
     ]
-    wf.metadata["definitions"] = {
+    wf.definitions = {
         "subgraphs": [
             {
                 "nodes": inner_nodes,
@@ -2261,6 +2585,7 @@ def test_furniture_from_metadata_ui_fallback() -> None:
     wf = _wf("ingest-test")
     node = VibeNode("1", "HasUI")
     node.uid = "uid-ingest"
+    node.mode = NodeMode.BYPASSED
     node.metadata["_ui"] = {
         "pos": [100, 150],
         "size": [300, 250],
@@ -2346,6 +2671,7 @@ def test_furniture_sidecar_takes_precedence_over_metadata_ui() -> None:
     wf = _wf("precedence")
     node = VibeNode("1", "Conflict")
     node.uid = "uid-conflict"
+    node.mode = NodeMode.BYPASSED
     # metadata['_ui'] says mode=4, color='#ui'
     node.metadata["_ui"] = {
         "pos": [10, 20],
@@ -2449,14 +2775,15 @@ def test_ir_group_members_remap_all_live_aliases_and_omit_stale_members() -> Non
 
 
 def test_node_captured_with_mode_4_reemits_mode_4() -> None:
-    """T10: A node captured with mode 4 (bypassed) re-emits mode 4.
+    """T10: A node carrying semantic mode 4 (bypassed) re-emits mode 4.
 
-    This is the canonical round-trip: capture mode 4 in metadata['_ui'],
-    emit through emit_ui_json, and confirm the emitted node carries mode: 4.
+    Captured UI furniture may agree, but the first-class IR field is the
+    canonical source emitted as ``mode: 4``.
     """
     wf = _wf("mode4-roundtrip")
     node = VibeNode("1", "LoadImage")
     node.uid = "uid-mode4"
+    node.mode = 4
     node.metadata["_ui"] = {
         "pos": [100.0, 200.0],
         "size": [300.0, 250.0],
@@ -2524,6 +2851,7 @@ def test_mode_emit_reflects_display_state() -> None:
         wf = _wf(f"mode-emit-{mode_val}")
         li = VibeNode("1", "LoadImage")
         li.uid = "uid-li"
+        li.mode = mode_val
         li.metadata["_ui"] = {
             "pos": [10.0, 20.0], "size": [300.0, 200.0],
             "flags": {}, "color": None, "bgcolor": None,
@@ -2533,6 +2861,7 @@ def test_mode_emit_reflects_display_state() -> None:
 
         si = VibeNode("2", "SaveImage")
         si.uid = "uid-si"
+        si.mode = mode_val
         si.metadata["_ui"] = {
             "pos": [400.0, 20.0], "size": [300.0, 200.0],
             "flags": {}, "color": None, "bgcolor": None,
@@ -2644,11 +2973,11 @@ def test_virtual_wires_display_and_flat_modes() -> None:
     # Nodes: a real source, a SetNode, a resolved GetNode (fan-out to two
     # consumers), an orphaned GetNode (no matching SetNode), a Reroute
     # passthrough, and a final sink.
-    wf.nodes["1"] = VibeNode("1", "LoadImage")
-    wf.nodes["2"] = VibeNode("2", "ConsumerA")
-    wf.nodes["3"] = VibeNode("3", "ConsumerB")
-    wf.nodes["4"] = VibeNode("4", "OrphanConsumer")
-    wf.nodes["5"] = VibeNode("5", "RerouteSink")
+    wf.nodes["1"] = VibeNode("1", "LoadImage", native_output_names=["image"])
+    wf.nodes["2"] = VibeNode("2", "ConsumerA", native_input_names=["image"], native_output_names=["value"])
+    wf.nodes["3"] = VibeNode("3", "ConsumerB", native_input_names=["image"])
+    wf.nodes["4"] = VibeNode("4", "OrphanConsumer", native_input_names=["image"])
+    wf.nodes["5"] = VibeNode("5", "RerouteSink", native_input_names=["input"])
 
     # Broadcast helpers with captured positions in metadata['_ui']
     set_pos = [100.0, 50.0]
@@ -2656,18 +2985,18 @@ def test_virtual_wires_display_and_flat_modes() -> None:
     orphan_pos = [300.0, 250.0]
     reroute_pos = [500.0, 100.0]
 
-    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"}, pos=list(set_pos), size=[30, 30])
+    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"}, native_input_names=["value"], native_output_names=["value"], pos=list(set_pos), size=[30, 30])
     wf.nodes["10"].metadata["_ui"] = {"pos": list(set_pos), "size": [30, 30]}
 
-    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"}, pos=list(get_pos), size=[30, 30])
+    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"}, native_output_names=["value"], pos=list(get_pos), size=[30, 30])
     wf.nodes["11"].metadata["_ui"] = {"pos": list(get_pos), "size": [30, 30]}
 
     # Orphaned GetNode: broadcast name has no matching SetNode
-    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"}, pos=list(orphan_pos), size=[30, 30])
+    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"}, native_output_names=["value"], pos=list(orphan_pos), size=[30, 30])
     wf.nodes["12"].metadata["_ui"] = {"pos": list(orphan_pos), "size": [30, 30]}
 
     # Reroute passthrough
-    wf.nodes["20"] = VibeNode("20", "Reroute", pos=list(reroute_pos), size=[20, 20])
+    wf.nodes["20"] = VibeNode("20", "Reroute", native_input_names=["value"], native_output_names=["value"], pos=list(reroute_pos), size=[20, 20])
     wf.nodes["20"].metadata["_ui"] = {"pos": list(reroute_pos), "size": [20, 20]}
 
     # Edges
@@ -2675,7 +3004,7 @@ def test_virtual_wires_display_and_flat_modes() -> None:
     wf.edges.append(VibeEdge("11", "0", "2", "image"))    # GetNode → ConsumerA
     wf.edges.append(VibeEdge("11", "0", "3", "image"))    # GetNode → ConsumerB
     wf.edges.append(VibeEdge("12", "0", "4", "image"))    # orphan GetNode → OrphanConsumer
-    wf.edges.append(VibeEdge("2", "0", "20", ""))          # ConsumerA → Reroute
+    wf.edges.append(VibeEdge("2", "0", "20", "value"))      # ConsumerA → Reroute
     wf.edges.append(VibeEdge("20", "0", "5", "input"))     # Reroute → RerouteSink
 
     # ── Display mode (default) ──────────────────────────────────────────
@@ -3452,9 +3781,55 @@ def test_rc7_live_acn_widget_collapse_preserves_all_named_inbound_links() -> Non
         project_graph_v1,
     )
     from vibecomfy.ingest.normalize import ingest_workflow_and_ui
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
 
-    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
-    _, ui = ingest_workflow_and_ui(raw)
+    raw = _corpus("tests/fixtures/external_corpus/19d221f074b42462.json")
+    class_type = "ACN_AdvancedControlNetApply"
+    schema = NodeSchema(
+        class_type="ACN_AdvancedControlNetApply",
+        pack=None,
+        inputs={
+            "positive": InputSpec("CONDITIONING"),
+            "negative": InputSpec("CONDITIONING"),
+            "control_net": InputSpec("CONTROL_NET"),
+            "image": InputSpec("IMAGE"),
+            "mask_optional": InputSpec("MASK"),
+            "timestep_kf": InputSpec("TIMESTEP_KEYFRAME"),
+            "latent_kf_override": InputSpec("LATENT_KEYFRAME"),
+            "weights_override": InputSpec("CONTROL_NET_WEIGHTS"),
+            "model_optional": InputSpec("MODEL"),
+            "vae_optional": InputSpec("VAE"),
+            "strength": InputSpec("FLOAT"),
+            "start_percent": InputSpec("FLOAT"),
+            "end_percent": InputSpec("FLOAT"),
+        },
+        outputs=[
+            OutputSpec("CONDITIONING", "positive"),
+            OutputSpec("CONDITIONING", "negative"),
+            OutputSpec("MODEL", "model_opt"),
+        ],
+        widget_input_order=("strength", "start_percent", "end_percent"),
+        source_provider="test_fixture",
+        confidence=1.0,
+    )
+    snapshot = capture_schema_snapshot(
+        class_types=(class_type,),
+        request_snapshot={
+            "schemas": {
+                class_type: schema_payload_from_node_schema(class_type, schema)
+            },
+            "missing_classes": [],
+        },
+        node_classes={str(raw["nodes"]["60"]["uid"]): class_type},
+    )
+    provider = FrozenSchemaSnapshotProvider(snapshot)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        _, ui = ingest_workflow_and_ui(raw, schema_provider=provider)
     original60 = next(n for n in ui["nodes"] if str(n.get("id")) == "60")
     uid = original60["properties"]["vibecomfy_uid"]
     envelope = {
@@ -3467,19 +3842,22 @@ def test_rc7_live_acn_widget_collapse_preserves_all_named_inbound_links() -> Non
             }
         ],
     }
-    ok, candidate, error, _ = recompute_apply(ui, envelope)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        ok, candidate, error, _ = recompute_apply(
+            ui, envelope, schema_provider=provider
+        )
     assert ok is True, error
     assert candidate is not None
     by_id = {str(n["id"]): n for n in candidate["nodes"]}
     emitted60 = by_id["60"]
     assert emitted60["widgets_values"][0] == 0.5
-    assert [slot["name"] for slot in emitted60["inputs"]] == [
-        "control_net",
-        "image",
-        "negative",
-        "positive",
-        "vae_optional",
-    ]
+    assert [
+        slot["name"]
+        for slot in emitted60["inputs"]
+        if slot.get("link") is not None
+    ] == ["positive", "negative", "control_net", "image", "vae_optional"]
+    assert "strength" not in {slot["name"] for slot in emitted60["inputs"]}
     expected_by_source = {
         "61": "control_net",
         "62": "image",
@@ -3503,7 +3881,7 @@ def test_rc7_live_acn_phantom_source_refuses_instead_of_guessing() -> None:
     from vibecomfy.workflow import VibeWorkflow
     from vibecomfy.schema import get_authoring_schema_provider
 
-    raw = _corpus("external_workflows/corpus/19d221f074b42462.json")
+    raw = _corpus("tests/fixtures/external_corpus/19d221f074b42462.json")
     wf = VibeWorkflow.from_envelope(raw)
     edge = next(
         edge
@@ -3867,11 +4245,7 @@ def test_s02_property_corpus_workflows_emit_every_edge_or_refuse() -> None:
 
 
 def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
-    from vibecomfy.ingest.normalize import from_ui
-
-    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
-    raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    raw, workflow = _canonical_python_owned_boundary_door()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         emitted = emit_ui_json(workflow)
@@ -3884,12 +4258,17 @@ def test_ir_door_emitter_restores_subgraph_fixture_byte_canonically() -> None:
     )
 
 
+def test_ir_door_legacy_native_fixture_remains_an_exact_negative() -> None:
+    path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
+    raw = json.loads(path.read_bytes())
+    _assert_native_boundary_rejected(raw, source_path=str(path))
+
+
 def test_ir_door_property_untouched_corpus_round_trips_byte_identically() -> None:
     """Law 1 property: every untouched corpus specimen (UI + envelope) re-emits
     byte-identically, while a semantic edit keeps the emit deterministic."""
     import glob
 
-    from vibecomfy.ingest.normalize import from_envelope as _from_envelope
     from vibecomfy.ingest.normalize import from_ui as _from_ui
 
     paths = sorted(glob.glob("ready_templates/sources/official/**/*.json", recursive=True))
@@ -3901,15 +4280,29 @@ def test_ir_door_property_untouched_corpus_round_trips_byte_identically() -> Non
             / "ready_templates/sources/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json"
         )
     )
+    supported, native, dangling = _partition_ui_corpus(paths)
+    assert len(native) == 11, [path for path, _raw in native]
+    assert dangling == []
+    for path, raw in native:
+        _assert_native_definition_payload_rejected(raw, source_path=path)
+
+    python_owned_raw, python_owned_workflow = _canonical_python_owned_boundary_door()
+    positive_cases = [
+        (
+            path,
+            raw,
+            _from_ui(raw, source_path=path, use_comfy_converter=False),
+        )
+        for path, raw in supported
+    ]
+    positive_cases.append(
+        ("python-owned:boundary", python_owned_raw, python_owned_workflow)
+    )
+
     checked = 0
-    for path in paths:
-        with open(path) as handle:
-            raw = json.load(handle)
-        if not isinstance(raw.get("nodes"), list):
-            continue
+    for path, raw, wf in positive_cases:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            wf = _from_ui(raw, source_path=path, use_comfy_converter=False)
             first = emit_ui_json(wf)
             second = emit_ui_json(wf)
         assert json.dumps(first, ensure_ascii=False, separators=(",", ":")) == json.dumps(
@@ -4011,6 +4404,26 @@ def test_voxel_to_mesh_threshold_apply_emits_single_compact_slot() -> None:
         "links": [[7, 1, 0, 2, 0, "VOXEL"]],
     }
 
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import capture_ingress_schema_snapshot
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+    from vibecomfy.schema.types import capture_schema_snapshot, schema_payload_from_node_schema
+
+    frozen_provider = FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(
+            schema_provider=FrozenSchemaSnapshotProvider(
+                capture_schema_snapshot(
+                    request_snapshot={
+                        "schemas": {
+                            class_type: schema_payload_from_node_schema(class_type, schema)
+                            for class_type, schema in provider._schemas.items()
+                        }
+                    }
+                )
+            ),
+            graph=ui,
+        )
+    )
+
     ops = parse_edit_delta(
         [{"op": "set_node_field", "target": ["", "2", "threshold"], "value": 0.8}]
     )
@@ -4019,12 +4432,12 @@ def test_voxel_to_mesh_threshold_apply_emits_single_compact_slot() -> None:
     # (no ingest-time input_aliases); the edit turn applies with an on-demand
     # schema provider — exactly the generates-mesh loss shape.
     workflow = from_ui(dict(ui), use_comfy_converter=False)
-    result = interpret(workflow, ops, schema_provider=provider)
+    result = interpret(workflow, ops, schema_provider=frozen_provider)
     assert result.ok is True, result.diagnostics
 
     emitted = emit_ui_json(
         result.workflow,
-        schema_provider=provider,
+        schema_provider=frozen_provider,
         include_virtual_wires=True,
         prior_ui_payload=ui,
     )

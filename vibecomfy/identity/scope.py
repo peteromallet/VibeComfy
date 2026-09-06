@@ -48,12 +48,12 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(node, Mapping):
             continue
         inputs = [
-            {"name": i.get("name"), "link": i.get("link"), "type": i.get("type")}
+            {"name": i.get("name"), "type": i.get("type")}
             for i in (node.get("inputs") or [])
             if isinstance(i, Mapping)
         ]
         outputs = [
-            {"name": o.get("name"), "links": door_get_links(o), "type": o.get("type")}
+            {"name": o.get("name"), "type": o.get("type")}
             for o in (node.get("outputs") or [])
             if isinstance(o, Mapping)
         ]
@@ -71,7 +71,26 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
     for link in door_get_links(sg_def) or []:
         # litegraph link form: [link_id, origin_id, origin_slot, target_id, target_slot, type]
         if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
-            skel_links.append(list(link)[1:])  # drop the volatile link_id
+            values = list(link)
+            if len(values) >= 6:
+                # Array and object links are two serializations of the same
+                # LiteGraph edge.  Emission converts the former to the latter,
+                # so structural identity must encode both with the same named
+                # endpoint record or a presentation round-trip changes the
+                # canonical recursive scope path.
+                skel_links.append(
+                    {
+                        "origin_id": values[1],
+                        "origin_slot": values[2],
+                        "target_id": values[3],
+                        "target_slot": values[4],
+                        "type": values[5],
+                    }
+                )
+            else:
+                # Preserve deterministic identity for malformed legacy rows;
+                # validation owns their eventual refusal.
+                skel_links.append(values[1:])  # drop the volatile link id
         elif isinstance(link, Mapping):
             skel_links.append(
                 {

@@ -1742,8 +1742,15 @@ def capture_bundle(
     provenance: Any,
     parent_revision: str = "",
     parent_evidence: Mapping[str, Any] | None = None,
+    *,
+    schema_provider: Any = None,
 ) -> WorkflowBundle:
-    """Convert a captured UI/API graph into a candidate canonical revision."""
+    """Convert a captured UI/API graph into a candidate canonical revision.
+
+    ``schema_provider`` is capture-time authority, not a compile-time fallback.
+    Callers that already froze schema evidence may supply that provider so the
+    emitted canonical source retains resolved-node requirements and provenance.
+    """
     if isinstance(ui_graph, VibeWorkflow):
         workflow = ui_graph
         candidate: Mapping[str, Any] | None = None
@@ -1772,6 +1779,7 @@ def capture_bundle(
             import_payload,
             source_path=str(destination_path),
             workflow_id=declared,
+            schema_provider=schema_provider,
         )
         # API-shaped captures carry semantics only; their identity envelope is
         # not presentation and must not be fed to the sidecar converter.

@@ -38,6 +38,26 @@ _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
 _ALLOWED_RESPONSE_KEYS = frozenset({"delta", "message"})
 _CANONICAL_DELTA_KEYS = frozenset({"schema_version", "ops", "legacy_bridge"})
+
+
+def _canonical_wire_value(value: Any) -> Any:
+    """Detach immutable nested op values into JSON-shaped wire data.
+
+    Operation reports are deeply frozen before they reach the durable delta
+    envelope (mapping proxies and tuples).  Passing those containers through
+    ``json.dumps(..., default=str)`` would turn an authored declaration such
+    as dynamic exec ``io`` into a Python repr, losing its exact schema.  Keep
+    the one canonical op serializer lossless for JSON-shaped values; unknown
+    objects remain unchanged so callers fail closed instead of inventing a
+    second coercion format.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _canonical_wire_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_wire_value(item) for item in value]
+    if isinstance(value, set):
+        return [_canonical_wire_value(item) for item in sorted(value, key=repr)]
+    return value
 _LEGACY_DELTA_WRAPPER_KEYS = frozenset(
     {
         "automatic_link_removals",
@@ -498,36 +518,54 @@ def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
         normalized["id"] = normalized["link_id"]
     return normalized
 
-def _schema_snapshot_from_payload(payload: Mapping[str, Any] | SchemaSnapshot | None) -> Any | None:
-    from vibecomfy.schema import SchemaSnapshot, schema_snapshot_from_payload
-
-    if payload is None:
-        return None
-    if isinstance(payload, SchemaSnapshot):
-        return payload
-    if not isinstance(payload, Mapping):
-        return None
-    snapshot = payload.get("schema_snapshot") if "schema_snapshot" in payload else payload
-    if snapshot is None:
-        return None
-    if isinstance(snapshot, SchemaSnapshot):
-        return snapshot
-    if isinstance(snapshot, Mapping) and snapshot.get("contract_version") == "schema-snapshot-v1":
-        return schema_snapshot_from_payload(snapshot)
-    return snapshot
-
-
 def require_known_schema_for_operation(
     operation: Mapping[str, Any] | EditOp,
     schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None,
 ) -> None:
     """Fail closed when an operation depends on unknown endpoint/node schema."""
-    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        _validated_schema_argument,
+        admit_operation,
+    )
     from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError, require_known_touched_schema
 
-    snapshot = schema_snapshot if isinstance(schema_snapshot, SchemaSnapshot) else _schema_snapshot_from_payload(
-        schema_snapshot if isinstance(schema_snapshot, Mapping) else None
-    )
+    snapshot: SchemaSnapshot | None
+    if schema_snapshot is None:
+        snapshot = None
+    else:
+        if isinstance(schema_snapshot, SchemaSnapshot):
+            candidate: Any = schema_snapshot
+        elif isinstance(schema_snapshot, Mapping):
+            if "schema" in schema_snapshot:
+                candidate = schema_snapshot["schema"]
+            elif "schema_snapshot" in schema_snapshot:
+                candidate = schema_snapshot["schema_snapshot"]
+            else:
+                candidate = schema_snapshot
+            # A supplied wrapper is authority evidence.  Null, false, empty,
+            # and wrong-type values are malformed, not optional absence.
+            if candidate is None:
+                raise EditOpParseError(
+                    "schema authority wrapper is null",
+                    code="malformed_schema_snapshot",
+                )
+        else:
+            raise EditOpParseError(
+                "schema authority must be a SchemaSnapshot or payload",
+                code="malformed_schema_snapshot",
+            )
+        try:
+            snapshot, _payload = _validated_schema_argument(
+                candidate,
+                label="operation schema authority",
+            )
+        except SchemaSnapshotError as exc:
+            raise EditOpParseError(
+                str(exc),
+                code=exc.code,
+                detail={"authority": "schema_snapshot"},
+            ) from exc
     if snapshot is None:
         admitted = admit_operation(None, operation)
         if isinstance(admitted, AdmissionRejected):
@@ -694,7 +732,7 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
         "uid": op.uid,
         "node_id": op.node_id,
         "class_type": op.class_type,
-        "fields": dict(op.fields),
+        "fields": _canonical_wire_value(op.fields),
         "inputs": {
             key: [ref.scope_path, ref.uid, ref.output_slot]
             for key, ref in op.inputs.items()
@@ -723,7 +761,7 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
         return {
             "op": parsed.op,
             "target": [parsed.target.scope_path, parsed.target.uid, parsed.target.field_path],
-            "value": parsed.value,
+            "value": _canonical_wire_value(parsed.value),
         }
     if isinstance(parsed, AddNodeOp):
         return _canonicalize_add_node(parsed)
@@ -960,14 +998,14 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
         return {
             "op": op.op,
             "target": [op.target.scope_path, op.target.uid, op.target.field_path],
-            "value": op.value,
+            "value": _canonical_wire_value(op.value),
         }
     if isinstance(op, AddNodeOp):
         payload: dict[str, Any] = {
             "op": op.op,
             "scope_path": op.scope_path,
             "class_type": op.class_type,
-            "fields": dict(op.fields),
+            "fields": _canonical_wire_value(op.fields),
             "inputs": {
                 key: [ref.scope_path, ref.uid, ref.output_slot]
                 for key, ref in op.inputs.items()

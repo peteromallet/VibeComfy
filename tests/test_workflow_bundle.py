@@ -10,7 +10,7 @@ import pytest
 from vibecomfy.security import CapabilityFenceError
 from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
-from vibecomfy.workflow import VibeInput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeInput, VibeWorkflow, WorkflowCompileError, WorkflowSource
 from vibecomfy.workflow_bundle import (
     ApprovedProjectionRecord,
     WorkflowBundleError,
@@ -19,6 +19,7 @@ from vibecomfy.workflow_bundle import (
     emit_bundle_with_candidate,
     filter_provenance,
     load_bundle,
+    materialize_ui_json,
     validate_sidecar,
 )
 from vibecomfy.workflow import VibeEdge, VibeNode
@@ -35,7 +36,7 @@ def _nonempty_workflow(workflow_id: str = "bundle-test") -> VibeWorkflow:
 
 
 def test_revision_uses_exact_root_preimage_and_missing_sidecar_is_empty(tmp_path: Path) -> None:
-    workflow = _workflow()
+    workflow = _nonempty_workflow()
     bundle = emit_bundle(workflow, tmp_path / "workflow.py", {"operation": "authored", "timestamp": "drop"})
 
     expected = hashlib.sha256(
@@ -116,7 +117,7 @@ def test_ready_reference_identity_is_checked_before_digest(
 
 
 def test_parent_revision_requires_existing_matching_evidence(tmp_path: Path) -> None:
-    workflow = _workflow()
+    workflow = _nonempty_workflow()
     root = emit_bundle(workflow, tmp_path / "root.py", {"operation": "authored"})
     workflow.metadata["revision_evidence"] = [
         {"revision_id": root.revision_id, "workflow_identity": workflow.id}
@@ -480,22 +481,22 @@ def test_load_bundle_hashes_same_basename_presentation_candidate(tmp_path: Path)
         encoding="utf-8",
     )
     sidecar = tmp_path / "canonical.vibe.json"
-    sidecar.write_text(
-        '{"format_version":1,"bind":{"workflow_identity":"canonical"},'
-        '"nodes":{},"links":[],"groups":[],"canvas":{"zoom":1.0}}',
-        encoding="utf-8",
-    )
-
-    bundle = load_bundle(source, trust=Provenance.USER_CONFIRMED)
-
-    assert bundle.ui_sidecar == {
+    expected_sidecar = {
         "format_version": 1,
-        "bind": {"workflow_identity": "canonical"},
+        "bind": {
+            "workflow_identity": "canonical",
+            "semantic_digest": _workflow("canonical").semantic_digest(),
+        },
         "nodes": {},
         "links": [],
         "groups": [],
         "canvas": {"zoom": 1.0},
     }
+    sidecar.write_text(json.dumps(expected_sidecar), encoding="utf-8")
+
+    bundle = load_bundle(source, trust=Provenance.USER_CONFIRMED)
+
+    assert bundle.ui_sidecar == expected_sidecar
     assert bundle.ui_digest == hashlib.sha256(canonical_json(bundle.ui_sidecar).encode()).hexdigest()
 
 
@@ -620,9 +621,17 @@ def test_sidecar_rejects_nonfinite_canvas_and_recursive_virtual_native_form() ->
     workflow.virtual_wires = {"wire": {"endpoints": [["a", -10, "b", 0]]}}
     sidecar = _strict_sidecar(workflow)
     sidecar["links"] = [{"virtual_wire_ref": {"scope_path": "", "name": "wire", "leg_index": 0}, "occurrence_index": 0}]
-    with pytest.raises(WorkflowBundleError, match="materialized leg"):
+    with pytest.raises(WorkflowBundleError, match="legacy_virtual_wire"):
         validate_sidecar(sidecar, workflow)
-    workflow.virtual_wires = {"ghost": {"legs": [{"from_uid": "source", "from_port": 0, "to_uid": "ghost", "to_port": 0}]}}
+    workflow.virtual_wires = {"ghost": {"legs": [{
+        "scope_path": "",
+        "leg_index": 0,
+        "occurrence_index": 0,
+        "from_node": "source",
+        "from_output": 0,
+        "to_node": "ghost",
+        "to_input": 0,
+    }]}}
     sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
     sidecar["links"] = [{"virtual_wire_ref": {"scope_path": "", "name": "ghost", "leg_index": 0}, "occurrence_index": 0}]
     with pytest.raises(WorkflowBundleError, match="not local"):
@@ -787,7 +796,7 @@ def test_rollback_failure_is_explicitly_reported(
 
 
 def test_api_capture_separates_identity_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    workflow = _workflow("api-capture")
+    workflow = _nonempty_workflow("api-capture")
     api = {"workflow_id": workflow.id, "1": {"class_type": "Integer", "inputs": {"value": 1}}}
     monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
     bundle = capture_bundle(api, tmp_path / "api.py", {"operation": "captured"})
@@ -852,8 +861,8 @@ def test_native_port_rosters_are_semantic_not_execution_data() -> None:
     assert workflow.compile("api") == api_before
 
     source = emit_scratchpad_python(workflow)
-    assert "_input_ports=" in source
-    assert "_output_ports=" in source
+    assert "native_input_names =" in source
+    assert "native_output_names =" in source
     assert "_ui=" not in source
     namespace: dict[str, object] = {"__file__": "generated.py"}
     exec(source, namespace)
@@ -894,10 +903,19 @@ def test_recursive_edges_and_virtual_wires_use_structural_scope_and_local_uids()
             {"id": 20, "uid": "right", "class_type": "B", "inputs": [{"name": None}, {"name": "value"}]},
         ],
         "links": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}],
-        "virtual_wires": {"vw": {"legs": [{"origin_id": 10, "origin_slot": 0, "target_id": 20, "target_slot": 1}]}},
+        "virtual_wires": {},
     }
     workflow.definitions = {"one": definition}
     scope = compose_scope_path((sg_key(definition),))
+    definition["virtual_wires"] = {"vw": {"legs": [{
+        "scope_path": scope,
+        "leg_index": 0,
+        "occurrence_index": 0,
+        "from_node": "left",
+        "from_output": "out",
+        "to_node": "right",
+        "to_input": "value",
+    }]}}
     sidecar = {
         "format_version": 1,
         "bind": {"workflow_identity": workflow.id, "semantic_digest": workflow.semantic_digest()},
@@ -979,19 +997,19 @@ def test_shared_virtual_wire_resolver_preserves_nested_occurrences() -> None:
                         "scope_path": scope,
                         "leg_index": 0,
                         "occurrence_index": 0,
-                        "from_uid": "source",
-                        "from_port": "out",
-                        "to_uid": "target",
-                        "to_port": "value",
+                        "from_node": "source",
+                        "from_output": "out",
+                        "to_node": "target",
+                        "to_input": "value",
                     },
                     {
                         "scope_path": scope,
                         "leg_index": 0,
                         "occurrence_index": 1,
-                        "from_uid": "source",
-                        "from_port": 0,
-                        "to_uid": "target",
-                        "to_port": 1,
+                        "from_node": "source",
+                        "from_output": 0,
+                        "to_node": "target",
+                        "to_input": 1,
                     },
                 ],
             }
@@ -1004,20 +1022,21 @@ def test_shared_virtual_wire_resolver_preserves_nested_occurrences() -> None:
     assert all(item.to_node == f"{scope}#target" for item in resolved)
 
 
-def test_shared_virtual_wire_resolver_rejects_conflicting_occurrence_aliases() -> None:
+def test_shared_virtual_wire_resolver_rejects_noncanonical_occurrence_aliases() -> None:
     from vibecomfy.workflow import WorkflowCompileError, _resolve_virtual_wire_legs
 
     nodes = {
         "a": {"id": 1, "uid": "a", "outputs": [{"name": "out"}, {"name": "other"}]},
         "b": {"id": 2, "uid": "b", "inputs": [{"name": "value"}]},
     }
-    with pytest.raises(WorkflowCompileError, match="conflicting port aliases"):
+    with pytest.raises(WorkflowCompileError, match="exactly the canonical fields"):
         _resolve_virtual_wire_legs(
             nodes,
             {
                 "bus": {
                     "legs": [
                         {
+                            "scope_path": "",
                             "leg_index": 0,
                             "occurrence_index": 0,
                             "from_uid": "a",
@@ -1030,6 +1049,88 @@ def test_shared_virtual_wire_resolver_rejects_conflicting_occurrence_aliases() -
                 }
             },
         )
+
+
+def test_bundle_ui_materialization_rejects_empty_virtual_wire_through_shared_resolver() -> None:
+    """Bundle/UI materialization must not silently drop an empty wire record."""
+    workflow = _connected_workflow()
+    workflow.virtual_wires = {"empty": {"legs": []}}
+
+    with pytest.raises(WorkflowBundleError, match="at least one leg"):
+        materialize_ui_json(workflow)
+
+
+@pytest.mark.parametrize(
+    "wire",
+    [
+        {
+            "scope_path": None,
+            "legs": [{
+                "scope_path": "",
+                "leg_index": 0,
+                "occurrence_index": 0,
+                "from_node": "source",
+                "from_output": "out",
+                "to_node": "target",
+                "to_input": "in",
+            }],
+        },
+        {
+            "legs": [{
+                "scope_path": None,
+                "leg_index": 0,
+                "occurrence_index": 0,
+                "from_node": "source",
+                "from_output": "out",
+                "to_node": "target",
+                "to_input": "in",
+            }],
+        },
+    ],
+    ids=("wire-scope-none", "leg-scope-none"),
+)
+def test_virtual_wire_scope_none_is_rejected_by_execution_and_ui_resolvers(wire) -> None:
+    """Explicit null scope is malformed, not an omitted root scope."""
+    workflow = _connected_workflow()
+    workflow.virtual_wires = {"wire": wire}
+
+    with pytest.raises(WorkflowCompileError) as compile_exc:
+        workflow.compile()
+    assert getattr(compile_exc.value, "code", None) == "virtual_wire_malformed"
+
+    with pytest.raises(WorkflowBundleError, match="scope_path"):
+        materialize_ui_json(workflow)
+
+
+def test_nonempty_canonical_virtual_wire_reaches_execution_and_ui_materialization() -> None:
+    """A valid fully indexed leg is shared by execution and UI projection."""
+    workflow = _workflow("canonical-virtual-wire-direct")
+    workflow.nodes["1"] = VibeNode(
+        "1", "Source", uid="source", native_output_names=["out"]
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2", "Target", uid="target", inputs={"value": None},
+        native_input_names=["value"],
+    )
+    workflow.virtual_wires = {
+        "wire": {
+            "scope_path": "",
+            "legs": [{
+                "scope_path": "",
+                "leg_index": 0,
+                "occurrence_index": 0,
+                "from_node": "source",
+                "from_output": "out",
+                "to_node": "target",
+                "to_input": "value",
+            }],
+        }
+    }
+
+    compiled = workflow.compile()
+    assert compiled["2"]["inputs"]["value"] == ["1", 0]
+    ui = materialize_ui_json(workflow)
+    assert ui["links"]
 
 
 @pytest.mark.parametrize(

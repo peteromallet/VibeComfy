@@ -65,6 +65,52 @@ def _workflow() -> tuple[VibeWorkflow, str, str]:
     return workflow, sg_key(outer), f"{sg_key(outer)}/{inner_key}"
 
 
+def _frozen_schema_provider(workflow: VibeWorkflow):
+    """Freeze the synthetic recursive fixture's schema at test ingress."""
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        InputSpec,
+        NodeSchema,
+        OutputSpec,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    schemas = {
+        "Get": NodeSchema("Get", "test", {"widget_0": InputSpec("INT")}, [OutputSpec("VALUE", "VALUE")]),
+        "Set": NodeSchema("Set", "test", {"value": InputSpec("INT")}, []),
+        "Reroute": NodeSchema("Reroute", "test", {}, [OutputSpec("*", "")]),
+        "Foo": NodeSchema("Foo", "test", {}, []),
+        "New": NodeSchema("New", "test", {}, []),
+        "Inner": NodeSchema("Inner", "test", {}, []),
+    }
+    node_classes: dict[str, str] = {}
+    for definition in workflow.definitions.get("subgraphs", []):
+        for node in definition.get("nodes", []):
+            class_type = str(node.get("type", node.get("class_type", "")))
+            if class_type in schemas:
+                node_classes[str(node.get("uid", node.get("id")))] = class_type
+        for nested in definition.get("definitions", {}).get("subgraphs", []):
+            for node in nested.get("nodes", []):
+                class_type = str(node.get("type", node.get("class_type", "")))
+                if class_type in schemas:
+                    node_classes[str(node.get("uid", node.get("id")))] = class_type
+    payloads = {
+        class_type: schema_payload_from_node_schema(class_type, schema)
+        for class_type, schema in schemas.items()
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=tuple(schemas),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": payloads,
+            "missing_classes": [],
+        },
+        node_classes=node_classes,
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def _valid_execution_workflow() -> tuple[VibeWorkflow, str, str]:
     """Depth-2 definition with authored Get/Set/Reroute fan-out.
 
@@ -195,6 +241,18 @@ def test_depth_two_index_uses_live_typed_references_and_cow() -> None:
     assert sg_key(post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]) == inner_key
 
 
+def test_recursive_scope_identity_survives_mandatory_presentation_projection() -> None:
+    workflow, outer, inner = _workflow()
+    provider = _frozen_schema_provider(workflow)
+    from vibecomfy.porting.edit.lint import LintIndex
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    presentation = LintIndex.build(emit_ui_json(workflow, schema_provider=provider))
+    assert outer in presentation.scope_paths
+    assert inner in presentation.scope_paths
+    assert presentation.node_exists(inner, "inner_i")
+
+
 def test_recursive_definition_occurrences_keep_distinct_uids() -> None:
     workflow, outer, _inner = _workflow()
     scope = build_recursive_edit_index(workflow).scope(outer)
@@ -250,14 +308,15 @@ def test_recursive_index_preserves_two_occurrences_fanout_and_typed_carriers() -
 
 def test_recursive_diff_interpret_and_session_rollback_are_replayable() -> None:
     workflow, _outer, inner = _workflow()
+    provider = _frozen_schema_provider(workflow)
     post = workflow.copy()
     node = post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]
     node["widgets_values"][0], node["mode"] = 3, 2
     delta = diff(workflow, post)
-    replay = interpret(workflow, delta)
+    replay = interpret(workflow, delta, schema_provider=provider)
     assert replay.ok and replay.workflow.semantic_projection() == post.semantic_projection()
 
-    session = EditSession({}, initial_workflow=workflow)
+    session = EditSession({}, initial_workflow=workflow, schema_provider=provider)
     result = session.apply_ops((SetModeOp("set_mode", NodeTarget(inner, "inner_i"), 2),))
     assert result.ok and session.touched_uids == {f"{inner}#inner_i"}
     field_result = session.apply_ops(
@@ -274,12 +333,13 @@ def test_recursive_diff_interpret_and_session_rollback_are_replayable() -> None:
 
 def test_recursive_apply_gate_sees_typed_delta_and_empty_noop() -> None:
     workflow, _outer, inner = _workflow()
+    provider = _frozen_schema_provider(workflow)
     post = workflow.copy()
     post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]["mode"] = 2
     assert editable_signature(workflow) != editable_signature(post)
-    gate = verify_apply(workflow, post, landed_ops=diff(workflow, post))
+    gate = verify_apply(workflow, post, landed_ops=diff(workflow, post), schema_provider=provider)
     assert gate.ok and gate.apply_eligible
-    noop = verify_apply(workflow, workflow, landed_ops=diff(workflow, workflow))
+    noop = verify_apply(workflow, workflow, landed_ops=diff(workflow, workflow), schema_provider=provider)
     assert noop.ok and not noop.apply_eligible and noop.reason == "empty_delta"
 
     renumbered = workflow.copy()
@@ -432,7 +492,8 @@ def test_recursive_clone_collision_and_native_boundary_fail_closed() -> None:
 def test_recursive_structural_matrix_fails_before_session_mutation(operation) -> None:
     workflow, _outer, inner = _workflow()
     before = workflow.semantic_projection()
-    session = EditSession({}, initial_workflow=workflow)
+    provider = _frozen_schema_provider(workflow)
+    session = EditSession({}, initial_workflow=workflow, schema_provider=provider)
     result = session.apply_ops((operation(inner),))
     assert not result.ok and result.reason == "unsupported_structural_scope"
     assert result.revision == 0 and session.revision == 0
@@ -464,6 +525,7 @@ def test_recursive_structural_edits_fail_before_mutation() -> None:
 @pytest.mark.parametrize("nested_ref", ["input", "anchor"])
 def test_nested_add_node_refs_are_rejected_by_scope_precheck(nested_ref: str) -> None:
     workflow, _outer, inner = _workflow()
+    provider = _frozen_schema_provider(workflow)
     kwargs = {
         "inputs": {
             "value": LinkSourceRef(inner, "inner_i", "widget_0")
@@ -476,7 +538,7 @@ def test_nested_add_node_refs_are_rejected_by_scope_precheck(nested_ref: str) ->
             else None
         ),
     }
-    result = EditSession({}, initial_workflow=workflow).apply_ops(
+    result = EditSession({}, initial_workflow=workflow, schema_provider=provider).apply_ops(
         (AddNodeOp("add_node", "", "Foo", {}, **kwargs),)
     )
     assert not result.ok and result.reason == "unsupported_structural_scope"
@@ -484,13 +546,14 @@ def test_nested_add_node_refs_are_rejected_by_scope_precheck(nested_ref: str) ->
 
 def test_recursive_scope_inputs_fail_closed_for_ordinal_unknown_mixed_stale_and_live() -> None:
     workflow, _outer, inner = _workflow()
+    provider = _frozen_schema_provider(workflow)
     for scope in ("sg0", "unknown_scope"):
-        session = EditSession({}, initial_workflow=workflow)
+        session = EditSession({}, initial_workflow=workflow, schema_provider=provider)
         result = session.apply_ops((SetModeOp("set_mode", NodeTarget(scope, "inner_i"), 2),))
         assert not result.ok and result.reason in {"invalid_scope", "scope_unknown"}
         assert session.revision == 0
 
-    mixed = EditSession({}, initial_workflow=workflow)
+    mixed = EditSession({}, initial_workflow=workflow, schema_provider=provider)
     mixed_result = mixed.apply_ops(
         (
             SetModeOp("set_mode", NodeTarget(inner, "inner_i"), 2),
@@ -498,7 +561,7 @@ def test_recursive_scope_inputs_fail_closed_for_ordinal_unknown_mixed_stale_and_
         )
     )
     assert not mixed_result.ok and mixed_result.reason == "unsupported_structural_scope"
-    stale = EditSession({}, initial_workflow=workflow)
+    stale = EditSession({}, initial_workflow=workflow, schema_provider=provider)
     assert stale.apply_ops((SetModeOp("set_mode", NodeTarget(inner, "inner_i"), 2),), expected_revision=0).ok
     stale_result = stale.apply_ops((SetModeOp("set_mode", NodeTarget(inner, "inner_i2"), 2),), expected_revision=0)
     assert not stale_result.ok and stale_result.reason == "stale_revision"
@@ -506,7 +569,10 @@ def test_recursive_scope_inputs_fail_closed_for_ordinal_unknown_mixed_stale_and_
     metadata_workflow, _outer, metadata_inner = _workflow()
     metadata_node = metadata_workflow.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]
     metadata_node["metadata"] = {"raw_only": 1}
-    raw_edit = EditSession({}, initial_workflow=metadata_workflow).apply_ops(
+    raw_edit = EditSession(
+        {}, initial_workflow=metadata_workflow,
+        schema_provider=_frozen_schema_provider(metadata_workflow),
+    ).apply_ops(
         (SetNodeFieldOp("set_node_field", NodeFieldTarget(metadata_inner, "inner_i", "raw_only"), 2),)
     )
     assert not raw_edit.ok and raw_edit.reason == "unknown_field"
@@ -573,7 +639,7 @@ def test_recursive_live_delta_consumers_and_root_interface_law_are_fenced() -> N
     post.metadata["definitions"]["subgraphs"][0]["inputs"] = [{"name": "edited", "type": "IMAGE"}]
     delta = diff(pre, post)
     assert len(delta) == 1 and isinstance(delta[0], SubgraphInterfaceOp)
-    replay = interpret(pre, delta)
+    replay = interpret(pre, delta, schema_provider=_frozen_schema_provider(pre))
     assert replay.ok
     assert replay.workflow.interfaces == {}
     assert replay.workflow.metadata["definitions"]["subgraphs"][0]["inputs"][0]["name"] == "edited"
@@ -598,7 +664,9 @@ def test_recursive_list_input_and_widget_channels_are_shared_edit_fields() -> No
     edited = post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]
     assert edited["inputs"][0]["value"] == 4
     assert edited["widgets_values"] == ["after"]
-    session = EditSession({}, initial_workflow=workflow)
+    session = EditSession(
+        {}, initial_workflow=workflow, schema_provider=_frozen_schema_provider(workflow)
+    )
     result = session.apply_ops((
         SetNodeFieldOp("set_node_field", NodeFieldTarget(inner, "inner_i", "value"), 8),
     ))
@@ -625,7 +693,10 @@ def test_recursive_provenance_is_monotone_without_raw_metadata_authority() -> No
         SetModeOp("set_mode", NodeTarget(absent_inner, "inner_i2"), 2),
     )
     assert absent_post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][1]["metadata"]["provenance"]
-    absent_session = EditSession({}, initial_workflow=absent_workflow)
+    absent_session = EditSession(
+        {}, initial_workflow=absent_workflow,
+        schema_provider=_frozen_schema_provider(absent_workflow),
+    )
     absent_result = absent_session.apply_ops(
         (SetModeOp("set_mode", NodeTarget(absent_inner, "inner_i2"), 2),)
     )
@@ -673,6 +744,7 @@ def test_root_interface_cannot_shadow_typed_recursive_definitions() -> None:
     result = interpret(
         workflow,
         (SubgraphInterfaceOp("subgraph_interface", "change", "Inner", scope_path=""),),
+        schema_provider=_frozen_schema_provider(workflow),
     )
     assert not result.ok
     assert result.workflow.semantic_projection() == before

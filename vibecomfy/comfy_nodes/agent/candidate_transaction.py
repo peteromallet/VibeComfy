@@ -741,6 +741,18 @@ class FrozenSchemaProvider:
     def schemas(self) -> dict[str, NodeSchema]:
         return dict(self._schemas)
 
+    @property
+    def snapshot(self) -> Any:
+        """Expose the retained witness snapshot to admission custody.
+
+        ``admission_snapshot_for`` binds only providers that expose their
+        frozen ``SchemaSnapshot``.  Witness rehydration previously kept the
+        snapshot privately, so durable replay silently downgraded to a
+        workflow-only pair and rejected otherwise-authoritative edits as
+        ``missing_touched_schema``.
+        """
+        return self._snapshot
+
     def lookup_ambient(self, *args: Any, **kwargs: Any) -> None:
         if self._frozen_snapshot_provider is not None:
             self._frozen_snapshot_provider.lookup_ambient(*args, **kwargs)

@@ -203,7 +203,15 @@ def _common_node_rebuild_required(
 
 
 def _is_link_payload(value: Any) -> bool:
-    return isinstance(value, (list, tuple)) and len(value) == 2 and not isinstance(value, (str, bytes))
+    """Return whether *value* is a canonical stored API link pair.
+
+    Ordinary two-item list/tuple literals are valid authored values and must
+    remain visible to typed delta extraction.  Connectivity filtering is
+    therefore deliberately narrower than a shape-only length check.
+    """
+    from vibecomfy._compile._graph import is_canonical_api_link
+
+    return is_canonical_api_link(value)
 
 
 def _named_literals(node: Any) -> dict[str, Any]:

@@ -863,7 +863,19 @@ def test_rewire_refs_survive_failed_teaching_turn() -> None:
         ],
         "links": [[1, 1, 0, 3, 0, "IMAGE"]],
     }
-    session = EditSession(raw, schema_provider=Provider())
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    declared_provider = Provider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=declared_provider, graph=raw
+    )
+    session = EditSession(
+        raw,
+        schema_provider=FrozenSchemaSnapshotProvider(snapshot),
+    )
 
     rewired = session.apply_batch("saveimage.images = sourcetwo.in_\n")
     failed = session.apply_batch("saveimage.not_a_field = 'teaching turn'\n")

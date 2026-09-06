@@ -11,6 +11,7 @@ RuneXX-dependent cases adapt to available corpus graphs or skip gracefully.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,8 +19,14 @@ import pytest
 
 from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.porting.edit._session_types import CompactDiagnostic, OperationTransition
 from vibecomfy.porting.reorganise.graph_facts import UiGraphIndex
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema.types import (
+    FrozenSchemaSnapshotProvider,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import WorkflowBundleError, validate_sidecar
 from tests.support.corpus_schema import (
@@ -105,7 +112,44 @@ def _flat_schema_provider() -> Any:
                 ),
             }.get(ct)
 
-    return SP()
+    source = SP()
+    class_types = (
+        "CheckpointLoaderSimple",
+        "CLIPTextEncode",
+        "EmptyLatentImage",
+        "KSampler",
+        "VAEDecode",
+        "SaveImage",
+        "PrimitiveInt",
+        "Reroute",
+    )
+    payloads = {
+        class_type: schema_payload_from_node_schema(
+            class_type, source.get_schema(class_type)
+        )
+        for class_type in class_types
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=class_types,
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": payloads,
+            "missing_classes": [],
+        },
+        # Explicit fixture identity is part of the captured authority.  It is
+        # declared from the flat fixture contract, never inferred from UI
+        # widgets or recovered through a live provider lookup.
+        node_classes={
+            "1": "CheckpointLoaderSimple",
+            "2": "CLIPTextEncode",
+            "3": "CLIPTextEncode",
+            "4": "EmptyLatentImage",
+            "5": "KSampler",
+            "6": "VAEDecode",
+            "7": "SaveImage",
+        },
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
 
 
 def _wan_schema_provider() -> Any:
@@ -779,6 +823,787 @@ def test_session_history_is_workflow_delta_pairs(flat_ui: dict[str, Any]) -> Non
     assert session.history[1][0] is not wf0
     assert session.rollback()
     assert len(session.history) == 1
+
+
+def test_t20_batch_transition_report_does_not_change_public_history_shape(
+    flat_ui: dict[str, Any],
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    result = session.apply_batch('cliptextencode.text = "transition-report"')
+
+    assert result.ok
+    assert result.transitions
+    assert result.transitions[0].occurrence == 0
+    assert result.transitions[0].outcome == "staged"
+    # Transition diagnostics are not a fourth history column or an authority
+    # credential.  Existing replay/history callers retain their tuple API.
+    assert all(len(entry) == 3 for entry in session.history)
+    assert session.history[0][2] == result.landed_ops
+
+
+def test_t20_public_results_and_history_do_not_alias_committed_workflow(
+    flat_ui: dict[str, Any],
+) -> None:
+    """Published evidence may be inspected or copied without mutating commit state."""
+    from dataclasses import FrozenInstanceError
+
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    result = session.apply_ops(
+        (
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", "5", "steps"),
+                value=42,
+            ),
+        )
+    )
+
+    assert result.ok
+    assert result.workflow is not session.workflow
+    assert session.history[0][0] is not session.workflow
+    assert session.history[0][2][0] is not result.landed_ops[0]
+    public_history = session.history
+    assert isinstance(public_history, tuple)
+    with pytest.raises(AttributeError):
+        session.history = ()  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        public_history.append(public_history[0])  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        public_history[0] = public_history[0]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del public_history[0]  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        list.append(public_history, public_history[0])
+    with pytest.raises(FrozenInstanceError):
+        result.landed_ops[0].value = 99  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        session.history[0][2][0].value = 99  # type: ignore[misc]
+
+    result.workflow.nodes["5"].inputs["steps"] = 99
+    history_pre_steps = public_history[0][0].nodes["5"].inputs["steps"]
+    public_history[0][0].nodes["5"].inputs["steps"] = 100
+    assert session.workflow.nodes["5"].inputs["steps"] == 42
+    assert session.history[0][0].nodes["5"].inputs["steps"] == history_pre_steps
+
+    second = session.apply_ops(
+        (
+            SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget("", "5", "steps"),
+                value=43,
+            ),
+        )
+    )
+    assert second.ok
+    assert len(session.history) == 2
+    assert session.rollback()
+    assert len(session.history) == 1
+    assert session.workflow.nodes["5"].inputs["steps"] == 42
+
+
+def test_t20_shared_evaluator_finalizes_add_node_before_projection(
+    flat_ui: dict[str, Any],
+) -> None:
+    """The shared evaluator, not the Python runner, owns output-port stamping."""
+    from vibecomfy.porting.edit._interpret import _evaluate_operation
+    from vibecomfy.porting.edit.ops import AddNodeOp, LinkSourceRef
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    operation = AddNodeOp(
+        op="add_node",
+        scope_path="",
+        class_type="VAEDecode",
+        fields={},
+        inputs={
+            "samples": LinkSourceRef("", "4", "LATENT"),
+            "vae": LinkSourceRef("", "1", "VAE"),
+        },
+        uid="evaluator-added",
+        node_id="8",
+    )
+
+    result = _evaluate_operation(
+        workflow,
+        operation,
+        schema_provider=provider,
+        source="added = VAEDecode(samples=emptylatentimage.LATENT, vae=checkpointloadersimple.VAE)",
+    )
+
+    assert result.outcome == "staged", result.diagnostics
+    node = result.workflow.nodes["8"]
+    assert node.uid == "evaluator-added"
+    assert node.metadata["output_names"] == ["IMAGE"]
+    assert node.metadata["output_types"] == ["IMAGE"]
+    assert result.presentation_ui is not None
+    emitted = next(
+        item for item in result.presentation_ui["nodes"]
+        if item.get("properties", {}).get("vibecomfy_uid") == "evaluator-added"
+    )
+    assert emitted["outputs"][0]["name"] == "IMAGE"
+
+
+@pytest.mark.parametrize("forgery", ("order", "topology"))
+def test_t20_shared_evaluator_rejects_forged_projection(
+    flat_ui: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    forgery: str,
+) -> None:
+    """Projection furniture cannot authorize forged order or topology."""
+    import copy
+
+    import vibecomfy.porting.emit.ui as ui_module
+    from vibecomfy.porting.edit._interpret import _evaluate_operation
+    from vibecomfy.porting.edit.ops import (
+        LinkTargetRef,
+        NodeFieldTarget,
+        RemoveLinkOp,
+        SetNodeFieldOp,
+    )
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    operation = (
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "5", "steps"),
+            value=42,
+        )
+        if forgery == "order"
+        else RemoveLinkOp(
+            op="remove_link",
+            target=LinkTargetRef("", "5", "latent_image"),
+        )
+    )
+    original_emit = ui_module.emit_ui_json
+
+    def forged_emit(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        payload = original_emit(*args, **kwargs)
+        if kwargs.get("prior_ui_payload") is None:
+            return payload
+        forged = copy.deepcopy(payload)
+        if forgery == "order":
+            forged["nodes"] = list(reversed(forged.get("nodes", [])))
+        else:
+            forged.setdefault("links", []).append([999, 1, 0, 7, 0, "IMAGE"])
+        return forged
+
+    monkeypatch.setattr(ui_module, "emit_ui_json", forged_emit)
+    result = _evaluate_operation(workflow, operation, schema_provider=provider)
+
+    assert result.outcome == "rejected"
+    codes = {diagnostic.code for diagnostic in result.diagnostics}
+    assert (
+        "full_ui_node_order_changed_unattributed" in codes
+        or "full_ui_link_added_unattributed" in codes
+    )
+    assert result.workflow == workflow
+
+
+def test_t20_lg_id_normalization_lowers_canonical_uid(
+    flat_ui: dict[str, Any],
+) -> None:
+    """A LiteGraph id is normalized before the shared lowerer applies it."""
+    import copy
+
+    from vibecomfy.porting.edit._interpret import _interpret_ops
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.schema.types import FrozenSchemaSnapshotProvider, capture_schema_snapshot
+
+    ui = copy.deepcopy(flat_ui)
+    for node in ui["nodes"]:
+        if node.get("id") == 5:
+            node.setdefault("properties", {})["vibecomfy_uid"] = "my_custom"
+    base = _flat_schema_provider().snapshot
+    schemas = {name: dict(payload) for name, payload in base.schemas.items()}
+    provider = FrozenSchemaSnapshotProvider(
+        capture_schema_snapshot(
+            class_types=tuple(schemas),
+            request_snapshot={
+                "contract_version": "schema_snapshot_v1",
+                "schemas": schemas,
+                "missing_classes": [],
+            },
+            node_classes={**dict(base.node_classes), "my_custom": "KSampler"},
+        )
+    )
+    workflow = from_ui(dict(ui), schema_provider=provider, use_comfy_converter=False)
+    submitted = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "5", "steps"),
+        value=42,
+    )
+
+    result = _interpret_ops(workflow, (submitted,), schema_provider=provider)
+
+    assert result.ok
+    assert result.transitions[0].submitted == submitted
+    assert result.transitions[0].normalized.target.uid == "my_custom"
+    assert result.transitions[0].lowered[0].target.uid == "my_custom"
+    assert result.workflow.nodes["5"].inputs["steps"] == 42
+
+
+def test_t20_genuine_lint_rejection_never_reaches_lowering_or_commit(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rejected orphan add is report evidence, never mutation authority."""
+    import vibecomfy.porting.edit._ir_utils as ir_utils
+    from vibecomfy.porting.edit._interpret import _evaluate_operation
+    from vibecomfy.porting.edit.ops import AddNodeOp
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    operation = AddNodeOp(
+        op="add_node",
+        scope_path="",
+        class_type="KSampler",
+        fields={"steps": 30},
+        inputs={},
+        uid="orphan-probe",
+        node_id="8",
+    )
+    lower_calls: list[object] = []
+    original_lower = ir_utils.lower_edit_operation
+
+    def observed_lower(*args: Any, **kwargs: Any) -> Any:
+        lower_calls.append(args[1])
+        return original_lower(*args, **kwargs)
+
+    monkeypatch.setattr(ir_utils, "lower_edit_operation", observed_lower)
+    evaluated = _evaluate_operation(
+        workflow, operation, schema_provider=provider,
+    )
+
+    assert evaluated.outcome == "rejected"
+    assert evaluated.lint_disposition == "rejected"
+    assert evaluated.diagnostics[0].code == "orphan_add_node"
+    assert evaluated.lowered == ()
+    assert evaluated.workflow == workflow
+    assert lower_calls == []
+
+    session = EditSession(flat_ui, schema_provider=provider)
+    before = session.workflow
+    result = session.apply_ops((operation,))
+
+    assert result.ok is False
+    assert result.lint_result is not None
+    assert result.lint_result.apply_eligible is False
+    assert result.transitions[0].outcome == "rejected"
+    assert result.transitions[0].lint_disposition == "rejected"
+    assert result.transitions[0].diagnostics[0].code == "orphan_add_node"
+    assert result.landed_ops == ()
+    assert session.workflow == before
+    assert session.revision == 0
+    assert session.history == ()
+    assert lower_calls == []
+
+
+def test_t20_complete_typed_batch_preserves_future_orphan_wiring_intent(
+    flat_ui: dict[str, Any],
+) -> None:
+    """Future syntax informs orphan lint without granting future graph authority."""
+    from vibecomfy.porting.edit._interpret import _interpret_ops
+    from vibecomfy.porting.edit.ops import (
+        AddNodeOp,
+        LinkSourceRef,
+        LinkTargetRef,
+        UpsertLinkOp,
+    )
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    add = AddNodeOp(
+        op="add_node",
+        scope_path="",
+        class_type="EmptyLatentImage",
+        fields={"width": 768, "height": 768, "batch_size": 1},
+        inputs={},
+        uid="wired-probe",
+        node_id="8",
+    )
+    wire = UpsertLinkOp(
+        op="upsert_link",
+        source=LinkSourceRef("", "wired-probe", "LATENT"),
+        target=LinkTargetRef("", "5", "latent_image"),
+    )
+
+    result = _interpret_ops(workflow, (add, wire), schema_provider=provider)
+
+    assert result.ok, result.diagnostics
+    assert [item.outcome for item in result.transitions] == ["staged", "staged"]
+    assert [item.lint_disposition for item in result.transitions] == ["passed", "passed"]
+    assert result.workflow.nodes["8"].uid == "wired-probe"
+    assert any(
+        edge.from_node == "8" and edge.to_node == "5" and edge.to_input == "latent_image"
+        for edge in result.workflow.edges
+    )
+
+
+def test_t20_raw_and_canonical_output_aliases_replay_to_identical_links() -> None:
+    """Authored ``IMAGE`` and replay ``IMAGE_0`` share one output identity."""
+    from vibecomfy.porting.edit.ops import (
+        AddNodeOp,
+        LinkSourceRef,
+        LinkTargetRef,
+        UpsertLinkOp,
+    )
+
+    schemas = {
+        "KSampler": NodeSchema(
+            "KSampler", "test", {}, [OutputSpec("IMAGE", "IMAGE")]
+        ),
+        "PreviewImage": NodeSchema(
+            "PreviewImage",
+            "test",
+            {"images": InputSpec("IMAGE", required=True)},
+            [],
+        ),
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=tuple(schemas),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {
+                class_type: schema_payload_from_node_schema(class_type, schema)
+                for class_type, schema in schemas.items()
+            },
+            "missing_classes": [],
+        },
+        node_classes={
+            "sampler": "KSampler",
+            "existing_preview": "PreviewImage",
+            "preview": "PreviewImage",
+        },
+    )
+    provider = FrozenSchemaSnapshotProvider(snapshot)
+    ui = {
+        "last_node_id": 2,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler"},
+                "inputs": [],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": []}
+                ],
+            },
+            {
+                "id": 2,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "existing_preview"},
+                "inputs": [
+                    {"name": "images", "type": "IMAGE", "link": None}
+                ],
+                "outputs": [],
+            },
+        ],
+        "links": [],
+        "groups": [],
+    }
+    posts: list[VibeWorkflow] = []
+    for authored_slot in ("IMAGE", "IMAGE_0"):
+        session = EditSession(ui, schema_provider=provider)
+        result = session.apply_ops(
+            (
+                AddNodeOp(
+                    op="add_node",
+                    scope_path="",
+                    class_type="PreviewImage",
+                    fields={},
+                    inputs={
+                        "images": LinkSourceRef(
+                            "", "sampler", authored_slot
+                        )
+                    },
+                    uid="preview",
+                    node_id="3",
+                ),
+                UpsertLinkOp(
+                    op="upsert_link",
+                    source=LinkSourceRef("", "sampler", authored_slot),
+                    target=LinkTargetRef("", "existing_preview", "images"),
+                ),
+            )
+        )
+
+        assert result.ok, result.diagnostics
+        assert session.revision == 1
+        assert len(result.landed_ops) == 2
+        assert result.landed_ops[0].inputs["images"].output_slot == "IMAGE_0"
+        assert result.landed_ops[1].source.output_slot == "IMAGE_0"
+        assert {
+            (edge.from_node, edge.from_output, edge.to_node, edge.to_input)
+            for edge in session.workflow.edges
+        } == {
+            ("1", "0", "2", "images"),
+            ("1", "0", "3", "images"),
+        }
+        posts.append(session.workflow)
+
+    assert posts[0] == posts[1]
+
+
+@pytest.mark.parametrize(
+    ("marked_missing", "expected_code"),
+    (
+        (False, "missing_touched_schema"),
+        (True, "missing_touched_schema"),
+    ),
+)
+def test_t20_frozen_unknown_class_never_queries_advisory_provider(
+    flat_ui: dict[str, Any], marked_missing: bool, expected_code: str,
+) -> None:
+    """Touched-schema diagnostics are derived only from frozen catalog evidence."""
+    frozen = _flat_schema_provider()
+    retained_snapshot = frozen.snapshot
+    if marked_missing:
+        retained_snapshot = capture_schema_snapshot(
+            class_types=(*tuple(frozen.snapshot.schemas), "LiveOnlyAfterIngress"),
+            request_snapshot={
+                "contract_version": "schema_snapshot_v1",
+                "schemas": {
+                    class_type: dict(payload)
+                    for class_type, payload in frozen.snapshot.schemas.items()
+                },
+                "missing_classes": ["LiveOnlyAfterIngress"],
+            },
+            node_classes=dict(frozen.snapshot.node_classes),
+        )
+    live_calls: list[str] = []
+
+    class PoisonAdvisoryProvider:
+        snapshot = retained_snapshot
+
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            live_calls.append(class_type)
+            # If consulted, this would make the class appear live-only.  A
+            # frozen session must neither call it nor let it affect the code.
+            return NodeSchema(class_type, "live-only", {}, [])
+
+    session = EditSession(flat_ui, schema_provider=PoisonAdvisoryProvider())
+    before = session.workflow
+    result = session.apply_batch("late = LiveOnlyAfterIngress()")
+
+    assert result.ok is False
+    assert result.apply_eligible is False
+    assert live_calls == []
+    assert result.diagnostics[0].code == expected_code
+    assert len(result.transitions) == 1
+    assert result.transitions[0].outcome == "rejected"
+    assert result.transitions[0].diagnostics[0].code == expected_code
+    assert session.workflow == before
+    assert session.revision == 0
+    assert session.history == ()
+
+
+def test_t20_source_and_typed_adapters_cross_the_identical_evaluator_boundary(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Neither adapter can apply an operation around the shared evaluator."""
+    import vibecomfy.porting.edit._interpret as interpret_module
+    from vibecomfy.porting.edit._interpret import OperationEvaluation, interpret
+    from vibecomfy.porting.edit.ops import NodeTarget, SetModeOp
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    typed = SetModeOp(op="set_mode", target=NodeTarget("", "5"), mode=2)
+    calls: list[object] = []
+
+    def reject_at_shared_boundary(
+        cursor: VibeWorkflow,
+        operation: object,
+        **_kwargs: Any,
+    ) -> OperationEvaluation:
+        calls.append(operation)
+        return OperationEvaluation(
+            workflow=cursor,
+            normalized=operation,  # type: ignore[arg-type]
+            outcome="rejected",
+            diagnostics=(
+                CompactDiagnostic(
+                    "shared_boundary_probe",
+                    "the one evaluator rejected this operation",
+                    "error",
+                ),
+            ),
+            lint_disposition="rejected",
+        )
+
+    monkeypatch.setattr(
+        interpret_module, "_evaluate_operation", reject_at_shared_boundary
+    )
+    source_result = interpret(
+        workflow, "ksampler.mode = 2", schema_provider=provider,
+    )
+    typed_result = interpret(workflow, (typed,), schema_provider=provider)
+
+    assert calls == [typed, typed]
+    for result in (source_result, typed_result):
+        assert result.ok is False
+        assert result.workflow == workflow
+        assert result.landed_ops == ()
+        assert len(result.transitions) == 1
+        assert result.transitions[0].outcome == "rejected"
+        assert result.transitions[0].lint_disposition == "rejected"
+        assert result.transitions[0].diagnostics[0].code == "shared_boundary_probe"
+
+
+def test_t20_initial_refused_projection_rejects_without_publication(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No synthetic lint pass is allowed when initial UI projection refuses."""
+    from vibecomfy.porting.edit._interpret import _interpret_ops
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.porting.refuse import RefusedEmit
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    submitted = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "5", "steps"),
+        value=42,
+    )
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise RefusedEmit("initial projection refused", {})
+
+    monkeypatch.setattr("vibecomfy.porting.emit.ui.emit_ui_json", refuse)
+    result = _interpret_ops(workflow, (submitted,), schema_provider=provider)
+
+    assert result.ok is False
+    assert result.landed_ops == ()
+    assert result.workflow == workflow
+    assert result.diagnostics[0].code == "presentation_rejected"
+
+
+def test_t20_candidate_refused_projection_rejects_atomically(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refused post-edit projection cannot publish the detached cursor."""
+    from vibecomfy.porting.edit._interpret import _interpret_ops
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.porting.refuse import RefusedEmit
+
+    provider = _flat_schema_provider()
+    workflow = from_ui(dict(flat_ui), schema_provider=provider, use_comfy_converter=False)
+    submitted = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "5", "steps"),
+        value=42,
+    )
+    original_emit = __import__("vibecomfy.porting.emit.ui", fromlist=["emit_ui_json"]).emit_ui_json
+    calls = 0
+
+    def refuse_candidate(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_emit(*args, **kwargs)
+        raise RefusedEmit("candidate projection refused", {})
+
+    monkeypatch.setattr("vibecomfy.porting.emit.ui.emit_ui_json", refuse_candidate)
+    result = _interpret_ops(workflow, (submitted,), schema_provider=provider)
+
+    assert calls == 2
+    assert result.ok is False
+    assert result.landed_ops == ()
+    assert result.workflow == workflow
+    assert any(item.code == "presentation_rejected" for item in result.diagnostics)
+
+
+def test_t20_missing_interpretation_report_fails_closed_without_commit(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route cannot fabricate lint evidence when interpretation omits it."""
+    from dataclasses import replace
+
+    import vibecomfy.porting.edit._interpret as interpret_mod
+
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    before = session.workflow
+    before_revision = session.revision
+    before_history = tuple(session.history)
+    original_interpret = interpret_mod.interpret
+
+    def _missing_report(*args: Any, **kwargs: Any) -> Any:
+        interpreted = original_interpret(*args, **kwargs)
+        return replace(interpreted, lint_result=None)
+
+    monkeypatch.setattr(interpret_mod, "interpret", _missing_report)
+    result = session.apply_batch('cliptextencode.text = "missing-report"')
+
+    assert result.ok is False
+    assert result.apply_eligible is False
+    assert result.landed_ops == ()
+    assert any(
+        diagnostic.code == "internal_interpretation_contract"
+        for diagnostic in result.diagnostics
+    )
+    assert session.workflow == before
+    assert session.revision == before_revision
+    assert session.history == before_history
+    assert session.landed_ops == []
+
+
+def test_t20_failed_batch_discards_provisional_transition_authority(
+    flat_ui: dict[str, Any],
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    before_workflow = session.workflow
+    before_history = tuple(session.history)
+    result = session.apply_batch(
+        'cliptextencode.text = "provisional"\n'
+        "missing = CompletelyUnknownNode()\n"
+    )
+
+    assert result.ok is False
+    assert session.workflow == before_workflow
+    assert session.history == before_history
+    assert session.landed_ops == []
+    # A failed transaction may report diagnostics, but never exposes staged
+    # operations as committed transition evidence.
+    assert not result.apply_eligible
+
+
+def test_t20_lint_rejected_transition_blocks_batch_commit(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonical operation rejection is a transaction rejection, never report-only."""
+    import vibecomfy.porting.edit._interpret as interpret_mod
+    from vibecomfy.porting.edit._interpret import OperationEvaluation
+
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    before = session.workflow
+    before_revision = session.revision
+    canonical_calls: list[object] = []
+    original_evaluate = interpret_mod._evaluate_operation
+
+    def _reject_canonical(workflow, operation, *, schema_provider, **kwargs):
+        canonical_calls.append(operation)
+        evaluated = original_evaluate(
+            workflow, operation, schema_provider=schema_provider, **kwargs
+        )
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=evaluated.normalized,
+            lowered=evaluated.lowered,
+            outcome="rejected",
+            diagnostics=(
+                CompactDiagnostic(
+                    "forced_rejection",
+                    "canonical operation boundary rejected this operation",
+                    "error",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(interpret_mod, "_evaluate_operation", _reject_canonical)
+    result = session.apply_batch('cliptextencode.text = "T20-probe"')
+
+    assert canonical_calls
+    assert result.ok is False
+    assert not result.apply_eligible
+    assert result.landed_ops == ()
+    assert result.transitions[0].outcome == "rejected"
+    assert result.transitions[0].diagnostics[0].code == "forced_rejection"
+    assert session.workflow == before
+    assert session.revision == before_revision
+    assert session.history == ()
+
+
+def test_t20_apply_rollback_restores_transient_name_maps(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    before_names = dict(getattr(session, "_transient_name_index", {}))
+    before_uids = dict(getattr(session, "_transient_uid_index", {}))
+
+    def _raise_after_interpret(*args, **kwargs):
+        raise RuntimeError("field changes injected failure")
+
+    monkeypatch.setattr(session, "_build_field_changes", _raise_after_interpret)
+    with pytest.raises(RuntimeError, match="field changes"):
+        session.apply_batch(
+            'newnode = CLIPTextEncode(clip=checkpointloadersimple.CLIP, text="new")'
+        )
+
+    assert dict(getattr(session, "_transient_name_index", {})) == before_names
+    assert dict(getattr(session, "_transient_uid_index", {})) == before_uids
+    assert "newnode" not in session.uid_by_name
+
+
+def test_t20_unclaimed_list_valued_mutation_fails_final_agreement(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.porting.edit._interpret as interpret_mod
+
+    session = EditSession(flat_ui, schema_provider=_flat_schema_provider())
+    original_interpret = interpret_mod.interpret
+
+    def _tamper(*args, **kwargs):
+        result = original_interpret(*args, **kwargs)
+        result.workflow.nodes["2"].inputs["unattributed_list"] = [123]
+        return result
+
+    monkeypatch.setattr(interpret_mod, "interpret", _tamper)
+    result = session.apply_batch('cliptextencode.text = "T20-probe"')
+
+    assert result.ok is False
+    assert not result.apply_eligible
+    assert result.landed_ops == ()
+    assert "unattributed_list" not in session.workflow.nodes["2"].inputs
+
+
+def test_t20_nested_transition_and_diagnostic_details_are_deeply_immutable(
+    flat_ui: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del flat_ui, monkeypatch
+    details = {"nested": ["diagnostic"]}
+    diagnostic = CompactDiagnostic("forced_rejection", "forced", "error", detail=details)
+    report = OperationTransition(
+        occurrence=0,
+        submitted={"value": {"nested": ["submitted"]}},
+        normalized={"value": {"nested": ["normalized"]}},
+        outcome="rejected",
+        diagnostics=(diagnostic,),
+    )
+
+    details["nested"].append("mutated")
+    with pytest.raises((TypeError, AttributeError)):
+        report.diagnostics[0].detail["nested"].append("alias")
+    assert "mutated" not in repr(report.diagnostics[0].detail)
+    with pytest.raises((TypeError, AttributeError)):
+        report.submitted["value"]["nested"].append("alias")
+
+
+def test_t20_original_ui_has_no_mutable_builtin_container_storage(
+    flat_ui: dict[str, Any],
+) -> None:
+    """Builtin descriptors and caller aliases cannot rewrite presentation custody."""
+    source = deepcopy(flat_ui)
+    expected = deepcopy(flat_ui)
+    session = EditSession(source, schema_provider=_flat_schema_provider())
+    exposed = session.original_ui
+    working_before = session.working_ui
+
+    with pytest.raises(TypeError):
+        exposed["nodes"][0]["title"] = "ordinary mutation"
+    with pytest.raises(TypeError):
+        dict.__setitem__(exposed["nodes"][0], "pos", [9876, 5432])
+    with pytest.raises(TypeError):
+        list.append(exposed["nodes"], {"id": 999, "type": "Forged"})
+
+    source["nodes"][0]["pos"] = [1234, 5678]
+    source["nodes"].append({"id": 999, "type": "Forged"})
+
+    assert session.original_ui == expected
+    assert deepcopy(session.original_ui) == expected
+    assert session.working_ui == working_before
+    assert session.revision == 0
 
 
 # ── T20 / R3 strict sidecar boundary fixtures ─────────────────────────────────

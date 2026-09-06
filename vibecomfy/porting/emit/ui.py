@@ -501,6 +501,113 @@ def _canonicalize_group_geometry(groups: list[dict[str, Any]]) -> None:
             ]
 
 
+def _extend_groups_for_anchored_nodes(
+    groups: list[dict[str, Any]],
+    nodes: list[dict[str, Any]],
+    anchors: Mapping[str, Any],
+    explicit_groups: Mapping[str, str],
+) -> None:
+    """Keep anchor-placed nodes inside their retained regular canvas group."""
+    if not groups or not anchors:
+        return
+
+    node_by_uid: dict[str, Mapping[str, Any]] = {}
+    for node in nodes:
+        properties = node.get("properties") if isinstance(node, Mapping) else None
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        if uid not in (None, ""):
+            node_by_uid[str(uid)] = node
+
+    base_bounds: list[tuple[float, float, float, float] | None] = []
+    for group in groups:
+        bounding = group.get("bounding") if isinstance(group, Mapping) else None
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            base_bounds.append(None)
+            continue
+        try:
+            base_bounds.append(tuple(float(value) for value in bounding[:4]))
+        except (TypeError, ValueError):
+            base_bounds.append(None)
+
+    def _node_box(uid: str) -> tuple[float, float, float, float] | None:
+        node = node_by_uid.get(uid)
+        if node is None:
+            return None
+        pos, size = node.get("pos"), node.get("size")
+        if not isinstance(pos, (list, tuple)) or not isinstance(size, (list, tuple)):
+            return None
+        if len(pos) < 2 or len(size) < 2:
+            return None
+        try:
+            return float(pos[0]), float(pos[1]), float(size[0]), float(size[1])
+        except (TypeError, ValueError):
+            return None
+
+    def _containing_group(uid: str) -> int | None:
+        box = _node_box(uid)
+        if box is None:
+            return None
+        x, y, width, height = box
+        center_x, center_y = x + width / 2.0, y + height / 2.0
+        candidates: list[tuple[float, int]] = []
+        for index, bounds in enumerate(base_bounds):
+            if bounds is None:
+                continue
+            gx, gy, gw, gh = bounds
+            if gx <= center_x <= gx + gw and gy <= center_y <= gy + gh:
+                candidates.append((gw * gh, index))
+        return min(candidates)[1] if candidates else None
+
+    assignments: dict[str, int] = {}
+    pending = {str(uid): str(anchor) for uid, anchor in anchors.items()}
+    for uid, title in explicit_groups.items():
+        matches = [
+            index
+            for index, group in enumerate(groups)
+            if str(group.get("title") or "") == str(title)
+        ]
+        if matches:
+            assignments[str(uid)] = min(
+                matches,
+                key=lambda index: (
+                    float("inf")
+                    if base_bounds[index] is None
+                    else base_bounds[index][2] * base_bounds[index][3],
+                    index,
+                ),
+            )
+
+    while pending:
+        progressed = False
+        for uid, anchor_uid in tuple(pending.items()):
+            group_index = assignments.get(uid)
+            if group_index is None:
+                group_index = assignments.get(anchor_uid)
+            if group_index is None:
+                group_index = _containing_group(anchor_uid)
+            if group_index is None:
+                continue
+            assignments[uid] = group_index
+            pending.pop(uid)
+            progressed = True
+        if not progressed:
+            break
+
+    for uid, group_index in assignments.items():
+        box = _node_box(uid)
+        if box is None or group_index >= len(groups):
+            continue
+        x, y, width, height = box
+        group = groups[group_index]
+        bounding = group.get("bounding")
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            continue
+        gx, gy, gw, gh = (float(value) for value in bounding[:4])
+        left, top = min(gx, x), min(gy, y)
+        right, bottom = max(gx + gw, x + width), max(gy + gh, y + height)
+        group["bounding"] = [left, top, right - left, bottom - top]
+
+
 def _stub_layout(order: int) -> dict[str, list[float]]:
     """Return deterministic placeholder geometry for the ``order``-th emitted node.
 
@@ -987,7 +1094,10 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
     typed_defs = getattr(wf, "definitions", None)
     metadata = getattr(wf, "metadata", None)
     legacy_defs = metadata.get("definitions") if isinstance(metadata, dict) else None
-    defs = typed_defs if typed_defs else legacy_defs
+    # An empty typed mapping is an authoritative remove-all edit.  Falling
+    # through on truthiness would resurrect the stale ingest compatibility
+    # alias after ``workflow.definitions.clear()``.
+    defs = typed_defs if isinstance(typed_defs, Mapping) else legacy_defs
     if isinstance(defs, dict) and isinstance(defs.get("subgraphs"), (list, tuple)):
         subgraphs = list(defs["subgraphs"])
     elif isinstance(defs, dict):
@@ -1053,8 +1163,12 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
             for link in sg.get("links", []):
                 if isinstance(link, Mapping):
                     existing[(str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))] += 1
+            # Keep every authored node as resolver evidence.  Keying this
+            # temporary map by qualified UID would overwrite duplicate local
+            # identities before the shared resolver can reject them.
             resolver_nodes: dict[str, Mapping[str, Any]] = {}
-            for inner_node in sg.get("nodes", []):
+            resolver_endpoint_nodes: dict[str, Mapping[str, Any]] = {}
+            for ordinal, inner_node in enumerate(sg.get("nodes", [])):
                 if not isinstance(inner_node, Mapping):
                     continue
                 properties = inner_node.get("properties")
@@ -1063,7 +1177,14 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                     local_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
                 if not isinstance(local_uid, str) or not local_uid.strip():
                     local_uid = str(inner_node.get("id", ""))
-                resolver_nodes[make_uid(scope, local_uid)] = inner_node
+                qualified_uid = make_uid(scope, local_uid)
+                # Keep the qualified identity in each unique temporary key so
+                # the shared resolver returns the exact lookup used below.
+                # The ordinal only prevents a pre-resolver dict overwrite;
+                # duplicate semantic UIDs still fail inside that resolver.
+                resolver_key = f"{qualified_uid}@{ordinal}"
+                resolver_nodes[resolver_key] = inner_node
+                resolver_endpoint_nodes[resolver_key] = inner_node
             next_id = max(
                 [int(link.get("id")) for link in sg.get("links", []) if isinstance(link, Mapping) and type(link.get("id")) is int]
                 + [0]
@@ -1077,8 +1198,8 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
             except WorkflowCompileError as exc:
                 raise ValueError(str(exc)) from exc
             for leg in resolved_legs:
-                    source = resolver_nodes.get(leg.from_lookup)
-                    target = resolver_nodes.get(leg.to_lookup)
+                    source = resolver_endpoint_nodes.get(leg.from_lookup)
+                    target = resolver_endpoint_nodes.get(leg.to_lookup)
                     if source is None or target is None:
                         raise ValueError("Python virtual-wire leg endpoint is not local to its definition")
                     key = (str(source.get("id")), leg.from_port, str(target.get("id")), leg.to_port)
@@ -1218,6 +1339,15 @@ def _original_ui_payloads(
     if isinstance(top, Mapping) and isinstance(top.get("links"), list):
         payloads.append(top)
     return payloads
+
+
+def _thaw_json_view(value: Any) -> Any:
+    """Detach Mapping/sequence read views into ordinary JSON containers."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_json_view(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_json_view(item) for item in value]
+    return deepcopy(value)
 
 
 def _original_link_slots_if_present(
@@ -1588,8 +1718,6 @@ def _widget_names_for_emission(
     ``name_authority`` (the sealed snapshot table) wins over every ambient
     source when the node carries a uid present in it (P0-WIDGET-CANON).
     """
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     if node is not None and isinstance(name_authority, Mapping):
         uid = getattr(node, "uid", None) or getattr(node, "id", None)
         authority_names = name_authority.get(str(uid)) if uid is not None else None
@@ -1606,7 +1734,9 @@ def _widget_names_for_emission(
             )
 
     committed = widget_names_for_class(class_type)
-    object_info_order = object_info_widget_order(class_type)
+    object_info_order = _object_info_widget_order_for_emission(
+        class_type, schema_provider
+    )
     if _widget_value_domain_for_emission(node, committed, object_info_order) == "raw_object_info":
         if committed is not None and any(name is None for name in committed):
             return list(committed)
@@ -1747,6 +1877,27 @@ def _raw_widget_order_from_provider(
     return None
 
 
+def _object_info_widget_order_for_emission(
+    class_type: str,
+    schema_provider: Any | None,
+) -> list[str | None]:
+    """Return only the widget roster bound to this emission authority.
+
+    A supplied provider represents the retained ingress generation.  If it
+    does not expose raw object-info order, an ambient process-global cache is
+    advisory and cannot fill that gap.  Providerless legacy emission keeps
+    its historical cache lookup.
+    """
+    retained = _raw_widget_order_from_provider(class_type, schema_provider)
+    if retained is not None:
+        return retained
+    if schema_provider is not None:
+        return []
+    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
+
+    return list(object_info_widget_order(class_type))
+
+
 # Schema inputs whose type suggests a seed-bearing INT field that ComfyUI
 # pairs with a ``control_after_generate`` widget slot.
 _SEED_INPUT_NAMES: frozenset[str] = frozenset({"seed", "noise_seed"})
@@ -1829,9 +1980,9 @@ def _full_widget_name_count(
     # it is clearly the same named order plus UI-only slots.
     committed = widget_names_for_class(class_type)
     if committed is not None:
-        from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
-        object_info_order = object_info_widget_order(class_type)
+        object_info_order = _object_info_widget_order_for_emission(
+            class_type, schema_provider
+        )
         if _object_info_order_safely_extends_committed(committed, object_info_order):
             return len(object_info_order)
         return len(committed)
@@ -2098,12 +2249,17 @@ def _emit_litegraph_node_dict(
     inputs: list[dict[str, Any]],
     outputs: list[dict[str, Any]],
     schema: Any | None,
+    schema_provider: Any | None,
     include_main_positions: bool,
     widget_default_values: Mapping[str, Any] | None = None,
     name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> dict[str, Any]:
     widget_names = _widget_names_for_emission(
-        node.class_type, schema, node=node, name_authority=name_authority
+        node.class_type,
+        schema,
+        node=node,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
     )
 
     # Step 6 (T8): re-stamp the verbatim captured properties blob as the base,
@@ -2144,12 +2300,10 @@ def _emit_litegraph_node_dict(
             if isinstance(exec_source, str):
                 intent_props["source"] = exec_source
 
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     value_domain = _widget_value_domain_for_emission(
         node,
         widget_names_for_class(node.class_type),
-        object_info_widget_order(node.class_type),
+        _object_info_widget_order_for_emission(node.class_type, schema_provider),
     )
     node_dict: dict[str, Any] = {
         "id": litegraph_node_id,
@@ -2179,6 +2333,25 @@ def _emit_litegraph_node_dict(
     if include_main_positions and furniture["title"] is not None:
         node_dict["title"] = furniture["title"]
     return node_dict
+
+
+class _MaterializeSchemaProvider:
+    """Bind one supplied node schema as the materialization authority."""
+
+    __slots__ = ("_class_type", "_schema")
+
+    def __init__(self, class_type: str, schema: Any) -> None:
+        self._class_type = class_type
+        self._schema = schema
+
+    def get_schema(self, class_type: str) -> Any | None:
+        return self._schema if class_type == self._class_type else None
+
+    def raw_widget_order(self, class_type: str) -> list[str | None]:
+        if class_type != self._class_type:
+            return []
+        order = getattr(self._schema, "widget_input_order", ())
+        return list(order) if isinstance(order, (list, tuple)) else []
 
 
 def materialize_litegraph_node(
@@ -2249,6 +2422,11 @@ def materialize_litegraph_node(
         if exec_io is not None:
             inputs = _exec_dynamic_inputs(exec_io, {})
             outputs = _exec_dynamic_outputs(exec_io, {})
+    schema_provider = (
+        _MaterializeSchemaProvider(class_type, schema)
+        if schema is not None
+        else None
+    )
     return _emit_litegraph_node_dict(
         node,
         litegraph_node_id=int(node_id),
@@ -2258,6 +2436,7 @@ def materialize_litegraph_node(
         inputs=inputs,
         outputs=outputs,
         schema=schema,
+        schema_provider=schema_provider,
         include_main_positions=False,
     )
 
@@ -2391,9 +2570,9 @@ def _has_object_info_widget_schema(
     raw_order = _raw_widget_order_from_provider(class_type, schema_provider)
     if raw_order:
         return True
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
-    return bool(object_info_widget_order(class_type))
+    return bool(
+        _object_info_widget_order_for_emission(class_type, schema_provider)
+    )
 
 
 def _has_schema_default_regeneration_basis(
@@ -2842,12 +3021,10 @@ def derive_widget_shape_evidence(
         node=node,
         schema_provider=schema_provider,
     )
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     value_domain = _widget_value_domain_for_emission(
         node,
         widget_names_for_class(node.class_type),
-        object_info_widget_order(node.class_type),
+        _object_info_widget_order_for_emission(node.class_type, schema_provider),
     )
     candidate_widget_count = len(
         _build_widget_values(node, widget_names, value_domain=value_domain)
@@ -2858,6 +3035,12 @@ def derive_widget_shape_evidence(
         schema_provider=schema_provider,
     )
     raw_widget_count, raw_widget_shape, has_dict_rows = _raw_widget_shape_from_node(node)
+    if node.class_type == "vibecomfy.exec" and _exec_io_for_node(node) is not None:
+        # The exec node's `io` mapping is its validated socket declaration,
+        # not a dynamic widget-row schema.  Treating that fixed builtin row as
+        # opaque dynamic shape incorrectly refuses every authorized topology
+        # edit involving an existing exec node.
+        has_dict_rows = False
     schema_inputs = getattr(schema, "inputs", None)
     provider_widget_count = len(schema_inputs) if isinstance(schema_inputs, dict) else None
     if (
@@ -3030,6 +3213,10 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
+    if prior_ui_payload is not None:
+        prior_ui_payload = _thaw_json_view(prior_ui_payload)
+    if guard_original_ui is not None:
+        guard_original_ui = _thaw_json_view(guard_original_ui)
     presentation_mode = presentation is not None
     if presentation_mode:
         # The bundle route has one explicit source-separation mode.  Do not
@@ -3114,8 +3301,10 @@ def emit_ui_json(
         # a definitions-only edit, while replacing just the changed definitions
         # blob with the IR-authoritative form.
         captured_defs = _door_top(_door).get("definitions")
-        ir_metadata = getattr(wf, "metadata", None)
-        ir_defs = ir_metadata.get("definitions") if isinstance(ir_metadata, Mapping) else None
+        ir_defs = getattr(wf, "definitions", None)
+        if not isinstance(ir_defs, Mapping):
+            ir_metadata = getattr(wf, "metadata", None)
+            ir_defs = ir_metadata.get("definitions") if isinstance(ir_metadata, Mapping) else None
         if isinstance(captured_defs, Mapping) and isinstance(ir_defs, Mapping):
             from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
 
@@ -3123,6 +3312,9 @@ def emit_ui_json(
                 emitted_defs = _emit_definitions(wf)
                 if emitted_defs is not None:
                     envelope["definitions"] = emitted_defs
+                else:
+                    envelope.pop("definitions", None)
+                    envelope.pop("state", None)
         if guard_original_ui is not None:
             from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
             from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
@@ -3319,8 +3511,41 @@ def emit_ui_json(
             computed_anchors[key] = anchor
 
     effective_anchors: dict[str, Any] = dict(anchors) if anchors else {}
+    group_anchors: dict[str, Any] = dict(effective_anchors)
+    topology_between_keys: set[str] = set()
+    explicit_anchor_groups: dict[str, str] = {}
+    for node_id in order_list:
+        node = wf.nodes[node_id]
+        key = _node_key(node_id)
+        metadata = getattr(node, "metadata", None)
+        if not isinstance(metadata, Mapping):
+            continue
+        retained_anchor = metadata.get("_edit_anchor_uid")
+        retained_relation = metadata.get("_edit_anchor_relation")
+        retained_between = metadata.get("_edit_anchor_between_uids")
+        is_complete_between = (
+            retained_relation == "between"
+            and isinstance(retained_between, (list, tuple))
+            and len(retained_between) == 2
+            and all(value not in (None, "") for value in retained_between)
+        )
+        if is_complete_between and key not in effective_anchors:
+            # The topology engine already places a true splice between its
+            # two wired endpoints.  Collapsing this to a one-sided constrained
+            # anchor pushes it to the right of the downstream node.  Retain
+            # the full relation as the reason to suppress that lossy override.
+            topology_between_keys.add(key)
+            group_anchors.setdefault(key, str(retained_between[1]))
+        elif retained_anchor not in (None, ""):
+            effective_anchors.setdefault(key, str(retained_anchor))
+            group_anchors.setdefault(key, str(retained_anchor))
+        retained_group = metadata.get("_edit_group_title")
+        if retained_group not in (None, ""):
+            explicit_anchor_groups[key] = str(retained_group)
     for k, v in computed_anchors.items():
-        effective_anchors.setdefault(k, v)
+        if k not in topology_between_keys:
+            effective_anchors.setdefault(k, v)
+            group_anchors.setdefault(k, v)
 
     # Flat mode (include_virtual_wires=False): the layout engine must compute
     # positions against the FLAT execution graph — virtual-wire nodes removed,
@@ -3526,6 +3751,11 @@ def emit_ui_json(
     # identical; only the emission is sliced.
     nodes: list[dict[str, Any]] = []
     last_node_id = max(id_remap.values()) if id_remap else 0
+    # COW removal records the highest retired native id so a rebuild or later
+    # add cannot rewind LiteGraph's monotonic node counter.
+    edit_counter = (getattr(wf, "metadata", {}) or {}).get("_edit_last_node_id")
+    if isinstance(edit_counter, int) and not isinstance(edit_counter, bool):
+        last_node_id = max(last_node_id, edit_counter)
     emitted_outputs_by_node: dict[str, list[dict[str, Any]]] = {}
     emitted_inputs_by_node: dict[str, list[dict[str, Any]]] = {}
 
@@ -3739,6 +3969,7 @@ def emit_ui_json(
                 inputs=inputs,
                 outputs=outputs,
                 schema=schema,
+                schema_provider=schema_provider,
                 include_main_positions=include_main_positions,
                 widget_default_values=widget_shape_default_values[node_id],
                 name_authority=name_authority,
@@ -4023,6 +4254,12 @@ def emit_ui_json(
     for eg in engine_groups:
         if eg.get("title", "") not in ir_titles:
             emitted_groups.append(eg)
+    _extend_groups_for_anchored_nodes(
+        emitted_groups,
+        nodes,
+        group_anchors,
+        explicit_anchor_groups,
+    )
     if include_main_positions and emitted_groups:
         _canonicalize_group_geometry(emitted_groups)
 
@@ -4049,8 +4286,10 @@ def emit_ui_json(
             if isinstance(_door_top(_door), Mapping)
             else None
         )
-        metadata = getattr(wf, "metadata", None)
-        ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
+        ir_defs = getattr(wf, "definitions", None)
+        if not isinstance(ir_defs, Mapping):
+            metadata = getattr(wf, "metadata", None)
+            ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
         from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
 
         if (
@@ -4059,8 +4298,6 @@ def emit_ui_json(
             and _door_freeze(ir_defs) != _door_freeze(captured_defs)
         ):
             effective_defs = _emit_definitions(wf)
-            if effective_defs is None:
-                effective_defs = deepcopy(ir_defs)
         else:
             effective_defs = (
                 deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
@@ -5207,6 +5444,17 @@ def _set_node_field_allowed_ui_paths(
     whole widget array merely because one field was edited.
     """
     allowed: set[str] = set()
+    original_widgets = original_node.get("widgets_values")
+    candidate_widgets = candidate_node.get("widgets_values")
+    if isinstance(original_widgets, Mapping) and isinstance(candidate_widgets, Mapping):
+        # Some captured nodes serialize their authored widget surface as a
+        # name-keyed mapping rather than LiteGraph's positional array.  Keep
+        # attribution equally narrow: a SetNodeField operation owns only the
+        # exact pre-existing mapping key it names.
+        for field in field_paths:
+            field = str(field)
+            if field in original_widgets and field in candidate_widgets:
+                allowed.add(f"widgets_values.{field}")
     class_type = str(candidate_node.get("type") or original_node.get("type") or "")
     widget_names = widget_names_for_class(class_type) or []
     if not widget_names:
@@ -6723,9 +6971,19 @@ def pin_untouched_ui(
     unattributed nodes and links byte-identical to the ingest UI so
     ``guard_exit_ui`` can fail closed on real drift.
     """
+    original_ui = _thaw_json_view(original_ui)
+    candidate_ui = _thaw_json_view(candidate_ui)
     attribution = _attribution(ops)
     attributed_nodes = set(attribution["node_paths"]) | set(attribution["new_nodes"])
     pinned = deepcopy(dict(candidate_ui))
+    # Definitions are Python-owned semantic state.  Preserve the candidate's
+    # identity-based subgraph add/change/remove result while pinning only UI
+    # furniture for the retained scopes.
+    candidate_definitions = (
+        deepcopy(pinned.get("definitions"))
+        if any(isinstance(op, SubgraphInterfaceOp) for op in ops)
+        else None
+    )
     original_nodes = _index_nodes(original_ui)
     original_scopes = dict(_iter_scopes(original_ui))
     # RemoveLinkOp names only the target; include its inferred source node in
@@ -6751,6 +7009,25 @@ def pin_untouched_ui(
         nodes = scope.get("nodes")
         scope_ops = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
         original_scope_for_topology = original_scopes.get(scope_path)
+        if isinstance(original_scope_for_topology, Mapping):
+            # LiteGraph counters are retirement ledgers, not live cardinality.
+            # Reconstructive emission can derive a smaller value after the
+            # highest-numbered link is removed; pinning must retain the larger
+            # observed counter just as it retains all other untouched canvas
+            # furniture.
+            for counter in ("last_node_id", "last_link_id"):
+                original_counter = original_scope_for_topology.get(counter)
+                candidate_counter = scope.get(counter)
+                if (
+                    isinstance(original_counter, int)
+                    and not isinstance(original_counter, bool)
+                    and (
+                        not isinstance(candidate_counter, int)
+                        or isinstance(candidate_counter, bool)
+                        or original_counter > candidate_counter
+                    )
+                ):
+                    scope[counter] = original_counter
         if isinstance(nodes, list):
             for index, node in enumerate(nodes):
                 if not isinstance(node, Mapping):
@@ -6921,6 +7198,8 @@ def pin_untouched_ui(
                 scope[key] = deepcopy(original_scope[key])
             elif key in _EMIT_SCOPE_FURNITURE or key in {"extra", "config", "groups"}:
                 del scope[key]
+    if candidate_definitions is not None:
+        pinned["definitions"] = candidate_definitions
     return pinned
 
 
@@ -6930,9 +7209,17 @@ def guard_exit_ui(
     ops: Sequence[EditOp] = (),
 ) -> ExitGuardResult:
     """Refuse emit candidates that change UI outside the accepted Δ."""
+    original_ui = _thaw_json_view(original_ui)
+    candidate_ui = _thaw_json_view(candidate_ui)
     diagnostics: list[PortIssue] = []
     original_scopes = dict(_iter_scopes(original_ui))
     candidate_scopes = dict(_iter_scopes(candidate_ui))
+    candidate_scopes_by_id = {
+        scope_id: scope
+        for _path, scope in candidate_scopes.items()
+        for scope_id in (_scope_definition_id(scope),)
+        if scope_id is not None
+    }
     invalid_identity_scopes: set[str] = set()
     for scope_path in set(original_scopes) | set(candidate_scopes):
         for graph in (original_scopes.get(scope_path), candidate_scopes.get(scope_path)):
@@ -6955,8 +7242,22 @@ def guard_exit_ui(
 
     for scope_path, original_scope in original_scopes.items():
         candidate_scope = candidate_scopes.get(scope_path)
+        original_scope_id = _scope_definition_id(original_scope)
+        # Subgraph array indices are presentation paths, not identities.  A
+        # removal shifts later siblings, so match retained definitions by id
+        # before attributing a missing path as a whole-scope deletion.
+        if (
+            scope_path
+            and
+            original_scope_id is not None
+            and (
+                candidate_scope is None
+                or _scope_definition_id(candidate_scope) != original_scope_id
+            )
+        ):
+            candidate_scope = candidate_scopes_by_id.get(original_scope_id)
         if candidate_scope is None:
-            removed_id = _scope_definition_id(original_scope)
+            removed_id = original_scope_id
             if removed_id and removed_id in attribution["removed_scope_ids"]:
                 continue
             diagnostics.append(

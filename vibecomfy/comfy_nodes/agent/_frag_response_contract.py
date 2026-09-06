@@ -91,6 +91,39 @@ def _lint_noop_statement_keys(turn: Mapping[str, Any]) -> frozenset[tuple[str, s
     return frozenset(keys)
 
 
+def _lint_noop_occurrences(turn: Mapping[str, Any]) -> dict[int, int]:
+    """Return occurrence→statement mappings for true no-op transitions.
+
+    New turns carry the interpreter/session's occurrence-specific transition
+    records.  The statement index is the only stable identity here: two
+    writes to the same field are distinct submitted operations and must not be
+    collapsed into one ``(uid, field)`` key.
+    """
+    raw = turn.get("noop_occurrences")
+    if not isinstance(raw, (list, tuple)):
+        return {}
+    occurrences: dict[int, int] = {}
+    for item in raw:
+        if isinstance(item, Mapping):
+            value = item.get("occurrence")
+            if value is None:
+                # Compatibility for pre-transition persisted records.
+                value = item.get("statement_index")
+            statement_index = item.get("statement_index", value)
+        else:
+            value = item
+            statement_index = item
+        if isinstance(value, bool):
+            continue
+        try:
+            occurrence = int(value)
+            statement_index = int(statement_index)
+        except (TypeError, ValueError):
+            continue
+        occurrences[occurrence] = statement_index
+    return occurrences
+
+
 def _statement_lint_target_key(op: Mapping[str, Any]) -> tuple[str, str] | None:
     """Map a serialized edit op to its ``(uid, field_path)`` lint identity."""
     kind = str(op.get("op") or "")
@@ -115,8 +148,17 @@ def _statement_lint_target_key(op: Mapping[str, Any]) -> tuple[str, str] | None:
 def _statement_is_lint_noop(
     statement: Mapping[str, Any],
     noop_keys: frozenset[tuple[str, str]],
+    noop_occurrences: Mapping[int, int] | None = None,
 ) -> bool:
     """True when the statement's landed op is lint-proven to change nothing."""
+    if noop_occurrences:
+        index = statement.get("statement_index")
+        targets = (
+            noop_occurrences.values()
+            if isinstance(noop_occurrences, Mapping)
+            else noop_occurrences
+        )
+        return isinstance(index, int) and index in targets
     if not noop_keys:
         return False
     op = statement.get("op")
@@ -148,8 +190,17 @@ def _effective_accepted_batch_statements(
     for turn in state.batch_turns:
         if not isinstance(turn, Mapping):
             continue
-        noop_keys = _lint_noop_statement_keys(turn)
-        if not noop_keys:
+        has_occurrence_records = "noop_occurrences" in turn
+        noop_occurrences = _lint_noop_occurrences(turn)
+        # New transition records are authoritative even when the collection
+        # is empty. Legacy field-key decoding applies only to old records that
+        # predate the occurrence-specific field.
+        noop_keys = (
+            frozenset()
+            if has_occurrence_records
+            else _lint_noop_statement_keys(turn)
+        )
+        if not noop_occurrences and not noop_keys:
             accepted.extend(
                 _accepted_batch_statements(SimpleNamespace(batch_turns=(turn,)))
             )
@@ -162,7 +213,11 @@ def _effective_accepted_batch_statements(
                 isinstance(statement, Mapping)
                 and statement.get("ok") is True
                 and statement.get("landed") is True
-                and _statement_is_lint_noop(statement, noop_keys)
+                and _statement_is_lint_noop(
+                    statement,
+                    noop_keys,
+                    noop_occurrences,
+                )
             )
         ]
         accepted.extend(
@@ -197,12 +252,35 @@ def _verify_canonical_candidate_replay(
     receipt minting. The response builder never reinterprets ops itself.
     """
     from vibecomfy.comfy_nodes.agent.authority_receipts import verify_replay
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
+
+    operations = delta_envelope.get("ops")
+    has_semantic_delta = isinstance(operations, list) and bool(operations)
+    locked_schema = getattr(state, "admission_schema_snapshot", None)
+    if has_semantic_delta:
+        if not isinstance(locked_schema, SchemaSnapshot):
+            return False, "missing_schema_snapshot", {
+                "replay_ok": False,
+                "candidate_matches": False,
+                "error": "published semantic candidate has no admission schema lock",
+            }
+        replay_schema = locked_schema
+    else:
+        replay_schema = locked_schema
+        if not isinstance(replay_schema, SchemaSnapshot):
+            replay_schema = getattr(state, "schema_snapshot", None)
+        if not isinstance(replay_schema, SchemaSnapshot):
+            return False, "missing_schema_snapshot", {
+                "replay_ok": False,
+                "candidate_matches": False,
+                "error": "candidate replay has no retained schema witness",
+            }
 
     receipt = verify_replay(
         state.graph if isinstance(state.graph, Mapping) else None,
         delta_envelope,
         state.ui_payload if isinstance(state.ui_payload, Mapping) else None,
-        schema_provider=getattr(state, "schema_provider", None),
+        schema_provider=FrozenSchemaSnapshotProvider(replay_schema),
         name_authority=getattr(state, "name_authority", None),
     )
     diagnostics = receipt.to_dict()
@@ -443,16 +521,29 @@ def _narrative_debug_fields(state: AgentEditState) -> dict[str, Any]:
         except (OSError, ValueError, TypeError):
             payload = None
         if isinstance(payload, Mapping):
-            narrative["attempted"] = bool(payload.get("attempted"))
             selected_source = payload.get("selected_source")
             if isinstance(selected_source, str) and selected_source.strip():
-                narrative["selected_source"] = selected_source.strip()
+                selected_source = selected_source.strip()
+                narrative["selected_source"] = selected_source
+            # The canonical narrator artifact records the successful provider
+            # selection and validation result, while the legacy humanizer
+            # artifact also records an explicit ``attempted`` flag.  Normalize
+            # both forms into the same evidence surface without treating a
+            # deterministic fallback as a provider attempt.
+            attempted = payload.get("attempted")
+            narrative["attempted"] = bool(
+                attempted
+                if attempted is not None
+                else selected_source == "narrator"
+            )
             fallback_reason = payload.get("fallback_reason")
             if isinstance(fallback_reason, str) and fallback_reason.strip():
                 narrative["fallback_reason"] = fallback_reason.strip()
             final_validation = payload.get("final_validation")
             if isinstance(final_validation, Mapping):
                 narrative["final_validation_ok"] = bool(final_validation.get("ok"))
+            elif isinstance(payload.get("ok"), bool):
+                narrative["final_validation_ok"] = bool(payload["ok"])
     return {"narrative": narrative} if narrative else {}
 
 
@@ -1121,33 +1212,88 @@ def _validate_delta_evidence_for_apply(
         cumulative,
         allow_absent=allow_absent,
     )
-    if valid and isinstance(cumulative, Mapping):
+    if valid and has_candidate:
         from vibecomfy.porting.edit.admit import (
+            AdmissionSnapshot,
             AdmissionRejected,
             admission_snapshot_for,
             admit_operations,
         )
+        from vibecomfy.ingest.snapshot import WorkflowSnapshot
+        from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError
+        from vibecomfy.workflow import VibeWorkflow
 
-        ops = cumulative.get("ops")
-        if isinstance(ops, list) and ops:
-            pair = admission_snapshot_for(
-                getattr(state, "workflow", None) or getattr(state, "workflow_snapshot", None),
-                getattr(state, "schema_provider", None),
+        ops = cumulative.get("ops") if isinstance(cumulative, Mapping) else None
+        retained_schema = getattr(state, "schema_snapshot", None)
+        retained_workflow = getattr(state, "workflow_snapshot", None)
+        if retained_schema is None:
+            valid = False
+            code = "missing_schema_snapshot"
+            detail = {"reason": "retained schema witness is required before response eligibility"}
+        elif not isinstance(retained_schema, SchemaSnapshot):
+            valid = False
+            code = "malformed_schema_snapshot"
+            detail = {"reason": "retained schema witness has the wrong type"}
+        elif retained_workflow is None:
+            valid = False
+            code = "missing_workflow_authority"
+            detail = {"reason": "retained workflow witness is required before response eligibility"}
+        elif not isinstance(retained_workflow, WorkflowSnapshot):
+            valid = False
+            code = "malformed_workflow_snapshot"
+            detail = {"reason": "retained workflow witness has the wrong type"}
+        elif not isinstance(retained_workflow.workflow, VibeWorkflow):
+            valid = False
+            code = "malformed_workflow_snapshot"
+            detail = {"reason": "retained workflow witness payload has the wrong type"}
+        else:
+            # The final publisher locks the schema generation before this
+            # response stage. Semantic candidates must consume that exact
+            # lock; layout-only empty candidates may use the retained ingress
+            # schema, but neither path may overwrite the lock or consult a
+            # newer ambient provider.
+            locked_schema = getattr(state, "admission_schema_snapshot", None)
+            semantic_candidate = (
+                (isinstance(ops, list) and bool(ops))
+                or not allow_empty_evidence
             )
-            admitted = admit_operations(
-                pair,
-                ops,
-                working_workflow=getattr(state, "workflow", None),
-            )
-            if isinstance(admitted, AdmissionRejected):
+            if semantic_candidate and not isinstance(locked_schema, SchemaSnapshot):
                 valid = False
-                code = admitted.typed_reason
-                detail = {"evidence_refs": list(admitted.evidence_refs)}
+                code = "missing_schema_snapshot"
+                detail = {"reason": "published semantic candidate has no admission schema lock"}
             else:
-                # DEEP-AUDIT-FIX-1-ADJUDICATION: one AdmissionSnapshot for the
-                # whole atomic batch; its schema generation is locked for the
-                # batch only on admission success.
-                state.admission_schema_snapshot = pair.schema
+                authority_schema = (
+                    locked_schema
+                    if isinstance(locked_schema, SchemaSnapshot)
+                    else retained_schema
+                )
+                try:
+                    pair = admission_snapshot_for(
+                        retained_workflow.workflow,
+                        getattr(state, "schema_provider", None),
+                        schema_snapshot=authority_schema,
+                        retained_authority=AdmissionSnapshot(
+                            workflow=retained_workflow,
+                            schema=authority_schema,
+                        ),
+                    )
+                except SchemaSnapshotError as exc:
+                    valid = False
+                    code = exc.code
+                    detail = {"reason": str(exc)}
+                else:
+                    if isinstance(ops, list) and ops:
+                        admitted = admit_operations(
+                            pair,
+                            ops,
+                            working_workflow=retained_workflow.workflow,
+                        )
+                        if isinstance(admitted, AdmissionRejected):
+                            valid = False
+                            code = admitted.typed_reason
+                            detail = {"evidence_refs": list(admitted.evidence_refs)}
+                    # Never replace an existing publication lock from this
+                    # response/eligibility stage. The publisher owns it.
     diagnostics["delta_evidence_valid"] = valid
     diagnostics["delta_evidence_code"] = code
     if detail:
@@ -1972,7 +2118,7 @@ def _build_dev_success_response(
     *,
     contract: str,
 ) -> dict[str, Any]:
-    from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _canonical_delta_ops_envelope_payload, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _has_enough_grounded_facts_for_dev_narrative, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _response_artifacts_with_execution_plan, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
+    from vibecomfy.comfy_nodes.agent.edit import (ApplyEligibility, LOGGER, TurnIdentity, TurnOutcome, _build_candidate_payload, _build_compatibility_response_fields, _build_precedent_semantic_check_entries, _canonical_agent_edit_route, _execution_plan_debug_fields, _execution_plan_response_fields, _execution_plan_task_satisfaction_entries, _has_enough_grounded_facts_for_dev_narrative, _json_safe, _legacy_narrative_debug_status, _narrate_final_message, _narrative_debug_fields, _plan_validation_allows_candidate, _prepare_narrative_artifact_paths, _record_narrative_artifacts, _record_post_edit_reorganisation_advisory, _response_artifacts_with_execution_plan, _route_blocks_apply, _route_change_focus_label, _sanitize_pure_clarify_response, _session_artifact_response_fields, _stage_snapshot_payloads, _sync_narrated_clarify_outcome, _v2_candidate_mutation_plan_fields, build_legacy_agent_edit_v1, derive_apply_eligibility, format_compact_plan_feedback, public_outcome_from_turn_outcome, success_envelope, turn_envelope)  # T-039 late import: host namespace lookup; resolved at call time
     from vibecomfy.executor.revision_evidence import (
         _link_order_only_change,
         semantic_graph_hash,
@@ -1989,19 +2135,31 @@ def _build_dev_success_response(
         if _link_order_only_change(state.graph, state.ui_payload):
             delta_unrepresentable_reason = "unrepresentable_link_order"
         else:
-            try:
-                delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
-                delta_ops_payload = delta_envelope["ops"]
-            except Exception:
-                delta_unrepresentable_reason = "unrepresentable_delta"
+            (
+                delta_evidence_valid,
+                delta_evidence_diagnostics,
+                delta_envelope,
+            ) = _validate_delta_evidence_for_apply(
+                state,
+                has_candidate=True,
+            )
+            if not delta_evidence_valid:
+                delta_unrepresentable_reason = str(
+                    delta_evidence_diagnostics.get("delta_evidence_code")
+                    or "invalid_delta_evidence"
+                )
+                if delta_unrepresentable_reason == "absent_delta":
+                    delta_unrepresentable_reason = "no_accepted_delta"
+            elif not isinstance(delta_envelope, Mapping):
+                delta_unrepresentable_reason = "no_accepted_delta"
             else:
-                if not delta_ops_payload:
+                delta_ops_payload = delta_envelope.get("ops")
+                if not isinstance(delta_ops_payload, list) or not delta_ops_payload:
                     delta_unrepresentable_reason = "no_accepted_delta"
                 else:
-                    # Canonical serialization is only the wire-shape gate.
-                    # Replay the exact accepted ops against submit state and
-                    # require equality with the candidate semantic projection
-                    # before exposing any applyable response.
+                    # The cumulative accepted-batch envelope is the sole
+                    # effective delta source. Replay, emitted accepted_batch,
+                    # and plan binding all consume this identical envelope.
                     replay_bound, replay_reason, _replay_diagnostics = (
                         _verify_canonical_candidate_replay(state, delta_envelope)
                     )

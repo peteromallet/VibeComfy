@@ -63,31 +63,97 @@ def _corpus_ui_node(path: str, node_id: str) -> dict[str, Any]:
     node = data["nodes"][node_id]
     ui = copy.deepcopy(node["metadata"]["_ui"])
     ui.setdefault("properties", {})
+    ui["__fixture_isolated_links"] = True
     return ui
 
 
+def _frozen_fixture_provider(ui: dict[str, Any], schema_provider=None):
+    """Bind fixture interpretation to an independent ingress schema snapshot."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, InputSpec, NodeSchema
+
+    source = schema_provider or get_authoring_schema_provider()
+    declared = {
+        "NoTrustworthyNames": NodeSchema(
+            "NoTrustworthyNames", "test", {"widget_0": InputSpec(type="INT")}, []
+        ),
+        "SyntheticDuplicateWidgets": NodeSchema(
+            "SyntheticDuplicateWidgets",
+            "test",
+            {"widget_0": InputSpec(type="INT"), "widget_1": InputSpec(type="INT")},
+            [],
+        ),
+    }
+
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            actual = source.get_schema(class_type)
+            return actual if actual is not None else declared.get(class_type)
+
+        def schemas(self):
+            values = dict(source.schemas()) if hasattr(source, "schemas") else {}
+            values.update(declared)
+            return values
+
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=_FixtureProvider(), graph=ui
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def _interpret_ops(ui: dict[str, Any], ops, schema_provider=None):
-    workflow = from_ui(dict(ui), schema_provider=schema_provider, use_comfy_converter=False)
-    result = interpret(workflow, ops, schema_provider=schema_provider)
+    frozen_provider = _frozen_fixture_provider(ui, schema_provider)
+    workflow = from_ui(dict(ui), schema_provider=frozen_provider, use_comfy_converter=False)
+    result = interpret(workflow, ops, schema_provider=frozen_provider)
     candidate = None
     if result.ok:
         candidate = emit_ui_json(
             result.workflow,
-            schema_provider=schema_provider,
+            schema_provider=frozen_provider,
             include_virtual_wires=True,
             prior_ui_payload=ui,
         )
     return result, candidate
 
 
-def _single_node_ui(node: dict[str, Any]) -> dict[str, Any]:
+def _single_node_ui(node: dict[str, Any], *, preserve_links: bool = False) -> dict[str, Any]:
     node_id = node.get("id")
     assert isinstance(node_id, int)
+    isolated = bool(node.pop("__fixture_isolated_links", False))
+    nodes = [node]
+    source_nodes: list[dict[str, Any]] = []
+    links: list[list[Any]] = []
+    if isolated and not preserve_links:
+        for item in node.get("inputs") or []:
+            if isinstance(item, dict):
+                item["link"] = None
+        isolated = False
+    if isolated:
+        # Corpus node metadata retains link IDs from the source workflow. Keep
+        # those links meaningful in the isolated fixture by adding generic
+        # Reroute producers with matching output types.
+        for slot, item in enumerate(node.get("inputs") or []):
+            if not isinstance(item, dict) or not isinstance(item.get("link"), int):
+                continue
+            link_id = int(item["link"])
+            source_id = 100000 + link_id
+            source_type = str(item.get("type") or "*")
+            source_nodes.append({
+                "id": source_id,
+                "type": "Reroute",
+                "inputs": [],
+                "outputs": [{"name": source_type, "type": source_type, "slot_index": 0}],
+                "widgets_values": [],
+                "properties": {"vibecomfy_uid": f"fixture-source-{link_id}"},
+            })
+            links.append([link_id, source_id, 0, node_id, slot, source_type])
     return {
         "last_node_id": node_id,
-        "last_link_id": 0,
-        "nodes": [node],
-        "links": [],
+        "last_link_id": max([link[0] for link in links], default=0),
+        "nodes": source_nodes + nodes,
+        "links": links,
     }
 
 
@@ -100,7 +166,7 @@ def _minimal_ready_workflow() -> VibeWorkflow:
 
 
 def test_svd_motion_bucket_resolves_to_compact_index_and_emits_compact_values() -> None:
-    node = _corpus_node("external_workflows/corpus/fc240f1c4331a5e5.json", "12")
+    node = _corpus_node("tests/fixtures/external_corpus/fc240f1c4331a5e5.json", "12")
 
     assert widget_index_for_field(node, "motion_bucket_id") == 3
     assert widget_value_for_field(node, "motion_bucket_id") == 127
@@ -124,7 +190,7 @@ def test_svd_motion_bucket_resolves_to_compact_index_and_emits_compact_values() 
 
 
 def test_svd_schema_provider_aliases_are_compact_widget_value_order() -> None:
-    node = _corpus_node("external_workflows/corpus/fc240f1c4331a5e5.json", "12")
+    node = _corpus_node("tests/fixtures/external_corpus/fc240f1c4331a5e5.json", "12")
     provider = get_authoring_schema_provider()
 
     resolution = compact_widget_names_for_node(node, node.class_type, schema_provider=provider)
@@ -150,8 +216,8 @@ def test_svd_schema_provider_aliases_are_compact_widget_value_order() -> None:
 
 
 def test_set_node_field_rejects_svd_link_only_input_with_schema_provider() -> None:
-    ui_node = _corpus_ui_node("external_workflows/corpus/fc240f1c4331a5e5.json", "12")
-    original = _single_node_ui(copy.deepcopy(ui_node))
+    ui_node = _corpus_ui_node("tests/fixtures/external_corpus/fc240f1c4331a5e5.json", "12")
+    original = _single_node_ui(copy.deepcopy(ui_node), preserve_links=True)
     delta = parse_edit_delta(
         [
             {
@@ -170,7 +236,7 @@ def test_set_node_field_rejects_svd_link_only_input_with_schema_provider() -> No
 
 
 def test_set_node_field_applies_svd_motion_bucket_with_schema_provider() -> None:
-    ui_node = _corpus_ui_node("external_workflows/corpus/fc240f1c4331a5e5.json", "12")
+    ui_node = _corpus_ui_node("tests/fixtures/external_corpus/fc240f1c4331a5e5.json", "12")
     original = _single_node_ui(copy.deepcopy(ui_node))
     delta = parse_edit_delta(
         [
@@ -223,8 +289,44 @@ def test_style_model_apply_strength_uses_hidden_widget_padding_from_object_info(
     assert widget_index_for_field(node, "strength_type", schema_provider=provider) == 3
     assert widget_index_for_field(node, "widget_0", schema_provider=provider) is None
 
+    original = _single_node_ui(copy.deepcopy(node))
+    # The UI inputs carry captured link IDs, so the synthetic ingress graph
+    # must carry matching endpoint/link evidence as well.
+    original["nodes"].extend([
+        {
+            "id": 1,
+            "type": "ConditioningSource",
+            "inputs": [],
+            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "slot_index": 0}],
+            "widgets_values": [],
+        },
+        {
+            "id": 2,
+            "type": "StyleSource",
+            "inputs": [],
+            "outputs": [{"name": "STYLE_MODEL", "type": "STYLE_MODEL", "slot_index": 0}],
+            "widgets_values": [],
+        },
+        {
+            "id": 3,
+            "type": "VisionSource",
+            "inputs": [],
+            "outputs": [{"name": "CLIP_VISION_OUTPUT", "type": "CLIP_VISION_OUTPUT", "slot_index": 0}],
+            "widgets_values": [],
+        },
+    ])
+    # Ingest orders the connected source nodes before their consumer; preserve
+    # that canonical topology order in the fixture so a field edit does not
+    # manufacture an unrelated node-order delta.
+    original["nodes"] = original["nodes"][1:] + original["nodes"][:1]
+    original["links"] = [
+        [1, 1, 0, 12, 0, "CONDITIONING"],
+        [2, 2, 0, 12, 1, "STYLE_MODEL"],
+        [3, 3, 0, 12, 2, "CLIP_VISION_OUTPUT"],
+    ]
+    original["last_link_id"] = 3
     result, candidate = _interpret_ops(
-        _single_node_ui(copy.deepcopy(node)),
+        original,
         parse_edit_delta(
             [
                 {
@@ -240,7 +342,8 @@ def test_style_model_apply_strength_uses_hidden_widget_padding_from_object_info(
     assert result.ok is True
     assert candidate is not None
     # S3: widgets_values may vary by resolver source but must contain the updated strength
-    wv = candidate["nodes"][0]["widgets_values"]
+    style_node = next(item for item in candidate["nodes"] if item["type"] == "StyleModelApply")
+    wv = style_node["widgets_values"]
     assert 0.65 in wv
     assert "multiply" in wv
     assert len(wv) == 4
@@ -289,7 +392,7 @@ def test_empty_latent_image_batch_size_round_trips_by_named_widget() -> None:
 
 
 def test_acn_source_backed_schema_resolves_strength_and_rejects_stub_names() -> None:
-    node = _corpus_node("external_workflows/corpus/19d221f074b42462.json", "60")
+    node = _corpus_node("tests/fixtures/external_corpus/19d221f074b42462.json", "60")
 
     assert list(node.widgets.values()) == [0.6, 0, 0.75]
     resolution = compact_widget_names_for_node(node, node.class_type)
@@ -307,14 +410,14 @@ def test_acn_source_backed_schema_resolves_strength_and_rejects_stub_names() -> 
 def test_interpret_uses_same_compact_widget_names() -> None:
     cases = [
         (
-            "external_workflows/corpus/19d221f074b42462.json",
+            "tests/fixtures/external_corpus/19d221f074b42462.json",
             "60",
             "strength",
             0,
             0.5,
         ),
         (
-            "external_workflows/corpus/fc240f1c4331a5e5.json",
+            "tests/fixtures/external_corpus/fc240f1c4331a5e5.json",
             "12",
             "motion_bucket_id",
             3,

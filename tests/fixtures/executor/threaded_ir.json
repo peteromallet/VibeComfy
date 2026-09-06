@@ -41,7 +41,8 @@
       "order": 2,
       "mode": 0,
       "inputs": [
-        {"name": "image", "type": "IMAGE", "link": 1}
+        {"name": "image", "type": "IMAGE", "link": 1},
+        {"name": "prompt", "type": "STRING", "widget": {"name": "prompt"}}
       ],
       "outputs": [],
       "properties": {"Node name for S&R": "LawNodeC"},

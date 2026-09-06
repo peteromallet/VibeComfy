@@ -875,6 +875,18 @@ def recompute_apply(
             return False, None, admitted.typed_reason, len(ops)
         for op in ops:
             step = interpret(workflow, (op,), schema_provider=schema_provider)
+            transition_outcomes = tuple(
+                str(getattr(transition, "outcome", ""))
+                for transition in tuple(getattr(step, "transitions", ()) or ())
+            )
+            if any(
+                outcome in {"noop", "rejected"}
+                for outcome in transition_outcomes
+            ):
+                # Replay authority is the submitted delta, not a report-only
+                # interpretation. A shared transition that did not stage is
+                # never an acceptable durable operation.
+                return False, None, "no_op", len(ops)
             if not step.ok:
                 return False, None, "interpret_failed", len(ops)
             workflow = step.workflow

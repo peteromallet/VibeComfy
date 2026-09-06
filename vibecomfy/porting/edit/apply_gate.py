@@ -328,16 +328,30 @@ def _orphaned_output_diagnostic(
 def _node_field_signature(node: Any) -> tuple[Any, ...]:
     widgets = dict(getattr(node, "widgets", None) or {})
     inputs = getattr(node, "inputs", None) or {}
-    scalars: dict[str, Any] = {}
+    fields: list[tuple[str, str, Any]] = []
     if isinstance(inputs, Mapping):
-        for name, value in inputs.items():
-            if isinstance(value, (list, tuple)):
-                continue
-            scalars[str(name)] = value
-    merged = {**scalars, **widgets}
+        # Canonical API link pairs are represented by the edge quotient and
+        # must not be confused with authored two-item list literals.  Every
+        # other grammar-visible input value, including list/tuple/mapping
+        # aggregates, remains part of replay equality.
+        from vibecomfy._compile._graph import is_canonical_api_link
+
+        fields.extend(
+            (
+                "input",
+                str(name),
+                _freeze(value),
+            )
+            for name, value in inputs.items()
+            if not is_canonical_api_link(value)
+        )
+    fields.extend(
+        ("widget", str(name), _freeze(value))
+        for name, value in widgets.items()
+    )
     return (
         str(getattr(node, "class_type", "")),
-        tuple(sorted((str(k), _freeze(v)) for k, v in merged.items())),
+        tuple(sorted(fields)),
         mode_to_litegraph(getattr(node, "mode", 0)),
     )
 
@@ -514,7 +528,12 @@ def verify_apply(
             else "unverifiable_identity",
             diagnostics,
         )
-    if not replay_delta:
+    # ``diff`` deliberately projects some ambiguous list-shaped input values
+    # out of its legacy link detector.  A non-empty claimed source/operation
+    # is still an authoritative replay value; exact signature comparison
+    # below proves whether it reconstructed the staged candidate.  Only fail
+    # for an empty diff when there is no source to replay at all.
+    if not replay_delta and replay_source is None:
         diagnostics.append(
             _diag(
                 "apply_gate_empty_replay",
@@ -598,6 +617,7 @@ def _replay_reconstruct_diagnostic(
 ) -> CompactDiagnostic | None:
     from vibecomfy.porting.edit._interpret import interpret
 
+    expected = editable_signature(post)
     replayed = interpret(
         pre,
         replay_source,
@@ -605,6 +625,34 @@ def _replay_reconstruct_diagnostic(
         name_hints=name_hints,
     )
     if not replayed.ok:
+        replay_codes = tuple(
+            str(getattr(item, "code", ""))
+            for item in replayed.diagnostics
+        )
+        # A malformed retained topology (notably duplicate canonical edges)
+        # can prevent the replay interpreter from producing a workflow at all.
+        # The staged candidate is still comparable to the retained pre-state,
+        # so report the stable replay-mismatch evidence rather than collapsing
+        # this structural disagreement into generic replay failure.
+        if any(
+            code
+            in {
+                "full_ui_identity_malformed",
+                "full_ui_link_added_unattributed",
+                "full_ui_link_changed_unattributed",
+                "full_ui_link_removed_unattributed",
+            }
+            for code in replay_codes
+        ):
+            try:
+                actual = editable_signature(pre)
+            except _EditableIdentityError as exc:
+                return _editable_identity_diagnostic("replay", exc)
+            return _replay_mismatch_diagnostic(
+                expected,
+                actual,
+                replay_codes=replay_codes,
+            )
         return _diag(
             "apply_gate_replay_failed",
             "Apply gate refused success: interpret(pre, Δ) failed while "
@@ -617,13 +665,23 @@ def _replay_reconstruct_diagnostic(
                 "emit_path": "vibecomfy/porting/edit/_interpret.py:interpret",
             },
         )
-    expected = editable_signature(post)
     try:
         actual = editable_signature(replayed.workflow)
     except _EditableIdentityError as exc:
         return _editable_identity_diagnostic("replay", exc)
     if expected == actual:
         return None
+
+    return _replay_mismatch_diagnostic(expected, actual)
+
+
+def _replay_mismatch_diagnostic(
+    expected: tuple[Any, ...],
+    actual: tuple[Any, ...],
+    *,
+    replay_codes: Sequence[str] = (),
+) -> CompactDiagnostic:
+    """Describe exact staged-versus-replay quotient disagreement."""
 
     from collections import Counter
 
@@ -664,6 +722,7 @@ def _replay_reconstruct_diagnostic(
                     item for item in actual_recursive if item not in expected_recursive
                 ),
             },
+            "replay_codes": tuple(replay_codes),
             "emit_path": "vibecomfy/porting/emit/ui.py:emit_ui_json",
         },
     )

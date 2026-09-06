@@ -24,6 +24,7 @@ from .candidate_transaction import (
     canonical_transaction_state,
     classify_legacy_migration_v1,
     project_transaction_state,
+    schema_provider_from_witness,
     validate_candidate_transaction,
 )
 from .projection_registry_v1 import (
@@ -1878,6 +1879,7 @@ def _capture_candidate_bundle(
     parent_revision: str,
     session_dir: Path,
     plan_hash: str,
+    schema_witness: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Path]]:
     from vibecomfy.workflow_bundle import capture_bundle
 
@@ -1913,6 +1915,7 @@ def _capture_candidate_bundle(
             {"operation": "captured"},
             parent_revision=parent_revision,
             parent_evidence=parent_evidence,
+            schema_provider=schema_provider_from_witness(schema_witness),
         )
         sidecar_state = "present" if bundle.ui_digest else "absent"
         metadata = {
@@ -2009,6 +2012,7 @@ def _reload_captured_bundle(
     *,
     transaction: Mapping[str, Any],
     compile_approval: bool,
+    schema_witness: Mapping[str, Any] | None = None,
 ) -> tuple[Any, Any | None, dict[str, Any]]:
     from vibecomfy.workflow_bundle import load_bundle
 
@@ -2036,7 +2040,12 @@ def _reload_captured_bundle(
         raise ValueError("reloaded staged bundle identity does not match candidate authority")
     if not compile_approval:
         return bundle, None, {}
-    approval = bundle.compile()
+    if not isinstance(schema_witness, Mapping):
+        raise ValueError("staged bundle approval requires its bound schema witness")
+    frozen_schema_provider = schema_provider_from_witness(schema_witness)
+    if frozen_schema_provider is None:
+        raise ValueError("staged bundle approval requires frozen schema authority")
+    approval = bundle.compile(schema_provider=frozen_schema_provider)
     return bundle, approval, {
         "revision_id": bundle.revision_id,
         "parent_revision": bundle.parent_revision,
@@ -2115,13 +2124,13 @@ def _prepared_receipt_from_event(event: Mapping[str, Any] | None) -> dict[str, A
     return dict(receipt) if isinstance(receipt, Mapping) else {}
 
 
-def _load_authoritative_candidate_transaction(
+def _load_bound_authoritative_candidate_evidence(
     *,
     turn_dir: Path,
     session_id: str,
     turn_id: str,
     plan_hash: str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> tuple[Any | None, str | None]:
     """Load and cross-check the immutable aggregate and replay receipt.
 
     DEEP-AUDIT-FIX-2-REVISION-2: contract validation, receipt-digest binding,
@@ -2161,7 +2170,26 @@ def _load_authoritative_candidate_transaction(
     response_transaction = response.get("candidate_transaction")
     if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
         return None, "response_transaction_mismatch"
-    return transaction, None
+    return evidence, None
+
+
+def _load_authoritative_candidate_transaction(
+    *,
+    turn_dir: Path,
+    session_id: str,
+    turn_id: str,
+    plan_hash: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Compatibility projection of the fully bound replay evidence loader."""
+    evidence, error = _load_bound_authoritative_candidate_evidence(
+        turn_dir=turn_dir,
+        session_id=session_id,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+    )
+    if evidence is None:
+        return None, error
+    return evidence.transaction, None
 
 
 def _latest_prepared_event(turn_dir: Path, plan_hash: str, generation: int) -> dict[str, Any] | None:
@@ -2765,13 +2793,13 @@ def finalize_turn_transaction(
                     "current_baseline_graph_hash": current_baseline,
                 },
             )
-        transaction, transaction_error = _load_authoritative_candidate_transaction(
+        bound_evidence, transaction_error = _load_bound_authoritative_candidate_evidence(
             turn_dir=turn_dir,
             session_id=session_id,
             turn_id=turn_id,
             plan_hash=str(prepared_plan),
         )
-        if transaction is None:
+        if bound_evidence is None:
             return _transaction_failure(
                 kind=FailureKind.STALE_STATE_MISMATCH,
                 stage="finalize",
@@ -2781,6 +2809,7 @@ def finalize_turn_transaction(
                 explanation="Finalize could not reload durable candidate authority.",
                 evidence={"transaction_error": transaction_error},
             )
+        transaction = bound_evidence.transaction
         try:
             transaction_revision, transaction_parent = revision_identity_from_mapping(
                 transaction,
@@ -2802,6 +2831,7 @@ def finalize_turn_transaction(
             _bundle, _approval_record, approval_evidence = _reload_captured_bundle(
                 transaction=transaction,
                 compile_approval=True,
+                schema_witness=bound_evidence.receipt.schema_witness,
             )
         except Exception as exc:
             return _transaction_failure(
@@ -4709,6 +4739,7 @@ def record_idempotent_response(
                 parent_revision=requested_parent,
                 session_dir=session_dir_for(session_root, session_id),
                 plan_hash=candidate_plan_hash,
+                schema_witness=authority_receipt.schema_witness,
             )
             revision_id = bundle_metadata["revision_id"]
             parent_revision = bundle_metadata["parent_revision"]

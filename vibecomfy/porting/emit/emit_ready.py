@@ -2142,8 +2142,30 @@ def _apply_overrides(nodes: dict[str, Any], edges_in: dict[str, list[Any]], patc
 # Node-local identity-aware output helpers
 # ---------------------------------------------------------------------------
 
+def _retained_output_names(node: Any) -> list[str] | None:
+    """Return the output roster already bound to this retained IR node.
+
+    Native names are captured at ingest from the selected schema/UI witness;
+    metadata names are the older retained representation.  Either is stronger
+    than a process-global object-info catalog and must prevent a later ambient
+    class lookup from changing arity mid-session.
+    """
+    native_names = getattr(node, "native_output_names", None)
+    if isinstance(native_names, (list, tuple)):
+        return [str(name) if name is not None else "" for name in native_names]
+    metadata = getattr(node, "metadata", None)
+    metadata_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+    if isinstance(metadata_names, (list, tuple)):
+        return [str(name) if name is not None else "" for name in metadata_names]
+    return None
+
+
 def _node_local_output_names(node: Any) -> list[str]:
-    """Identity-aware schema output names for *node*; class-only fallback."""
+    """Retained output names for *node*, then identity/class fallback."""
+    retained_names = _retained_output_names(node)
+    if retained_names is not None:
+        return retained_names
+
     from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
     from vibecomfy.errors import ObjectInfoIdentityError  # noqa: PLC0415
     from vibecomfy.porting.object_info import output_names as _class_output_names, resolve_class_entry  # noqa: PLC0415
@@ -2170,13 +2192,35 @@ def _node_local_output_names(node: Any) -> list[str]:
 
 
 def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
-    """Identity-aware arity consensus check for *node*; class-only fallback.
+    """Retained arity consensus check for *node*; identity/class fallback.
 
-    Mirrors :func:`check_output_arity_consensus` semantics, but counts outputs
-    from the identity-resolved cache entry when one is available so that
-    provenanced nodes are validated against their pinned schema rather than the
-    most recent class-only cache.
+    A node-local roster is the session's captured authority and is checked
+    without touching process-global object-info state.  Only nodes lacking
+    retained evidence use the historical identity/class lookup path.
     """
+    class_type = str(node.class_type)
+    retained_names = _retained_output_names(node)
+    if retained_names is not None:
+        retained_count = len(retained_names)
+        if ui_output_count is not None and retained_count != ui_output_count:
+            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
+
+            raise _AD(
+                (
+                    f"output arity disagreement for {class_type}: retained node "
+                    f"authority declares {retained_count} outputs but UI declares "
+                    f"{ui_output_count}; refresh the node UI metadata before "
+                    "canonical emission."
+                ),
+                class_type=class_type,
+                snapshot_pack=None,
+                snapshot_version=None,
+                snapshot_output_count=retained_count,
+                ui_output_count=ui_output_count,
+                next_action="refresh the node UI metadata",
+            )
+        return retained_count
+
     from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
     from vibecomfy.errors import ObjectInfoIdentityError  # noqa: PLC0415
     from vibecomfy.porting.object_info import (  # noqa: PLC0415
@@ -2184,8 +2228,6 @@ def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
         class_output_count,
         resolve_class_entry,
     )
-    class_type = str(node.class_type)
-
     def _class_fallback_count() -> int:
         cached_count = class_output_count(class_type)
         if ui_output_count is not None and class_is_known(class_type) and cached_count != ui_output_count:

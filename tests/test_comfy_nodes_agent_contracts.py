@@ -2181,7 +2181,8 @@ def test_real_public_submit_prepare_finalize_rollback_chat_envelopes_carry_revis
 
     compile_calls: list[str] = []
 
-    def compile_once(self):
+    def compile_once(self, *, schema_provider=None):
+        assert schema_provider is not None
         compile_calls.append(self.revision_id)
         api_projection = {"workflow_revision": self.revision_id}
         return ApprovedProjectionRecord(

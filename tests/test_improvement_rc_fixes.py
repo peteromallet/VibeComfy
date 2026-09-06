@@ -184,7 +184,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _fc240f_ui_pair() -> tuple[dict, dict, list[dict]]:
     """SVD node 12 with compact widgets_values[3] (motion_bucket_id) 127→200."""
     corpus = json.loads(
-        (ROOT / "external_workflows/corpus/fc240f1c4331a5e5.json").read_text(
+        (ROOT / "tests/fixtures/external_corpus/fc240f1c4331a5e5.json").read_text(
             encoding="utf-8"
         )
     )
@@ -626,6 +626,10 @@ def test_rc12c_named_scale_on_schema_less_class_is_not_unknown_field() -> None:
                 confidence=0.8,
             )
 
+        def schemas(self) -> dict[str, NodeSchema]:
+            schema = self.get_schema("UltraShapeRefine")
+            return {"UltraShapeRefine": schema} if schema is not None else {}
+
     raw = {
         "nodes": [
             {
@@ -640,6 +644,29 @@ def test_rc12c_named_scale_on_schema_less_class_is_not_unknown_field() -> None:
         ],
         "links": [],
     }
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.ingest.snapshot import snapshot_of
+    from vibecomfy.porting.edit.admit import AdmissionSnapshot
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    declared_provider = _Provider()
+    pre_ui_payload = copy.deepcopy(raw)
+    pre_workflow = from_ui(
+        copy.deepcopy(pre_ui_payload),
+        schema_provider=declared_provider,
+        use_comfy_converter=False,
+    )
+    schema_snapshot = capture_ingress_schema_snapshot(
+        schema_provider=declared_provider,
+        graph=pre_ui_payload,
+    )
+    retained_authority = AdmissionSnapshot(
+        workflow=snapshot_of(pre_workflow),
+        schema=schema_snapshot,
+    )
     result = lint_delta(
         parse_edit_delta(
             [
@@ -650,8 +677,12 @@ def test_rc12c_named_scale_on_schema_less_class_is_not_unknown_field() -> None:
                 }
             ]
         ),
-        LintIndex.build(raw),
-        schema_provider=_Provider(),
+        LintIndex.build(pre_ui_payload),
+        schema_provider=FrozenSchemaSnapshotProvider(schema_snapshot),
+        retained_authority=retained_authority,
+        pre_workflow=pre_workflow,
+        pre_ui_payload=pre_ui_payload,
+        schema_snapshot=schema_snapshot,
     )
     assert result.rejected_count == 0
     assert not any(issue.code == "unknown_field" for issue in result.issues)
@@ -1711,7 +1742,7 @@ def test_node_id_hallucination_is_corrected_via_class_match() -> None:
             {"id": 90, "type": "VHS_VideoCombine"},
         ],
         "links": [
-            [6, 43, 0, 90, 0],
+            [6, 43, 0, 90, 0, "IMAGE"],
             [7, 43, 1, 90, 1],
         ],
     }
@@ -1834,7 +1865,7 @@ def test_reply_phase_grounds_hallucinated_node_ids(monkeypatch) -> None:
             {"id": 43, "type": "HyVideoEncode"},
             {"id": 90, "type": "VHS_VideoCombine"},
         ],
-        "links": [[6, 43, 0, 90, 0]],
+        "links": [[6, 43, 0, 90, 0, "IMAGE"]],
     }
     hallucinated = (
         "I wired HyVideoEncode node ID 120 to VHS_VideoCombine node 90."

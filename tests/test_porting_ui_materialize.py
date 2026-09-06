@@ -269,6 +269,46 @@ def test_materialize_depth_two_virtual_leg_uses_structural_scope() -> None:
         materialize_ui_json(wf, collision)
 
 
+def test_materialize_depth_two_virtual_leg_rejects_duplicate_endpoint_uid() -> None:
+    """Nested materialization must preserve duplicate evidence for the resolver."""
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+
+    wf = _wf()
+    inner = {
+        "name": "inner",
+        "nodes": [
+            {"id": 10, "uid": "left", "class_type": "A",
+             "outputs": [{"name": "out", "type": "IMAGE"}]},
+            # A second local ``left`` must not overwrite the first resolver
+            # record before the shared virtual-wire collision check runs.
+            {"id": 11, "uid": "left", "class_type": "A",
+             "outputs": [{"name": "out", "type": "IMAGE"}]},
+            {"id": 20, "uid": "right", "class_type": "B",
+             "inputs": [{"name": "value", "type": "IMAGE"}]},
+        ],
+        "links": [],
+        "virtual_wires": {"bus": {"legs": []}},
+    }
+    outer = {"name": "outer", "nodes": [], "links": [], "definitions": {"subgraphs": [inner]}}
+    wf.definitions = {"subgraphs": [outer]}
+    scope = compose_scope_path((sg_key(outer), sg_key(inner)))
+    inner["virtual_wires"]["bus"]["legs"] = [{
+        "scope_path": scope,
+        "leg_index": 0,
+        "occurrence_index": 0,
+        "from_node": "left",
+        "from_output": "out",
+        "to_node": "right",
+        "to_input": "value",
+    }]
+    # Public materialization must fail before any duplicate endpoint can be
+    # silently collapsed into a self-link.  The semantic boundary catches the
+    # duplicate scoped identity; the nested emitter regression above ensures
+    # the same evidence is retained when that boundary is reached from UI.
+    with pytest.raises(ValueError, match="duplicate"):
+        materialize_ui_json(wf)
+
+
 def test_materialize_emits_root_python_virtual_legs_without_sidecar_links() -> None:
     wf = _wf()
     wf.nodes["1"] = VibeNode(
@@ -278,8 +318,9 @@ def test_materialize_emits_root_python_virtual_legs_without_sidecar_links() -> N
         "2", "Target", uid="target", native_input_names=["value"],
     )
     wf.virtual_wires = {"bus": {"legs": [{
-        "from_uid": "source", "from_port": 0,
-        "to_uid": "target", "to_port": 0,
+        "scope_path": "", "leg_index": 0, "occurrence_index": 0,
+        "from_node": "source", "from_output": 0,
+        "to_node": "target", "to_input": 0,
     }]}}
     sidecar = {
         "format_version": 1,

@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
+    LinkTargetRef,
+    NodeFieldTarget,
+    NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
     SetModeOp,
@@ -17,6 +20,7 @@ from vibecomfy.porting.edit.ops import (
 )
 from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.ingest.normalize import door_get_links, door_get_nodes, door_get_widgets_values
+from vibecomfy.porting.edit.constants import MODE_LABELS
 from vibecomfy.porting.widgets.compact_resolver import (
     compact_widget_names_for_node,
     missing_widget_value_sentinel,
@@ -36,6 +40,12 @@ class RecursiveEditError(ValueError):
         self.code = str(code)
         self.detail = dict(detail or {})
         super().__init__(message)
+
+
+class EditNoOpError(ValueError):
+    """Typed signal that a canonical COW operation has no state effect."""
+
+    code = "no_op"
 
 
 _RECURSIVE_GUIDANCE = "capture -> port through canonical Python -> reopen/reload"
@@ -451,12 +461,42 @@ def _recursive_field_entries(
 
 
 def _freeze(value: Any) -> Any:
-    """Freeze JSON-shaped authored state for quotient comparison."""
+    """Freeze JSON-shaped authored state without erasing value kinds.
+
+    Python considers ``True``, ``1``, and ``1.0`` equal.  Replay equality is
+    stricter than Python value equality: changing an authored scalar's JSON
+    representation is a different candidate and must be visible to the apply
+    gate.  Tag every JSON scalar as well as every container before comparing
+    signatures.
+    """
     if isinstance(value, Mapping):
-        return tuple(sorted((str(key), _freeze(item)) for key, item in value.items()))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze(item) for item in value)
-    return value
+        return (
+            "mapping",
+            tuple(sorted((str(key), _freeze(item)) for key, item in value.items())),
+        )
+    if isinstance(value, list):
+        return ("list", tuple(_freeze(item) for item in value))
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_freeze(item) for item in value))
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int):
+        return ("int", value)
+    if isinstance(value, float):
+        return ("float", value)
+    if isinstance(value, str):
+        return ("str", value)
+    # The editable quotient is JSON-shaped, but retain an exact type witness
+    # for defensive callers rather than silently falling back to Python's
+    # cross-type equality for an unexpected scalar.
+    return (
+        "scalar",
+        type(value).__module__,
+        type(value).__qualname__,
+        value,
+    )
 
 
 def recursive_state_snapshot(
@@ -1020,12 +1060,22 @@ def _root_node_for_uid(
 
 
 def _mint_ir_node_id(workflow: "VibeWorkflow") -> str:
-    """Mint the next numeric node id (max existing numeric id + 1)."""
+    """Mint above both live and retired native ids.
+
+    A remove leaves no live node from which to derive the retired maximum;
+    ``RemoveNodeOp`` records that COW counter in metadata. Explicit
+    ``AddNodeOp.node_id`` remains the only path allowed to request reuse.
+    """
     highest = 0
     for node_id in workflow.nodes:
         text = str(node_id)
         if text.isdigit():
             highest = max(highest, int(text))
+    metadata = getattr(workflow, "metadata", None)
+    if isinstance(metadata, dict):
+        retired = metadata.get("_edit_last_node_id", 0)
+        if isinstance(retired, int) and not isinstance(retired, bool):
+            highest = max(highest, retired)
     return str(highest + 1)
 
 
@@ -1070,6 +1120,11 @@ def _record_link_hint(workflow: "VibeWorkflow", edge: Any, link_id: int) -> None
 
 def _captured_link_id_for_edge(workflow: "VibeWorkflow", edge: Any) -> int | None:
     metadata = getattr(workflow, "metadata", {})
+    hints = metadata.get("_edit_link_id_hints") if isinstance(metadata, Mapping) else None
+    if isinstance(hints, Mapping):
+        hinted = hints.get(_edge_hint_key(edge.from_node, edge.from_output, edge.to_node, edge.to_input))
+        if isinstance(hinted, int):
+            return hinted
     raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
     door = None
     if not isinstance(raw_ui, Mapping):
@@ -1116,9 +1171,173 @@ def _captured_link_id_for_edge(workflow: "VibeWorkflow", edge: Any) -> int | Non
     return None
 
 
+def lower_edit_operation(workflow: "VibeWorkflow", op: EditOp) -> tuple[EditOp, ...]:
+    """Lower one presentation operation through the canonical IR surface.
+
+    Link ids are LiteGraph presentation identities.  The retained workflow
+    carries their captured edge hints; lowering resolves exactly one current
+    edge and hands the existing target-removal operation to the canonical
+    application owner.  No UI or schema is re-read here.
+    """
+    if isinstance(op, SetNodeFieldOp) and op.target.field_path == "mode":
+        if isinstance(op.value, bool) or not isinstance(op.value, int):
+            raise RecursiveEditError("type_mismatch", "mode must be an integer")
+        mode = op.value
+        if mode not in MODE_LABELS:
+            raise RecursiveEditError(
+                "invalid_mode_value",
+                "mode must be one of 0, 2, or 4",
+            )
+        return (
+            SetModeOp(
+                op="set_mode",
+                target=NodeTarget(op.target.scope_path, op.target.uid),
+                mode=mode,
+            ),
+        )
+    if isinstance(op, SetNodeFieldOp) and not op.target.scope_path:
+        import re as _re
+
+        node = next(
+            (
+                candidate
+                for candidate in (getattr(workflow, "nodes", {}) or {}).values()
+                if str(getattr(candidate, "uid", "") or "") == str(op.target.uid)
+            ),
+            None,
+        )
+        from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
+        name_authority = frozen_widget_names_by_uid(workflow)
+        authored_widget_fields = list(name_authority.get(str(op.target.uid), ()))
+        raw_ui = (getattr(node, "metadata", None) or {}).get("_ui") if node is not None else None
+        widget_values = door_get_widgets_values(raw_ui) if isinstance(raw_ui, Mapping) else None
+        if not authored_widget_fields and node is not None:
+            # Untagged synthetic workflows still use their explicit canonical
+            # input/widget carriers; never infer order from presentation slots.
+            authored_widget_fields = [str(name) for name in (getattr(node, "widgets", {}) or {})]
+        field = str(op.target.field_path)
+        if isinstance(op.value, Mapping) and field == "widgets_values":
+            if not authored_widget_fields:
+                raise RecursiveEditError(
+                    "missing_widget_roster",
+                    "mapping widgets_values requires the retained authored widget roster",
+                )
+            expected = tuple(authored_widget_fields)
+            if set(str(name) for name in op.value) != set(expected):
+                raise RecursiveEditError(
+                    "type_mismatch",
+                    "mapping widgets_values keys must exactly match authored widgets",
+                )
+            return tuple(
+                SetNodeFieldOp(
+                    op="set_node_field",
+                    target=NodeFieldTarget(op.target.scope_path, op.target.uid, name),
+                    value=op.value[name],
+                )
+                for name in expected
+            )
+        if isinstance(widget_values, list) and field == "widgets_values":
+            if not isinstance(op.value, (list, tuple)):
+                raise RecursiveEditError("type_mismatch", "widgets_values requires a complete sequence")
+            values = list(op.value)
+            if len(values) != len(widget_values):
+                raise RecursiveEditError("type_mismatch", "widgets_values sequence arity does not match authored widgets")
+            if len(authored_widget_fields) == len(values):
+                return tuple(
+                    SetNodeFieldOp(
+                        op="set_node_field",
+                        target=NodeFieldTarget(op.target.scope_path, op.target.uid, authored_widget_fields[index]),
+                        value=value,
+                    )
+                    for index, value in enumerate(values)
+                )
+            return tuple(
+                SetNodeFieldOp(
+                    op="set_node_field",
+                    target=NodeFieldTarget(op.target.scope_path, op.target.uid, f"widget_{index}"),
+                    value=value,
+                )
+                for index, value in enumerate(values)
+            )
+        alias = _re.fullmatch(r"(?:widgets|widgets_values)\.(\d+)|widget_(\d+)", field)
+        if alias is not None:
+            index = int(alias.group(1) or alias.group(2))
+            if field == f"widget_{index}" and field in authored_widget_fields:
+                return (op,)
+            if index < len(authored_widget_fields):
+                return (
+                    SetNodeFieldOp(
+                        op="set_node_field",
+                        target=NodeFieldTarget(op.target.scope_path, op.target.uid, authored_widget_fields[index]),
+                        value=op.value,
+                    ),
+                )
+            if field == f"widget_{index}":
+                return (op,)
+            return (
+                    SetNodeFieldOp(
+                        op="set_node_field",
+                        target=NodeFieldTarget(op.target.scope_path, op.target.uid, f"widget_{index}"),
+                    value=op.value,
+                ),
+            )
+    if not isinstance(op, RemoveLinkOp) or op.link_id is None:
+        return (op,)
+    matches = [
+        edge
+        for edge in getattr(workflow, "edges", ())
+        if _captured_link_id_for_edge(workflow, edge) == op.link_id
+    ]
+    if len(matches) != 1:
+        code = "unknown_link" if not matches else "ambiguous_link"
+        raise RecursiveEditError(
+            code,
+            f"link id {op.link_id!r} does not identify exactly one current canonical edge",
+        )
+    edge = matches[0]
+    target_node = next(
+        (candidate for candidate in (getattr(workflow, "nodes", {}) or {}).values()
+         if str(getattr(candidate, "id", "")) == str(edge.to_node)),
+        None,
+    )
+    target_uid = str(getattr(target_node, "uid", "") or edge.to_node)
+    return (
+        RemoveLinkOp(
+            op="remove_link",
+            link_id=None,
+            target=LinkTargetRef(
+                scope_path="",
+                uid=target_uid,
+                input_field=str(edge.to_input),
+            ),
+        ),
+    )
+
+
 def _ir_output_slot_name(node: Any, output_slot: str | int) -> str:
     """Map an op output slot (name or index) to the IR's named edge port."""
     if isinstance(output_slot, str):
+        # The retained UI IR uses numeric slot identities.  Python emission
+        # deliberately presents typed/name aliases (for example ``CLIP_1``),
+        # so lower those aliases through the node's captured output roster at
+        # the same boundary that resolves integer slots.  The roster is
+        # frozen node metadata; no ambient schema is consulted here.
+        metadata = getattr(node, "metadata", None)
+        if isinstance(metadata, Mapping):
+            names = metadata.get("output_names")
+            types = metadata.get("output_types")
+            if isinstance(names, (list, tuple)):
+                for index, name in enumerate(names):
+                    if isinstance(name, str) and name == output_slot:
+                        return str(index)
+            import re as _re
+            typed = _re.fullmatch(r"^([A-Za-z_][A-Za-z0-9_]*)_(\d+)$", output_slot)
+            if typed is not None:
+                base, raw_index = typed.groups()
+                index = int(raw_index)
+                if isinstance(types, (list, tuple)) and 0 <= index < len(types):
+                    if str(types[index]).casefold() == base.casefold():
+                        return str(index)
         return output_slot
     metadata = getattr(node, "metadata", None)
     names = metadata.get("output_names") if isinstance(metadata, dict) else None
@@ -1246,30 +1465,24 @@ def _split_add_fields(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split an add_node field map into (widgets, inputs).
 
-    Widgets are schema-classified literal widget fields (or positional
-    ``widget_N`` names).  ``widget_field_names`` (set by ``diff`` from the
+    Widgets are explicitly classified positional ``widget_N`` names or
+    ``widget_field_names`` (set by ``diff`` from the
     post node's instance widgets channel) takes precedence so unknown-schema
     widget fields survive the diff→interpret round-trip: the batch carries
     the channel classification the instance hydration (batch 6) yields, and
     this restores exactly those names to the widget channel.
     """
-    from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
-    from vibecomfy.schema import schema_for
-
     explicit_widget_names = (
         frozenset(str(name) for name in widget_field_names)
         if widget_field_names
         else frozenset()
     )
     widget_names: set[str] = set(explicit_widget_names)
-    if schema_provider is not None:
-        schema = schema_for(schema_provider, class_type)
-        schema_inputs = getattr(schema, "inputs", None) or {}
-        widget_names.update(
-            str(name)
-            for name, spec in schema_inputs.items()
-            if input_spec_is_literal_widget(spec)
-        )
+    # Named Python fields are retained as canonical IR inputs.  The widget
+    # channel is explicit: positional ``widget_N`` carriers and the
+    # AddNodeOp widget roster produced from frozen instance evidence.  A
+    # schema's literal type alone cannot distinguish a named input from a
+    # positional UI widget and would make emit→interpret non-isomorphic.
     widgets: dict[str, Any] = {}
     inputs: dict[str, Any] = {}
     for name, value in fields.items():
@@ -1385,13 +1598,48 @@ def apply_edit_cow(
     """
     from vibecomfy.workflow import VibeEdge, VibeNode, litegraph_to_mode
 
+    lowered = lower_edit_operation(workflow, op)
+    if len(lowered) != 1 or lowered[0] is not op:
+        # Aggregate lowering is one atomic effect.  Apply every canonical
+        # component against the cursor produced by its predecessor; callers
+        # never observe a partially lowered aggregate.
+        cursor = workflow
+        changed = False
+        try:
+            for component in lowered:
+                try:
+                    next_cursor = apply_edit_cow(
+                        cursor, component, schema_provider=schema_provider
+                    )
+                except EditNoOpError:
+                    # Aggregate writes are complete authored mappings.  A
+                    # constituent already equal to its canonical value is a
+                    # valid no-op and must not prevent changed constituents
+                    # from landing.  All other failures remain atomic.
+                    continue
+                cursor = next_cursor
+                changed = True
+        except Exception:
+            raise
+        if not changed:
+            raise EditNoOpError("aggregate operation is already set to its current values")
+        return cursor
+
     if isinstance(op, AddNodeOp) and any(_operation_scope_paths(op)):
         raise _unsupported_recursive_structure(op)
-    if isinstance(op, AddNodeOp) and getattr(op.anchor, "group_title", None):
+    if (
+        isinstance(op, AddNodeOp)
+        and getattr(op.anchor, "group_title", None)
+        and not any(
+            isinstance(group, Mapping)
+            and str(group.get("title") or "") == str(op.anchor.group_title)
+            for group in (getattr(workflow, "groups", None) or ())
+        )
+    ):
         raise RecursiveEditError(
             "unsupported_operation",
-            "group/layout edits are unsupported; capture the current canvas/export, "
-            "port through canonical Python, then reopen/reload the resulting workflow",
+            f"group {op.anchor.group_title!r} is not present in the retained canvas; "
+            "capture the current canvas/export before assigning group placement",
         )
 
     post = _cow_workflow_copy(workflow)
@@ -1408,7 +1656,9 @@ def apply_edit_cow(
             if resolved is None:
                 raise RecursiveEditError("unknown_field", f"field {op.target.field_path!r} is not authored in the recursive node")
             if resolved[1] == op.value:
-                raise ValueError(f"set_node_field: {op.target.field_path!r} is already set to that value")
+                raise EditNoOpError(
+                    f"set_node_field: {op.target.field_path!r} is already set to that value"
+                )
             _set_recursive_field(ref.node, op.target.field_path, op.value)
             _tag_edit_provenance(ref.node)
             return post
@@ -1459,7 +1709,9 @@ def apply_edit_cow(
             ref = build_recursive_edit_index(post).node(op.target.scope_path, op.target.uid)
             current = int(ref.node.get("mode", 0) or 0)
             if current == int(op.mode):
-                raise ValueError(f"set_mode: node {op.target.uid!r} already has mode {op.mode}")
+                raise EditNoOpError(
+                    f"set_mode: node {op.target.uid!r} already has mode {op.mode}"
+                )
             ref.node["mode"] = int(op.mode)
             _tag_edit_provenance(ref.node)
             return post
@@ -1533,6 +1785,22 @@ def apply_edit_cow(
                 f"remove_node: no IR node for uid {op.target.uid!r} in workflow {workflow.id!r}"
             )
         removed_class = str(getattr(_node, "class_type", "") or "")
+        # Preserve the highest native id across a remove so a subsequent
+        # same-UID rebuild remains monotonic in the emitted LiteGraph wire.
+        # The IR node set is intentionally COW-ed; this small ledger is the
+        # canonical counter witness used by the emitter after the node is gone.
+        metadata = getattr(post, "metadata", None)
+        if isinstance(metadata, dict):
+            try:
+                removed_id = int(getattr(_node, "id", 0) or 0)
+            except (TypeError, ValueError):
+                removed_id = 0
+            prior_counter = metadata.get("_edit_last_node_id", 0)
+            try:
+                prior_counter = int(prior_counter or 0)
+            except (TypeError, ValueError):
+                prior_counter = 0
+            metadata["_edit_last_node_id"] = max(prior_counter, removed_id)
         incoming = [edge for edge in post.edges if edge.to_node == node_id]
         outgoing = [edge for edge in post.edges if edge.from_node == node_id]
         post.nodes.pop(node_id, None)
@@ -1657,6 +1925,26 @@ def apply_edit_cow(
             widgets=widgets,
             uid=uid,
         )
+        # Explicit transaction-local identity for ordered presentation lint.
+        # This marker is stronger than absence of a captured UI id: a
+        # programmatic pre-existing node may also have no UI furniture.
+        node.metadata["_edit_created_in_transaction"] = True
+        if op.anchor is not None:
+            node.metadata["_edit_anchor_relation"] = str(op.anchor.relation)
+            anchor_uid: str | None = None
+            if op.anchor.between is not None:
+                between_uids = tuple(str(target.uid) for target in op.anchor.between)
+                if len(between_uids) == 2:
+                    node.metadata["_edit_anchor_between_uids"] = between_uids
+                    # Group inheritance prefers the downstream endpoint, but
+                    # placement retains both endpoints and the relation.
+                    anchor_uid = between_uids[1]
+            elif op.anchor.near is not None:
+                anchor_uid = str(op.anchor.near.uid)
+            if anchor_uid:
+                node.metadata["_edit_anchor_uid"] = anchor_uid
+            if op.anchor.group_title:
+                node.metadata["_edit_group_title"] = str(op.anchor.group_title)
         source_nodes: list[Any] = []
         for input_name, source_ref in op.inputs.items():
             source_id, source_node = _root_node_for_uid(

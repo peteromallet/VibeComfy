@@ -181,7 +181,7 @@ def _stub_bundle_compile(monkeypatch):
     compile_calls: list[str] = []
     compile_paths: list[Path | None] = []
 
-    def compile_once(self):
+    def compile_once(self, *, schema_provider=None):
         compile_calls.append(self.revision_id)
         compile_paths.append(self.python_path)
         api_projection = {"workflow_revision": self.revision_id}
@@ -248,28 +248,34 @@ def _record_v2_turn(
         request_payload=request,
     )
     turn_id = str(allocation.context.turn_id)
+    node_type = str(request["graph"]["nodes"][0].get("type", ""))
+    field_name = "value" if node_type == "PrimitiveString" else "filename_prefix"
     envelope = {
         "schema_version": "2.0.0",
         "ops": [
             {
                 "op": "set_node_field",
-                "target": ["", "1", "filename_prefix"],
+                "target": ["", "1", field_name],
                 "value": f"{label}-cand",
             }
         ],
     }
-    schema_provider = _Provider(
-        {
-            "SaveImage": _schema_with_inputs(
-                "SaveImage",
-                filename_prefix=InputSpec(type="STRING", required=True, default="ComfyUI"),
-            )
-        }
-    )
+    schema_provider = _Provider({
+        node_type: _schema_with_inputs(
+            node_type,
+            **{
+                field_name: InputSpec(
+                    type="STRING", required=True,
+                    default="" if field_name == "value" else "ComfyUI",
+                )
+            },
+        )
+    })
+    frozen_schema_provider = _frozen_ingest_provider(schema_provider, request["graph"])
     ok, candidate_graph, error, _ = recompute_apply(
         request["graph"],
         envelope,
-        schema_provider=schema_provider,
+        schema_provider=frozen_schema_provider,
     )
     assert ok and candidate_graph is not None, error
     candidate_graph_hash = payload_hash(candidate_graph)
@@ -298,6 +304,7 @@ def _record_v2_turn(
         {"operation": "captured"},
         parent_revision=seed_parent,
         parent_evidence=parent_evidence,
+        schema_provider=frozen_schema_provider,
     )
     (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
     (allocation.turn_dir / "seed.vibe.json").unlink(missing_ok=True)
@@ -667,6 +674,7 @@ def test_real_session_revision_scoped_monotonic_rollback(tmp_path) -> None:
         read_state,
         rollback_turn_transaction,
     )
+    from vibecomfy.comfy_nodes.agent import session as agent_session
 
     root, session_id, turn_id, candidate_hash, _structural_hash, plan_hash = (
         _setup_v2_session_with_candidate(tmp_path)
@@ -683,7 +691,9 @@ def test_real_session_revision_scoped_monotonic_rollback(tmp_path) -> None:
     )
     assert isinstance(prepared, dict)
     generation_after_prepare = read_state(root / session_id)["next_generation"]
-    unscoped = rollback_turn_transaction(
+    # Exercise the raw production route here: the backend-spine convenience
+    # helper intentionally fills revision identity for positive calls.
+    unscoped = agent_session.rollback_turn_transaction(
         session_root=root,
         session_id=session_id,
         turn_id=turn_id,

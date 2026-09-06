@@ -16,15 +16,17 @@ import pytest
 
 from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.porting.edit._interpret import interpret
+from vibecomfy.porting.edit._ir_utils import apply_edit_cow
 from vibecomfy.porting.emit.ui import guard_exit_ui
 from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.porting.emit.ui import emit_ui_json
-from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema import FrozenSchemaSnapshotProvider, InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema.types import capture_schema_snapshot, schema_payload_from_node_schema
 
 
-class _SchemaProvider:
+class _SchemaProvider(FrozenSchemaSnapshotProvider):
     def __init__(self) -> None:
-        self._schemas = {
+        source_schemas = {
             "CheckpointLoaderSimple": NodeSchema(
                 class_type="CheckpointLoaderSimple",
                 pack="core",
@@ -41,11 +43,23 @@ class _SchemaProvider:
                 inputs={"text": InputSpec(type="STRING", required=True), "clip": InputSpec(type="CLIP", required=True)},
                 outputs=[OutputSpec(type="CONDITIONING", name="CONDITIONING")],
             ),
+            "EmptyLatentImage": NodeSchema(
+                class_type="EmptyLatentImage",
+                pack="core",
+                inputs={
+                    "width": InputSpec(type="INT"),
+                    "height": InputSpec(type="INT"),
+                    "batch_size": InputSpec(type="INT"),
+                },
+                outputs=[OutputSpec(type="LATENT", name="LATENT")],
+                widget_input_order=("width", "height", "batch_size"),
+            ),
             "KSampler": NodeSchema(
                 class_type="KSampler",
                 pack="core",
                 inputs={
                     "seed": InputSpec(type="INT"),
+                    "control_after_generate": InputSpec(type="STRING"),
                     "steps": InputSpec(type="INT", min=1, max=100),
                     "cfg": InputSpec(type="FLOAT", min=0.0, max=50.0),
                     "sampler_name": InputSpec(type="STRING", choices=["euler", "heun"]),
@@ -57,6 +71,24 @@ class _SchemaProvider:
                     "latent_image": InputSpec(type="LATENT", required=True),
                 },
                 outputs=[OutputSpec(type="LATENT", name="LATENT")],
+                widget_input_order=(
+                    "seed",
+                    "control_after_generate",
+                    "steps",
+                    "cfg",
+                    "sampler_name",
+                    "scheduler",
+                    "denoise",
+                ),
+            ),
+            "VAEDecode": NodeSchema(
+                class_type="VAEDecode",
+                pack="core",
+                inputs={
+                    "samples": InputSpec(type="LATENT", required=True),
+                    "vae": InputSpec(type="VAE", required=True),
+                },
+                outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
             ),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
@@ -68,9 +100,26 @@ class _SchemaProvider:
                 outputs=[],
             ),
         }
-
-    def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self._schemas.get(class_type)
+        snapshot = capture_schema_snapshot(
+            class_types=tuple(source_schemas),
+            request_snapshot={
+                "schemas": {
+                    class_type: schema_payload_from_node_schema(class_type, schema)
+                    for class_type, schema in source_schemas.items()
+                },
+                "missing_classes": [],
+            },
+            node_classes={
+                "1": "CheckpointLoaderSimple",
+                "2": "CLIPTextEncode",
+                "3": "CLIPTextEncode",
+                "4": "EmptyLatentImage",
+                "5": "KSampler",
+                "6": "VAEDecode",
+                "7": "SaveImage",
+            },
+        )
+        super().__init__(snapshot)
 
 
 def _fixture(name: str = "flat.json") -> dict[str, object]:
@@ -181,6 +230,7 @@ def test_interpret_adds_node_and_emit_is_usable() -> None:
                 "scope_path": "",
                 "class_type": "SaveImage",
                 "fields": {"filename_prefix": "after"},
+                "inputs": {"images": ["", "6", "IMAGE"]},
             }
         ]
     )
@@ -227,31 +277,45 @@ def test_apply_gate_replays_python_source_for_unknown_schema_add_node() -> None:
     }
 
     class _UnknownProvider:
+        @staticmethod
+        def _unknown_schema() -> NodeSchema:
+            return NodeSchema(
+                "UnknownSampler",
+                None,
+                {
+                    "seed": InputSpec(type="INT"),
+                    "options": InputSpec(type="*"),
+                },
+                [OutputSpec(type="LATENT", name="LATENT")],
+            )
+
         def get_schema(self, class_type: str):
             if class_type == "UnknownSampler":
-                return NodeSchema(
-                    "UnknownSampler",
-                    None,
-                    {
-                        "seed": InputSpec(type="INT"),
-                        "options": InputSpec(type="*"),
-                    },
-                    [OutputSpec(type="LATENT", name="LATENT")],
-                )
+                return self._unknown_schema()
             return None
 
+        def schemas(self):
+            return {"UnknownSampler": self._unknown_schema()}
+
     provider = _UnknownProvider()
-    session = EditSession(original, schema_provider=provider)
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+
+    frozen = FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(schema_provider=provider, graph=original)
+    )
+    session = EditSession(original, schema_provider=frozen)
     source = 'sampler = UnknownSampler(seed=40 + 2, options={"scale": 2 * 4})\n'
     pre = session.workflow.copy()
-    interpreted = interpret(pre, source, schema_provider=provider)
+    interpreted = interpret(pre, source, schema_provider=frozen)
     assert interpreted.ok is True
     gate = verify_apply(
         pre,
         interpreted.workflow,
         delta=source,
         landed_ops=interpreted.landed_ops,
-        schema_provider=provider,
+        schema_provider=frozen,
     )
     assert gate.ok is True
     assert gate.apply_eligible is True
@@ -263,6 +327,30 @@ def test_interpret_remove_node_drops_ir_node() -> None:
     result = _interpret(original, delta)
     assert result.ok is True
     assert _node_by_uid(result.workflow, "7") is None
+
+
+def test_remove_maximum_then_auto_add_mints_monotonic_native_id() -> None:
+    """Retired native ids are never reused by an unspecified fresh add."""
+    from vibecomfy.porting.edit.ops import AddNodeOp, NodeTarget, RemoveNodeOp
+    from vibecomfy.workflow import VibeWorkflow, VibeNode, WorkflowSource
+
+    workflow = VibeWorkflow("allocator", WorkflowSource("allocator"))
+    workflow.nodes["7"] = VibeNode("7", "Note", uid="retired")
+    removed = apply_edit_cow(
+        workflow,
+        RemoveNodeOp("remove_node", NodeTarget("", "retired")),
+    )
+    fresh = apply_edit_cow(
+        removed,
+        AddNodeOp("add_node", "", "Note", {}, {}, None),
+    )
+    assert list(fresh.nodes) == ["8"]
+
+    explicit_rebuild = apply_edit_cow(
+        removed,
+        AddNodeOp("add_node", "", "Note", {}, {}, None, "retired", "7"),
+    )
+    assert list(explicit_rebuild.nodes) == ["7"]
 
 
 def test_interpret_upsert_link_rewires_in_ir() -> None:
@@ -511,6 +599,197 @@ def test_apply_gate_allows_legal_widget_edit() -> None:
     assert value == 42
 
 
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        ["new", 2],
+        ("new", 2),
+        {"first": "new", "second": 2},
+    ),
+    ids=("list", "tuple", "mapping"),
+)
+def test_apply_gate_replays_literal_aggregate_values_exactly(replacement) -> None:
+    """Literal aggregate inputs are replay-visible, unlike canonical links."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=original,
+    )
+    frozen = FrozenSchemaSnapshotProvider(snapshot)
+    pre = from_ui(dict(original), schema_provider=frozen, use_comfy_converter=False)
+    pre.nodes["2"].inputs["literal_aggregate"] = ["old", 1]
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "2", "literal_aggregate"),
+        value=replacement,
+    )
+
+    interpreted = interpret(pre, (op,), schema_provider=frozen)
+    assert interpreted.ok is True
+    assert interpreted.workflow.nodes["2"].inputs["literal_aggregate"] == replacement
+
+    gate = verify_apply(
+        pre,
+        interpreted.workflow,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=frozen,
+    )
+    assert gate.ok is True
+    assert gate.apply_eligible is True
+
+
+def test_apply_gate_rejects_staged_claimed_list_tampering() -> None:
+    """A forged staged aggregate cannot pass when replay reconstructs the claim."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=original,
+    )
+    frozen = FrozenSchemaSnapshotProvider(snapshot)
+    pre = from_ui(dict(original), schema_provider=frozen, use_comfy_converter=False)
+    pre.nodes["2"].inputs["literal_aggregate"] = ["old", 1]
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "2", "literal_aggregate"),
+        value=["new", 2],
+    )
+    interpreted = interpret(pre, (op,), schema_provider=frozen)
+    assert interpreted.ok is True
+
+    staged = copy.deepcopy(interpreted.workflow)
+    staged.nodes["2"].inputs["literal_aggregate"] = ["forged", 99]
+    gate = verify_apply(
+        pre,
+        staged,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=frozen,
+    )
+
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason == "replay_mismatch"
+    assert any(
+        item.code == "apply_gate_replay_mismatch" for item in gate.diagnostics
+    )
+
+
+def test_apply_gate_rejects_mapping_for_replayed_list_of_pairs() -> None:
+    """Replay agreement preserves mapping versus list-of-pairs container kind."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=original,
+    )
+    frozen = FrozenSchemaSnapshotProvider(snapshot)
+    pre = from_ui(dict(original), schema_provider=frozen, use_comfy_converter=False)
+    pre.nodes["2"].inputs["literal_aggregate"] = {"old": 0}
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "2", "literal_aggregate"),
+        value=[["a", 1]],
+    )
+    interpreted = interpret(pre, (op,), schema_provider=frozen)
+    assert interpreted.ok is True
+    staged = copy.deepcopy(interpreted.workflow)
+    staged.nodes["2"].inputs["literal_aggregate"] = {"a": 1}
+
+    gate = verify_apply(
+        pre,
+        staged,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=frozen,
+    )
+
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason == "replay_mismatch"
+    assert any(
+        item.code == "apply_gate_replay_mismatch" for item in gate.diagnostics
+    )
+
+
+@pytest.mark.parametrize(
+    ("submitted", "corruption"),
+    (
+        pytest.param(1, True, id="int-to-bool"),
+        pytest.param(True, 1.0, id="bool-to-float"),
+        pytest.param(1.0, 1, id="float-to-int"),
+    ),
+)
+def test_apply_gate_rejects_equal_numeric_scalar_type_corruption(
+    submitted: object,
+    corruption: object,
+) -> None:
+    """Replay equality distinguishes bool, int, and float scalar kinds."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.porting.edit.apply_gate import verify_apply
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    original = _fixture()
+    provider = _SchemaProvider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=provider,
+        graph=original,
+    )
+    frozen = FrozenSchemaSnapshotProvider(snapshot)
+    pre = from_ui(dict(original), schema_provider=frozen, use_comfy_converter=False)
+    pre.nodes["2"].inputs["literal_scalar"] = "old"
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget("", "2", "literal_scalar"),
+        value=submitted,
+    )
+    interpreted = interpret(pre, (op,), schema_provider=frozen)
+    assert interpreted.ok is True
+    assert type(interpreted.workflow.nodes["2"].inputs["literal_scalar"]) is type(submitted)
+
+    staged = copy.deepcopy(interpreted.workflow)
+    staged.nodes["2"].inputs["literal_scalar"] = corruption
+    assert submitted == corruption
+    assert type(submitted) is not type(corruption)
+
+    gate = verify_apply(
+        pre,
+        staged,
+        landed_ops=interpreted.landed_ops,
+        schema_provider=frozen,
+    )
+
+    assert gate.ok is False
+    assert gate.apply_eligible is False
+    assert gate.reason == "replay_mismatch"
+    assert any(
+        item.code == "apply_gate_replay_mismatch" for item in gate.diagnostics
+    )
+
+
 def test_apply_gate_rejects_unclaimed_semantic_edge_mismatches() -> None:
     """Link-ID furniture must never excuse a different canonical edge."""
     from vibecomfy.porting.edit.apply_gate import verify_apply
@@ -685,46 +964,70 @@ def test_apply_batch_replay_rejection_is_atomic(
     from vibecomfy.porting.edit.session import EditSession
 
     provider = _SchemaProvider()
-    session = EditSession(_fixture(), schema_provider=provider)
-    if mutation == "uidless_endpoint_retarget":
-        _append_uidless_node_and_edge(session.workflow)
-    elif mutation == "duplicate_edge_removal":
+    original = _fixture()
+    session = EditSession(original, schema_provider=provider)
+    if mutation == "duplicate_edge_removal":
         _append_duplicate_edge(session.workflow)
+        assert session.workflow.edges[0] == session.workflow.edges[-1]
+        assert len(session.workflow.edges) == len(original["links"]) + 1
     before = copy.deepcopy(session.workflow)
-    original_interpret = _interpret.interpret
-    call_count = 0
+    if mutation == "duplicate_edge_removal":
+        original_interpret = _interpret.interpret
+        interpret_call_count = 0
 
-    def injected_candidate(*args, **kwargs):
-        nonlocal call_count
-        result = original_interpret(*args, **kwargs)
-        call_count += 1
-        if call_count != 1 or not result.ok:
-            return result
-        if mutation == "uidless_node_edge_addition":
-            _append_uidless_node_and_edge(result.workflow)
-        elif mutation == "uidless_endpoint_retarget":
-            uidless_edge = next(
-                edge
-                for edge in result.workflow.edges
-                if str(edge.from_node) == "999"
-            )
-            uidless_edge.to_node = "6"
-            uidless_edge.to_input = "samples"
-        elif mutation == "duplicate_edge_addition":
-            _append_duplicate_edge(result.workflow)
-        elif mutation == "duplicate_edge_removal":
-            first = result.workflow.edges[0]
+        def candidate_without_retained_duplicate(pre, *args, **kwargs):
+            nonlocal interpret_call_count
+            interpret_call_count += 1
+            if interpret_call_count != 1:
+                return original_interpret(pre, *args, **kwargs)
+            clean_candidate_base = copy.deepcopy(pre)
+            first = clean_candidate_base.edges[0]
             duplicate_index = next(
                 index
-                for index, edge in enumerate(result.workflow.edges[1:], start=1)
+                for index, edge in enumerate(
+                    clean_candidate_base.edges[1:], start=1
+                )
                 if edge == first
             )
-            result.workflow.edges.pop(duplicate_index)
-        else:  # pragma: no cover - closed parametrization
-            raise AssertionError(mutation)
-        return result
+            clean_candidate_base.edges.pop(duplicate_index)
+            result = original_interpret(clean_candidate_base, *args, **kwargs)
+            assert result.ok is True
+            assert sum(edge == first for edge in result.workflow.edges) == 1
+            return result
 
-    monkeypatch.setattr(_interpret, "interpret", injected_candidate)
+        monkeypatch.setattr(
+            _interpret,
+            "interpret",
+            candidate_without_retained_duplicate,
+        )
+    else:
+        original_evaluate = _interpret._evaluate_operation
+        call_count = 0
+
+        def injected_candidate(*args, **kwargs):
+            nonlocal call_count
+            result = original_evaluate(*args, **kwargs)
+            call_count += 1
+            if call_count != 1 or result.outcome != "staged":
+                return result
+            if mutation == "uidless_node_edge_addition":
+                _append_uidless_node_and_edge(result.workflow)
+            elif mutation == "uidless_endpoint_retarget":
+                _append_uidless_node_and_edge(result.workflow)
+                uidless_edge = next(
+                    edge
+                    for edge in result.workflow.edges
+                    if str(edge.from_node) == "999"
+                )
+                uidless_edge.to_node = "6"
+                uidless_edge.to_input = "samples"
+            elif mutation == "duplicate_edge_addition":
+                _append_duplicate_edge(result.workflow)
+            else:  # pragma: no cover - closed parametrization
+                raise AssertionError(mutation)
+            return result
+
+        monkeypatch.setattr(_interpret, "_evaluate_operation", injected_candidate)
     batch = session.apply_batch("ksampler.steps = 42\n")
 
     assert batch.ok is False
@@ -732,7 +1035,7 @@ def test_apply_batch_replay_rejection_is_atomic(
     assert batch.landed_ops == ()
     assert any(item.code == diagnostic_code for item in batch.diagnostics)
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
 
@@ -750,26 +1053,34 @@ def test_apply_ops_replay_rejection_is_atomic(
     diagnostic_code: str,
 ) -> None:
     """Typed apply_ops rejects an unverifiable candidate before any commit."""
-    from vibecomfy.porting.edit import _op_validate
+    from vibecomfy.porting.edit import _interpret
     from vibecomfy.porting.edit.session import EditSession
 
     provider = _SchemaProvider()
     session = EditSession(_fixture(), schema_provider=provider)
     before = copy.deepcopy(session.workflow)
     before_ui = copy.deepcopy(session.working_ui)
-    original_validate = _op_validate.validate_typed_ops
+    original_interpret_ops = _interpret._interpret_ops
+    call_count = 0
 
     def injected_candidate(*args, **kwargs):
-        post = original_validate(*args, **kwargs)
+        nonlocal call_count
+        report = original_interpret_ops(*args, **kwargs)
+        call_count += 1
+        if not report.ok:
+            return report
+        if call_count != 1:
+            return report
+        post = report.workflow
         if mutation == "uidless_node_edge_addition":
             _append_uidless_node_and_edge(post)
         elif mutation == "duplicate_edge_addition":
             _append_duplicate_edge(post)
         else:  # pragma: no cover - closed parametrization
             raise AssertionError(mutation)
-        return post
+        return report
 
-    monkeypatch.setattr(_op_validate, "validate_typed_ops", injected_candidate)
+    monkeypatch.setattr(_interpret, "_interpret_ops", injected_candidate)
     ops = parse_edit_delta(
         [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
     )
@@ -781,7 +1092,7 @@ def test_apply_ops_replay_rejection_is_atomic(
     assert result.landed_ops == ()
     assert any(item.code == diagnostic_code for item in result.diagnostics)
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui
@@ -814,7 +1125,7 @@ def test_apply_batch_empty_delta_gate_is_atomic(monkeypatch) -> None:
     assert result.apply_eligible is False
     assert result.landed_ops == ()
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui
@@ -825,7 +1136,8 @@ def test_apply_batch_subgraph_interface_is_a_replayable_delta() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
     session = EditSession(
-        {"last_node_id": 0, "last_link_id": 0, "nodes": [], "links": [], "groups": []}
+        {"last_node_id": 0, "last_link_id": 0, "nodes": [], "links": [], "groups": []},
+        schema_provider=_SchemaProvider(),
     )
 
     result = session.apply_batch(
@@ -873,7 +1185,7 @@ def test_apply_batch_failed_interpretation_ineligible_gate_is_atomic(monkeypatch
     assert result.apply_eligible is False
     assert result.landed_ops == ()
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui
@@ -913,7 +1225,7 @@ def test_apply_batch_failed_interpretation_rejected_gate_is_atomic(monkeypatch) 
     assert result.apply_eligible is False
     assert result.landed_ops == ()
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui
@@ -950,7 +1262,7 @@ def test_apply_ops_empty_delta_gate_is_atomic(monkeypatch) -> None:
     assert result.landed_ops == ()
     assert result.revision == 0
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui
@@ -969,7 +1281,7 @@ def test_done_empty_delta_is_observational() -> None:
 
     assert result.ok is True
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.landed_ops == []
     assert session.workflow == before
     assert session.working_ui == before_ui

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from types import SimpleNamespace
 import os
@@ -93,7 +94,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     record_idempotent_response,
     rebaseline_session,
     reject_turn,
-    rollback_turn_transaction,
+    rollback_turn_transaction as _rollback_turn_transaction,
     structural_graph_hash,
     session_dir_for,
     turn_dir_for,
@@ -306,11 +307,17 @@ _REQUEST_PAYLOADS_BY_HASH: dict[str, dict] = {}
 def _request_graph(label: str) -> dict:
     request = {
         "workflow_id": "123e4567-e89b-12d3-a456-426614174000",
+        # Canonical V2 requests carry the closed revision identity consumed by
+        # publication/idempotency. Keep this helper representative of the
+        # production request envelope so tests reach their intended endpoint
+        # behavior instead of failing at fixture construction.
+        "revision_id": hashlib.sha256(f"revision:{label}".encode()).hexdigest(),
+        "parent_revision": "",
         "graph": {
             "nodes": [
                 {
                     "id": 1,
-                    "type": "SaveImage",
+                    "type": "PrimitiveString",
                     "widgets_values": [label],
                     "properties": {"vibecomfy_uid": "1"},
                 }
@@ -357,6 +364,33 @@ def _record_candidate_response(
     # genuine identity delta instead. Tests needing a particular candidate use
     # the returned authoritative graph rather than the obsolete input fixture.
     candidate_graph = json.loads(json.dumps(persisted_request["graph"]))
+    # The V2 publication path verifies that the submitted revision matches the
+    # retained bundle identity. Seed that identity from the same real bundle
+    # capture used by production rather than inventing a hash in the fixture.
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    seed_graph = dict(candidate_graph)
+    seed_graph["workflow_id"] = persisted_request["workflow_id"]
+    seed_path = allocation.turn_dir / "_fixture_seed.py"
+    seed = capture_bundle(
+        seed_graph,
+        seed_path,
+        {"operation": "captured"},
+        schema_provider=_frozen_ingest_provider(None, persisted_request["graph"]),
+    )
+    seed_path.unlink(missing_ok=True)
+    (allocation.turn_dir / "_fixture_seed.vibe.json").unlink(missing_ok=True)
+    persisted_request["revision_id"] = seed.revision_id
+    persisted_request["parent_revision"] = ""
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(persisted_request), encoding="utf-8"
+    )
+    # Allocation happened before the fixture could derive the bundle revision;
+    # update the persisted request hash to match the canonical request body.
+    canonical_request_hash = payload_hash(persisted_request)
+    state = read_state(session_dir_for(root, session_id))
+    state["turns"][turn_id]["request_hash"] = canonical_request_hash
+    write_state_atomic(session_dir_for(root, session_id), state)
     envelope = {"schema_version": "2.0.0", "ops": []}
     before = structural_graph_hash(persisted_request["graph"])
     after = structural_graph_hash(candidate_graph)
@@ -384,7 +418,7 @@ def _record_candidate_response(
         session_id=session_id,
         scope="edit",
         idempotency_key=idempotency_key,
-        request_hash=allocation.request_hash,
+        request_hash=canonical_request_hash,
         response=response,
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
@@ -10781,7 +10815,7 @@ def test_response_durability_keyed_success_publishes_response_and_idempotency_re
 
     # The returned record must carry the right hashes.
     result = read_state(session_dir_for(root, "s1"))["idempotency_records"]["edit:success-key-3"]
-    assert result["request_hash"] == allocation.request_hash
+    assert result["request_hash"] == payload_hash(request)
     assert result["turn_id"] == turn_id
     assert result["operation"] == "edit"
 
@@ -10794,7 +10828,7 @@ def test_response_durability_keyed_success_publishes_response_and_idempotency_re
     )
     assert replay.replay is not None, "Replay must be returned for a successfully recorded key"
     assert replay.replay.response == written
-    assert replay.replay.record["request_hash"] == allocation.request_hash
+    assert replay.replay.record["request_hash"] == payload_hash(request)
 
     # Turn state must also be updated.
     session_dir = session_dir_for(root, "s1")
@@ -11017,6 +11051,28 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         "agent_edit_protocol": "v2_delta",
         "accepted_batch": [{"op": op} for op in envelope["ops"]],
     }
+
+    # Seed the request's closed revision identity from the real bundle capture
+    # used by publication; this fixture intentionally exercises explicit V2
+    # binding rather than the legacy body-only path.
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    seed_graph = dict(candidate_graph)
+    seed_graph["workflow_id"] = request["workflow_id"]
+    seed_path = allocation.turn_dir / "_fixture_seed.py"
+    seed = capture_bundle(
+        seed_graph,
+        seed_path,
+        {"operation": "captured"},
+        schema_provider=_frozen_ingest_provider(None, submit_graph),
+    )
+    seed_path.unlink(missing_ok=True)
+    (allocation.turn_dir / "_fixture_seed.vibe.json").unlink(missing_ok=True)
+    request["revision_id"] = seed.revision_id
+    request["parent_revision"] = ""
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(request), encoding="utf-8"
+    )
 
     record_idempotent_response(
         session_root=root,
@@ -12465,6 +12521,12 @@ def _setup_v2_session_with_candidate(
     session_id = "s1"
 
     request = _request_graph("v2-prep-test")
+    # This lifecycle fixture must describe a compilable candidate.  SaveImage
+    # without its required IMAGE edge only happened to survive while bundle
+    # capture discarded schema evidence; once the frozen witness is retained,
+    # approval correctly reaches ordinary workflow validation.  A standalone
+    # PrimitiveString keeps these tests focused on transaction lifecycle.
+    request["graph"]["nodes"][0]["type"] = "PrimitiveString"
     request["client_live_canvas_token"] = "live:rev:1:client-v2-prep"
     allocation = allocate_turn(
         session_root=root,
@@ -12479,29 +12541,43 @@ def _setup_v2_session_with_candidate(
         "ops": [
             {
                 "op": "set_node_field",
-                "target": ["", "1", "filename_prefix"],
+                "target": ["", "1", "value"],
                 "value": "v2-cand",
             }
         ],
     }
     schema_provider = _Provider(
         {
-            "SaveImage": _schema_with_inputs(
-                "SaveImage",
-                filename_prefix=InputSpec(
+            "PrimitiveString": _schema_with_inputs(
+                "PrimitiveString",
+                value=InputSpec(
                     type="STRING",
                     required=True,
-                    default="ComfyUI",
+                    default="",
                 ),
             )
         }
     )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
     from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        schema_snapshot_from_payload,
+    )
+
+    ingress_schema_snapshot = capture_ingress_schema_snapshot(
+        schema_provider=schema_provider,
+        graph=request["graph"],
+    )
+    frozen_schema_provider = FrozenSchemaSnapshotProvider(ingress_schema_snapshot)
+    assert frozen_schema_provider.snapshot is ingress_schema_snapshot
 
     ok, candidate_graph, error, _ = recompute_apply(
         request["graph"],
         envelope,
-        schema_provider=schema_provider,
+        schema_provider=frozen_schema_provider,
     )
     assert ok and candidate_graph is not None, error
     candidate_graph_hash = payload_hash(candidate_graph)
@@ -12519,7 +12595,12 @@ def _setup_v2_session_with_candidate(
     )
     seed_graph = dict(candidate_graph)
     seed_graph["workflow_id"] = workflow_id
-    seed = capture_bundle(seed_graph, allocation.turn_dir / "seed.py", {"operation": "captured"})
+    seed = capture_bundle(
+        seed_graph,
+        allocation.turn_dir / "seed.py",
+        {"operation": "captured"},
+        schema_provider=frozen_schema_provider,
+    )
     (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
     (allocation.turn_dir / "seed.vibe.json").unlink(missing_ok=True)
     request["revision_id"] = seed.revision_id
@@ -12550,14 +12631,17 @@ def _setup_v2_session_with_candidate(
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
-        # DEEP-AUDIT-FIX-1-ADJUDICATION parity: freeze the ingest door from
-        # this fixture's live surface before publication; receipts persist
-        # from the locked frozen generation.
-        schema_provider=_frozen_ingest_provider(schema_provider, request["graph"]),
+        schema_provider=frozen_schema_provider,
     )
     persisted_response = json.loads(
         (allocation.turn_dir / "response.json").read_text(encoding="utf-8")
     )
+    authority_receipt = load_authority_receipt(allocation.turn_dir)
+    assert authority_receipt is not None
+    assert authority_receipt.schema_witness is not None
+    assert schema_snapshot_from_payload(
+        authority_receipt.schema_witness["schema_snapshot"]
+    ) == ingress_schema_snapshot
     assert immediate_response["candidate_transaction"]["contract_version"] == "candidate_transaction_v2"
     assert immediate_response["candidate_transaction"] == persisted_response["candidate_transaction"]
 
@@ -12572,6 +12656,130 @@ def _setup_v2_session_with_candidate(
     write_state_atomic(root / session_id, state)
 
     return root, session_id, turn_id, candidate_graph_hash, structural_hash, plan_hash
+
+
+def test_v2_candidate_bundle_capture_retains_frozen_schema_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    response = json.loads(
+        (root / session_id / "turns" / turn_id / "response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    transaction = response["candidate_transaction"]
+
+    from vibecomfy.security.provenance import Provenance
+    from vibecomfy.workflow_bundle import load_bundle
+
+    bundle = load_bundle(
+        transaction["bundle"]["python_path"],
+        trust=Provenance.USER_CONFIRMED,
+    )
+    assert bundle.workflow.requirements.missing_nodes == []
+    assert bundle.workflow.nodes["1"].metadata["schema_source"]["provider"] == "test"
+    assert transaction["plan"]["schema_provenance"]["sources"] == {
+        "PrimitiveString": "test"
+    }
+
+    def reject_ambient_schema_provider(**_kwargs):
+        raise AssertionError("finalize must not consult ambient schema authority")
+
+    from vibecomfy.comfy_nodes.agent import session as session_module
+
+    reconstruct_calls: list[str] = []
+    reconstruct_from_witness = session_module.schema_provider_from_witness
+
+    def reconstruct_once(witness):
+        reconstruct_calls.append(str(witness["witness_hash"]))
+        return reconstruct_from_witness(witness)
+
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        reject_ambient_schema_provider,
+    )
+    monkeypatch.setattr(
+        session_module,
+        "schema_provider_from_witness",
+        reconstruct_once,
+    )
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "candidate_graph_hash": cand_hash,
+        },
+    )
+    assert isinstance(prepared, dict)
+    finalized = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": structural_hash,
+            "post_apply_graph": canonical_candidate_graph(root, session_id, turn_id),
+            "applied_delta_hash": prepared["candidate_transaction"]["plan"][
+                "delta_hash"
+            ],
+            "post_apply_hash_verified": True,
+            "browser_verified": True,
+        },
+    )
+    assert isinstance(finalized, dict)
+    assert finalized["ok"] is True
+    assert reconstruct_calls == [
+        transaction["authority"]["schema_witness_hash"]
+    ]
+
+
+def test_reload_captured_bundle_rejects_legacy_none_schema_witness_without_ambient_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, session_id, turn_id, _cand_hash, _structural_hash, _plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    transaction = candidate_transaction_evidence(root, session_id, turn_id)
+    assert transaction is not None
+
+    from vibecomfy.comfy_nodes.agent import session as session_module
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import content_hash
+
+    none_body = {
+        "contract_version": "candidate_schema_witness_v1",
+        "provider_mode": "none",
+        "schemas": {},
+        "missing_class_types": [],
+    }
+    legacy_none_witness = {
+        **none_body,
+        "witness_hash": content_hash(none_body),
+    }
+    ambient_calls: list[dict] = []
+
+    def reject_ambient_schema_provider(**kwargs):
+        ambient_calls.append(dict(kwargs))
+        raise AssertionError("legacy provider_mode=none must fail before ambient lookup")
+
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        reject_ambient_schema_provider,
+    )
+    with pytest.raises(ValueError, match="requires frozen schema authority"):
+        session_module._reload_captured_bundle(
+            transaction=transaction,
+            compile_approval=True,
+            schema_witness=legacy_none_witness,
+        )
+    assert ambient_calls == []
 
 
 def prep_submit_hash(root: Path, session_id: str, turn_id: str) -> str:
@@ -12596,6 +12804,21 @@ def candidate_projection_evidence(
     return response["candidate_transaction"]["candidate_authority"][kind]
 
 
+def candidate_transaction_evidence(
+    root: Path, session_id: str, turn_id: str
+) -> dict | None:
+    """Read optional browser-visible identity evidence without preempting 404s."""
+    try:
+        transaction = json.loads(
+            (root / session_id / "turns" / turn_id / "response.json").read_text(
+                encoding="utf-8"
+            )
+        )["candidate_transaction"]
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+    return transaction if isinstance(transaction, dict) else None
+
+
 def prepare_turn_transaction(**kwargs):
     """Model the browser prepare transport with its mandatory typed witness."""
     payload = dict(kwargs.get("request_payload") or {})
@@ -12611,11 +12834,14 @@ def prepare_turn_transaction(**kwargs):
         )
     except (OSError, KeyError, TypeError, ValueError):
         pass
-    transaction = json.loads(
-        (Path(kwargs["session_root"]) / str(kwargs["session_id"]) / "turns" / str(kwargs["turn_id"]) / "response.json").read_text(encoding="utf-8")
-    )["candidate_transaction"]
-    payload.setdefault("revision_id", transaction["revision_id"])
-    payload.setdefault("parent_revision", transaction["parent_revision"])
+    transaction = candidate_transaction_evidence(
+        Path(kwargs["session_root"]),
+        str(kwargs["session_id"]),
+        str(kwargs["turn_id"]),
+    )
+    if isinstance(transaction, dict):
+        payload.setdefault("revision_id", transaction["revision_id"])
+        payload.setdefault("parent_revision", transaction["parent_revision"])
     return _prepare_turn_transaction(**{**kwargs, "request_payload": payload})
 
 
@@ -12634,12 +12860,29 @@ def finalize_turn_transaction(**kwargs):
         )
     except (OSError, KeyError, TypeError, ValueError):
         pass
-    transaction = json.loads(
-        (Path(kwargs["session_root"]) / str(kwargs["session_id"]) / "turns" / str(kwargs["turn_id"]) / "response.json").read_text(encoding="utf-8")
-    )["candidate_transaction"]
-    payload.setdefault("revision_id", transaction["revision_id"])
-    payload.setdefault("parent_revision", transaction["parent_revision"])
+    transaction = candidate_transaction_evidence(
+        Path(kwargs["session_root"]),
+        str(kwargs["session_id"]),
+        str(kwargs["turn_id"]),
+    )
+    if isinstance(transaction, dict):
+        payload.setdefault("revision_id", transaction["revision_id"])
+        payload.setdefault("parent_revision", transaction["parent_revision"])
     return _finalize_turn_transaction(**{**kwargs, "request_payload": payload})
+
+
+def rollback_turn_transaction(**kwargs):
+    """Model rollback transport with its prepared bundle identity witness."""
+    payload = dict(kwargs.get("request_payload") or {})
+    transaction = candidate_transaction_evidence(
+        Path(kwargs["session_root"]),
+        str(kwargs["session_id"]),
+        str(kwargs["turn_id"]),
+    )
+    if isinstance(transaction, dict):
+        payload.setdefault("revision_id", transaction["revision_id"])
+        payload.setdefault("parent_revision", transaction["parent_revision"])
+    return _rollback_turn_transaction(**{**kwargs, "request_payload": payload})
 
 
 def accept_turn(**kwargs):
@@ -12648,6 +12891,10 @@ def accept_turn(**kwargs):
     root = Path(kwargs["session_root"])
     session_id = str(kwargs["session_id"])
     turn_id = str(kwargs["turn_id"])
+    transaction = candidate_transaction_evidence(root, session_id, turn_id)
+    if isinstance(transaction, dict):
+        payload.setdefault("revision_id", transaction["revision_id"])
+        payload.setdefault("parent_revision", transaction["parent_revision"])
     state = read_state(root / session_id)
     turn_record = state.get("turns", {}).get(turn_id)
     if (

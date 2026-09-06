@@ -275,7 +275,14 @@ def _ks_ui_graph() -> dict:
 
 def _ks_schema_provider() -> Any:
     """Return a schema provider with KSampler including sampler/scheduler choices."""
-    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        InputSpec,
+        NodeSchema,
+        OutputSpec,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
 
     ks_schema = NodeSchema(
         class_type="KSampler",
@@ -329,14 +336,27 @@ def _ks_schema_provider() -> Any:
         def schemas(self) -> dict:
             return self._schemas
 
-    return _KSProvider({"KSampler": ks_schema})
+    snapshot = capture_schema_snapshot(
+        class_types=("KSampler",),
+        request_snapshot={
+            "schemas": {"KSampler": schema_payload_from_node_schema("KSampler", ks_schema)},
+            "missing_classes": [],
+        },
+        node_classes={"1": "KSampler"},
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
 
 
 def _ks_edit_session() -> Any:
     """Create an EditSession with a KSampler graph, rendered to bind names."""
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ks_ui_graph(), schema_provider=_ks_schema_provider())
+    provider = _ks_schema_provider()
+    initial_workflow = from_ui(_ks_ui_graph(), schema_provider=provider)
+    session = EditSession(
+        _ks_ui_graph(), schema_provider=provider, initial_workflow=initial_workflow
+    )
     session.render()
     return session
 
@@ -444,7 +464,9 @@ def test_batch_set_sampler_name_nonexistent_fails_with_value_not_in_enum() -> No
     assert detail.get("class_type") == "KSampler"
     assert detail.get("input") == "sampler_name"
     assert detail.get("value") == "nonexistent_sampler"
-    assert isinstance(detail.get("choices"), list)
+    # In-memory reports are recursively immutable; their public JSON serializer
+    # restores this tuple to an array.
+    assert isinstance(detail.get("choices"), tuple)
     assert len(detail["choices"]) >= 4  # at least the 4 we configured
     assert "euler" in detail["choices"]
     assert "nonexistent_sampler" not in detail["choices"]
@@ -509,7 +531,7 @@ def test_batch_set_nonexistent_attribute_sampler_fails_with_unknown_target_field
 
     # valid_fields must include the compact KSampler names
     valid_fields = detail.get("valid_fields")
-    assert isinstance(valid_fields, list), f"expected valid_fields list, got {valid_fields!r}"
+    assert isinstance(valid_fields, tuple), f"expected immutable valid_fields tuple, got {valid_fields!r}"
     assert len(valid_fields) >= 7
     for expected in ("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
         assert expected in valid_fields, f"missing {expected!r} in valid_fields"

@@ -817,7 +817,8 @@ def test_mode_captured_from_pure_python_path() -> None:
     from vibecomfy.ingest.normalize import normalize_to_api
     api = normalize_to_api(raw_ui, use_comfy_converter=False)
     wf = from_api(api)
-    assert wf.nodes["1"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.BYPASSED
     # _ui.mode is left in place so emit_ui_json furniture stays intact.
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
     # No duplicate furniture copy is written on new ingests.
@@ -830,7 +831,8 @@ def test_mode_captured_from_comfy_converter_path() -> None:
     # an API-format node that already has a slim _ui with mode set.
     api_node = _node_with_mode(mode=4)
     wf = from_api({"1": api_node})
-    assert wf.nodes["1"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.BYPASSED
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
     assert "mode" not in wf.nodes["1"].metadata
 
@@ -845,9 +847,10 @@ def test_flags_color_bgcolor_captured() -> None:
 
 
 def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
-    """Nodes with no mode field get mode 0 and no metadata['mode'] key."""
+    """Nodes with no mode field get semantic enabled mode and no metadata key."""
     wf = from_api({"1": _node_without_mode()})
-    assert wf.nodes["1"].mode == 0
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.ENABLED
     assert "mode" not in wf.nodes["1"].metadata
 
 
@@ -856,7 +859,8 @@ def test_mode_does_not_enter_inputs_or_widgets() -> None:
     api_node = _node_with_mode(mode=4)
     wf = from_api({"1": api_node})
     node = wf.nodes["1"]
-    assert node.mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert node.mode is NodeMode.BYPASSED
     assert "mode" not in node.inputs
     assert "mode" not in node.widgets
 
@@ -1543,8 +1547,9 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     assert len(wf.edges) == 1
     assert wf.nodes["1"].uid == "uid-loader"
     assert wf.nodes["1"].inputs["ckpt_name"] == "model.safetensors"
-    assert wf.nodes["1"].mode == 0
-    assert wf.nodes["2"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.ENABLED
+    assert wf.nodes["2"].mode is NodeMode.BYPASSED
     assert wf.nodes["2"].metadata["mode"] == 4
     assert wf.nodes["2"].metadata["_ui"]["mode"] == 4
     assert wf.outputs[0].node_id == "2"
@@ -1829,7 +1834,10 @@ def test_batch3_same_workflow_object_crosses_ingest_into_state_and_session(
 
     raw = deepcopy(_MINIMAL_UI_RAW)
     workflow, ui = ingest_workflow_and_ui(raw)
-    assert ui is raw, "UI input dict identity preserved by the door"
+    assert ui == raw, "UI projection preserves the input values"
+    assert ui is not raw, "UI projection is detached from the caller's raw input"
+    ui["nodes"][0]["type"] = "MutatedProjection"
+    assert raw["nodes"][0]["type"] == "SaveImage"
     assert workflow is not None
 
     state = _batch3_agent_state(tmp_path, raw, workflow=workflow)

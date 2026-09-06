@@ -127,6 +127,11 @@ class AcceptedDelta:
     id: str
     ops: tuple[Any, ...]
 
+    def __post_init__(self) -> None:
+        from vibecomfy.porting.edit._session_types import _freeze_operation_tuple
+
+        object.__setattr__(self, "ops", _freeze_operation_tuple(self.ops))
+
 
 @dataclass(frozen=True, slots=True)
 class TerminalCheckpoint:
@@ -154,7 +159,44 @@ class TerminalCheckpoint:
     audit: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     eligibility: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
+    def __getattribute__(self, name: str) -> Any:
+        if name == "workflow":
+            # A VibeWorkflow is intentionally mutable while authoring. Closed
+            # checkpoints therefore expose a detached copy on every read;
+            # mutations through the public view cannot rewrite retained
+            # terminal authority or affect another reader.
+            retained = object.__getattribute__(self, "workflow")
+            if retained is None:
+                return None
+            from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+            return _cow_workflow_copy(retained)
+        return object.__getattribute__(self, name)
+
     def __post_init__(self) -> None:
+        # The frozen dataclass shell is insufficient when caller-owned nested
+        # dicts/lists remain reachable.  Normalize every public evidence view
+        # at the construction boundary, including direct construction in
+        # recovery and tests, so builtin container descriptors cannot rewrite
+        # a closed checkpoint.
+        from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
+        retained_workflow = object.__getattribute__(self, "workflow")
+        object.__setattr__(
+            self,
+            "workflow",
+            _cow_workflow_copy(retained_workflow)
+            if retained_workflow is not None
+            else None,
+        )
+        object.__setattr__(self, "graph", _deep_freeze_graph(self.graph))
+        object.__setattr__(self, "original_graph", _deep_freeze_graph(self.original_graph))
+        object.__setattr__(self, "deltas", tuple(self.deltas))
+        object.__setattr__(self, "facts", _normalize_facts(self.facts))
+        object.__setattr__(self, "evidence_ids", _normalize_evidence_ids(self.evidence_ids))
+        object.__setattr__(self, "evidence_refs", tuple(str(item) for item in self.evidence_refs))
+        object.__setattr__(self, "audit", _deep_freeze_graph(self.audit))
+        object.__setattr__(self, "eligibility", _deep_freeze_graph(self.eligibility))
         if self.terminal_state not in TERMINAL_STATES:
             raise TerminalCloseError(
                 f"unknown terminal_state {self.terminal_state!r}; table is frozen verbatim"
@@ -333,7 +375,7 @@ def _op_identity(op: Any) -> Any:
         except Exception:
             return repr(op)
     if isinstance(op, Mapping):
-        return dict(op)
+        return _thaw_jsonish(op)
     return op
 
 
@@ -565,8 +607,8 @@ def _close_from_session(
         receipt_id=receipt_id,
         response_id=response_id,
         assessment_id=assessment_id,
-        audit=MappingProxyType(audit),
-        eligibility=MappingProxyType(dict(eligibility)),
+        audit=_deep_freeze_graph(audit),
+        eligibility=_deep_freeze_graph(eligibility),
     )
 
 
@@ -593,6 +635,8 @@ def _close_from_evidence(
     artifact_lineages: Mapping[str, CheckpointLineage | Mapping[str, Any] | None],
     workflow: Any,
 ) -> TerminalCheckpoint:
+    from vibecomfy.porting.edit._ir_utils import _cow_workflow_copy
+
     if terminal_state not in TERMINAL_STATES:
         raise TerminalCloseError(
             f"unknown terminal_state {terminal_state!r}; table is frozen verbatim"
@@ -642,7 +686,7 @@ def _close_from_evidence(
     )
     return TerminalCheckpoint(
         revision=int(revision),
-        workflow=workflow,
+        workflow=_cow_workflow_copy(workflow) if workflow is not None else None,
         graph=closed_graph,
         deltas=deltas,
         facts=_normalize_facts(facts),
@@ -658,8 +702,8 @@ def _close_from_evidence(
         receipt_id=receipt_id,
         response_id=response_id,
         assessment_id=assessment_id,
-        audit=MappingProxyType(audit),
-        eligibility=MappingProxyType(dict(eligibility)),
+        audit=_deep_freeze_graph(audit),
+        eligibility=_deep_freeze_graph(eligibility),
     )
 
 
@@ -1129,7 +1173,7 @@ def checkpoint_to_evidence(checkpoint: TerminalCheckpoint) -> dict[str, Any]:
             {"id": delta.id, "ops": [_op_identity(op) for op in delta.ops]}
             for delta in checkpoint.deltas
         ],
-        "facts": dict(checkpoint.facts),
+        "facts": _thaw_jsonish(checkpoint.facts),
         "evidence_ids": list(checkpoint.evidence_ids),
         "lineage": checkpoint.lineage.to_dict(),
         "original_graph": _unfreeze_graph(checkpoint.original_graph),
@@ -1142,8 +1186,8 @@ def checkpoint_to_evidence(checkpoint: TerminalCheckpoint) -> dict[str, Any]:
         "receipt_id": checkpoint.receipt_id,
         "response_id": checkpoint.response_id,
         "assessment_id": checkpoint.assessment_id,
-        "audit": dict(checkpoint.audit),
-        "eligibility": dict(checkpoint.eligibility),
+        "audit": _thaw_jsonish(checkpoint.audit),
+        "eligibility": _thaw_jsonish(checkpoint.eligibility),
         "rejected_candidate": deepcopy(dict(checkpoint.audit.get("rejected_candidate") or {}))
         or None,
     }

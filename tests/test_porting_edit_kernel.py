@@ -14,13 +14,43 @@ from vibecomfy.porting.edit import (
     lower_edit_tool_call,
 )
 from vibecomfy.porting.edit.apply_gate import editable_signature
+from vibecomfy.schema import (
+    FrozenSchemaSnapshotProvider,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
+from tests.support.corpus_schema import graph_inferred_schema_provider
 
 
 _FLAT = Path(__file__).parent / "fixtures" / "agent_edit" / "flat.json"
 
 
 def _session() -> EditSession:
-    return EditSession(json.loads(_FLAT.read_text(encoding="utf-8")))
+    graph = json.loads(_FLAT.read_text(encoding="utf-8"))
+    source = graph_inferred_schema_provider(graph)
+    class_types = tuple(
+        dict.fromkeys(
+            str(node["type"])
+            for node in graph["nodes"]
+            if isinstance(node, dict) and isinstance(node.get("type"), str)
+        )
+    )
+    schemas = {}
+    for class_type in class_types:
+        schema = source.get_schema(class_type)
+        if schema is None:
+            raise AssertionError(f"fixture schema missing for {class_type}")
+        schemas[class_type] = schema_payload_from_node_schema(class_type, schema)
+    snapshot = capture_schema_snapshot(
+        class_types=class_types,
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": schemas,
+            "missing_classes": [],
+        },
+        node_classes={str(node["id"]): str(node["type"]) for node in graph["nodes"]},
+    )
+    return EditSession(graph, schema_provider=FrozenSchemaSnapshotProvider(snapshot))
 
 
 def test_python_and_typed_tool_lower_to_same_canonical_delta_and_ir() -> None:
@@ -68,7 +98,7 @@ def test_typed_batch_is_atomic_when_one_op_is_invalid() -> None:
     assert not result.ok
     assert result.reason == "unknown_field"
     assert result.landed_ops == ()
-    assert session.history == []
+    assert session.history == ()
     assert session.revision == 0
     assert editable_signature(session.workflow) == before
     assert session.working_ui == before_ui
@@ -101,6 +131,7 @@ def test_unknown_schema_and_wrong_channel_are_rejected() -> None:
         lower_edit_tool_call(
             session, "edit_node", {"target": "forged", "field": "steps", "value": 25}
         )
+
     with pytest.raises(EditToolError, match="non-positional"):
         lower_edit_tool_call(
             session, "edit_node", {"target": "ksampler", "field": "widget_2", "value": 25}
@@ -115,7 +146,7 @@ def test_unknown_schema_and_wrong_channel_are_rejected() -> None:
     )
     assert not result.ok
     assert result.reason in {"wrong_channel", "unknown_field"}
-    assert session.history == []
+    assert session.history == ()
 
 
 def test_closed_checkpoint_preserves_accepted_delta_on_later_failure() -> None:
@@ -263,7 +294,7 @@ def test_admit_operation_families_and_fail_closed_unknown_touched() -> None:
         "link": {
             "op": "upsert_link",
             "from": ["", uid, 0],
-            "to": ["", uid, "model"],
+            "to": ["", uid, "latent_image"],
         },
     }
     for name, op in families.items():
@@ -317,7 +348,7 @@ def test_rejected_proposal_never_enters_accepted_delta_or_visible_candidate() ->
     assert apply_result.landed_ops == ()
     assert tuple(session.landed_ops) == before_ops
     assert session.working_ui == before_ui
-    assert session.history == []
+    assert session.history == ()
 
 
 def test_layout_ops_use_the_same_admit_operation_gateway() -> None:
@@ -411,7 +442,7 @@ def test_python_source_dsl_rejected_op_mutates_nothing() -> None:
     assert result.landed_ops == ()
     assert tuple(session.landed_ops) == before_ops
     assert editable_signature(session.workflow) == before_sig
-    assert session.history == []
+    assert session.history == ()
 
 
 def test_apply_and_lint_block_every_typed_rejection() -> None:
@@ -436,8 +467,17 @@ def test_apply_and_lint_block_every_typed_rejection() -> None:
     assert gate.apply_eligible is False
     assert gate.reason in {"unknown_target", "missing_touched_schema", "malformed_op"}
 
-    index = LintIndex.build(session.working_ui)
-    lint = lint_delta([malformed], index, schema_provider=pair.schema)
+    pre_ui_payload = session.working_ui
+    index = LintIndex.build(pre_ui_payload)
+    lint = lint_delta(
+        [malformed],
+        index,
+        schema_provider=pair.schema,
+        retained_authority=pair,
+        pre_workflow=session.workflow,
+        pre_ui_payload=pre_ui_payload,
+        schema_snapshot=pair.schema,
+    )
     assert lint.surviving == ()
     assert any(issue.code for issue in lint.issues)
 
@@ -508,7 +548,9 @@ def test_consumer_routing_is_behavioral_not_substring() -> None:
     rank_source = inspect.getsource(edit_suggestion_tools.rank_edit_targets)
     assert "_ = admit_operation" not in rank_source
     apply_source = inspect.getsource(_interpret._InterpretRunner._apply)
-    assert "admit_operation" in apply_source
+    evaluator_source = inspect.getsource(_interpret._evaluate_operation)
+    assert "_evaluate_operation" in apply_source
+    assert "admit_operation" in evaluator_source
 
     session = _session()
     pair, _uid = _schema_pair(session)
@@ -546,4 +588,3 @@ def test_close_without_gateway_or_replay_is_rejected() -> None:
             admitted=None,
             replay_verified=True,
         )
-

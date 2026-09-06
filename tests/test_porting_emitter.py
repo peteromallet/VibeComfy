@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,27 @@ from vibecomfy.workflow import (
 )
 
 
+def _install_no_gpu_graphbuilder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Install a deterministic local GraphBuilder seam for compiler parity tests."""
+    graph_utils = types.ModuleType("comfy_execution.graph_utils")
+
+    class GraphBuilder:
+        def __init__(self, *, prefix: str = "") -> None:
+            self._nodes: dict[str, dict[str, Any]] = {}
+
+        def node(self, class_type: str, *, id: str, **inputs: Any) -> None:
+            self._nodes[str(id)] = {"class_type": class_type, "inputs": inputs}
+
+        def finalize(self) -> dict[str, dict[str, Any]]:
+            return {key: self._nodes[key] for key in sorted(self._nodes)}
+
+    graph_utils.GraphBuilder = GraphBuilder
+    comfy_execution = types.ModuleType("comfy_execution")
+    comfy_execution.graph_utils = graph_utils
+    monkeypatch.setitem(sys.modules, "comfy_execution", comfy_execution)
+    monkeypatch.setitem(sys.modules, "comfy_execution.graph_utils", graph_utils)
+
+
 def _sample_workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("sample", WorkflowSource("sample", provenance={"origin": "unit"}))
     workflow.nodes["10"] = VibeNode("10", "LoadImage", inputs={"image": "input.png"}, uid="load")
@@ -57,7 +79,10 @@ def _sample_workflow() -> VibeWorkflow:
     return workflow
 
 
-def test_canonical_emitter_restricted_round_trip_is_the_same_ir(tmp_path: Path) -> None:
+def test_canonical_emitter_restricted_round_trip_is_the_same_ir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_no_gpu_graphbuilder(monkeypatch)
     workflow = VibeWorkflow("canonical/probe", WorkflowSource("canonical/probe"))
     workflow.nodes["1"] = VibeNode(
         "1",
@@ -170,7 +195,10 @@ def test_canonical_emitter_preserves_recursive_fields_and_ignores_raw_ui() -> No
     assert reloaded.compile("api") == workflow.compile("api")
 
 
-def test_canonical_depth_two_recursive_helpers_reload_twice_with_parity(tmp_path: Path) -> None:
+def test_canonical_depth_two_recursive_helpers_reload_twice_with_parity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_no_gpu_graphbuilder(monkeypatch)
     from tests.test_b11b_execution_projection import _depth_two_sibling_workflow
 
     workflow, inner_key, outer_key = _depth_two_sibling_workflow()
@@ -1356,7 +1384,7 @@ def test_subgraph_ui_metadata_does_not_override_canonical_output_schema() -> Non
         )
 
 
-def test_cache_greater_than_ui_rejects_arity_mismatch(
+def test_cache_greater_than_ui_keeps_retained_arity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1369,13 +1397,14 @@ def test_cache_greater_than_ui_rejects_arity_mismatch(
 
     workflow = _wan_workflow_with_ui_outputs(["positive", "negative", "latent"])
     workflow.nodes["1"].metadata["output_names"] = ["positive", "negative", "latent"]
-    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
-        emit_ready_template_python(
-            workflow,
-            ready_metadata={"ready_template": "video/test", "capability": "video"},
-            ready_requirements={},
-            template_id="video/test",
-        )
+    text = emit_ready_template_python(
+        workflow,
+        ready_metadata={"ready_template": "video/test", "capability": "video"},
+        ready_requirements={},
+        template_id="video/test",
+    )
+    assert "positive, negative, latent = WanImageToVideo(" in text
+    assert "unused" not in text
 
 
 
@@ -1436,7 +1465,10 @@ def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
     assert "wanimagetovideo.out" not in text
 
 
-def test_named_multi_output_fanout_restricted_reload_preserves_handles(tmp_path: Path) -> None:
+def test_named_multi_output_fanout_restricted_reload_preserves_handles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_no_gpu_graphbuilder(monkeypatch)
     wf = VibeWorkflow("canonical/fanout", WorkflowSource("canonical/fanout"))
     wf.nodes["1"] = VibeNode("1", "WanImageToVideo", uid="producer")
     wf.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
@@ -1476,7 +1508,7 @@ def test_ready_template_replaces_dead_unpacked_outputs_with_underscore() -> None
     assert "positive, negative, latent = WanImageToVideo(_id='1', _uid='1')" not in text
 
 
-def test_ready_template_unpack_rejects_ui_arity_before_cache_shortcut(
+def test_ready_template_unpack_uses_retained_ui_arity_before_cache_shortcut(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache_root = _write_object_info_cache(tmp_path, "WanImageToVideo", ["POSITIVE", "NEGATIVE"])
@@ -1484,17 +1516,18 @@ def test_ready_template_unpack_rejects_ui_arity_before_cache_shortcut(
 
     workflow = _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"])
     workflow.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
-    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
-        emit_ready_template_python(
-            workflow,
-            ready_metadata={"ready_template": "video/test", "capability": "video"},
-            ready_requirements={},
-            template_id="video/test",
-        )
+    text = emit_ready_template_python(
+        workflow,
+        ready_metadata={"ready_template": "video/test", "capability": "video"},
+        ready_requirements={},
+        template_id="video/test",
+    )
+    assert "POSITIVE, NEGATIVE, LATENT" not in text
+    assert "positive, negative, latent = WanImageToVideo(" in text
 
 
 
-def test_ready_template_unpack_rejects_cache_extra_outputs(
+def test_ready_template_unpack_ignores_cache_extra_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cache_root = _write_object_info_cache(
@@ -1506,13 +1539,14 @@ def test_ready_template_unpack_rejects_cache_extra_outputs(
 
     workflow = _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"])
     workflow.nodes["1"].metadata["output_names"] = ["POSITIVE", "NEGATIVE", "LATENT"]
-    with pytest.raises(ArityDisagreementError, match="WanImageToVideo"):
-        emit_ready_template_python(
-            workflow,
-            ready_metadata={"ready_template": "video/test", "capability": "video"},
-            ready_requirements={},
-            template_id="video/test",
-        )
+    text = emit_ready_template_python(
+        workflow,
+        ready_metadata={"ready_template": "video/test", "capability": "video"},
+        ready_requirements={},
+        template_id="video/test",
+    )
+    assert "positive, negative, latent = WanImageToVideo(" in text
+    assert "STRING" not in text
 
 
 
@@ -1996,6 +2030,32 @@ class _FakeNode:
         self.id = node_id
         self.class_type = class_type
         self.metadata: dict = {}
+
+
+def test_retained_output_arity_never_consults_ambient_object_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retained node roster owns arity even if ambient state disagrees."""
+    import vibecomfy.porting.object_info as object_info
+
+    def poisoned(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("ambient object-info lookup must not run")
+
+    monkeypatch.setattr(object_info, "class_is_known", poisoned)
+    monkeypatch.setattr(object_info, "class_output_count", poisoned)
+    monkeypatch.setattr(object_info, "output_names", poisoned)
+    monkeypatch.setattr(object_info, "resolve_class_entry", poisoned)
+
+    node = VibeNode(
+        "1",
+        "VHS_LoadVideo",
+        native_output_names=["MASK", "IMAGE"],
+        metadata={"output_names": ["MASK", "IMAGE"]},
+    )
+    assert _node_local_output_names(node) == ["MASK", "IMAGE"]
+    assert _node_local_arity_check(node, ui_output_count=2) == 2
+    with pytest.raises(ArityDisagreementError):
+        _node_local_arity_check(node, ui_output_count=4)
 
 
 def test_identity_for_node_returns_none_without_context() -> None:

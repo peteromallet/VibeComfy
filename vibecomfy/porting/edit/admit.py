@@ -17,7 +17,12 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 import logging
 
-from vibecomfy.ingest.snapshot import WorkflowSnapshot, snapshot_of
+from vibecomfy.ingest.snapshot import (
+    SnapshotAuthorityError,
+    WorkflowSnapshot,
+    compare_snapshot_authority,
+    snapshot_of,
+)
 from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
 from vibecomfy.porting.edit.ops import (
     EditOp,
@@ -28,9 +33,12 @@ from vibecomfy.porting.edit.ops import (
 from vibecomfy.schema import (
     FrozenSchemaSnapshotProvider,
     SchemaSnapshot,
+    SchemaSnapshotIdentity,
     SchemaSnapshotError,
+    SCHEMA_SNAPSHOT_VERSION,
     require_known_touched_schema,
     schema_snapshot_from_payload,
+    schema_snapshot_to_payload,
     touched_schema_classes,
 )
 
@@ -310,9 +318,30 @@ AdmissionResult = AdmissionAllowed | AdmissionRejected
 
 
 def _freeze_snapshot_pair(snapshot: Any) -> AdmissionSnapshot:
+    def checked_schema(value: Any, *, label: str) -> SchemaSnapshot | None:
+        if value is None:
+            return None
+        if isinstance(value, (SchemaSnapshot, Mapping)):
+            parsed, _payload = _validated_schema_argument(value, label=label)
+            # Preserve identity for a retained typed witness; payloads are
+            # parsed only after their original representation is checked.
+            return value if isinstance(value, SchemaSnapshot) else parsed
+        raise SchemaSnapshotError(
+            f"{label} must be a SchemaSnapshot or complete payload",
+            code="malformed_schema_snapshot",
+        )
+
     if isinstance(snapshot, AdmissionSnapshot):
-        return snapshot
+        schema = checked_schema(snapshot.schema, label="admission snapshot schema")
+        if schema is snapshot.schema:
+            return snapshot
+        return AdmissionSnapshot(
+            workflow=snapshot.workflow,
+            schema=schema,
+            schema_provider=snapshot.schema_provider,
+        )
     if isinstance(snapshot, SchemaSnapshot):
+        checked_schema(snapshot, label="schema snapshot")
         return AdmissionSnapshot(schema=snapshot)
     if isinstance(snapshot, WorkflowSnapshot):
         return AdmissionSnapshot(workflow=snapshot)
@@ -320,20 +349,20 @@ def _freeze_snapshot_pair(snapshot: Any) -> AdmissionSnapshot:
         workflow, schema = snapshot
         return AdmissionSnapshot(
             workflow=workflow if isinstance(workflow, WorkflowSnapshot) else None,
-            schema=schema if isinstance(schema, SchemaSnapshot) else None,
+            schema=checked_schema(schema, label="tuple schema snapshot"),
         )
     if isinstance(snapshot, Mapping):
         workflow = snapshot.get("workflow") or snapshot.get("workflow_snapshot")
-        schema = snapshot.get("schema") or snapshot.get("schema_snapshot")
+        if "schema" in snapshot:
+            raw_schema = snapshot["schema"]
+        elif "schema_snapshot" in snapshot:
+            raw_schema = snapshot["schema_snapshot"]
+        else:
+            raw_schema = None
         provider = snapshot.get("schema_provider")
-        if isinstance(schema, Mapping):
-            try:
-                schema = schema_snapshot_from_payload(schema)
-            except SchemaSnapshotError:
-                schema = None
         return AdmissionSnapshot(
             workflow=workflow if isinstance(workflow, WorkflowSnapshot) else None,
-            schema=schema if isinstance(schema, SchemaSnapshot) else None,
+            schema=checked_schema(raw_schema, label="mapping schema snapshot"),
             schema_provider=provider,
         )
     return AdmissionSnapshot()
@@ -362,23 +391,433 @@ def _bind_schema_from_provider(schema_provider: Any) -> SchemaSnapshot | None:
     return None
 
 
+def _schema_validation_error(label: str, detail: str) -> SchemaSnapshotError:
+    return SchemaSnapshotError(
+        f"{label} has malformed schema evidence: {detail}",
+        code="malformed_schema_snapshot",
+    )
+
+
+def _validate_json_value(value: Any, *, path: str) -> None:
+    """Validate JSON evidence without applying the schema parser's coercions."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str) or not key:
+                raise _schema_validation_error(path, "mapping keys must be non-empty strings")
+            _validate_json_value(item, path=f"{path}.{key}")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_json_value(item, path=f"{path}[{index}]")
+        return
+    raise _schema_validation_error(path, f"unsupported value type {type(value).__name__}")
+
+
+def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str) -> None:
+    """Check the persisted witness *before* schema_snapshot_from_payload().
+
+    The schema parser intentionally ignores malformed entries and stringifies
+    several fields.  Admission must therefore validate the submitted shape
+    first, so malformed nested evidence cannot become a different valid
+    snapshot through parser normalization.
+    """
+    required = {
+        "contract_version", "identity", "content_digest", "precedence",
+        "selected_source", "generation", "conflicts", "timestamp", "version",
+        "schemas", "missing_classes", "input_order",
+        "workflow_observation_authoritative", "ambient_lookup_forbidden",
+    }
+    allowed = required | {"node_classes"}
+    keys = set(payload)
+    if not required.issubset(keys) or not keys.issubset(allowed):
+        raise _schema_validation_error(label, "incomplete or unknown top-level fields")
+    if payload.get("contract_version") != SCHEMA_SNAPSHOT_VERSION:
+        raise SchemaSnapshotError(
+            f"{label} has unsupported schema snapshot version",
+            code="unsupported_schema_snapshot",
+        )
+    identity = payload.get("identity")
+    if not isinstance(identity, Mapping) or set(identity) != {
+        "runtime_fingerprint", "cache_fingerprint", "request_fingerprint", "server_url",
+    }:
+        raise _schema_validation_error(label, "identity must contain its complete four-field shape")
+    for field_name, value in identity.items():
+        if value is not None and (not isinstance(value, str) or not value):
+            raise _schema_validation_error(label, f"identity.{field_name} must be a string or null")
+    if not isinstance(payload.get("content_digest"), str) or not payload["content_digest"]:
+        raise _schema_validation_error(label, "content_digest must be a non-empty string")
+    precedence = payload.get("precedence")
+    if not isinstance(precedence, list) or any(
+        not isinstance(item, str) or not item for item in precedence
+    ):
+        raise _schema_validation_error(label, "precedence must be a list of non-empty strings")
+    if not isinstance(payload.get("selected_source"), str):
+        raise _schema_validation_error(label, "selected_source must be a string")
+    generation = payload.get("generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
+        raise _schema_validation_error(label, "generation must be a non-negative integer")
+    conflicts = payload.get("conflicts")
+    if not isinstance(conflicts, list) or any(
+        not isinstance(item, str) or not item for item in conflicts
+    ):
+        raise _schema_validation_error(label, "conflicts must be a list of non-empty strings")
+    timestamp = payload.get("timestamp")
+    if timestamp is not None and (not isinstance(timestamp, str) or not timestamp):
+        raise _schema_validation_error(label, "timestamp must be a string or null")
+    if payload.get("version") != SCHEMA_SNAPSHOT_VERSION:
+        raise _schema_validation_error(label, "version must match the snapshot contract")
+    if payload.get("workflow_observation_authoritative") is not False:
+        raise SchemaSnapshotError(
+            f"{label} cannot use workflow observation as authority",
+            code="workflow_observation_not_authoritative",
+        )
+    if payload.get("ambient_lookup_forbidden") is not True:
+        raise SchemaSnapshotError(
+            f"{label} must forbid ambient lookup",
+            code="ambient_lookup_forbidden",
+        )
+
+    schemas = payload.get("schemas")
+    if not isinstance(schemas, Mapping):
+        raise _schema_validation_error(label, "schemas must be a mapping")
+    for class_type, raw in schemas.items():
+        path = f"{label}.schemas[{class_type!r}]"
+        if not isinstance(class_type, str) or not class_type or not isinstance(raw, Mapping):
+            raise _schema_validation_error(path, "class keys and values must be well-formed")
+        if set(raw) != {
+            "class_type", "pack", "inputs", "input_order", "outputs",
+            "widget_input_order", "provenance",
+        }:
+            raise _schema_validation_error(path, "nested schema has incomplete or unknown fields")
+        if raw.get("class_type") != class_type:
+            raise _schema_validation_error(path, "class_type does not match its schema key")
+        if raw.get("pack") is not None and not isinstance(raw.get("pack"), str):
+            raise _schema_validation_error(path, "pack must be a string or null")
+        inputs = raw.get("inputs")
+        if not isinstance(inputs, Mapping):
+            raise _schema_validation_error(path, "inputs must be a mapping")
+        for input_name, spec in inputs.items():
+            spec_path = f"{path}.inputs[{input_name!r}]"
+            if not isinstance(input_name, str) or not isinstance(spec, Mapping):
+                raise _schema_validation_error(spec_path, "input names/specs are malformed")
+            if set(spec) != {
+                "type", "required", "default", "choices", "min", "max", "unresolved_choices",
+            }:
+                raise _schema_validation_error(spec_path, "input spec has incomplete or unknown fields")
+            if spec.get("type") is not None and not isinstance(spec.get("type"), str):
+                raise _schema_validation_error(spec_path, "input type must be a string or null")
+            if not isinstance(spec.get("required"), bool):
+                raise _schema_validation_error(spec_path, "required must be boolean")
+            choices = spec.get("choices")
+            if choices is not None and (
+                not isinstance(choices, list) or any(not isinstance(item, (str, int, float, bool, type(None))) for item in choices)
+            ):
+                raise _schema_validation_error(spec_path, "choices must be a JSON list or null")
+            for bound in ("min", "max"):
+                value = spec.get(bound)
+                if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):
+                    raise _schema_validation_error(spec_path, f"{bound} must be numeric or null")
+            if not isinstance(spec.get("unresolved_choices"), bool):
+                raise _schema_validation_error(spec_path, "unresolved_choices must be boolean")
+            _validate_json_value(spec.get("default"), path=f"{spec_path}.default")
+        for field_name in ("input_order", "widget_input_order"):
+            order = raw.get(field_name)
+            if not isinstance(order, list) or any(
+                not isinstance(item, str) and not (field_name == "widget_input_order" and item is None)
+                for item in order
+            ):
+                raise _schema_validation_error(path, f"{field_name} has malformed order evidence")
+        outputs = raw.get("outputs")
+        if not isinstance(outputs, list):
+            raise _schema_validation_error(path, "outputs must be a list")
+        for output in outputs:
+            if not isinstance(output, Mapping) or set(output) != {"type", "name"}:
+                raise _schema_validation_error(path, "output entries must contain type and name")
+            if output.get("type") is not None and not isinstance(output.get("type"), str):
+                raise _schema_validation_error(path, "output type must be a string or null")
+            if output.get("name") is not None and not isinstance(output.get("name"), str):
+                raise _schema_validation_error(path, "output name must be a string or null")
+        provenance = raw.get("provenance")
+        if not isinstance(provenance, Mapping) or set(provenance) != {
+            "source_provider", "source_path", "source_cache_path", "source_server_url",
+            "source_package", "source_version", "source_hash", "confidence",
+            "conflicts", "ignored_evidence",
+        }:
+            raise _schema_validation_error(path, "provenance has incomplete or unknown fields")
+        for field_name in (
+            "source_provider", "source_path", "source_cache_path", "source_server_url",
+            "source_package", "source_version", "source_hash",
+        ):
+            value = provenance.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise _schema_validation_error(path, f"provenance.{field_name} must be a string or null")
+        confidence = provenance.get("confidence")
+        if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+            raise _schema_validation_error(path, "provenance.confidence must be numeric")
+        for field_name in ("conflicts", "ignored_evidence"):
+            value = provenance.get(field_name)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise _schema_validation_error(path, f"provenance.{field_name} must be a string list")
+
+    missing = payload.get("missing_classes")
+    if not isinstance(missing, list) or any(not isinstance(item, str) or not item for item in missing):
+        raise _schema_validation_error(label, "missing_classes must be a list of non-empty strings")
+    input_order = payload.get("input_order")
+    if not isinstance(input_order, Mapping):
+        raise _schema_validation_error(label, "input_order must be a mapping")
+    for class_type, names in input_order.items():
+        if not isinstance(class_type, str) or not class_type or not isinstance(names, list) or any(
+            not isinstance(name, str) for name in names
+        ):
+            raise _schema_validation_error(label, "input_order contains malformed class/order evidence")
+    if "node_classes" in payload:
+        node_classes = payload.get("node_classes")
+        if not isinstance(node_classes, Mapping) or any(
+            not isinstance(uid, str) or not uid or not isinstance(class_type, str) or not class_type
+            for uid, class_type in node_classes.items()
+        ):
+            raise _schema_validation_error(label, "node_classes must map non-empty strings to non-empty strings")
+
+
+def _validate_snapshot_object(snapshot: SchemaSnapshot, *, label: str) -> None:
+    """Check typed witness fields before canonical serialization."""
+    identity = snapshot.identity
+    for field_name in ("runtime_fingerprint", "cache_fingerprint", "request_fingerprint", "server_url"):
+        value = getattr(identity, field_name, None)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise _schema_validation_error(label, f"identity.{field_name} must be a string or null")
+    if not isinstance(snapshot.precedence, Sequence) or isinstance(snapshot.precedence, (str, bytes)) or any(
+        not isinstance(item, str) or not item for item in snapshot.precedence
+    ):
+        raise _schema_validation_error(label, "precedence must be a string sequence")
+    if not isinstance(snapshot.conflicts, Sequence) or isinstance(snapshot.conflicts, (str, bytes)) or any(
+        not isinstance(item, str) or not item for item in snapshot.conflicts
+    ):
+        raise _schema_validation_error(label, "conflicts must be a string sequence")
+    if not isinstance(snapshot.missing_classes, Sequence) or isinstance(snapshot.missing_classes, (str, bytes)) or any(
+        not isinstance(item, str) or not item for item in snapshot.missing_classes
+    ):
+        raise _schema_validation_error(label, "missing_classes must be a string sequence")
+    if not isinstance(snapshot.input_order, Mapping) or any(
+        not isinstance(class_type, str) or not class_type or not isinstance(names, Sequence)
+        or isinstance(names, (str, bytes)) or any(not isinstance(name, str) for name in names)
+        for class_type, names in snapshot.input_order.items()
+    ):
+        raise _schema_validation_error(label, "input_order has malformed original evidence")
+    if not isinstance(snapshot.node_classes, Mapping) or any(
+        not isinstance(uid, str) or not uid or not isinstance(class_type, str) or not class_type
+        for uid, class_type in snapshot.node_classes.items()
+    ):
+        raise _schema_validation_error(label, "node_classes has malformed original evidence")
+
+
+def _schema_snapshot_payload(snapshot: SchemaSnapshot, *, label: str) -> dict[str, Any]:
+    """Validate one *original* schema witness before canonical serialization.
+
+    ``schema_snapshot_to_payload`` deliberately emits the canonical authority
+    flags.  That is useful for persistence, but it must not be the first
+    validation step here: a forged dataclass with ``ambient_lookup_forbidden``
+    cleared would otherwise be normalized back into an apparently valid
+    witness.  Keep this check local to admission so every explicit-schema
+    consumer gets the same custody contract.
+    """
+    if not isinstance(snapshot, SchemaSnapshot):
+        raise SchemaSnapshotError(
+            f"{label} must be a SchemaSnapshot",
+            code="malformed_schema_snapshot",
+        )
+    if snapshot.version != SCHEMA_SNAPSHOT_VERSION:
+        raise SchemaSnapshotError(
+            f"{label} has unsupported schema snapshot version",
+            code="unsupported_schema_snapshot",
+        )
+    if not isinstance(snapshot.generation, int) or isinstance(snapshot.generation, bool) or snapshot.generation < 0:
+        raise SchemaSnapshotError(
+            f"{label} has invalid schema snapshot generation",
+            code="malformed_schema_snapshot",
+        )
+    if snapshot.ambient_lookup_forbidden is not True:
+        raise SchemaSnapshotError(
+            f"{label} must forbid ambient lookup",
+            code="ambient_lookup_forbidden",
+        )
+    if snapshot.workflow_observation_authoritative is not False:
+        raise SchemaSnapshotError(
+            f"{label} cannot use workflow observation as authority",
+            code="workflow_observation_not_authoritative",
+        )
+    if not isinstance(snapshot.content_digest, str) or not snapshot.content_digest:
+        raise SchemaSnapshotError(
+            f"{label} is missing a content digest",
+            code="malformed_schema_snapshot",
+        )
+    if not isinstance(snapshot.identity, SchemaSnapshotIdentity):
+        raise SchemaSnapshotError(
+            f"{label} has malformed identity",
+            code="malformed_schema_snapshot",
+        )
+    _validate_snapshot_object(snapshot, label=label)
+    payload = schema_snapshot_to_payload(snapshot)
+    _validate_schema_payload_structure(payload, label=label)
+    # Reparse solely to verify the digest and all canonical payload fields;
+    # the returned object remains the caller-retained witness.
+    try:
+        parsed = schema_snapshot_from_payload(payload)
+    except SchemaSnapshotError as exc:
+        raise SchemaSnapshotError(
+            f"{label} failed schema witness validation: {exc}",
+            code=exc.code,
+        ) from exc
+    if schema_snapshot_to_payload(parsed) != payload:
+        raise SchemaSnapshotError(
+            f"{label} is not a complete canonical schema payload",
+            code="malformed_schema_snapshot",
+        )
+    return payload
+
+
+def _validated_schema_argument(value: SchemaSnapshot | Mapping[str, Any], *, label: str) -> tuple[SchemaSnapshot, dict[str, Any]]:
+    """Validate a supplied schema in its original representation."""
+    if isinstance(value, SchemaSnapshot):
+        return value, _schema_snapshot_payload(value, label=label)
+    if not isinstance(value, Mapping):
+        raise SchemaSnapshotError(
+            f"{label} must be a SchemaSnapshot or complete payload",
+            code="malformed_schema_snapshot",
+        )
+    if value.get("ambient_lookup_forbidden") is not True:
+        raise SchemaSnapshotError(
+            f"{label} must forbid ambient lookup",
+            code="ambient_lookup_forbidden",
+        )
+    if value.get("workflow_observation_authoritative") is not False:
+        raise SchemaSnapshotError(
+            f"{label} cannot use workflow observation as authority",
+            code="workflow_observation_not_authoritative",
+        )
+    _validate_schema_payload_structure(value, label=label)
+    try:
+        parsed = schema_snapshot_from_payload(value)
+    except SchemaSnapshotError:
+        raise
+    canonical = schema_snapshot_to_payload(parsed)
+    if dict(value) != canonical:
+        raise SchemaSnapshotError(
+            f"{label} is not a complete canonical schema payload",
+            code="malformed_schema_snapshot",
+        )
+    # ``parsed`` is only the validated representation of this submitted
+    # payload; explicit admission still returns the independently retained
+    # witness object below.
+    return parsed, canonical
+
+
+def _workflow_witness_payload(snapshot: WorkflowSnapshot) -> tuple[Any, ...]:
+    """All ingress witness fields except the retained live workflow handle."""
+    return (
+        snapshot.source_representation,
+        snapshot.source_digest,
+        snapshot.semantic_hash_version,
+        snapshot.semantic_digest,
+        snapshot.layout,
+        snapshot.raw_sidecar,
+        snapshot.identity,
+        snapshot.topology,
+        snapshot.lineage,
+        snapshot.field_snapshot,
+        snapshot.shape,
+    )
+
+
+def _require_preview_workflow_witness(
+    pre_workflow: Any,
+    retained: AdmissionSnapshot,
+) -> None:
+    """Bind direct preview to the retained ingress WorkflowSnapshot."""
+    retained_workflow = retained.workflow
+    if not isinstance(retained_workflow, WorkflowSnapshot):
+        raise SchemaSnapshotError(
+            "direct preview requires retained WorkflowSnapshot authority",
+            code="missing_workflow_authority",
+        )
+    if pre_workflow is retained_workflow.workflow:
+        return
+    supplied = snapshot_of(pre_workflow)
+    if not isinstance(supplied, WorkflowSnapshot):
+        raise SchemaSnapshotError(
+            "direct preview pre_workflow lacks retained workflow witness",
+            code="missing_workflow_authority",
+        )
+    try:
+        compare_snapshot_authority(supplied, retained_workflow)
+    except SnapshotAuthorityError as exc:
+        raise SchemaSnapshotError(str(exc), code=exc.code) from exc
+    if _workflow_witness_payload(supplied) != _workflow_witness_payload(retained_workflow):
+        raise SchemaSnapshotError(
+            "direct preview workflow witness lineage does not match retained authority",
+            code="workflow_snapshot_lineage_mismatch",
+        )
+
+
 def admission_snapshot_for(
     workflow: Any = None,
     schema_provider: Any = None,
     *,
     schema_snapshot: SchemaSnapshot | Mapping[str, Any] | None = None,
+    retained_authority: AdmissionSnapshot | None = None,
 ) -> AdmissionSnapshot:
     """Build a pair from retained ingest/schema authorities. Never mutates."""
 
     workflow_snapshot = workflow if isinstance(workflow, WorkflowSnapshot) else snapshot_of(workflow)
     schema = schema_snapshot
-    if isinstance(schema, Mapping):
-        try:
-            schema = schema_snapshot_from_payload(schema)
-        except SchemaSnapshotError:
-            schema = None
+    if schema is not None:
+        if not isinstance(retained_authority, AdmissionSnapshot):
+            raise SchemaSnapshotError(
+                "explicit schema admission requires an independently retained authority pair",
+                code="missing_retained_authority",
+            )
+        retained_schema = retained_authority.schema
+        if not isinstance(retained_schema, SchemaSnapshot):
+            raise SchemaSnapshotError(
+                "explicit schema admission requires a retained SchemaSnapshot",
+                code="missing_retained_authority",
+            )
+        _supplied_schema, supplied_payload = _validated_schema_argument(
+            schema,
+            label="supplied schema",
+        )
+        retained_payload = _schema_snapshot_payload(retained_schema, label="retained schema")
+        if supplied_payload != retained_payload:
+            raise SchemaSnapshotError(
+                "supplied schema does not match retained authority",
+                code="schema_snapshot_lineage_mismatch",
+            )
+        # The pair's schema is deliberately the independently retained object,
+        # even when the submitted payload was an equivalent serialized copy.
+        schema = retained_schema
     if schema is None and schema_provider is not None:
         schema = _bind_schema_from_provider(schema_provider)
+    if isinstance(schema, SchemaSnapshot):
+        # Provider-only ingress validates its own frozen witness.  On the
+        # explicit-schema path the provider is advisory and intentionally not
+        # inspected: the retained pair is the authority and must remain the
+        # exact object supplied by ingress.
+        _schema_snapshot_payload(schema, label="schema")
+        if schema_snapshot is None:
+            provider_snapshot = _bind_schema_from_provider(schema_provider)
+            if provider_snapshot is not None:
+                _schema_snapshot_payload(provider_snapshot, label="provider schema")
+                if (
+                    provider_snapshot.content_digest != schema.content_digest
+                    or provider_snapshot.generation != schema.generation
+                    or provider_snapshot.identity != schema.identity
+                ):
+                    raise SchemaSnapshotError(
+                        "schema snapshot generation/witness does not match retained provider",
+                        code="schema_snapshot_lineage_mismatch",
+                    )
     return AdmissionSnapshot(
         workflow=workflow_snapshot if isinstance(workflow_snapshot, WorkflowSnapshot) else None,
         schema=schema if isinstance(schema, SchemaSnapshot) else None,
@@ -472,10 +911,10 @@ def _catalog_with_known_working_nodes(
 
 
 def _needs_schema_knowledge(operation: Mapping[str, Any]) -> bool:
-    """True when the op's touched closure is schema-dependent (T1.2 MUST-001)."""
+    """True when a non-empty op requires retained admission authority."""
 
     op_name = str(operation.get("op") or "")
-    if op_name in _SEMANTIC_OPERATION_NAMES:
+    if op_name in _SEMANTIC_OPERATION_NAMES or op_name in LAYOUT_OPERATION_NAMES:
         return True
     return False
 
@@ -497,19 +936,21 @@ def snapshot_from_schema_witness(
             payload = raw
         elif schema_witness.get("contract_version") == "schema-snapshot-v1":
             payload = schema_witness
-    schema = None
-    if isinstance(payload, Mapping):
-        try:
-            schema = schema_snapshot_from_payload(payload)
-        except SchemaSnapshotError:
-            schema = None
+    if not isinstance(payload, Mapping):
+        raise SchemaSnapshotError(
+            "persisted schema witness is missing",
+            code="missing_schema_snapshot",
+        )
+    # Validate the original witness before any parser normalization or submit
+    # graph reconstruction.  In particular, schema_snapshot_from_payload()
+    # coerces flags, generations, and nested entries; none of those coerced
+    # values may become authority for replay.
+    schema, _canonical = _validated_schema_argument(payload, label="persisted schema witness")
     if workflow is None and isinstance(submit_graph, Mapping):
         try:
             from vibecomfy.ingest.normalize import from_ui
 
-            frozen_provider = (
-                FrozenSchemaSnapshotProvider(schema) if schema is not None else None
-            )
+            frozen_provider = FrozenSchemaSnapshotProvider(schema)
             workflow = from_ui(
                 dict(submit_graph),
                 schema_provider=frozen_provider,
@@ -521,7 +962,13 @@ def snapshot_from_schema_witness(
             # object_info or a live provider here.
             _LOGGER.debug("submit graph reconstruction failed: %s", exc)
             workflow = None
-    return admission_snapshot_for(workflow, schema_snapshot=schema)
+    retained_workflow = snapshot_of(workflow)
+    retained = AdmissionSnapshot(workflow=retained_workflow, schema=schema)
+    return admission_snapshot_for(
+        workflow,
+        schema_snapshot=schema,
+        retained_authority=retained,
+    )
 
 def _operation_mapping(operation: Any) -> dict[str, Any]:
     if isinstance(operation, Mapping):
@@ -745,16 +1192,11 @@ def _admit_layout(
 def _schema_provider_for(pair: AdmissionSnapshot) -> Any:
     """Validation provider built from the schema pair.
 
-    When a frozen SchemaSnapshot exists, admission validates against
-    ``FrozenSchemaSnapshotProvider(pair.schema)``.  When no frozen snapshot
-    exists but a live schema_provider was retained, fall back to it so
-    providers without ``.snapshot`` (test mocks, minimal providers) can
-    still validate.
+    Only a verified frozen SchemaSnapshot is authoritative.  A retained live
+    provider is deliberately not a replay schema source.
     """
     if pair.schema is not None:
         return FrozenSchemaSnapshotProvider(pair.schema)
-    if pair.schema_provider is not None:
-        return pair.schema_provider
     return None
 
 
@@ -828,6 +1270,62 @@ def _offered_endpoint_refs(operation: Any) -> tuple[str, ...]:
     return tuple(refs)
 
 
+def check_touched_schema_evidence(
+    pair: AdmissionSnapshot,
+    operation: Any,
+    *,
+    working_workflow: Any = None,
+) -> TouchedScope | AdmissionRejected:
+    """Check the operation's touched closure against retained evidence.
+
+    This is deliberately the only touched-schema check.  It may overlay
+    identities created earlier in the same transaction, but it never queries
+    a live provider or broadens the frozen catalog.
+    """
+    operation_mapping = _operation_mapping(operation)
+    workflow = working_workflow
+    if workflow is None and pair.workflow is not None:
+        workflow = pair.workflow.workflow
+    catalog = _schema_catalog_for(pair, pair.schema)
+    operation_catalog = _catalog_with_known_working_nodes(
+        catalog,
+        workflow,
+        pair.workflow.workflow if pair.workflow is not None else None,
+    )
+    classes = touched_schema_classes(operation, operation_catalog) if operation_catalog is not None else ()
+    if not classes:
+        class_type = operation_mapping.get("class_type")
+        classes = (str(class_type),) if isinstance(class_type, str) and class_type else ()
+    touched = TouchedScope(
+        identities=_touched_identities(operation_mapping),
+        class_types=tuple(classes),
+    )
+    if operation_catalog is not None:
+        try:
+            require_known_touched_schema(operation, operation_catalog)
+        except SchemaSnapshotError as exc:
+            if exc.code == "missing_touched_schema" and _is_readonly_source_missing(
+                operation, pair, operation_catalog
+            ):
+                return touched
+            if _add_node_provisional_allows(
+                operation_mapping,
+                operation_catalog,
+                working_workflow=workflow,
+            ):
+                return touched
+            return _reject(pair, operation_mapping, exc.code, extra=(str(exc),), touched=touched)
+    elif _needs_schema_knowledge(operation_mapping):
+        return _reject(
+            pair,
+            operation_mapping,
+            "missing_touched_schema",
+            extra=("schema_catalog:absent",),
+            touched=touched,
+        )
+    return touched
+
+
 def admit_operation(
     snapshot: Any,
     canonical_operation: Any,
@@ -848,60 +1346,15 @@ def admit_operation(
     pair = _freeze_snapshot_pair(snapshot)
     operation = _operation_mapping(canonical_operation)
     op_name = str(operation.get("op") or "")
-    schema_catalog = _schema_catalog_for(pair, snapshot)
     workflow = working_workflow
     if workflow is None and pair.workflow is not None:
         workflow = pair.workflow.workflow
-    operation_catalog = _catalog_with_known_working_nodes(
-        schema_catalog,
-        workflow,
-        pair.workflow.workflow if pair.workflow is not None else None,
+    checked = check_touched_schema_evidence(
+        pair, operation, working_workflow=workflow
     )
-    touched = _touched_scope(canonical_operation, pair.schema)
-    if operation_catalog is not None:
-        classes = touched_schema_classes(canonical_operation, operation_catalog)
-        if not classes:
-            class_type = operation.get("class_type")
-            classes = (str(class_type),) if isinstance(class_type, str) and class_type else ()
-        touched = TouchedScope(
-            identities=_touched_identities(operation),
-            class_types=tuple(classes),
-        )
-
-    if operation_catalog is not None:
-        try:
-            require_known_touched_schema(canonical_operation, operation_catalog)
-        except SchemaSnapshotError as exc:
-            # DEEP-AUDIT-FIX-1-ADJUDICATION: the immutable pair.schema is the
-            # SOLE admission authority. The retained live provider is never
-            # consulted to complete a touched closure — evidence-backed
-            # provisional schemas must already be part of the completed frozen
-            # generation pinned on the composite. Only the schema-known
-            # unresolved-anchor add behavior remains.
-            # S3: read-only source-missing edges (e.g., SVDSimpleImg2Vid → SaveImage)
-            # are schema-opaque on the read side; do not block a valid target write.
-            if exc.code == "missing_touched_schema" and _is_readonly_source_missing(
-                operation, pair, operation_catalog
-            ):
-                pass
-            elif _add_node_provisional_allows(
-                operation,
-                operation_catalog,
-                working_workflow=workflow,
-            ):
-                pass
-            else:
-                return _reject(pair, operation, exc.code, extra=(str(exc),), touched=touched)
-    elif _needs_schema_knowledge(operation) and workflow is None:
-        return _reject(
-            pair,
-            operation,
-            "missing_touched_schema",
-            extra=("schema_catalog:absent",),
-            touched=touched,
-        )
-
-
+    if isinstance(checked, AdmissionRejected):
+        return checked
+    touched = checked
 
     if not op_name:
         return _reject(pair, operation, "unsupported_op", touched=touched)
@@ -949,7 +1402,7 @@ def admit_operation(
             extra = (*extra, f"offered:{ref}")
         if exc.code in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
             # Allow only when touching provisional/unknown node (touched-only)
-            if _is_provisional_touched(operation, workflow, pair.schema if pair.schema is not None else schema_catalog):
+            if _is_provisional_touched(operation, workflow, pair.schema):
                 pass
             else:
                 return _reject(pair, operation, exc.code, extra=extra, touched=touched)

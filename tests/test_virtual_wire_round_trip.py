@@ -129,15 +129,18 @@ def _add_vw_node(
 def _canonical_json(obj: dict) -> str:
     """Produce a canonical JSON string: sorted keys, consistent numeric formatting.
 
-    Link and node IDs are implementation details that can differ between
-    convert paths.  We zero them out so the comparison reflects structural
-    equivalence, not ID-sequence drift.
+    Link/node IDs and the sidecar's source path are implementation details that
+    differ between convert paths.  Remove them so this comparison reflects
+    structural equivalence, not ID-sequence or temporary-filename drift.
     """
     # Deep-copy so we don't mutate the original.
     import copy
     norm = copy.deepcopy(obj)
     _zero_link_ids(norm)
     _zero_node_ids(norm)
+    vibecomfy_extra = norm.get("extra", {}).get("vibecomfy", {})
+    if isinstance(vibecomfy_extra, dict):
+        vibecomfy_extra.pop("prior_path", None)
     return json.dumps(norm, indent=2, sort_keys=True)
 
 

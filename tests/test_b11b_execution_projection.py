@@ -243,18 +243,24 @@ def test_helper_cycles_and_malformed_typed_literals_fail_at_projection() -> None
 
 def test_virtual_wire_occurrences_are_grouped_by_semantic_leg() -> None:
     workflow = VibeWorkflow("wire-multiplicity", WorkflowSource("wire-multiplicity"))
-    workflow.nodes["source"] = VibeNode("source", "Source")
-    workflow.nodes["left"] = VibeNode("left", "Sink", inputs={"x": None})
-    workflow.nodes["right"] = VibeNode("right", "Sink", inputs={"x": None})
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["out"]
+    )
+    workflow.nodes["left"] = VibeNode(
+        "left", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
+    workflow.nodes["right"] = VibeNode(
+        "right", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
     workflow.virtual_wires = {
         "route": {
             "legs": [
-                {"leg_index": 0, "occurrence_index": 0, "from_node": "source", "to_node": "left", "to_input": "x"},
-                {"leg_index": 0, "occurrence_index": 1, "from_node": "source", "to_node": "left", "to_input": "x"},
-                {"leg_index": 1, "occurrence_index": 0, "from_node": "source", "to_node": "right", "to_input": "x"},
+                {"scope_path": "", "leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "left", "to_input": "x"},
+                {"scope_path": "", "leg_index": 0, "occurrence_index": 1, "from_node": "source", "from_output": 0, "to_node": "left", "to_input": "x"},
+                {"scope_path": "", "leg_index": 1, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "right", "to_input": "x"},
                 # Distinct semantic legs may share endpoints, but the executable
                 # projection collapses the exact endpoint tuple once.
-                {"leg_index": 2, "occurrence_index": 0, "from_node": "source", "to_node": "left", "to_input": "x"},
+                {"scope_path": "", "leg_index": 2, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "left", "to_input": "x"},
             ]
         }
     }
@@ -286,8 +292,12 @@ def test_shared_projection_lowers_primitive_and_named_outputs_without_mutation()
 
 def test_scoped_variant_and_explicit_virtual_wire_are_projection_inputs() -> None:
     workflow = VibeWorkflow("scoped", WorkflowSource("scoped"))
-    workflow.nodes["source"] = VibeNode("source", "Source")
-    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["out"]
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
     definition = {"name": "inner", "nodes": [{"id": "n", "type": "Inner", "inputs": {"x": 1}}], "links": []}
     from vibecomfy.identity.scope import sg_key
 
@@ -295,19 +305,31 @@ def test_scoped_variant_and_explicit_virtual_wire_are_projection_inputs() -> Non
     workflow.definitions = {"subgraphs": [definition]}
     workflow.variants = {"alt": {f"{scope}#n.x": 9}}
     assert workflow._with_selection("alt", None).definitions["subgraphs"][0]["nodes"][0]["inputs"]["x"] == 9
-    workflow.virtual_wires = {"route": {"legs": [{"leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"}]}}
+    workflow.virtual_wires = {"route": {"legs": [{
+        "scope_path": "",
+        "leg_index": 0,
+        "occurrence_index": 0,
+        "from_node": "source",
+        "from_output": 0,
+        "to_node": "sink",
+        "to_input": "x",
+    }]}}
     assert workflow.compile()["sink"]["inputs"]["x"] == ["source", 0]
 
 
 def test_virtual_wire_contract_rejects_legacy_and_noncontiguous_occurrences() -> None:
     workflow = VibeWorkflow("wire-contract", WorkflowSource("wire-contract"))
-    workflow.nodes["source"] = VibeNode("source", "Source")
-    workflow.nodes["sink"] = VibeNode("sink", "Sink", inputs={"x": None})
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["out"]
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
     workflow.virtual_wires = {
         "route": {
             "legs": [
-                {"leg_index": 0, "occurrence_index": 0, "from_node": "source", "to_node": "sink", "to_input": "x"},
-                {"leg_index": 2, "occurrence_index": 2, "from_node": "source", "to_node": "sink", "to_input": "x"},
+                {"scope_path": "", "leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"},
+                {"scope_path": "", "leg_index": 2, "occurrence_index": 2, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "x"},
             ]
         }
     }
@@ -317,6 +339,58 @@ def test_virtual_wire_contract_rejects_legacy_and_noncontiguous_occurrences() ->
     with pytest.raises(WorkflowCompileError) as exc:
         workflow.compile()
     assert exc.value.code == "legacy_virtual_wire"
+
+
+@pytest.mark.parametrize(
+    ("wire", "code"),
+    [
+        ([], "virtual_wire_malformed"),
+        (None, "virtual_wire_malformed"),
+        ({"route": {"legs": []}}, "virtual_wire_malformed"),
+        ({"route": {"scope_path": None, "legs": []}}, "virtual_wire_malformed"),
+        ({"route": {"channel": "route", "endpoints": [], "legs": []}}, "legacy_virtual_wire"),
+    ],
+)
+def test_virtual_wire_container_errors_are_not_dropped_during_partition(
+    wire: object, code: str,
+) -> None:
+    workflow = VibeWorkflow("wire-container-errors", WorkflowSource("wire-container-errors"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["out"]
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
+    workflow.virtual_wires = wire
+
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == code
+
+
+def test_indexed_scope_omission_with_invalid_port_fails_closed() -> None:
+    workflow = VibeWorkflow("indexed-wire-authority", WorkflowSource("indexed-wire-authority"))
+    workflow.nodes["source"] = VibeNode(
+        "source", "Source", native_output_names=["out"]
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", inputs={"x": None}, native_input_names=["x"]
+    )
+    workflow.virtual_wires = {
+        "route": {
+            "legs": [{
+                "leg_index": 0,
+                "occurrence_index": 0,
+                "from_node": "source",
+                "from_output": 999,
+                "to_node": "sink",
+                "to_input": "x",
+            }],
+        }
+    }
+
+    with pytest.raises(WorkflowCompileError, match="scope_path"):
+        workflow.compile()
 
 
 def test_public_io_type_and_cardinality_are_closed_over_declared_sockets() -> None:
@@ -344,7 +418,10 @@ def test_public_io_type_and_cardinality_are_closed_over_declared_sockets() -> No
     assert exc.value.code == "public_output_cardinality"
 
 
-def test_public_input_defaults_and_named_nonzero_output_are_shared_by_backends() -> None:
+def test_public_input_defaults_and_named_nonzero_output_are_shared_by_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
     workflow = VibeWorkflow("public-values", WorkflowSource("public-values"))
     workflow.nodes["source"] = VibeNode(
         "source", "Source", native_output_names=["ignored", "image"],
@@ -442,7 +519,10 @@ def _depth_two_sibling_workflow() -> tuple[VibeWorkflow, str, str]:
     return workflow, inner_key, outer_key
 
 
-def test_recursive_occurrences_expand_depth_two_and_isolate_siblings() -> None:
+def test_recursive_occurrences_expand_depth_two_and_isolate_siblings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
     workflow, inner_key, outer_key = _depth_two_sibling_workflow()
     before = workflow.to_envelope()
     api = workflow.compile("api")
@@ -573,8 +653,13 @@ def test_virtual_wires_are_grouped_by_scope_name_and_leg(
     _install_fake_graphbuilder(monkeypatch)
     workflow = VibeWorkflow("scoped-wires", WorkflowSource("scoped-wires"))
     for scope in ("left", "right"):
-        workflow.nodes[f"{scope}#source"] = VibeNode(f"{scope}#source", "Source", uid="source")
-        workflow.nodes[f"{scope}#sink"] = VibeNode(f"{scope}#sink", "Sink", uid="sink", inputs={"image": None})
+        workflow.nodes[f"{scope}#source"] = VibeNode(
+            f"{scope}#source", "Source", uid="source", native_output_names=["IMAGE"]
+        )
+        workflow.nodes[f"{scope}#sink"] = VibeNode(
+            f"{scope}#sink", "Sink", uid="sink", inputs={"image": None},
+            native_input_names=["image"],
+        )
     workflow.virtual_wires = {
         "route": {"legs": [
             {"scope_path": "left", "leg_index": 0, "occurrence_index": 0, "from_node": "source", "from_output": 0, "to_node": "sink", "to_input": "image"},
@@ -640,9 +725,12 @@ def test_root_blank_uids_fall_back_to_distinct_node_ids() -> None:
     assert "RootDefinition" in next(iter(compiled))
 
 
-def test_public_artifact_output_is_outside_prompt_and_handles_are_separate() -> None:
+def test_public_artifact_output_is_outside_prompt_and_handles_are_separate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from vibecomfy.handles import Handle
 
+    _install_fake_graphbuilder(monkeypatch)
     workflow = VibeWorkflow("artifact", WorkflowSource("artifact"))
     workflow.nodes["source"] = VibeNode(
         "source", "Source", uid="source", native_output_names=["mask", "image"],
@@ -675,10 +763,12 @@ def test_conversion_primitive_parity_uses_coherent_lens() -> None:
     expected = workflow.compile("api")
     default = port_convert_workflow(workflow, validate=True, prune_dead_branches=False, keep_virtual_wires=False)
     assert default.validation and default.validation.parity_ok
-    assert "PrimitiveInt" not in default.text
+    assert "PrimitiveInt" in default.text
     ns: dict[str, object] = {"__file__": "primitive_parity.py"}
     exec(compile(default.text, "primitive parity", "exec"), ns)  # noqa: S102
-    assert ns["build"]().compile("api") == expected
+    rebuilt = ns["build"]()
+    assert rebuilt.nodes["p"].class_type == "PrimitiveInt"
+    assert rebuilt.compile("api") == expected
 
     kept = port_convert_workflow(workflow, validate=True, prune_dead_branches=False, keep_virtual_wires=True)
     assert "PrimitiveInt" in kept.text
@@ -686,7 +776,7 @@ def test_conversion_primitive_parity_uses_coherent_lens() -> None:
     exec(compile(kept.text, "primitive parity keep", "exec"), ns)  # noqa: S102
     assert ns["build"]().compile("api") == expected
     ready = emit_ready_template_python(workflow, ready_metadata={"ready_template": "test/primitive"}, ready_requirements={}, template_id="test/primitive")
-    assert "PrimitiveInt" not in ready
+    assert "PrimitiveInt" in ready
     ns = {"__file__": "primitive_parity_ready.py"}
     exec(compile(ready, "primitive parity ready", "exec"), ns)  # noqa: S102
     assert ns["build"]().compile("api") == expected
@@ -744,7 +834,7 @@ def test_ready_emission_ignores_raw_ui_widget_aliases() -> None:
 
 
 def test_ready_public_inputs_ignore_raw_ui_titles() -> None:
-    def build(title: str) -> tuple[list[str], str]:
+    def build(title: str) -> tuple[list[str], list[str], str]:
         workflow = VibeWorkflow("title-independent", WorkflowSource("title-independent"))
         workflow.nodes["text"] = VibeNode(
             "text", "CLIPTextEncode", inputs={"text": "hello"},
@@ -759,12 +849,14 @@ def test_ready_public_inputs_ignore_raw_ui_titles() -> None:
         namespace: dict[str, object] = {"__file__": "title-independent.py"}
         exec(compile(ready, "title-independent", "exec"), namespace)  # noqa: S102
         rebuilt = namespace["build"]()
-        return sorted(rebuilt.inputs), ready
+        return sorted(namespace["PUBLIC_INPUT_METADATA"]), sorted(rebuilt.inputs), ready
 
-    positive_inputs, positive_text = build("positive")
-    negative_inputs, negative_text = build("negative")
+    positive_inputs, positive_authored_inputs, positive_text = build("positive")
+    negative_inputs, negative_authored_inputs, negative_text = build("negative")
     assert positive_inputs == negative_inputs == ["prompt"]
+    assert positive_authored_inputs == negative_authored_inputs == []
     assert "'prompt'" in positive_text and "'prompt'" in negative_text
+    assert positive_text == negative_text
 
 
 @pytest.mark.parametrize("kind", ["self", "mutual", "logical"])
@@ -812,7 +904,10 @@ def test_variant_blank_definition_uid_falls_back_to_id() -> None:
     selected = workflow._with_selection("alt", None)
     assert selected.definitions["subgraphs"][0]["nodes"][0]["inputs"]["x"] == 9
 
-def test_real_graphbuilder_uses_the_same_detached_projection() -> None:
+def test_fake_graphbuilder_adapter_uses_the_same_detached_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graphbuilder(monkeypatch)
     workflow = _chain(NodeMode.ENABLED)
     before = workflow.copy()
     assert workflow.compile("graphbuilder") == workflow.compile("api")

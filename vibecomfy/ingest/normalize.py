@@ -172,10 +172,10 @@ def _door_definitions_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
     Covers id, name, and each port's name/type/label.  Inner nodes, links,
     and geometry stay door-owned and are not fingerprinted.
     """
-    metadata = getattr(workflow, "metadata", None)
-    if not isinstance(metadata, Mapping):
-        return ()
-    definitions = metadata.get("definitions")
+    definitions = getattr(workflow, "definitions", None)
+    if not isinstance(definitions, Mapping):
+        metadata = getattr(workflow, "metadata", None)
+        definitions = metadata.get("definitions") if isinstance(metadata, Mapping) else None
     if not isinstance(definitions, Mapping):
         return ()
     subgraphs = definitions.get("subgraphs")
@@ -446,6 +446,7 @@ def _attach_workflow_snapshot(
     raw: Mapping[str, Any] | None,
     *,
     source_representation: str,
+    schema_provider: SchemaProvider | None = None,
 ) -> "VibeWorkflow":
     """Freeze a copy/handle of *workflow* as the retained ingest authority."""
     from vibecomfy.ingest.snapshot import (
@@ -457,6 +458,7 @@ def _attach_workflow_snapshot(
         raw,
         workflow,
         source_representation=source_representation,
+        schema_provider=schema_provider,
     )
     return workflow
 
@@ -1185,7 +1187,10 @@ def normalize_to_api(
         # authority. ``compiled_api`` is stale execution evidence and must never
         # decide which rich nodes exist — the API view is derived by decoding
         # the envelope into a VibeWorkflow and compiling it fresh.
-        workflow = VibeWorkflow.from_envelope(raw)
+        workflow = VibeWorkflow.from_envelope(
+            raw,
+            schema_provider=schema_provider,
+        )
         api = workflow.compile("api")
         _merge_vibe_node_widget_evidence(raw, api)
         _enforce_exec_source_limits(api, surface="vibe.compiled_api")
@@ -1707,7 +1712,11 @@ def _decode_envelope_geometry(
     return pair
 
 
-def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
+def _decode_serialized_vibe(
+    raw: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> VibeWorkflow:
     """Implementation of :meth:`VibeWorkflow.from_envelope`.
 
     Do not call this from new code — use ``VibeWorkflow.from_envelope`` (or
@@ -2021,8 +2030,17 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     # All non-derived workflow metadata remains preserved verbatim.
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot
 
-    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(raw, workflow)
-    _attach_workflow_snapshot(workflow, raw, source_representation="vibe")
+    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(
+        raw,
+        workflow,
+        schema_provider=schema_provider,
+    )
+    _attach_workflow_snapshot(
+        workflow,
+        raw,
+        source_representation="vibe",
+        schema_provider=schema_provider,
+    )
     # Law 1: stash the raw envelope bytes at the door so the envelope
     # serializer (``to_envelope``) reproduces them byte-for-byte for an
     # untouched envelope (``to_envelope(from_envelope(J)) == J``).
@@ -2031,7 +2049,11 @@ def _decode_serialized_vibe(raw: dict[str, Any]) -> VibeWorkflow:
     return workflow
 
 
-def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
+def from_envelope(
+    raw: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> VibeWorkflow:
     """Fail-closed lossless decode of a serialized Vibe envelope.
 
     The rich ``nodes`` mapping and ``edges`` list are the only structural
@@ -2040,7 +2062,10 @@ def from_envelope(raw: dict[str, Any]) -> VibeWorkflow:
     """
     detached = deepcopy(raw)
     _validate_json_semantics(detached, path="envelope")
-    workflow = VibeWorkflow.from_envelope(detached)
+    workflow = VibeWorkflow.from_envelope(
+        detached,
+        schema_provider=schema_provider,
+    )
     report = workflow.validate_identity()
     if not report.ok:
         raise ValueError(report.issues[0].message)
@@ -2133,7 +2158,12 @@ def from_ui(
     workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(
         raw, workflow, use_comfy_converter=use_comfy_converter
     )
-    _attach_workflow_snapshot(workflow, raw, source_representation="ui")
+    _attach_workflow_snapshot(
+        workflow,
+        raw,
+        source_representation="ui",
+        schema_provider=schema_provider,
+    )
     return workflow
 
 
@@ -2173,7 +2203,7 @@ def _named_import(
 ) -> VibeWorkflow:
     """Happy-path import: envelope, then UI, then API. Never ``compile()`` to reach IR."""
     if _is_vibe_envelope(raw):
-        return from_envelope(raw)
+        return from_envelope(raw, schema_provider=schema_provider)
     if isinstance(raw.get("nodes"), list):
         return from_ui(
             raw,
@@ -2383,8 +2413,17 @@ def _from_api_impl(
     # Stash an ingest-time snapshot immediately after uid minting and edge setup.
     # Captured once here so downstream delta computation can detect edits.
     from vibecomfy.ingest.snapshot import capture_ingest_snapshot  # local to avoid circular at module level
-    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(api_workflow, workflow)
-    _attach_workflow_snapshot(workflow, api_workflow, source_representation="api")
+    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(
+        api_workflow,
+        workflow,
+        schema_provider=schema_provider,
+    )
+    _attach_workflow_snapshot(
+        workflow,
+        api_workflow,
+        source_representation="api",
+        schema_provider=schema_provider,
+    )
 
     # ``workflow.metadata`` is ``dict[str, Any]`` and transparently accepts
     # any extra keys.  In particular, ``summary`` (a ``WorkflowSummary`` dict)
@@ -2659,7 +2698,7 @@ def ingest_workflow_and_ui(
         return workflow, detached
     if shape == "vibe":
         detached = deepcopy(graph)
-        workflow = from_envelope(detached)
+        workflow = from_envelope(detached, schema_provider=schema_provider)
         return workflow, emit_ui_json(
             workflow,
             schema_provider=schema_provider,
@@ -2675,6 +2714,7 @@ def ingest_workflow_and_ui(
             workflow,
             deepcopy(graph),
             source_representation="prompt_api",
+            schema_provider=schema_provider,
         )
         return workflow, emit_ui_json(
             workflow,
