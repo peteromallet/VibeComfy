@@ -40,7 +40,7 @@ def build() -> VibeWorkflow:
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Loaders
-    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME)
+    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME, weight_dtype='default')
     cliploader = CLIPLoader(_id='38', clip_name=CLIP_NAME, type='wan')
     vaeloader = VAELoader(_id='39', vae_name=VAE_NAME)
 
@@ -48,7 +48,9 @@ def build() -> VibeWorkflow:
     emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
         _id='40',
         width=832,
+        height=480,
         length=DEFAULT_FRAMES,
+        batch_size=1,
     )
 
     # Conditioning
@@ -62,6 +64,7 @@ def build() -> VibeWorkflow:
         steps=30,
         cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
+        scheduler='simple',
         latent_image=emptyhunyuanlatentvideo,
         model=modelsamplingsd3,
         negative=negative,

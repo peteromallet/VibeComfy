@@ -61,10 +61,10 @@ def build() -> VibeWorkflow:
 
     positive, negative, latent = WanImageToVideo(
         _id='50',
-        widget_0=512,
-        widget_1=512,
-        widget_2=33,
-        widget_3=1,
+        width=512,
+        height=512,
+        length=33,
+        batch_size=1,
         clip_vision_output=clipvisionencode,
         negative=cliptextencode_2,
         positive=cliptextencode,

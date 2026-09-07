@@ -44,10 +44,10 @@ def build() -> VibeWorkflow:
     emptyacestep1_5latentaudio = EmptyAceStep1_5LatentAudio(
         _id='122',
         seconds=2.0,
-        widget_0=2,
+        batch_size=1,
     )
 
-    unetloader = UNETLoader(_id='125', unet_name=UNET_NAME)
+    unetloader = UNETLoader(_id='125', unet_name=UNET_NAME, weight_dtype='default')
     modelsamplingauraflow = ModelSamplingAuraFlow(_id='78', shift=3, model=unetloader)
 
     textencodeacestepaudio1_5 = TextEncodeAceStepAudio1_5(
@@ -75,6 +75,7 @@ def build() -> VibeWorkflow:
         steps=1,
         cfg=GUIDE_STRENGTH,
         sampler_name='euler',
+        scheduler='simple',
         latent_image=emptyacestep1_5latentaudio,
         model=modelsamplingauraflow,
         negative=conditioningzeroout,
