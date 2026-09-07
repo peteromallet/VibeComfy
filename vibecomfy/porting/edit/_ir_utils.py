@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+
 from copy import deepcopy
 from dataclasses import dataclass
 import unicodedata
@@ -132,7 +134,7 @@ def _recursive_entries(raw: Any) -> list[Any]:
 
 
 def _recursive_node_entries(definition: Mapping[str, Any]) -> list[Any]:
-    raw = definition.get("nodes", ())
+    raw = canonical_definition_nodes(definition)
     if isinstance(raw, Mapping):
         return list(raw.values())
     if isinstance(raw, (list, tuple)):
@@ -355,7 +357,7 @@ def recursive_scope_topology(scope: RecursiveScopeRef) -> tuple[tuple[str, str, 
         for identity in (ref.uid, ref.node_id)
     }
     records: list[tuple[str, str, str, str, str]] = []
-    for link in (scope.definition or {}).get("links", ()) or ():
+    for link in canonical_definition_links(scope.definition or {}):
         parts = _recursive_link_parts(link)
         if parts is None:
             raise RecursiveEditError("links_malformed", f"malformed link in {scope.scope_path!r}")
@@ -453,7 +455,7 @@ def _recursive_field_entries(
                     item.get("value"),
                     item.get("link") is not None,
                 )
-    values = node.get("widgets_values")
+    values = canonical_node_widgets_values(node)
     if isinstance(values, (list, tuple)):
         for index, value in enumerate(values):
             add(f"widget_{index}", "widgets_values", value, False)
@@ -1562,7 +1564,7 @@ def _set_recursive_field(node: dict[str, Any], field: str, value: Any) -> None:
                         raise RecursiveEditError("unsupported_structural_scope", "linked input edits require a canonical link transaction")
                     item["value"] = deepcopy(value)
                     return
-    values = node.get("widgets_values")
+    values = canonical_node_widgets_values(node)
     if isinstance(values, list) and field.startswith("widget_") and field[7:].isdigit():
         index = int(field[7:])
         if index < len(values):

@@ -48,8 +48,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     schema_provider = get_schema_provider("local")
     try:
         bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("workflow diagnosis")
         workflow = bundle.workflow
-        _approved_record = bundle.compile(schema_provider=schema_provider)
     except Exception as exc:
         print("Layer: Python scratchpad import/build")
         print(f"Error: {type(exc).__name__}: {exc}")
@@ -72,6 +72,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             for issue in helper_issues:
                 print(f"- {issue.message}")
             print(f"Next: {payload['recommended_command']}")
+        return 1
+    try:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+    except Exception as exc:
+        print("Layer: Python scratchpad import/build")
+        print(f"Error: {type(exc).__name__}: {exc}")
+        print("Next: fix the Python file until build() returns a VibeWorkflow.")
+        print(f"Port preflight: vibecomfy port check {args.path} --json")
         return 1
     if lint:
         for warning in _lint_untyped_raw_refs(Path(args.path)):

@@ -130,6 +130,49 @@ def test_exact_projection_import_alias_remains_a_true_projection() -> None:
     assert hits == ()
 
 
+def test_exact_canonical_ir_projection_binding_is_trusted() -> None:
+    hits = scan_source(
+        "from vibecomfy.workflow import canonical_ir_projection as project_ir\n"
+        "projection = project_ir(workflow)\n"
+        "nodes = projection['nodes']\n"
+        "links = projection.get('links')\n",
+        filename="vibecomfy/canonical_ir_consumer.py",
+    )
+    assert hits == ()
+
+
+def test_canonical_ir_projection_spoofs_and_reassignment_fail_closed() -> None:
+    wrong_import = scan_source(
+        "from untrusted import canonical_ir_projection\n"
+        "projection = canonical_ir_projection(workflow)\n"
+        "nodes = projection['nodes']\n",
+        filename="vibecomfy/untrusted_ir_projection.py",
+    )
+    assert any(item.kind == "structural_read" for item in wrong_import)
+
+    reassigned = scan_source(
+        "from vibecomfy.workflow import canonical_ir_projection\n"
+        "projection = canonical_ir_projection(workflow)\n"
+        "projection = payload\n"
+        "links = projection['links']\n",
+        filename="vibecomfy/reassigned_ir_projection.py",
+    )
+    assert any(item.kind == "structural_read" for item in reassigned)
+
+
+def test_duplicate_canonical_ir_projection_definitions_fail_closed() -> None:
+    hits = scan_source(
+        "def canonical_ir_projection(workflow):\n"
+        "    return {'nodes': workflow}\n"
+        "def canonical_ir_projection(workflow):\n"
+        "    return {'nodes': workflow}\n"
+        "projection = canonical_ir_projection(workflow)\n"
+        "nodes = projection['nodes']\n",
+        filename="vibecomfy/workflow.py",
+    )
+    assert any(item.kind == "structural_read" for item in hits)
+
+
 def test_canonical_projection_definition_remains_a_true_projection() -> None:
     hits = scan_source(
         "def semantic_graph_projection(graph):\n"

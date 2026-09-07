@@ -213,14 +213,14 @@ def _journal_terminal(
         "turn_dir": run_dir,
         "turn_id": run_id,
         "plan_hash": record.api_digest,
-        "revision_id": record.revision_id,
-        "parent_revision": state.get("parent_revision"),
         "generation": generation,
         "runtime_evidence": evidence,
     }
     if event_type == "finalized":
         return journal.record_finalized_transaction_impl(
             **common,
+            revision_id=record.revision_id,
+            parent_revision=state.get("parent_revision"),
             structural_hash_after=None,
             applied_payload=None,
         )

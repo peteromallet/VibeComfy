@@ -3,6 +3,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -815,6 +818,33 @@ def test_capture_rejects_malformed_properties_and_link_lengths(
     bad_link["links"] = [[9, 1, 0, 2, 0, "A", "extra"]]
     with pytest.raises(WorkflowBundleError, match="malformed"):
         capture_bundle(bad_link, tmp_path / "bad-link.py", {"operation": "captured"})
+    bad_groups = dict(base)
+    bad_groups["groups"] = None
+    with pytest.raises(WorkflowBundleError, match="captured groups must be a list"):
+        capture_bundle(bad_groups, tmp_path / "bad-groups.py", {"operation": "captured"})
+
+
+def test_presentation_graph_door_returns_detached_records() -> None:
+    from vibecomfy.porting.emit.ui import capture_presentation_graph_records
+
+    candidate = {
+        "nodes": [{"id": 1, "properties": {"vibecomfy_uid": "source"}}],
+        "links": [[7, 1, 0, 2, 0, "IMAGE"]],
+        "groups": [{"id": 3, "nodes": [1]}],
+    }
+    captured = capture_presentation_graph_records(candidate)
+    candidate["nodes"][0]["properties"]["vibecomfy_uid"] = "changed"
+    candidate["links"][0][0] = 99
+    candidate["groups"][0]["nodes"].append(2)
+
+    assert captured.nodes[0]["properties"]["vibecomfy_uid"] == "source"
+    assert captured.links[0][0] == 7
+    assert captured.groups[0]["nodes"] == [1]
+    assert captured.groups_present is True
+
+    absent_groups = capture_presentation_graph_records({"nodes": [], "links": []})
+    assert absent_groups.groups is None
+    assert absent_groups.groups_present is False
 
 
 def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
@@ -1308,3 +1338,19 @@ def test_normalized_virtual_wire_legs_reject_malformed_materialization(
     bundle = load_bundle(workflow)
     with pytest.raises(WorkflowBundleError, match=message):
         bundle.materialize_ui()
+
+
+def test_public_imports_are_cold_process_safe() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONHASHSEED"] = "0"
+    env["PYTHONPATH"] = str(repo)
+    for module in ("workflow_bundle", "runtime"):
+        result = subprocess.run(
+            [sys.executable, "-c", f"import vibecomfy.{module}; print('IMPORT_OK')"],
+            cwd=repo, env=env, capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "IMPORT_OK"
+        assert result.stderr == ""

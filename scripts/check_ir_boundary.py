@@ -18,9 +18,8 @@ dict that happens to use those key names as LiteGraph:
   formatted report fields.
 * Non-graph ``data`` blobs — CLI census, layout-section node-id lists,
   and Comfy websocket event fields.
-* Results assigned directly from the exact ``semantic_graph_projection``
-  binding — these are already-normalized projection data, not raw LiteGraph
-  input.
+* Results assigned directly from the exact canonical projection bindings —
+  these are already-normalized projection data, not raw LiteGraph input.
 
 Those collisions are suppressed by ``_NON_GRAPH_RECEIVER``.  Product
 files that need a structural read must call door helpers in
@@ -83,6 +82,12 @@ _NON_GRAPH_RECEIVER = re.compile(
     re.IGNORECASE,
 )
 _SHAPE_INSPECTORS: frozenset[str] = frozenset({"detect_workflow_shape"})
+_TRUSTED_PROJECTION_BINDINGS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("vibecomfy.executor.revision_evidence", "semantic_graph_projection"),
+        ("vibecomfy.workflow", "canonical_ir_projection"),
+    }
+)
 
 # Campaign fixture generators are not product graph authority.  Forbidden
 # symbols inside them still fail the gate.  Additions require editing this file.
@@ -218,8 +223,13 @@ class _BindingScopes(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.bind(node.name, node)
-        if node.name == "semantic_graph_projection" and self.scope == 0 and self.filename.replace("\\", "/").endswith("vibecomfy/executor/revision_evidence.py"):
-            self.trust(node.name, node)
+        if self.scope == 0:
+            normalized = self.filename.replace("\\", "/")
+            for module, name in _TRUSTED_PROJECTION_BINDINGS:
+                suffix = f"{module.replace('.', '/')}.py"
+                if node.name == name and normalized.endswith(suffix):
+                    self.trust(node.name, node)
+                    break
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in (*node.args.defaults, *node.args.kw_defaults):
@@ -278,8 +288,7 @@ class _BindingScopes(ast.NodeVisitor):
             self.bind(name, alias)
             if (
                 node.level == 0
-                and node.module == "vibecomfy.executor.revision_evidence"
-                and alias.name == "semantic_graph_projection"
+                and (node.module, alias.name) in _TRUSTED_PROJECTION_BINDINGS
             ):
                 self.trust(name, alias)
 

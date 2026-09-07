@@ -196,16 +196,24 @@ def test_latent_checkpoint_real_compile_binds_vae_slot_two() -> None:
         "runtime-eval-model", ModelSource("local"), 0,
         (ModelTarget("comfy_core", "checkpoints"),),
     )
+    parent = _latent_bundle()
     with (
         patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
         patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
         patch("vibecomfy.fetch.is_present", return_value=True),
     ):
         candidate_bundle, record = approve_eval_subgraph(
-            _latent_bundle(), "2", schema_provider=FixtureProvider()
+            parent, "2", schema_provider=FixtureProvider()
         )
     assert record.to_dict()["api_projection"]["2_vaedecode"]["inputs"]["vae"] == ["checkpoint", 2]
     assert candidate_bundle.workflow.id == "latent-source"
+    decoder = candidate_bundle.workflow.nodes["2_vaedecode"]
+    assert decoder.native_input_names == ["samples", "vae"]
+    assert decoder.native_input_types == ["LATENT", "VAE"]
+    assert decoder.native_output_names == ["IMAGE"]
+    assert decoder.native_output_types == ["IMAGE"]
+    assert candidate_bundle.workflow.nodes["2"].native_output_names == ["LATENT"]
+    assert parent.workflow.nodes["2"].native_output_names is None
 
 
 def test_latent_vaeloader_uses_slot_zero_and_consumers_are_not_emitters() -> None:

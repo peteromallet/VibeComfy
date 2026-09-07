@@ -24,6 +24,7 @@ from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.handles import Handle
 from vibecomfy.workflow import (
     NodeMode,
+    RawWidgetPayload,
     VibeEdge,
     VibeInput,
     VibeNode,
@@ -2566,3 +2567,34 @@ def test_agent_edit_ingest_uses_named_door_not_shape_sniff() -> None:
     assert "detect_workflow_shape" not in frag
     assert "ingest_workflow_and_ui" in frag
     assert "door_get_nodes" in frag
+
+
+def test_folded_widget_uses_typed_raw_payload_without_mutating_retained_ui() -> None:
+    from vibecomfy._compile._resolve import _fold_literal_into_consumer
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    workflow = VibeWorkflow("folded-widget", WorkflowSource("folded-widget"))
+    node = VibeNode(
+        "1",
+        "FutureWidgetNode",
+        inputs={"widget_0": 1},
+        raw_widgets=RawWidgetPayload(
+            values=[1],
+            shape="list",
+            source="ui.widgets_values",
+            has_dict_rows=False,
+            length=1,
+        ),
+        metadata={"_ui": {"widgets_values": [999]}},
+    )
+    workflow.nodes[node.id] = node
+
+    _fold_literal_into_consumer(node, "widget_0", 9)
+
+    assert node.inputs["widget_0"] == 9
+    assert node.raw_widgets.values == [9]
+    assert node.metadata["_ui"]["widgets_values"] == [999]
+    with pytest.warns(UserWarning, match="schema-less node"):
+        emitted = emit_ui_json(workflow)
+    assert emitted["nodes"][0]["widgets_values"] == [9]
+    assert node.metadata["_ui"]["widgets_values"] == [999]

@@ -73,6 +73,26 @@ def door_setdefault_widgets_values(node: Any, default: Any = None) -> Any:
     return node.setdefault("widgets_values", default)
 
 
+def canonical_definition_nodes(definition: Mapping[str, Any], default: Any = ()) -> Any:
+    """Read the authored recursive ``nodes`` carrier without reshaping it."""
+    return definition.get("nodes", default)
+
+
+def canonical_definition_links(definition: Mapping[str, Any], default: Any = ()) -> Any:
+    """Read the authored recursive ``links`` carrier without reshaping it."""
+    return definition.get("links", default)
+
+
+def canonical_node_widgets(node: Mapping[str, Any], default: Any = None) -> Any:
+    """Read the authored recursive ``widgets`` carrier without merging channels."""
+    return node.get("widgets", default)
+
+
+def canonical_node_widgets_values(node: Mapping[str, Any], default: Any = None) -> Any:
+    """Read the authored recursive ``widgets_values`` carrier exactly."""
+    return node.get("widgets_values", default)
+
+
 import warnings
 
 from vibecomfy._compile._graph import is_canonical_api_link
@@ -444,6 +464,25 @@ def detect_workflow_shape(raw: dict[str, Any]) -> str:
     if raw and all(isinstance(value, dict) and "class_type" in value for value in raw.values()):
         return "api"
     return "unknown"
+
+
+def door_import_source_kind(raw: Mapping[str, Any]) -> str:
+    """Classify one import mapping at the sole raw workflow-shape door.
+
+    Preserve the bundle boundary's historical top-level precedence exactly:
+    rich mapped nodes with an envelope marker, then UI node lists, then API.
+    Prompt-wrapped and unknown mappings remain API candidates so their normal
+    typed import validation can reject malformed payloads.
+    """
+    nodes = raw.get("nodes")
+    if isinstance(nodes, dict) and (
+        "vibecomfy_format_version" in raw
+        or isinstance(raw.get("compiled_api"), dict)
+    ):
+        return "envelope"
+    if isinstance(nodes, list):
+        return "ui"
+    return "api"
 
 
 def _attach_workflow_snapshot(

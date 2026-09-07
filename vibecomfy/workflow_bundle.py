@@ -31,6 +31,7 @@ from vibecomfy.workflow import (
     WorkflowSource,
     _port_index_for_node,
     _resolve_virtual_wire_legs,
+    canonical_ir_projection,
 )
 
 
@@ -182,6 +183,7 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
     # Definitions are existing Python JSON-shaped semantics.  Derive their
     # structural scope through sg_key, never through ordinal UI indexes.
     from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes
 
     def definition_entries(raw: Any) -> list[Mapping[str, Any]]:
         if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), (list, tuple)):
@@ -196,7 +198,7 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
         for definition in definition_entries(definitions):
             key = sg_key(definition)
             scope = compose_scope_path((*parent, key))
-            raw_nodes = definition.get("nodes", [])
+            raw_nodes = canonical_definition_nodes(definition)
             entries = list(raw_nodes.values()) if isinstance(raw_nodes, Mapping) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
             by_local: dict[str, Mapping[str, Any]] = {}
             for node in entries:
@@ -206,7 +208,7 @@ def _semantic_edges(workflow: VibeWorkflow) -> set[tuple[str, str, int, str, int
                     by_local[str(local)] = node
                 if node.get("id") is not None:
                     by_local[str(node["id"])] = node
-            raw_links = definition.get("links", [])
+            raw_links = canonical_definition_links(definition)
             link_values = raw_links.values() if isinstance(raw_links, Mapping) else raw_links if isinstance(raw_links, (list, tuple)) else []
             for link in link_values:
                 if isinstance(link, Mapping):
@@ -257,7 +259,7 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
     if not isinstance(sidecar, Mapping):
         raise WorkflowBundleError("workflow sidecar must contain a JSON object")
     try:
-        projection = workflow.semantic_projection()
+        projection = canonical_ir_projection(workflow)
     except (TypeError, ValueError, KeyError) as exc:
         raise WorkflowBundleError(f"Python semantic projection is invalid: {exc}") from exc
     semantic_digest = canonical_digest(projection)
@@ -278,7 +280,10 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         raise WorkflowBundleError("workflow sidecar bind workflow_identity does not match workflow")
     if bind["semantic_digest"] != semantic_digest:
         raise WorkflowBundleError("workflow sidecar semantic digest does not match Python semantic digest")
-    nodes = sidecar["nodes"]
+    from vibecomfy.porting.emit.ui import capture_presentation_graph_records
+
+    presentation = capture_presentation_graph_records(sidecar)
+    nodes = presentation.nodes
     if not isinstance(nodes, Mapping):
         raise WorkflowBundleError("workflow sidecar nodes must be a UID-keyed object")
     canonical_nodes: dict[str, Any] = {}
@@ -321,7 +326,7 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
         for item in projection.get("definitions", ())
         if isinstance(item, Mapping) and isinstance(item.get("scope_path"), str)
     )
-    raw_links = sidecar["links"]
+    raw_links = presentation.links
     if not isinstance(raw_links, list):
         raise WorkflowBundleError("workflow sidecar links must be a list")
     canonical_links: list[dict[str, Any]] = []
@@ -598,7 +603,10 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
     """Convert a captured UI envelope into presentation-only sidecar data."""
     if set(candidate) >= _SIDECAR_KEYS:
         return dict(candidate)
-    raw_nodes = candidate.get("nodes")
+    from vibecomfy.porting.emit.ui import capture_presentation_graph_records
+
+    presentation = capture_presentation_graph_records(candidate)
+    raw_nodes = presentation.nodes
     if not isinstance(raw_nodes, list):
         raise WorkflowBundleError("captured candidate is not a strict sidecar or LiteGraph UI envelope")
     ids: dict[str, str] = {}
@@ -611,7 +619,7 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
         "vibecomfy_uid", "vibecomfy_id", "Node name for S&R", "cnr_id",
         "aux_id", "ver", "_vibecomfy_schema_provider", "vibecomfy",
     }
-    raw_groups = candidate.get("groups", [])
+    raw_groups = presentation.groups if presentation.groups_present else []
     if not isinstance(raw_groups, list):
         raise WorkflowBundleError("captured groups must be a list")
     group_for_node: dict[str, str] = {}
@@ -674,7 +682,7 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
             entry["group"] = str(group)
         nodes[uid] = entry
     links: list[dict[str, Any]] = []
-    for link in candidate.get("links", ()) if isinstance(candidate.get("links"), list) else ():
+    for link in presentation.links if isinstance(presentation.links, list) else ():
         if isinstance(link, Mapping):
             allowed_link = {"id", "origin_id", "origin_slot", "target_id", "target_slot", "type", "reroute"}
             unknown_link = set(link) - allowed_link
@@ -1557,14 +1565,9 @@ def load_bundle(
             raise WorkflowBundleError(f"could not read workflow source {resolved}: {exc}") from exc
         if not isinstance(raw, Mapping):
             raise WorkflowBundleError("imported workflow source must contain a JSON object")
-        if isinstance(raw.get("nodes"), dict) and (
-            "vibecomfy_format_version" in raw or isinstance(raw.get("compiled_api"), dict)
-        ):
-            source_kind = "envelope"
-        elif isinstance(raw.get("nodes"), list):
-            source_kind = "ui"
-        else:
-            source_kind = "api"
+        from vibecomfy.ingest.normalize import door_import_source_kind
+
+        source_kind = door_import_source_kind(raw)
         declared_identity = _import_identity(raw, source_kind=source_kind)
         if source_kind == "api":
             # Imported compatibility JSON may carry the durable identity in a
@@ -1813,14 +1816,9 @@ def capture_bundle(
         destination_path = Path(destination)
         if destination_path.suffix.lower() != ".py":
             destination_path = destination_path / "capture.py"
-        if isinstance(ui_graph.get("nodes"), dict) and (
-            "vibecomfy_format_version" in ui_graph or isinstance(ui_graph.get("compiled_api"), dict)
-        ):
-            source_kind = "envelope"
-        elif isinstance(ui_graph.get("nodes"), list):
-            source_kind = "ui"
-        else:
-            source_kind = "api"
+        from vibecomfy.ingest.normalize import door_import_source_kind
+
+        source_kind = door_import_source_kind(ui_graph)
         declared = _import_identity(ui_graph, source_kind=source_kind)
         from vibecomfy.ingest.normalize import _named_import
 

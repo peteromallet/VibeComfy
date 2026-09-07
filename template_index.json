@@ -3245,14 +3245,14 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "10",
+            "node_id": "13",
             "field": "text"
           },
-          "node_id": "10",
+          "node_id": "13",
           "field": "text",
-          "value": "blurry, distorted, low quality",
+          "value": "A cinematic first-last frame transition.",
           "type": "STRING",
-          "default": "blurry, distorted, low quality",
+          "default": "A cinematic first-last frame transition.",
           "required": true,
           "range": null,
           "aliases": [],

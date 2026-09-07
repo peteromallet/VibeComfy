@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from vibecomfy.identity.scope import sg_key
@@ -756,3 +760,68 @@ def test_root_interface_cannot_shadow_typed_recursive_definitions() -> None:
     with pytest.raises(RecursiveEditError) as error:
         diff(workflow, mixed)
     assert error.value.code == "unsupported_structural_scope"
+
+
+@pytest.mark.parametrize(
+    ("carrier", "bad_value", "expected_code"),
+    [
+        ("nodes", "malformed", "nodes_malformed"),
+        ("nodes", [{"id": 1}, "malformed"], "nodes_malformed"),
+        ("links", "malformed", "links_malformed"),
+        ("links", ["malformed"], "links_malformed"),
+    ],
+)
+def test_recursive_canonical_carrier_malformed_inputs_keep_typed_errors(
+    carrier: str, bad_value: object, expected_code: str
+) -> None:
+    workflow, _outer, _inner = _workflow()
+    workflow.definitions["subgraphs"][0][carrier] = bad_value
+    with pytest.raises(RecursiveEditError) as error:
+        build_recursive_edit_index(workflow)
+    assert error.value.code == expected_code
+
+
+def test_recursive_widgets_and_widgets_values_are_separate_channels() -> None:
+    workflow, _outer, inner = _workflow()
+    node = workflow.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]
+    node["widgets"] = {"presentation_only": 99}
+    node["widgets_values"] = [1]
+    build_recursive_edit_index(workflow)
+    post = apply_edit_cow(
+        workflow,
+        SetNodeFieldOp("set_node_field", NodeFieldTarget(inner, "inner_i", "widget_0"), 7),
+    )
+    changed = post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]["nodes"][0]
+    assert changed["widgets_values"] == [7]
+    assert changed["widgets"] == {"presentation_only": 99}
+
+
+def test_recursive_raw_node_uses_widgets_values_when_widgets_is_nonmapping() -> None:
+    from vibecomfy.workflow import _raw_recursive_node
+
+    node = _raw_recursive_node(
+        {
+            "id": 7,
+            "type": "Get",
+            "widgets": [99],
+            "widgets_values": [1],
+            "inputs": [],
+            "outputs": [],
+        },
+        "7",
+    )
+    assert node.widgets == {"widget_0": 1}
+
+
+def test_recursive_boundary_checker_accepts_combined_canonical_boundaries() -> None:
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "scripts/check_ir_boundary.py"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert output.strip() == "IR boundary: clean"

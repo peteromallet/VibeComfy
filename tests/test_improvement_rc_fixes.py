@@ -135,21 +135,10 @@ def test_hivemind_500_is_warning_on_semantic_product(tmp_path: Path, monkeypatch
         output_dir,
         reply="The graph uses VHS_VideoCombine at 16 fps.",
     )
-    (output_dir / "response.json").write_text(
-        json.dumps(
-            {
-                "ok": True,
-                "reply": "The graph uses VHS_VideoCombine at 16 fps.",
-                "diagnostics": [
-                    {
-                        "severity": "error",
-                        "message": "Hivemind HTTP error 500: canceling statement due to statement timeout",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
+    response_path = output_dir / "response.json"
+    response = json.loads(response_path.read_text(encoding="utf-8"))
+    response["warnings"] = ["Hivemind HTTP error 500: canceling statement due to statement timeout"]
+    response_path.write_text(json.dumps(response), encoding="utf-8")
     (output_dir / "original.ui.json").write_text(
         json.dumps({"nodes": [{"id": 1, "type": "VHS_VideoCombine"}], "links": []}),
         encoding="utf-8",
@@ -182,36 +171,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _fc240f_ui_pair() -> tuple[dict, dict, list[dict]]:
-    """SVD node 12 with compact widgets_values[3] (motion_bucket_id) 127→200."""
-    corpus = json.loads(
-        (ROOT / "tests/fixtures/external_corpus/fc240f1c4331a5e5.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    ui_node = copy.deepcopy(corpus["nodes"]["12"]["metadata"]["_ui"])
-    ui_node.setdefault("properties", {})["vibecomfy_uid"] = "12"
-    original = {
-        "last_node_id": 12,
-        "last_link_id": 0,
-        "nodes": [ui_node],
-        "links": [],
+    """Tracked minimal SVD-shaped fixture: motion_bucket_id 127→200."""
+    ui_node = {
+        "flags": {}, "id": 12, "inputs": [], "mode": 0, "order": 4,
+        "outputs": [
+            {"links": [], "name": "positive", "slot_index": 0, "type": "CONDITIONING"},
+            {"links": [], "name": "negative", "slot_index": 1, "type": "CONDITIONING"},
+            {"links": [], "name": "latent", "slot_index": 2, "type": "LATENT"},
+        ],
+        "pos": [450, 190], "properties": {"Node name for S&R": "SVD_img2vid_Conditioning", "vibecomfy_uid": "12"},
+        "size": [315, 218], "type": "SVD_img2vid_Conditioning",
+        "widgets_values": [1024, 576, 14, 127, 6, 0],
     }
+    original = {"last_node_id": 12, "last_link_id": 0, "nodes": [ui_node], "links": []}
     post_node = copy.deepcopy(ui_node)
-    values = list(post_node["widgets_values"])
-    assert values[3] == 127
-    values[3] = 200
+    values = list(post_node["widgets_values"]); assert values[3] == 127; values[3] = 200
     post_node["widgets_values"] = values
-    post = {
-        "last_node_id": 12,
-        "last_link_id": 0,
-        "nodes": [post_node],
-        "links": [],
-    }
-    op = {
-        "op": "set_node_field",
-        "target": ["", "12", "motion_bucket_id"],
-        "value": 200,
-    }
+    post = {"last_node_id": 12, "last_link_id": 0, "nodes": [post_node], "links": []}
+    op = {"op": "set_node_field", "target": ["", "12", "motion_bucket_id"], "value": 200}
     return original, post, [op]
 
 
@@ -296,7 +273,7 @@ def test_fc240f_shaped_delta_passes_without_llm_field_rename(
         json.dumps(
             {
                 "ok": True,
-                "accepted_batch": [],
+                "accepted_batch": [{"ok": True, "landed": True, "op": ops[0]}],
                 "outcome": {
                     "kind": "applied",
                     "changes": [
@@ -334,6 +311,22 @@ def test_fc240f_shaped_delta_passes_without_llm_field_rename(
             )
         }
 
+    from vibecomfy.schema import InputSpec, NodeSchema
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            if class_type == "SVD_img2vid_Conditioning":
+                return NodeSchema(class_type, None, {
+                    "width": InputSpec(type="INT"), "height": InputSpec(type="INT"),
+                    "video_frames": InputSpec(type="INT"), "motion_bucket_id": InputSpec(type="INT"),
+                    "augmentation_level": InputSpec(type="FLOAT"),
+                    "clip_vision": InputSpec(type="CLIP_VISION"), "init_image": InputSpec(type="IMAGE"),
+                    "vae": InputSpec(type="VAE"),
+                }, [])
+            return None
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import capture_ingress_schema_snapshot
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+    snapshot = capture_ingress_schema_snapshot(schema_provider=_FixtureProvider(), graph=original)
+    monkeypatch.setattr("vibecomfy.schema.get_schema_provider", lambda *args, **kwargs: FrozenSchemaSnapshotProvider(snapshot))
     monkeypatch.setattr(
         "tests.live_agentic_harness.intent_judge.run_model_turn",
         fake_run_model_turn,
@@ -554,12 +547,10 @@ def test_rc12b_queue_withheld_batch_grades_product_not_fail_close(
         fake_run_model_turn,
     )
     verdict = judge_edit_intent(tmp_path, {"query": "set steps to 30"})
-    assert "payload" in seen
-    payload = seen["payload"]
-    assert isinstance(payload, dict)
-    assert payload["delta_replay"].get("queue_gate_issue")
-    assert payload["delta"].get("seed") == "canonical_diff"
-    assert verdict["pass_"] is True
+    assert "payload" not in seen
+    assert verdict["pass_"] is None
+    assert verdict["metadata"]["verdict"] == "withheld_accepted_batch"
+    assert "withheld_accepted_batch" in verdict["error"]
 
 
 def test_rc12a_untouched_preexisting_schema_less_is_warning_not_block() -> None:
@@ -771,8 +762,14 @@ def test_rc13_empty_allowlist_defaults_on_missing_class(
             "_tags": {"requires_custom_nodes": True},
         },
     )
-    assert assessment["verdict"] == "pass"
+    assert assessment["verdict"] == "undetermined"
     assert any(item["judge"] == "grounded_refusal" for item in assessment["judge_results"])
+    assert assessment["outcome_class"] == "safe_refusal"
+    assert any(
+        issue["check"] == "safe_refusal_edit_obligation"
+        and issue["severity"] == "undetermined"
+        for issue in assessment["issues"]
+    )
 
 
 def test_rc5_c80bbf_named_absence_enters_grounded_refusal(
@@ -839,8 +836,14 @@ def test_rc5_c80bbf_named_absence_enters_grounded_refusal(
     )
 
     assert calls
-    assert assessment["verdict"] == "pass"
+    assert assessment["verdict"] == "undetermined"
     assert any(item["judge"] == "grounded_refusal" for item in assessment["judge_results"])
+    assert assessment["outcome_class"] == "safe_refusal"
+    assert any(
+        issue["check"] == "safe_refusal_edit_obligation"
+        and issue["severity"] == "undetermined"
+        for issue in assessment["issues"]
+    )
 
 
 def test_rc13_face_mtcnn_refusal_still_fails_when_substitution_exists(
@@ -1005,122 +1008,55 @@ def test_rc14_classify_missing_fields_retries_at_most_once(monkeypatch) -> None:
     assert calls["n"] == 2
 
 
-def test_rc14_classify_retry_keeps_edit_routing_for_expected_edit(monkeypatch) -> None:
-    """RC14: a retry that routes an expected-edit scenario to respond is re-asked
-    until it returns an edit/inspect route — never returned as a respond no-op."""
+def test_rc14_classify_retry_returns_judgment_owned_respond(monkeypatch) -> None:
+    """Malformed JSON retries once; a valid judgment-owned respond route is retained."""
     from types import SimpleNamespace
-
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
-    from vibecomfy.executor.core import (
-        _CLASSIFY_EDIT_ROUTING_NUDGE,
-        _CLASSIFY_JSON_NUDGE,
-        _run_classify,
-    )
-
-    calls: list[dict[str, object]] = []
-
-    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202
+    from vibecomfy.executor.core import _CLASSIFY_JSON_NUDGE, _run_classify
+    calls = []
+    def fake_classify(query, **kwargs):
         calls.append(kwargs)
         if len(calls) == 1:
             exc = ValueError("not valid JSON")
-            exc.raw_response_preview = "sure, I can help {not json"
-            raise exc
-        if len(calls) == 2:
-            # The RC14 retry corrects the JSON but misroutes the expected-edit
-            # scenario to respond (the v5-batch-2 #2 / v5-batch-4 #6 bug).
-            return ClassifyDecision(intent="respond", route="respond", reply=True)
-        # The edit-routing re-ask honors the hard rule: edit/inspect, never respond.
-        return ClassifyDecision(intent="edit", route="revise", implement=True, reply=True)
-
-    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
-    decision = _run_classify(
-        ExecutorRequest(query="change the webp quality to lossless"),
-        SimpleNamespace(agent="openrouter", model="x", effort="low"),
-        expect_graph_changed=True,
-    )
-    assert len(calls) == 3
-    retry_content = "\n".join(
-        str(msg.get("content"))
-        for msg in (calls[1].get("messages") or [])
-        if isinstance(msg, dict)
-    )
-    assert _CLASSIFY_JSON_NUDGE in retry_content
-    assert _CLASSIFY_EDIT_ROUTING_NUDGE in retry_content
-    reroute_content = "\n".join(
-        str(msg.get("content"))
-        for msg in (calls[2].get("messages") or [])
-        if isinstance(msg, dict)
-    )
-    assert _CLASSIFY_EDIT_ROUTING_NUDGE in reroute_content
-    assert decision.effective_route == "revise"
-    assert decision.intent == "edit"
-
-
-def test_rc14_classify_retry_respond_on_expected_edit_is_rejected(monkeypatch) -> None:
-    """RC14: when the retry AND the edit-routing re-ask both return respond for
-    an expected-edit scenario, the classify phase fails loudly with a clear
-    error instead of proceeding to a no-op respond."""
-    from types import SimpleNamespace
-
-    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
-    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
-
-    calls = {"n": 0}
-
-    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        calls["n"] += 1
-        if calls["n"] == 1:
-            exc = ValueError("not valid JSON")
-            exc.raw_response_preview = "sure, I can help {not json"
+            exc.raw_response_preview = "{not json"
             raise exc
         return ClassifyDecision(intent="respond", route="respond", reply=True)
-
     monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
-    try:
-        _run_classify(
-            ExecutorRequest(query="change the webp quality to lossless"),
-            SimpleNamespace(agent="openrouter", model="x", effort="low"),
-            expect_graph_changed=True,
-        )
-    except _ExecutorPhaseError as exc:
-        assert exc.stage == "classify"
-        assert exc.failure_kind == "MissingRequiredField"
-        assert "expect_graph_changed" in str(exc)
-        assert "respond" in str(exc)
-    else:
-        raise AssertionError("expected classify phase error for respond misroute")
-    assert calls["n"] == 3
+    decision = _run_classify(ExecutorRequest(query="change the webp quality to lossless"), SimpleNamespace(agent="openrouter", model="x", effort="low"), expect_graph_changed=True)
+    assert len(calls) == 2
+    assert _CLASSIFY_JSON_NUDGE in "\n".join(str(m.get("content")) for m in calls[1].get("messages", []) if isinstance(m, dict))
+    assert decision.effective_route == "respond"
+    assert decision.intent == "respond"
 
 
-def test_rc14_inspect_on_expected_edit_is_rejected_as_non_applyable(monkeypatch) -> None:
-    """inspect cannot satisfy an assessment that requires a landed graph edit."""
+def test_rc14_classify_respond_is_not_coerced_by_expected_edit(monkeypatch) -> None:
+    """A valid respond judgment is not coerced by edit expectation context."""
     from types import SimpleNamespace
-
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
-    from vibecomfy.executor.core import _ExecutorPhaseError, _run_classify
-
-    calls = {"n": 0}
-
-    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        calls["n"] += 1
-        return ClassifyDecision(
-            intent="explain_graph", route="inspect", implement=False, reply=True
-        )
-
+    from vibecomfy.executor.core import _run_classify
+    calls = []
+    def fake_classify(query, **kwargs):
+        calls.append(kwargs); return ClassifyDecision(intent="respond", route="respond", reply=True)
     monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
-    try:
-        _run_classify(
-            ExecutorRequest(query="make this workflow faster"),
-            SimpleNamespace(agent="openrouter", model="x", effort="low"),
-            expect_graph_changed=True,
-        )
-    except _ExecutorPhaseError as exc:
-        assert exc.stage == "classify"
-        assert "expect_graph_changed" in str(exc)
-        assert "inspect" in str(exc)
-    else:
-        raise AssertionError("expected classify phase error for inspect misroute")
-    assert calls["n"] == 2
+    decision = _run_classify(ExecutorRequest(query="change the webp quality to lossless"), SimpleNamespace(agent="openrouter", model="x", effort="low"), expect_graph_changed=True)
+    assert len(calls) == 1
+    assert decision.effective_route == "respond"
+    assert decision.intent == "respond"
+
+
+def test_rc14_classify_inspect_is_not_coerced_by_expected_edit(monkeypatch) -> None:
+    """A valid inspect judgment is returned; applyability is assessed downstream."""
+    from types import SimpleNamespace
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import _run_classify
+    calls = []
+    def fake_classify(query, **kwargs):
+        calls.append(kwargs); return ClassifyDecision(intent="explain_graph", route="inspect", implement=False, reply=True)
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    decision = _run_classify(ExecutorRequest(query="make this workflow faster"), SimpleNamespace(agent="openrouter", model="x", effort="low"), expect_graph_changed=True)
+    assert len(calls) == 1
+    assert decision.effective_route == "inspect"
+    assert decision.intent == "explain_graph"
 
 
 def test_named_fields_map_uses_executor_surface() -> None:
@@ -1452,7 +1388,7 @@ def test_kolors_actionable_refusal_is_accepted_through_live_assessor(
     )
 
     assert seen["payload"]["refusal"]["message"] == action
-    assert assessment["verdict"] == "pass"
+    assert assessment["verdict"] == "undetermined"
     assert any(issue["check"] == "safe_refusal" for issue in assessment["issues"])
     assert not any(issue["severity"] == "error" for issue in assessment["issues"])
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import copy
 import dataclasses
 from dataclasses import dataclass, field, replace
@@ -732,7 +733,8 @@ class VibeWorkflow:
             active.add(identity)
             key = definition.get("sg_key") or sg_key(definition)
             scope = compose_scope_path((*parent_scope, key))
-            raw_nodes = definition.get("nodes", [])
+            from vibecomfy.ingest.normalize import canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+            raw_nodes = canonical_definition_nodes(definition)
             node_entries = list(raw_nodes.values()) if isinstance(raw_nodes, dict) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
             for entry in node_entries:
                 if not isinstance(entry, dict):
@@ -746,7 +748,7 @@ class VibeWorkflow:
                     "uid": uid,
                     "class_type": str(entry.get("class_type", entry.get("type", "Unknown"))),
                     "inputs": copy.deepcopy(entry.get("inputs", {})) if isinstance(entry.get("inputs", {}), dict) else {},
-                    "widgets": copy.deepcopy(entry.get("widgets", entry.get("widgets_values", {}))),
+                    "widgets": copy.deepcopy(canonical_node_widgets(entry, canonical_node_widgets_values(entry, {}))),
                     "mode": litegraph_to_mode(entry.get("mode", NodeMode.ENABLED)).value,
                     "metadata": copy.deepcopy(entry.get("semantic", {})) if isinstance(entry.get("semantic", {}), dict) else {},
                 })
@@ -1741,6 +1743,15 @@ class VibeWorkflow:
         return str(candidate)
 
 
+def canonical_ir_projection(workflow: VibeWorkflow) -> dict[str, Any]:
+    """Return the canonical typed-IR projection for a workflow boundary."""
+    if not isinstance(workflow, VibeWorkflow):
+        raise TypeError(
+            f"canonical_ir_projection requires VibeWorkflow, got {type(workflow).__name__}"
+        )
+    return workflow.semantic_projection()
+
+
 def from_envelope(
     raw: dict[str, Any],
     *,
@@ -1979,7 +1990,8 @@ def _validate_recursive_execution_contract(definitions: Any, boundary_ports: Any
                     "definition instances are not an authored field; occurrences are definition-typed nodes",
                     next_action="Represent each occurrence as an existing node whose class/type matches the definition.",
                 )
-            links = definition.get("links", [])
+            from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+            links = canonical_definition_links(definition)
             for link in links if isinstance(links, (list, tuple)) else []:
                 if isinstance(link, Mapping):
                     origin = link.get("origin_id")
@@ -2061,7 +2073,8 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
                 output_types.append(str(item.get("type")) if item.get("type") is not None else None)
     widgets = raw_node.get("widgets")
     if not isinstance(widgets, Mapping):
-        values = raw_node.get("widgets_values", [])
+        from vibecomfy.ingest.normalize import canonical_node_widgets, canonical_node_widgets_values
+        values = canonical_node_widgets_values(raw_node, [])
         widgets = {
             f"widget_{i}": copy.deepcopy(value)
             for i, value in enumerate(values)
@@ -2317,7 +2330,8 @@ def _expand_authored_definitions(
             raise WorkflowCompileError("recursive_definition_cycle", f"recursive definition cycle through {record['path']!r}")
         runtime_scope = compose_scope_path(runtime_segments)
         definition = record["definition"]
-        raw_nodes = definition.get("nodes", [])
+        from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+        raw_nodes = canonical_definition_nodes(definition)
         values = list(raw_nodes.values()) if isinstance(raw_nodes, Mapping) else list(raw_nodes) if isinstance(raw_nodes, (list, tuple)) else []
         local_to_runtime: dict[str, str] = {}
         raw_by_local: dict[str, Mapping[str, Any]] = {}
@@ -2357,7 +2371,8 @@ def _expand_authored_definitions(
             child_context = expand_record(child, (*runtime_segments, segment), (*canonical_segments, child["key"]), (*stack, record["path"]))
             context["shells"][local] = child_context
         context["bindings"] = build_bindings(context) if context["members"] else {}
-        for raw_link in definition.get("links", ()) if isinstance(definition.get("links", ()), (list, tuple)) else ():
+        raw_links = canonical_definition_links(definition)
+        for raw_link in (raw_links if isinstance(raw_links, (list, tuple)) else ()):
             origin, origin_slot, target, target_slot = parse_link(raw_link)
             origin_local = validate_local_uid(str(origin), field="definition link origin")
             target_local = validate_local_uid(str(target), field="definition link target")
@@ -2483,7 +2498,8 @@ def _apply_definition_variant(
             active_definition_ids.add(identity)
             active_keys.add(str(key))
             scope = compose_scope_path((*parent, key))
-            nodes = definition.get("nodes", [])
+            from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+            nodes = canonical_definition_nodes(definition)
             node_entries = list(nodes.values()) if isinstance(nodes, dict) else list(nodes) if isinstance(nodes, (list, tuple)) else []
             for node in node_entries:
                 if not isinstance(node, dict):
@@ -3630,7 +3646,8 @@ def _resolve_workflow_virtual_wire_records(workflow: Any) -> dict[tuple[str, str
             scope = compose_scope_path((*parent, key))
             wires = definition["virtual_wires"] if "virtual_wires" in definition else {}
             if wires != {}:
-                for record in _resolve_virtual_wire_legs(node_map(definition.get("nodes", [])), wires, scope_path=scope):
+                from vibecomfy.ingest.normalize import canonical_definition_nodes
+                for record in _resolve_virtual_wire_legs(node_map(canonical_definition_nodes(definition)), wires, scope_path=scope):
                     resolved.setdefault((scope, record.wire_name), tuple())
                     resolved[(scope, record.wire_name)] += (record,)
             visit(definition.get("definitions"), (*parent, key))

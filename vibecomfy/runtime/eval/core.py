@@ -82,12 +82,16 @@ def select_eval_workflow(bundle: WorkflowBundle, target_node_id: str) -> VibeWor
     candidate.boundary_ports = []
     candidate.virtual_wires = {}
     for preview_id, class_type, inputs, from_node, from_output, to_input in injections:
+        is_decoder = class_type == "VAEDecode"
         candidate.nodes[preview_id] = VibeNode(
             id=preview_id,
             uid=preview_id,
             class_type=class_type,
             inputs=inputs,
-            native_input_names=["samples", "vae"] if class_type == "VAEDecode" else [to_input],
+            native_input_names=["samples", "vae"] if is_decoder else [to_input],
+            native_output_names=["IMAGE"] if is_decoder else [],
+            native_input_types=["LATENT", "VAE"] if is_decoder else None,
+            native_output_types=["IMAGE"] if is_decoder else [],
         )
         candidate.edges.append(VibeEdge(from_node=from_node, from_output=from_output, to_node=preview_id, to_input=to_input))
     if latent_vae_handle is not None:
@@ -112,6 +116,8 @@ def approve_eval_subgraph(
 ) -> tuple[WorkflowBundle, ApprovedProjectionRecord]:
     """Select, ephemerally bind, and approve one eval candidate graph."""
     candidate = select_eval_workflow(bundle, target_node_id)
+    if schema_provider is not None:
+        _retain_explicit_provider_ports(candidate, schema_provider)
     candidate_bundle = load_bundle(candidate)
     record = candidate_bundle.compile(
         variant=variant,
@@ -119,6 +125,52 @@ def approve_eval_subgraph(
         schema_provider=schema_provider,
     )
     return candidate_bundle, record
+
+
+def _retain_explicit_provider_ports(
+    workflow: VibeWorkflow,
+    schema_provider: Any,
+) -> None:
+    """Freeze exact supplied-schema ports onto an eval candidate before approval."""
+    for node in workflow.nodes.values():
+        schema = schema_provider.get_schema(node.class_type)
+        if schema is None:
+            continue
+        inputs = getattr(schema, "inputs", None)
+        if node.native_input_names is None and isinstance(inputs, Mapping):
+            node.native_input_names = [str(name) for name in inputs]
+            node.native_input_types = [
+                str(getattr(spec, "type"))
+                if getattr(spec, "type", None) is not None
+                else None
+                for spec in inputs.values()
+            ]
+            node.native_input_optional = [
+                not bool(getattr(spec, "required", False))
+                for spec in inputs.values()
+            ]
+            assets = [
+                str(getattr(spec, "asset_kind"))
+                if getattr(spec, "asset_kind", None) is not None
+                else None
+                for spec in inputs.values()
+            ]
+            node.native_input_asset_kinds = assets if any(assets) else None
+        outputs = getattr(schema, "outputs", None)
+        if node.native_output_names is None and isinstance(outputs, (list, tuple)):
+            node.native_output_names = [
+                str(getattr(spec, "name"))
+                if getattr(spec, "name", None) is not None
+                else None
+                for spec in outputs
+            ]
+            node.native_output_types = [
+                str(getattr(spec, "type"))
+                if getattr(spec, "type", None) is not None
+                else None
+                for spec in outputs
+            ]
+        node.__post_init__()
 
 
 def _detect_output_type(workflow: VibeWorkflow, target: VibeNode) -> str:

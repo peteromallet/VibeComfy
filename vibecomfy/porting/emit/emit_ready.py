@@ -28,6 +28,8 @@ Part of the M2 structural decomposition of vibecomfy/porting/emitter.py.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+
 from vibecomfy.ingest.normalize import door_nodes
 import ast
 import copy
@@ -1068,8 +1070,7 @@ def _merge_definition_wrapper_imports(
     def walk(value: Any, prefix: str) -> None:
         if not isinstance(value, Mapping):
             return
-        raw_nodes = value.get("nodes")
-        entries = raw_nodes.values() if isinstance(raw_nodes, Mapping) else raw_nodes
+        entries = canonical_definition_nodes(value)
         if isinstance(entries, (list, tuple)):
             for index, raw in enumerate(entries):
                 if not isinstance(raw, Mapping):
@@ -1255,7 +1256,7 @@ def _canonical_definition_helpers(
         )
 
     def node_records(definition: Mapping[str, Any]) -> list[dict[str, Any]]:
-        raw_nodes = definition.get("nodes", ())
+        raw_nodes = canonical_definition_nodes(definition)
         raw_entries = raw_nodes.values() if isinstance(raw_nodes, Mapping) else raw_nodes
         if not isinstance(raw_entries, (list, tuple)):
             raise ValueError("recursive_definition_nodes_malformed: nodes must be a sequence or mapping")
@@ -1287,7 +1288,7 @@ def _canonical_definition_helpers(
 
     def link_records(definition: Mapping[str, Any], records: list[dict[str, Any]]) -> list[tuple[str, str, str, str]]:
         links: list[tuple[str, str, str, str]] = []
-        raw_links = definition.get("links", ())
+        raw_links = canonical_definition_links(definition)
         if not isinstance(raw_links, (list, tuple)):
             raise ValueError("recursive_definition_links_malformed: links must be a sequence")
         for link in raw_links:

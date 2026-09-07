@@ -63,7 +63,6 @@ def resolve_helpers(
     edge_list = edges
     replace_edges = lambda value: edge_list.__setitem__(slice(None), value)
     register_input = None
-    allow_legacy_ui_widget_update = False
 
     diagnostics: list[HelperDiagnostic] = []
     make_error = error_factory or (lambda spec: HelperResolveError(spec))
@@ -82,7 +81,6 @@ def resolve_helpers(
             extract_primitive_value,
             make_error,
             register_input,
-            allow_legacy_ui_widget_update,
         )
         if not changed:
             break
@@ -392,7 +390,6 @@ def _phase_c_value_primitives(
     extract_primitive_value: PrimitiveValueExtractor,
     make_error: ErrorFactory,
     register_input: Callable[..., Any] | None,
-    allow_legacy_ui_widget_update: bool,
 ) -> bool:
     value_prim_ids = frozenset(
         nid
@@ -445,10 +442,7 @@ def _phase_c_value_primitives(
             consumer_node = nodes.get(edge.to_node)
             if consumer_node is None:
                 raise make_error(_missing_consumer_spec(node_id, node.class_type, edge.to_node))
-            _fold_literal_into_consumer(
-                consumer_node, edge.to_input, literal,
-                allow_legacy_ui_widget_update=allow_legacy_ui_widget_update,
-            )
+            _fold_literal_into_consumer(consumer_node, edge.to_input, literal)
             if register_input is not None:
                 register_input(
                     bname,
@@ -463,10 +457,7 @@ def _phase_c_value_primitives(
                 consumer_node = nodes.get(edge.to_node)
                 if consumer_node is None:
                     raise make_error(_missing_consumer_spec(node_id, node.class_type, edge.to_node))
-                _fold_literal_into_consumer(
-                    consumer_node, edge.to_input, literal,
-                    allow_legacy_ui_widget_update=allow_legacy_ui_widget_update,
-                )
+                _fold_literal_into_consumer(consumer_node, edge.to_input, literal)
 
         outbound_obj_ids = frozenset(id(edge) for edge in outbound)
         edges[:] = [edge for edge in edges if id(edge) not in outbound_obj_ids]
@@ -483,17 +474,13 @@ def _missing_consumer_spec(node_id: str, class_type: str, consumer_id: str) -> H
     )
 
 
-def _fold_literal_into_consumer(
-    node: Any, field: str, literal: Any, *, allow_legacy_ui_widget_update: bool = False
-) -> None:
+def _fold_literal_into_consumer(node: Any, field: str, literal: Any) -> None:
     field_name = str(field)
     node.inputs[field_name] = literal
-    _update_raw_widget_value(node, field_name, literal, allow_legacy_ui_widget_update=allow_legacy_ui_widget_update)
+    _update_raw_widget_value(node, field_name, literal)
 
 
-def _update_raw_widget_value(
-    node: Any, field: str, literal: Any, *, allow_legacy_ui_widget_update: bool = False
-) -> None:
+def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
     """Keep IR widget defaults aligned after folding linked widgets.
 
     ComfyUI represents widget-as-link fields in ``inputs`` but still carries the
@@ -510,10 +497,6 @@ def _update_raw_widget_value(
         values[index] = literal
     elif isinstance(values, dict):
         values[field] = literal
-    if allow_legacy_ui_widget_update:
-        ui = getattr(node, "metadata", {}).get("_ui")
-        if isinstance(ui, Mapping) and isinstance(ui.get("widgets_values"), list) and index < len(ui["widgets_values"]):
-            ui["widgets_values"][index] = literal
 
 
 def _widget_index_for_field(node: Any, field: str) -> int | None:

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.ingest.normalize import (
+    door_import_source_kind,
     from_api,
     from_envelope,
     from_ui,
@@ -38,6 +39,28 @@ def _t06_recursive_graph(*, links=None, **extra):
     definition.update(extra)
     return {"nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],
             "links": [], "definitions": {"subgraphs": [definition]}}
+
+
+def test_bundle_source_kind_classification_stays_at_ingest_door() -> None:
+    assert door_import_source_kind({"nodes": []}) == "ui"
+    assert door_import_source_kind(
+        {"vibecomfy_format_version": "1.0", "nodes": {}}
+    ) == "envelope"
+    assert door_import_source_kind({"prompt": {"1": {"class_type": "A", "inputs": {}}}}) == "api"
+    assert door_import_source_kind({"malformed": True}) == "api"
+    assert door_import_source_kind(
+        {
+            "vibecomfy_format_version": "1.0",
+            "nodes": {},
+            "prompt": {"nodes": []},
+        }
+    ) == "envelope"
+    assert door_import_source_kind(
+        {"nodes": [], "prompt": {"1": {"class_type": "A", "inputs": {}}}}
+    ) == "ui"
+    assert door_import_source_kind(
+        {"nodes": {}, "prompt": {"nodes": []}}
+    ) == "api"
 
 
 def test_t06_rework_native_sentinel_never_bypasses_config_extra() -> None:

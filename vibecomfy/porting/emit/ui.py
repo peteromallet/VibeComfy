@@ -84,6 +84,31 @@ from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode, _raise_embedded_api_links
 
+
+@dataclass(frozen=True, slots=True)
+class PresentationGraphRecords:
+    """Detached structural records crossing the LiteGraph presentation door."""
+
+    nodes: Any
+    links: Any
+    groups: Any
+    groups_present: bool
+
+
+def capture_presentation_graph_records(candidate: Mapping[str, Any]) -> PresentationGraphRecords:
+    """Detach the three graph-shaped presentation records from *candidate*.
+
+    This is deliberately a shape-neutral door.  The bundle boundary retains
+    its context-specific validation: UI envelopes require a node list while
+    strict sidecars require a UID-keyed node mapping.
+    """
+    return PresentationGraphRecords(
+        nodes=deepcopy(candidate.get("nodes")),
+        links=deepcopy(candidate.get("links")),
+        groups=deepcopy(candidate.get("groups")),
+        groups_present="groups" in candidate,
+    )
+
 # Documented default control_after_generate mode when none is retained in metadata.
 _CONTROL_AFTER_GENERATE_DEFAULT = "fixed"
 

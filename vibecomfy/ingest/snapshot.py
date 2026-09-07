@@ -15,6 +15,8 @@ is never frozen in place; the snapshot holds an independent copy/handle.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+
 import hashlib
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Mapping
@@ -223,7 +225,7 @@ def capture_ingest_snapshot(
                     continue
                 key = str(definition.get("sg_key") or sg_key(definition))
                 scope = compose_scope_path((*parent, key))
-                raw_nodes = definition.get("nodes", [])
+                raw_nodes = canonical_definition_nodes(definition)
                 if isinstance(raw_nodes, Mapping):
                     raw_nodes = list(raw_nodes.values())
                 node_by_alias: dict[str, Mapping[str, Any]] = {}
@@ -242,7 +244,7 @@ def capture_ingest_snapshot(
                 outgoing_recursive: dict[str, list[tuple[str, tuple[str, str]]]] = {
                     local: [] for local in node_by_alias
                 }
-                for link in definition.get("links", ()):
+                for link in canonical_definition_links(definition):
                     if isinstance(link, Mapping):
                         origin = link.get("origin_id")
                         origin_slot = link.get("origin_slot")
@@ -272,7 +274,7 @@ def capture_ingest_snapshot(
                         continue
                     local = str(item.get("uid", item.get("id", "")))
                     uid = make_uid(scope, local)
-                    values = item.get("widgets", item.get("widgets_values", {}))
+                    values = canonical_node_widgets(item, canonical_node_widgets_values(item, {}))
                     if isinstance(values, list):
                         values = {f"widget_{i}": value for i, value in enumerate(values)}
                     if not isinstance(values, Mapping):

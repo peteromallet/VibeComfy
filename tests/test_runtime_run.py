@@ -21,7 +21,7 @@ from vibecomfy.schema import NodeSchema
 from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.runtime.session import SessionConfig
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
-from vibecomfy.workflow_bundle import load_bundle
+from vibecomfy.workflow_bundle import WorkflowBundleError, load_bundle
 
 runtime_run_module = importlib.import_module("vibecomfy.runtime.run")
 
@@ -815,37 +815,28 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
     assert metadata["compiled_prompt"]["1"]["inputs"]["filename_prefix"] == "test"
 
 
-def test_artifact_run_forwards_chain_kwargs_to_selected_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_run_embedded_sync(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
-        captured.update(
-            {
-                "workflow": workflow,
-                "chain_id": chain_id,
-                "parent_run_id": parent_run_id,
-                "kwargs": kwargs,
-            }
-        )
-        return types.SimpleNamespace(run_id="run-1")
-
-    monkeypatch.setattr("vibecomfy.runtime.run_embedded_sync", fake_run_embedded_sync)
-    monkeypatch.setattr(
-        "vibecomfy.runtime.run_sync",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server runtime should not run")),
-    )
-
+@pytest.mark.parametrize("runtime", ["embedded", "server", "external"])
+def test_artifact_run_fails_closed_without_approved_record(runtime: str, monkeypatch: pytest.MonkeyPatch) -> None:
     workflow = _workflow()
     artifact = Artifact(workflow=workflow, node_id="1", output_slot=0, kind="image")
-    result = artifact.run(runtime="embedded", chain_id="chain-1", parent_run_id="run-0", backend="graphbuilder")
+    monkeypatch.setattr("vibecomfy.runtime.run_embedded_sync", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("embedded transport reached")))
+    monkeypatch.setattr("vibecomfy.runtime.run_sync", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server transport reached")))
+    with pytest.raises(WorkflowBundleError) as caught:
+        artifact.run(runtime=runtime, chain_id="chain-1", parent_run_id="run-0")
+    text = str(caught.value)
+    assert "finalizing and approving a candidate" in text
+    assert "ApprovedProjectionRecord" in text
+    assert "WorkflowBundle" in text
+    assert "run_embedded_sync(record, bundle)" in text
+    assert "run_sync(record, bundle, server_url=...)" in text
+    assert "vibecomfy port check <source> --json" in text
+    assert "vibecomfy port convert <source> --out out/scratchpads/<name>.py" in text
 
-    assert result.run_id == "run-1"
-    assert captured == {
-        "workflow": workflow,
-        "chain_id": "chain-1",
-        "parent_run_id": "run-0",
-        "kwargs": {"backend": "graphbuilder"},
-    }
+
+def test_artifact_run_preserves_unknown_runtime_error() -> None:
+    artifact = Artifact(workflow=_workflow(), node_id="1", output_slot=0, kind="image")
+    with pytest.raises(ValueError, match="Unknown artifact runtime: local"):
+        artifact.run(runtime="local")
 
 
 def test_run_sync_forwards_chain_kwargs_to_async_run(monkeypatch: pytest.MonkeyPatch) -> None:
