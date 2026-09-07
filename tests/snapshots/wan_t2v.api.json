@@ -21,8 +21,9 @@
   "40": {
     "class_type": "EmptyHunyuanLatentVideo",
     "inputs": {
+      "length": 33,
       "width": 832,
-      "length": 33
+      "height": 480
     }
   },
   "6": {
@@ -58,24 +59,24 @@
   "3": {
     "class_type": "KSampler",
     "inputs": {
-      "seed": 82628696717253,
-      "steps": 30,
       "cfg": 6,
       "sampler_name": "uni_pc",
-      "model": [
-        "48",
+      "seed": 82628696717253,
+      "steps": 30,
+      "latent_image": [
+        "40",
         0
       ],
-      "positive": [
-        "6",
+      "model": [
+        "48",
         0
       ],
       "negative": [
         "7",
         0
       ],
-      "latent_image": [
-        "40",
+      "positive": [
+        "6",
         0
       ]
     }

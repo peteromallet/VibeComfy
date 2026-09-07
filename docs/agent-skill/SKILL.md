@@ -23,7 +23,7 @@ Use this umbrella skill for orientation and package rules. For real work, route 
 The operating path is:
 
 ```text
-discover -> load -> edit/compose -> validate -> run -> collect outputs
+discover -> load_bundle -> edit/compose -> validate -> compile("api") -> run -> collect outputs
 ```
 
 ## First Moves
@@ -60,10 +60,10 @@ vibecomfy runtime doctor
 Use one loader by default:
 
 ```python
-from vibecomfy import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 
 def build():
-    wf = load_workflow_any("image/z_image")
+    wf = load_bundle("image/z_image").workflow
     wf.set_prompt("a glass teapot on basalt")
     wf.set_seed(42)
     wf.set_steps(20)
@@ -84,6 +84,7 @@ Keep ComfyUI's terms precise: a **workflow** is any graph; a **template** is a c
 
 ## Rules
 
+- Treat raw UI/API JSON as import evidence. Load the canonical Python candidate through `load_bundle()` before editing or running.
 - Treat the worktree as shared. Do not revert, overwrite, or clean up edits you did not make.
 - Keep changes scoped to the requested workflow, command, template, or doc surface.
 - Do not change runtime behavior, workflow corpus files, generated snapshots, or template manifests unless the task explicitly covers them.

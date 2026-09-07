@@ -8,7 +8,7 @@ from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, EmptyFlu
 
 READY_METADATA = ReadyMetadata.build(
     capability='image',
-    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_9b_t2i.json', 'source_id': 'flux2_klein_9b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_9b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_9b_t2i'},
+    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_9b_t2i.json', 'source_id': 'image/flux2_klein_9b_t2i', 'upstream_source_id': 'flux2_klein_9b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_9b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_9b_t2i'},
 )
 
 # === Subgraph functions ===
@@ -33,7 +33,7 @@ def text_to_image_flux2_klein_9b(
     flux2scheduler = Flux2Scheduler()
     emptyflux2latentimage = EmptyFlux2LatentImage()
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='flux2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
 
     randomnoise = RandomNoise(

@@ -39,10 +39,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "125",
             "field": "unet_name"
           },
-          "node_id": "3",
+          "node_id": "125",
           "field": "unet_name",
           "value": "acestep_v1.5_turbo.safetensors",
           "type": null,
@@ -57,10 +57,10 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "6",
+            "node_id": "3",
             "field": "steps"
           },
-          "node_id": "6",
+          "node_id": "3",
           "field": "steps",
           "value": 1,
           "type": null,
@@ -1526,10 +1526,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "238:226",
             "field": "unet_name"
           },
-          "node_id": "3",
+          "node_id": "238:226",
           "field": "unet_name",
           "value": "qwen_image_2512_fp8_e4m3fn.safetensors",
           "type": null,
@@ -2196,7 +2196,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "5013",
+          "node_id": "55",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -2210,7 +2210,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "5013",
+          "node_id": "55",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -2444,10 +2444,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "3",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -2693,10 +2693,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "5",
             "field": "unet_name"
           },
-          "node_id": "3",
+          "node_id": "5",
           "field": "unet_name",
           "value": "ltx-2.3-22b-dev-Q4_K_S.gguf",
           "type": null,
@@ -2856,10 +2856,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "4",
+            "node_id": "301",
             "field": "unet_name"
           },
-          "node_id": "4",
+          "node_id": "301",
           "field": "unet_name",
           "value": "LTX-2-dev-Q4_K_S.gguf",
           "type": null,
@@ -2874,10 +2874,10 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "22",
+            "node_id": "238",
             "field": "steps"
           },
-          "node_id": "22",
+          "node_id": "238",
           "field": "steps",
           "value": 8,
           "type": null,
@@ -3067,10 +3067,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "51",
+            "node_id": "5176",
             "field": "ckpt_name"
           },
-          "node_id": "51",
+          "node_id": "5176",
           "field": "ckpt_name",
           "value": "ltx-2-19b-distilled.safetensors",
           "type": null,
@@ -3666,10 +3666,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "1",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -3897,10 +3897,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "2",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -4092,10 +4092,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "2",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -4359,10 +4359,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "3",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -4516,10 +4516,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "7",
+            "node_id": "189",
             "field": "model_name"
           },
-          "node_id": "7",
+          "node_id": "189",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
           "type": null,
@@ -4727,10 +4727,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "17",
+            "node_id": "182",
             "field": "model_name"
           },
-          "node_id": "17",
+          "node_id": "182",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -4871,10 +4871,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "8",
+            "node_id": "12",
             "field": "model_name"
           },
-          "node_id": "8",
+          "node_id": "12",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -4889,10 +4889,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "17",
+            "node_id": "21",
             "field": "text"
           },
-          "node_id": "17",
+          "node_id": "21",
           "field": "text",
           "value": "",
           "type": null,
@@ -5112,10 +5112,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "19",
+            "node_id": "182",
             "field": "model_name"
           },
-          "node_id": "19",
+          "node_id": "182",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -5305,10 +5305,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "10",
+            "node_id": "465",
             "field": "model_name"
           },
-          "node_id": "10",
+          "node_id": "465",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -5518,10 +5518,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "15",
+            "node_id": "5130",
             "field": "unet_name"
           },
-          "node_id": "15",
+          "node_id": "5130",
           "field": "unet_name",
           "value": "LTXVideo/v2/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors",
           "type": null,
@@ -5536,10 +5536,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "22",
+            "node_id": "2612",
             "field": "text"
           },
-          "node_id": "22",
+          "node_id": "2612",
           "field": "text",
           "value": "low contrast, washed out, text, subtitles, logo, still image, still video, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
           "type": null,
@@ -5801,10 +5801,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "135",
+            "node_id": "1561",
             "field": "model_name"
           },
-          "node_id": "135",
+          "node_id": "1561",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -5976,10 +5976,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "10",
+            "node_id": "1561",
             "field": "model_name"
           },
-          "node_id": "10",
+          "node_id": "1561",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -6151,10 +6151,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "12",
+            "node_id": "465",
             "field": "model_name"
           },
-          "node_id": "12",
+          "node_id": "465",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -6169,10 +6169,10 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "48",
+            "node_id": "164",
             "field": "steps"
           },
-          "node_id": "48",
+          "node_id": "164",
           "field": "steps",
           "value": 8,
           "type": null,
@@ -6436,10 +6436,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "3940",
             "field": "ckpt_name"
           },
-          "node_id": "3",
+          "node_id": "3940",
           "field": "ckpt_name",
           "value": "ltx-2.3-22b-dev.safetensors",
           "type": null,
@@ -7152,12 +7152,30 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "37",
             "field": "unet_name"
           },
-          "node_id": "1",
+          "node_id": "37",
           "field": "unet_name",
           "value": "wan2.1_i2v_480p_14B_fp16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "3",
+            "field": "steps"
+          },
+          "node_id": "3",
+          "field": "steps",
+          "value": 20,
           "type": null,
           "default": null,
           "required": false,
@@ -7381,10 +7399,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "37",
             "field": "unet_name"
           },
-          "node_id": "1",
+          "node_id": "37",
           "field": "unet_name",
           "value": "wan2.1_t2v_1.3B_fp16.safetensors",
           "type": null,
@@ -7399,10 +7417,10 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "8",
+            "node_id": "3",
             "field": "steps"
           },
-          "node_id": "8",
+          "node_id": "3",
           "field": "steps",
           "value": 30,
           "type": null,
@@ -7500,10 +7518,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -7637,10 +7655,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -7812,10 +7830,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -7987,10 +8005,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -8106,10 +8124,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -8281,10 +8299,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -8456,10 +8474,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -8593,10 +8611,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -8694,10 +8712,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "129",
             "field": "model_name"
           },
-          "node_id": "3",
+          "node_id": "129",
           "field": "model_name",
           "value": "wanvideo/Wan2_1_VAE_bf16.safetensors",
           "type": null,
@@ -8869,10 +8887,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -9588,10 +9606,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -9707,10 +9725,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -9900,10 +9918,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "3",
+            "node_id": "85",
             "field": "model_name"
           },
-          "node_id": "3",
+          "node_id": "85",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -10019,10 +10037,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "11",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "11",
           "field": "model_name",
           "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
@@ -10194,10 +10212,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "38",
             "field": "model_name"
           },
-          "node_id": "2",
+          "node_id": "38",
           "field": "model_name",
           "value": "wanvideo/Wan2_1_VAE_bf16.safetensors",
           "type": null,
@@ -10369,10 +10387,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "38",
             "field": "model_name"
           },
-          "node_id": "2",
+          "node_id": "38",
           "field": "model_name",
           "value": "wanvideo/Wan2_1_VAE_bf16.safetensors",
           "type": null,
@@ -10742,10 +10760,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "38",
             "field": "model_name"
           },
-          "node_id": "2",
+          "node_id": "38",
           "field": "model_name",
           "value": "wanvideo/Wan2_1_VAE_bf16.safetensors",
           "type": null,

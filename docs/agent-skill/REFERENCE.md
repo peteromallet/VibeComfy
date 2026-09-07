@@ -10,7 +10,8 @@ Public loaders and helpers:
 
 | Name | What it does |
 |---|---|
-| `load_workflow_any(path_or_id)` | Universal entry point: accepts ready ids, scratchpad paths, JSON files, and indexed references. |
+| `load_bundle(path_or_id)` | Canonical bundle loader for ready ids and Python candidates; preserves workflow identity and bundle metadata. |
+| `load_workflow_any(path_or_id)` | Compatibility loader for ready ids, scratchpad paths, JSON files, and indexed references; raw JSON is import input, not an execution instruction. |
 | `workflow_from_ready(id)` | Loads a ready template by id, such as `image/z_image`. |
 | `workflow_from_id(id)` | Loads any workflow id, checking ready templates before the indexed corpus. |
 | `workflow_from_file(path)` | Loads a JSON workflow from a path. |
@@ -73,6 +74,7 @@ Load/fork/convert:
 ```bash
 vibecomfy copy-to-recipe <ready_id> --out recipes/<name>.py
 vibecomfy port check <workflow.json> --json
+vibecomfy nodes reconcile --workflow <workflow.json> --json
 vibecomfy port convert <workflow.json> --out out/scratchpads/<name>.py --json
 ```
 
@@ -110,6 +112,21 @@ Python-format workflows can run against an existing server. VibeComfy imports `b
 
 Prompt/seed/steps CLI overrides work only when the workflow exposes matching public inputs. `--ensure-packs` is embedded-only.
 
+## Canonical boundaries
+
+Use `load_bundle(<path-or-ready-id>)` for canonical loading. Raw UI/API JSON is import evidence; `python -m vibecomfy.cli port check <source> --json` and `python -m vibecomfy.cli nodes reconcile --workflow <source> --json` are the preflight gates, followed by the positional-source migration command:
+
+```bash
+python -m vibecomfy.cli port convert <source> --out out/scratchpads/<name>.py --json
+python -m vibecomfy.cli port convert <source> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json
+```
+
+The first form is the normal scratchpad path. The `--ready-id` form is only for an intentional ready-template candidate. A hard `port check` error blocks conversion; remediate the diagnostic with the named reconcile/install-plan/schema action before rerunning. Legacy `.layout.json` files are presentation evidence and are not an alternate semantic source.
+
+For the browser transaction, `/vibecomfy/agent-edit` captures a candidate, then canonical V2 Apply uses `/vibecomfy/agent-edit/prepare` followed by `/vibecomfy/agent-edit/finalize`. `/vibecomfy/agent-edit/accept` is a temporary compatibility bridge to finalize with the same revision/API digest and transaction guards; it has no independent authority-bypass path. `/vibecomfy/agent-edit/rollback` or `/vibecomfy/agent-edit/reconcile` handles recovery and resynchronization. `/agent/edit` is a deprecated compatibility alias through the same adapter and must not bypass the gates. Queue only a finalized approved revision: the queue gate checks revision identity plus the fresh API digest and blocks stale, unapproved, or mismatched candidates. An optional `.vibe.json` sidecar binds presentation metadata to the Python workflow identity and semantic digest; it cannot alter graph semantics.
+
+H3's current proof is structural and no-GPU: it proves full source IR custody, active compiled role wiring, public `load_bundle` parity, and negative mutations. It does not prove edits, sidecar handling, transaction handling, models, CUDA, media quality, or RunPod execution.
+
 ## Edit Candidate Vs Run Result
 
 The Comfy app agent edit path, structural agentic tests, live agentic tests, and package-side edit guidance should all use the same canonical edit spine:
@@ -141,7 +158,7 @@ pytest --runpod-full -m runpod_full tests/smoke/test_layer2_runpod_matrix.py
 vibecomfy runpod list|status|terminate|gpu-types|corpus-matrix
 ```
 
-`runpod_acceptance.py` is the end-to-end package proof: setup inspection, dependency dry-runs, direct API JSON queueing, raw JSON conversion, Python execution, embedded runtime, existing-server runtime, and artifact collection. Use `--model-template <ready_id> --model-phase <phase>` when the proof must include a real model-backed workflow.
+`runpod_acceptance.py` is an end-to-end acceptance harness: it performs setup inspection, dependency dry-runs, and diagnostic direct API JSON queueing/raw JSON conversion alongside Python execution, embedded runtime, existing-server runtime, and artifact collection. Those direct API/raw JSON checks are harness diagnostics, not the normal agent authoring or execution source path. Use `--model-template <ready_id> --model-phase <phase>` when the proof must include a real model-backed workflow.
 
 Relevant env vars:
 
@@ -198,9 +215,9 @@ The result carries the chosen template id plus explicit and applicable patches. 
 
 ## Known Limitations
 
-- Audio and image-edit verbs are not yet wired in the verb-native API. Use `load_workflow_any("audio/...")` or `load_workflow_any("edit/...")` and edit the IR directly.
-- `image.t2i(model="flux2_klein_9b_gguf")` is not exposed through the verb-native API yet. Use `load_workflow_any(...)`.
-- Named outputs such as `.out("IMAGE")` raise `NotImplementedError` until schema integration. Use integer slots: `.out(0)`.
+- Audio and image-edit verbs are not yet wired in the verb-native API. Use `load_bundle(...)` for the canonical candidate when available; compatibility `load_workflow_any(...)` remains an import adapter, and raw JSON must pass through the named import/convert path before execution.
+- `image.t2i(model="flux2_klein_9b_gguf")` is not exposed through the verb-native API yet. Use `load_bundle(...)` for the canonical candidate; `load_workflow_any(...)` remains a compatibility import adapter.
+- Named outputs such as `.out("IMAGE")` require a retained output roster containing that name. An unregistered name raises `NotImplementedError`; use an explicitly authored integer slot only when the source contract establishes that slot. Known roster holes and out-of-range slots fail closed.
 - `MarkdownNote` nodes are stripped during refactor because they are UI annotations only.
 
 ## Durable Template Checklist

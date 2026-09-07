@@ -56,12 +56,12 @@
         "4",
         0
       ],
-      "positive": [
-        "14",
-        0
-      ],
       "negative": [
         "8",
+        0
+      ],
+      "positive": [
+        "14",
         0
       ]
     }
@@ -69,12 +69,16 @@
   "11": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
-      "noise": [
-        "7",
-        0
-      ],
       "guider": [
         "10",
+        0
+      ],
+      "latent_image": [
+        "3",
+        0
+      ],
+      "noise": [
+        "7",
         0
       ],
       "sampler": [
@@ -83,10 +87,6 @@
       ],
       "sigmas": [
         "2",
-        0
-      ],
-      "latent_image": [
-        "3",
         0
       ]
     }

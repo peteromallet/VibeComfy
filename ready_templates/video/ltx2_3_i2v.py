@@ -44,7 +44,7 @@ READY_METADATA = ReadyMetadata.build(
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['ltx-2.3-22b-dev.safetensors', 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors']},
     custom_node_packs={'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTXAVTextEncoderLoader', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVEmptyLatentAudio', 'LTXVPreprocess', 'LTXVScheduler', 'LTXVSeparateAVLatent'], 'pip_packages': [], 'status': 'discovered'}},
-    provenance={'source_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'source_id': 'ltx2_3_single_stage_distilled_full', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'output_mode': 'ready_template', 'ready_id': 'video/ltx2_3_i2v'},
+    provenance={'source_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'source_id': 'video/ltx2_3_i2v', 'upstream_source_id': 'ltx2_3_single_stage_distilled_full', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'output_mode': 'ready_template', 'ready_id': 'video/ltx2_3_i2v'},
 )
 
 def build() -> VibeWorkflow:

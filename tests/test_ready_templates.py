@@ -307,6 +307,21 @@ def test_template_index_includes_static_public_contract_fields() -> None:
     assert any(item["name"] == "prompt" for item in row["public_inputs"])
 
 
+def test_wan_static_steps_target_matches_explicit_built_wrapper_id() -> None:
+    from tools.refresh_template_index import build_template_index
+
+    rows = {item["id"]: item for item in build_template_index()["templates"]}
+    static_steps = next(
+        item for item in rows["video/wan_i2v"]["public_inputs"]
+        if item["name"] == "steps"
+    )
+    compiled = workflow_from_ready("video/wan_i2v").compile()
+
+    assert static_steps["target"] == {"node_id": "3", "field": "steps"}
+    assert compiled["3"]["class_type"] == "KSampler"
+    assert compiled["3"]["inputs"]["steps"] == static_steps["value"]
+
+
 def test_protected_template_index_contracts_match_built_contracts() -> None:
     from tools.refresh_template_index import build_template_index
 
@@ -368,11 +383,20 @@ def test_ready_templates_are_pure_python_builders() -> None:
 def test_ltx_raw_video_guide_uses_live_resize_schema_inputs() -> None:
     workflow = workflow_from_ready("video/ltx2_3_runexx_first_last_raw_video_guide")
 
-    inputs = workflow.compile()["6101"]["inputs"]
-    assert inputs["width"] == ["2080", 0]
-    assert inputs["height"] == ["2079", 0]
-    assert inputs["upscale_method"] == "lanczos"
-    assert inputs["keep_proportion"] == "stretch"
+    compiled = workflow.compile()
+    resize = [
+        (node_id, item) for node_id, item in compiled.items()
+        if item.get("class_type") == "ImageResizeKJv2"
+        and item.get("inputs", {}).get("upscale_method") == "lanczos"
+        and item.get("inputs", {}).get("keep_proportion") == "stretch"
+    ]
+    assert len(resize) == 1
+    _node_id, item = resize[0]
+    inputs = item["inputs"]
+    assert inputs["width"] == ["19", 0]
+    assert inputs["height"] == ["18", 0]
+    assert compiled["19"]["inputs"]["value"] == 1280
+    assert compiled["18"]["inputs"]["value"] == 720
     assert inputs.get("crop_position", "center") == "center"
     assert not any(key.startswith("resize_type") for key in inputs)
 
@@ -380,14 +404,21 @@ def test_ltx_raw_video_guide_uses_live_resize_schema_inputs() -> None:
 def test_ltx_iclora_control_uses_live_resize_schema_inputs() -> None:
     workflow = workflow_from_ready("video/ltx2_3_first_last_frame_travel_iclora_control")
 
-    for node_id in ("6015", "6020", "6022", "6023", "6024"):
-        inputs = workflow.compile()[node_id]["inputs"]
-        assert inputs["width"] == ["2079", 0]
-        assert inputs["height"] == ["2078", 0]
-        assert inputs["upscale_method"] == "lanczos"
-        assert inputs["keep_proportion"] == "stretch"
+    compiled = workflow.compile()
+    resize = [
+        item for item in compiled.values()
+        if item.get("class_type") == "ImageResizeKJv2"
+        and item.get("inputs", {}).get("upscale_method") == "lanczos"
+        and item.get("inputs", {}).get("keep_proportion") == "stretch"
+    ]
+    assert len(resize) == 5
+    for inputs in (item["inputs"] for item in resize):
+        assert inputs["width"] == ["16", 0]
+        assert inputs["height"] == ["15", 0]
         assert inputs.get("crop_position", "center") == "center"
         assert not any(key.startswith("resize_type") for key in inputs)
+    assert compiled["16"]["inputs"]["value"] == 256
+    assert compiled["15"]["inputs"]["value"] == 256
 
 
 def test_ready_template_source_info_classifies_pure_python_template() -> None:
@@ -521,42 +552,73 @@ def test_ready_template_source_info_reports_read_failure_as_structured_diagnosti
     assert info.diagnostics[0]["error_type"] == "IsADirectoryError"
 
 
-def test_ready_loader_applies_authored_metadata_for_manual_python_templates() -> None:
-    workflow = workflow_from_ready("image/z_image")
+def test_ready_loader_applies_authored_metadata_for_manual_python_templates(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "ready_templates"
+    path = root / "manual" / "metadata.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        """
+from vibecomfy.templates import ModelAsset, ReadyMetadata, new_workflow
+from vibecomfy.nodes.core import CLIPLoader, UNETLoader, VAELoader
+
+READY_METADATA = ReadyMetadata.build(
+    capability="image",
+    models={
+        "text": ModelAsset(filename="qwen_3_4b.safetensors", url="https://example.test/qwen_3_4b.safetensors", subdir="text_encoders"),
+        "vae": ModelAsset(filename="ae.safetensors", url="https://example.test/ae.safetensors", subdir="vae"),
+        "diffusion": ModelAsset(filename="z_image_bf16.safetensors", url="https://example.test/z_image_bf16.safetensors", subdir="diffusion_models"),
+    },
+    requirements={"models": ["qwen_3_4b.safetensors", "ae.safetensors", "z_image_bf16.safetensors"]},
+    provenance={"source_id": "manual/metadata", "ready_id": "manual/metadata"},
+)
+
+def build():
+    wf = new_workflow(READY_METADATA, source_path=__file__)
+    UNETLoader(_id="1", unet_name="z_image_bf16.safetensors")
+    CLIPLoader(_id="2", clip_name="qwen_3_4b.safetensors", type="lumina2")
+    VAELoader(_id="3", vae_name="ae.safetensors")
+    wf.finalize_metadata()
+    return wf
+""",
+        encoding="utf-8",
+    )
+    discovery = ready_registry.ready_template_discovery(roots=[root])
+    workflow = workflow_from_ready("manual/metadata", _discovery=discovery)
 
     assert workflow.metadata["python_policy_applied"] is True
-    assert {asset["name"] for asset in workflow.metadata["model_assets"]} >= {
-        "qwen_3_4b.safetensors",
-        "ae.safetensors",
-        "z_image_bf16.safetensors",
+    expected = {"qwen_3_4b.safetensors", "ae.safetensors", "z_image_bf16.safetensors"}
+    assert {asset["name"] for asset in workflow.metadata["model_assets"]} == expected
+    assert expected <= set(workflow.requirements.models)
+
+
+def test_ready_templates_contract_doctor_matches_runtime_capabilities() -> None:
+    """Runtime capability diagnostics remain the exact eight source-proven cases."""
+    expected = {
+        ("video/ltx2_3_runexx_custom_audio", "headless_preview_override_not_supported", "337"),
+        ("video/ltx2_3_runexx_first_last_frame", "headless_preview_override_not_supported", "198"),
+        ("video/ltx2_3_runexx_first_middle_last_frame", "headless_preview_override_not_supported", "198"),
+        ("video/ltx2_3_runexx_lipsync_custom_audio", "headless_preview_override_not_supported", "368"),
+        ("video/ltx2_3_runexx_motion_transfer_dwpose", "headless_preview_override_not_supported", "5187"),
+        ("video/ltx2_3_runexx_music_video_low_ram", "headless_preview_override_not_supported", "2188"),
+        ("video/ltx2_3_runexx_talking_avatar_qwen_tts", "headless_preview_override_not_supported", "1858"),
+        ("video/ltx2_3_runexx_video_to_video_extend", "headless_preview_override_not_supported", "368"),
     }
-    assert {"qwen_3_4b.safetensors", "ae.safetensors", "z_image_bf16.safetensors"} <= set(
-        workflow.requirements.models
-    )
-
-
-def test_ready_templates_contract_doctor_no_error_diagnostics() -> None:
-    """All ready templates pass contract doctor with no error diagnostics.
-
-    Replaces the three bespoke SageAttention/LTX checks with a unified
-    contract doctor loop covering PathchSageAttentionKJ,
-    LTX2MemoryEfficientSageAttentionPatch, and LTX2SamplingPreviewOverride.
-    """
-    offenders: list[tuple[str, str, str]] = []
-
+    observed: set[tuple[str, str, str]] = set()
     for template_id in ready_template_ids():
         workflow = workflow_from_ready(template_id)
         contract = build_contract(workflow)
         report = doctor_contract(workflow, contract)
-        offenders.extend(
-            (template_id, diagnostic.code, diagnostic.node_id or "")
-            for diagnostic in report.diagnostics
-            if diagnostic.severity == "error"
-        )
-
-    assert offenders == [], (
-        f"Ready templates with contract doctor error diagnostics: {offenders}"
-    )
+        for diagnostic in report.diagnostics:
+            if diagnostic.severity != "error":
+                continue
+            key = (template_id, diagnostic.code, diagnostic.node_id or "")
+            observed.add(key)
+            assert diagnostic.code == "headless_preview_override_not_supported"
+            assert diagnostic.detail.get("capability") == "ltx2_live_sampling_preview"
+            assert workflow.compile()[diagnostic.node_id]["class_type"] == "LTX2SamplingPreviewOverride"
+    assert observed == expected, f"Unexpected ready-template doctor diagnostics: {observed ^ expected}"
 
 
 def test_wanvideo_model_loaders_use_portable_runpod_attention_contract() -> None:

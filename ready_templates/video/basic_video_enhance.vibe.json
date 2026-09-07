@@ -1,0 +1,73 @@
+{
+  "bind": {
+    "semantic_digest": "d7c98bafb34134db5ce1f54d3751c80051229ad2ba4709dbfbaed3ff7331d1c8",
+    "workflow_identity": "video/basic_video_enhance"
+  },
+  "canvas": {},
+  "format_version": 1,
+  "groups": [],
+  "links": [
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 2,
+        "to_uid": "n2"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 2,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 10,
+        "to_uid": "n3"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n2",
+        "scope_path": "",
+        "to_port": 12,
+        "to_uid": "n3"
+      },
+      "occurrence_index": 0
+    }
+  ],
+  "nodes": {
+    "n1": {
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n2": {
+      "pos": [
+        520.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        74.0
+      ]
+    },
+    "n3": {
+      "pos": [
+        1040.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        184.0
+      ]
+    }
+  }
+}

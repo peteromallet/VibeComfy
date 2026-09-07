@@ -23,7 +23,7 @@ READY_METADATA = ReadyMetadata.build(
     capability='audio',
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['ace_1.5_vae.safetensors', 'acestep_v1.5_turbo.safetensors'], 'custom_nodes': ['EmptyAceStep1', 'TextEncodeAceStepAudio1']},
-    provenance={'source_path': 'ready_templates/sources/official/audio/ace_step_1_5_t2a_song.json', 'source_id': 'ace_step_1_5_t2a_song', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/audio/ace_step_1_5_t2a_song.json', 'output_mode': 'ready_template', 'ready_id': 'audio/ace_step_1_5_t2a_song'},
+    provenance={'source_path': 'ready_templates/sources/official/audio/ace_step_1_5_t2a_song.json', 'source_id': 'audio/ace_step_1_5_t2a_song', 'upstream_source_id': 'ace_step_1_5_t2a_song', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/audio/ace_step_1_5_t2a_song.json', 'output_mode': 'ready_template', 'ready_id': 'audio/ace_step_1_5_t2a_song'},
 )
 
 def build() -> VibeWorkflow:
@@ -35,7 +35,7 @@ def build() -> VibeWorkflow:
         _id='105',
         clip_name1=CLIP_NAME,
         clip_name2=CLIP_NAME_2,
-        type_='ace',
+        type='ace',
         device='default',
     )
 

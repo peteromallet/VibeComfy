@@ -49,7 +49,7 @@ def build() -> VibeWorkflow:
 
     # Loaders
     unetloader = UNETLoader(_id='2', unet_name=UNET_NAME)
-    cliploader = CLIPLoader(_id='3', clip_name=CLIP_NAME, type_='lumina2')
+    cliploader = CLIPLoader(_id='3', clip_name=CLIP_NAME, type='lumina2')
     vaeloader = VAELoader(_id='4', vae_name=VAE_NAME)
     modelsamplingauraflow = ModelSamplingAuraFlow(_id='5', shift=3, model=unetloader)
 

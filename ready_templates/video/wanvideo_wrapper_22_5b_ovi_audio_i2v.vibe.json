@@ -1,0 +1,483 @@
+{
+  "bind": {
+    "semantic_digest": "8c8c72afc7b0067ea1f19fd4d1f74b095045ab36fa97e981bab65aa731521bf7",
+    "workflow_identity": "video/wanvideo_wrapper_22_5b_ovi_audio_i2v"
+  },
+  "canvas": {},
+  "format_version": 1,
+  "groups": [],
+  "links": [
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 9,
+        "to_uid": "n12"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n10",
+        "scope_path": "",
+        "to_port": 13,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n11",
+        "scope_path": "",
+        "to_port": 29,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n12",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n15"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n13",
+        "scope_path": "",
+        "to_port": 9,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n14",
+        "scope_path": "",
+        "to_port": 9,
+        "to_uid": "n16"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 1,
+        "from_uid": "n14",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n17"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 2,
+        "from_uid": "n14",
+        "scope_path": "",
+        "to_port": 1,
+        "to_uid": "n17"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n15",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n16",
+        "scope_path": "",
+        "to_port": 4,
+        "to_uid": "n17"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n17",
+        "scope_path": "",
+        "to_port": 1,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n18",
+        "scope_path": "",
+        "to_port": 7,
+        "to_uid": "n19"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n18",
+        "scope_path": "",
+        "to_port": 1,
+        "to_uid": "n20"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n19",
+        "scope_path": "",
+        "to_port": 12,
+        "to_uid": "n21"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n2",
+        "scope_path": "",
+        "to_port": 1,
+        "to_uid": "n15"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n20",
+        "scope_path": "",
+        "to_port": 10,
+        "to_uid": "n21"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n20",
+        "scope_path": "",
+        "to_port": 2,
+        "to_uid": "n22"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n3",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n13"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n4",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n16"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n4",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n19"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n5",
+        "scope_path": "",
+        "to_port": 0,
+        "to_uid": "n20"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n6",
+        "scope_path": "",
+        "to_port": 5,
+        "to_uid": "n12"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n7",
+        "scope_path": "",
+        "to_port": 16,
+        "to_uid": "n18"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 1,
+        "from_uid": "n8",
+        "scope_path": "",
+        "to_port": 2,
+        "to_uid": "n13"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n9",
+        "scope_path": "",
+        "to_port": 10,
+        "to_uid": "n14"
+      },
+      "occurrence_index": 0
+    }
+  ],
+  "nodes": {
+    "n1": {
+      "pos": [
+        0.0,
+        790.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n10": {
+      "pos": [
+        0.0,
+        474.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n11": {
+      "pos": [
+        0.0,
+        632.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n12": {
+      "pos": [
+        520.0,
+        202.0
+      ],
+      "size": [
+        320.0,
+        74.0
+      ]
+    },
+    "n13": {
+      "pos": [
+        520.0,
+        404.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n14": {
+      "pos": [
+        520.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        162.0
+      ]
+    },
+    "n15": {
+      "pos": [
+        1040.0,
+        180.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n16": {
+      "pos": [
+        1040.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        140.0
+      ]
+    },
+    "n17": {
+      "pos": [
+        1560.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n18": {
+      "pos": [
+        2080.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        118.0
+      ]
+    },
+    "n19": {
+      "pos": [
+        2600.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n2": {
+      "pos": [
+        0.0,
+        316.0
+      ],
+      "size": [
+        320.0,
+        96.0
+      ]
+    },
+    "n20": {
+      "pos": [
+        2600.0,
+        92.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n21": {
+      "pos": [
+        3120.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        206.0
+      ]
+    },
+    "n22": {
+      "pos": [
+        3120.0,
+        246.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n3": {
+      "pos": [
+        0.0,
+        1106.0
+      ],
+      "size": [
+        320.0,
+        118.0
+      ]
+    },
+    "n4": {
+      "pos": [
+        0.0,
+        1580.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n5": {
+      "pos": [
+        0.0,
+        158.0
+      ],
+      "size": [
+        320.0,
+        96.0
+      ]
+    },
+    "n6": {
+      "pos": [
+        0.0,
+        1422.0
+      ],
+      "size": [
+        320.0,
+        30.0
+      ]
+    },
+    "n7": {
+      "pos": [
+        0.0,
+        948.0
+      ],
+      "size": [
+        320.0,
+        74.0
+      ]
+    },
+    "n8": {
+      "pos": [
+        0.0,
+        1264.0
+      ],
+      "size": [
+        320.0,
+        74.0
+      ]
+    },
+    "n9": {
+      "pos": [
+        0.0,
+        1738.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    }
+  }
+}

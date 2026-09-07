@@ -1,0 +1,24 @@
+{
+  "source_sha256": "3cbf9bdff20e50596c8034eb4446f487e523922847fe0fb6bc11b2a5a5c7bd08",
+  "root_nodes": 100,
+  "links": 259,
+  "enabled_nodes": 43,
+  "bypassed_nodes": 57,
+  "controller_widgets": ["Existing Video", 1, 8, "All Active", "Keep source audio"],
+  "start_mode_widget": ["Existing Video"],
+  "source_audio_mode_widget": ["Keep source audio"],
+  "start_context_widgets": [39, 8, 24, "disabled"],
+  "generated_context_widgets": [39, 8],
+  "starter_reference_tail": [960, 544, 362, "match"],
+  "sampling_expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+  "role_edge_examples": [
+    ["reference_image", "LoadImage", "MiniMaxH3ReferenceToVideo", "ref_images.ref_image_0"],
+    ["source_frame", "VHS_LoadVideoFFmpeg", "MiniMaxH3CropTo32", "images"],
+    ["h3_conditioning", "MiniMaxH3ReferenceToVideo", "BasicGuider", "conditioning"],
+    ["masked_context_latent", "MiniMaxH3ReferenceToVideo", "MiniMaxH3StartMaskedContext", "latent"],
+    ["latent_continuation", "SamplerCustomAdvanced", "MiniMaxH3GeneratedAVMaskedContext", "source_latent"],
+    ["output_video_latent", "SamplerCustomAdvanced", "VAEDecode", "samples"],
+    ["output_audio_latent", "SamplerCustomAdvanced", "VAEDecodeAudio", "samples"],
+    ["output_preview_gate", "MiniMaxH3LastActiveVHSPreviewBarrier", "MiniMaxH3StreamLiveExtensionAVToVHS", "preview_gate"]
+  ]
+}

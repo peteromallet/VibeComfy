@@ -504,6 +504,7 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
                 raise _schema_validation_error(spec_path, "input names/specs are malformed")
             if set(spec) != {
                 "type", "required", "default", "choices", "min", "max", "unresolved_choices",
+                "asset_kind",
             }:
                 raise _schema_validation_error(spec_path, "input spec has incomplete or unknown fields")
             if spec.get("type") is not None and not isinstance(spec.get("type"), str):
@@ -521,6 +522,12 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
                     raise _schema_validation_error(spec_path, f"{bound} must be numeric or null")
             if not isinstance(spec.get("unresolved_choices"), bool):
                 raise _schema_validation_error(spec_path, "unresolved_choices must be boolean")
+            asset_kind = spec.get("asset_kind")
+            if asset_kind is not None and asset_kind != "image":
+                raise _schema_validation_error(
+                    spec_path,
+                    "asset_kind must be null or the canonical 'image' claim",
+                )
             _validate_json_value(spec.get("default"), path=f"{spec_path}.default")
         for field_name in ("input_order", "widget_input_order"):
             order = raw.get(field_name)

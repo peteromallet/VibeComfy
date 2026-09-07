@@ -15,10 +15,11 @@ vibecomfy validate <workflow>
 vibecomfy doctor <workflow> --json
 ```
 
-For raw JSON, convert before running:
+For raw JSON, treat the file as import evidence and convert the positional source before running:
 
 ```bash
 vibecomfy port check <workflow.json> --json
+vibecomfy nodes reconcile --workflow <workflow.json> --json
 vibecomfy port convert <workflow.json> --out out/scratchpads/<name>.py --json
 ```
 

@@ -14,7 +14,7 @@ vibecomfy inspect <workflow>
 vibecomfy analyze info <workflow>
 ```
 
-If the target is raw JSON:
+If the target is raw JSON, inspect it as import evidence and use the positional-source conversion path when a Python explanation is needed:
 
 ```bash
 vibecomfy port check <workflow.json> --json

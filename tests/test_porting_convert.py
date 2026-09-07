@@ -142,3 +142,37 @@ def test_manual_template_real_write_refusal_preserves_target_bytes(tmp_path):
 
     assert target.read_text(encoding="utf-8") == original
     assert list(tmp_path.glob(".vibecomfy-port-*")) == []
+
+
+def test_ready_conversion_canonicalizes_provenance_identity_and_preserves_upstream(tmp_path) -> None:
+    wf = _wf("image/future")
+    wf.nodes["1"] = _regular_node("1")
+    wf.metadata["provenance"] = {
+        "source_id": "upstream_future", "source_path": "source.json",
+        "metadata_only": "metadata-preserved",
+    }
+    wf.source.provenance["source_only"] = "source-preserved"
+    result = port_convert_workflow(
+        wf,
+        ready_id="image/future",
+        provenance={
+            "source_id": "upstream_future",
+            "source_path": "source.json",
+        },
+        validate=False,
+    )
+    destination = tmp_path / "future.py"
+    destination.write_text(result.text, encoding="utf-8")
+    from vibecomfy.workflow_bundle import load_bundle
+    from vibecomfy.workflow_bundle import Provenance
+
+    loaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+    assert loaded.workflow.id == "image/future"
+    provenance = loaded.workflow.metadata["provenance"]
+    assert provenance["source_id"] == "image/future"
+    assert provenance["ready_id"] == "image/future"
+    assert provenance["upstream_source_id"] == "upstream_future"
+    assert provenance["source_path"] == "source.json"
+    for retained in (provenance, loaded.workflow.source.provenance):
+        assert retained["metadata_only"] == "metadata-preserved"
+        assert retained["source_only"] == "source-preserved"

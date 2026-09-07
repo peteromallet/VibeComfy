@@ -8,9 +8,9 @@
   "3059": {
     "class_type": "EmptyLTXVLatentVideo",
     "inputs": {
-      "width": 384,
       "height": 256,
       "length": 9,
+      "width": 384,
       "batch_size": 1
     }
   },
@@ -51,16 +51,16 @@
   "4960": {
     "class_type": "LTXAVTextEncoderLoader",
     "inputs": {
-      "text_encoder": "comfy_gemma_3_12B_it.safetensors",
       "ckpt_name": "ltx-2.3-22b-dev.safetensors",
-      "device": "default"
+      "device": "default",
+      "text_encoder": "comfy_gemma_3_12B_it.safetensors"
     }
   },
   "4963": {
     "class_type": "GuiderParameters",
     "inputs": {
-      "modality": "AUDIO",
       "cfg": 7,
+      "modality": "AUDIO",
       "modality_scale": 3,
       "stg": 1.0,
       "perturb_attn": true,
@@ -138,8 +138,8 @@
     "class_type": "GuiderParameters",
     "inputs": {
       "cfg": 3,
-      "rescale": 0.9,
       "modality_scale": 3,
+      "rescale": 0.9,
       "modality": "VIDEO",
       "stg": 1.0,
       "perturb_attn": true,
@@ -179,12 +179,12 @@
     "class_type": "LTXVConditioning",
     "inputs": {
       "frame_rate": 24.0,
-      "positive": [
-        "2483",
-        0
-      ],
       "negative": [
         "2612",
+        0
+      ],
+      "positive": [
+        "2483",
         0
       ]
     }
@@ -204,10 +204,6 @@
     "inputs": {
       "strength": 0.7,
       "bypass": true,
-      "vae": [
-        "3940",
-        2
-      ],
       "image": [
         "3336",
         0
@@ -215,6 +211,10 @@
       "latent": [
         "3059",
         0
+      ],
+      "vae": [
+        "3940",
+        2
       ]
     }
   },
@@ -226,13 +226,13 @@
         "4968",
         0
       ],
-      "positive": [
-        "1241",
-        0
-      ],
       "negative": [
         "1241",
         1
+      ],
+      "positive": [
+        "1241",
+        0
       ],
       "parameters": [
         "4964",
@@ -248,25 +248,25 @@
         "4922",
         0
       ],
-      "positive": [
-        "1241",
-        0
-      ],
       "negative": [
         "1241",
         1
+      ],
+      "positive": [
+        "1241",
+        0
       ]
     }
   },
   "4528": {
     "class_type": "LTXVConcatAVLatent",
     "inputs": {
-      "video_latent": [
-        "3159",
-        0
-      ],
       "audio_latent": [
         "3980",
+        0
+      ],
+      "video_latent": [
+        "3159",
         0
       ]
     }
@@ -274,12 +274,16 @@
   "4829": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
-      "noise": [
-        "4832",
-        0
-      ],
       "guider": [
         "4828",
+        0
+      ],
+      "latent_image": [
+        "4528",
+        0
+      ],
+      "noise": [
+        "4832",
         0
       ],
       "sampler": [
@@ -288,10 +292,6 @@
       ],
       "sigmas": [
         "4971",
-        0
-      ],
-      "latent_image": [
-        "4528",
         0
       ]
     }
@@ -313,12 +313,16 @@
   "4802": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
-      "noise": [
-        "4814",
-        0
-      ],
       "guider": [
         "4808",
+        0
+      ],
+      "latent_image": [
+        "4528",
+        0
+      ],
+      "noise": [
+        "4814",
         0
       ],
       "sampler": [
@@ -327,10 +331,6 @@
       ],
       "sigmas": [
         "4966",
-        0
-      ],
-      "latent_image": [
-        "4528",
         0
       ]
     }
@@ -356,13 +356,13 @@
   "4848": {
     "class_type": "LTXVAudioVAEDecode",
     "inputs": {
-      "samples": [
-        "4845",
-        1
-      ],
       "audio_vae": [
         "4010",
         0
+      ],
+      "samples": [
+        "4845",
+        1
       ]
     }
   },
@@ -370,29 +370,29 @@
     "class_type": "LTXVTiledVAEDecode",
     "inputs": {
       "horizontal_tiles": 2,
-      "vertical_tiles": 2,
       "overlap": 6,
+      "vertical_tiles": 2,
       "last_frame_fix": false,
-      "vae": [
-        "3940",
-        2
-      ],
       "latents": [
         "4845",
         0
+      ],
+      "vae": [
+        "3940",
+        2
       ]
     }
   },
   "4818": {
     "class_type": "LTXVAudioVAEDecode",
     "inputs": {
-      "samples": [
-        "4824",
-        1
-      ],
       "audio_vae": [
         "4010",
         0
+      ],
+      "samples": [
+        "4824",
+        1
       ]
     }
   },
@@ -410,16 +410,16 @@
     "class_type": "LTXVTiledVAEDecode",
     "inputs": {
       "horizontal_tiles": 2,
-      "vertical_tiles": 2,
       "overlap": 6,
+      "vertical_tiles": 2,
       "last_frame_fix": false,
-      "vae": [
-        "3940",
-        2
-      ],
       "latents": [
         "4824",
         0
+      ],
+      "vae": [
+        "3940",
+        2
       ]
     }
   },

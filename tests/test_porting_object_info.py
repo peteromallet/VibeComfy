@@ -1157,6 +1157,113 @@ def test_committed_reader_observes_same_size_same_mtime_current_replacement(
     assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "LATENT"
 
 
+def test_batch_reader_observes_same_size_same_mtime_pack_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+    active_root = consume._reader_state["active"]
+    pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+    pack = active_root / pack_name
+    original_mtime_ns = pack.stat().st_mtime_ns
+    updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+    assert len(updated.encode()) == pack.stat().st_size
+    pack.write_text(updated, encoding="utf-8")
+    os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "VIDEO"
+
+
+def test_batch_reader_retries_when_pack_changes_during_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+    original_read = consume._read_pack_at_root
+    changed = False
+
+    def mutate_after_first_read(root: Path, filename: str):
+        nonlocal changed
+        result = original_read(root, filename)
+        if not changed:
+            changed = True
+            pack = root / filename
+            original_mtime_ns = pack.stat().st_mtime_ns
+            updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+            assert len(updated.encode()) == pack.stat().st_size
+            pack.write_text(updated, encoding="utf-8")
+            os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+        return result
+
+    monkeypatch.setattr(consume, "_read_pack_at_root", mutate_after_first_read)
+
+    resolved = consume.get_classes(["ReaderClass"])
+
+    assert changed is True
+    assert resolved["ReaderClass"]["outputs"][0]["name"] == "VIDEO"
+
+
+def test_batch_reader_rejects_modified_committed_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="committed", cache_dir=str(cache_root), full_pack_refresh=True)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+
+    active_root = consume._reader_state["active"]
+    pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+    pack = active_root / pack_name
+    original_mtime_ns = pack.stat().st_mtime_ns
+    updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+    assert len(updated.encode()) == pack.stat().st_size
+    pack.write_text(updated, encoding="utf-8")
+    os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+    with pytest.raises(ObjectInfoCacheCorruptError, match="failed its hash check"):
+        consume.get_classes(["ReaderClass"])
+
+
 # ---------------------------------------------------------------------------
 # effective_widget_names_for_class (widget_schema tiered lookup)
 # ---------------------------------------------------------------------------

@@ -260,6 +260,11 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
             _door_freeze(node.raw_widgets),
             _door_freeze(node.native_input_names),
             _door_freeze(node.native_output_names),
+            _door_freeze(node.native_input_types),
+            _door_freeze(node.native_output_types),
+            _door_freeze(node.native_input_optional),
+            _door_freeze(node.native_input_asset_kinds),
+            _door_freeze(node.native_output_slots),
             str(node.provenance),
             _door_schema_status(node.metadata),
         )
@@ -582,6 +587,20 @@ def _validate_recursive_node(node: Mapping[str, Any], *, scope: str, index: int)
                 else:
                     raise ValueError(f"definition {scope!r} node {local!r} has malformed {roster_name}")
             normalized[roster_name] = clean_roster
+    if "native_output_slots" in normalized:
+        slots = normalized["native_output_slots"]
+        if not isinstance(slots, (list, tuple)):
+            raise ValueError(
+                f"definition {scope!r} node {local!r} native_output_slots must be a list"
+            )
+        if any(
+            isinstance(slot, bool) or not isinstance(slot, int) or slot < 0
+            for slot in slots
+        ):
+            raise ValueError(
+                f"definition {scope!r} node {local!r} has malformed native_output_slots"
+            )
+        normalized["native_output_slots"] = sorted(set(slots))
     if "inputs" in normalized and not isinstance(normalized["inputs"], (Mapping, list, tuple)):
         raise ValueError(f"definition {scope!r} node {local!r}: inputs must be mapping or list")
     if "outputs" in normalized and not isinstance(normalized["outputs"], (list, tuple)):
@@ -1245,7 +1264,7 @@ def _ui_graph_to_api(
             else:
                 _enforce_exec_source_limits(converted, surface="ui.converter")
                 if not _has_unknown_widget_inputs(converted):
-                    _merge_slim_ui(raw, converted)
+                    _merge_slim_ui(raw, converted, schema_provider=schema_provider)
                     return converted
                 return _normalize_ui_to_api(raw, schema_provider=schema_provider)
 
@@ -1304,6 +1323,98 @@ def _native_port_names(node: Mapping[str, Any], field_name: str) -> list[str | N
             seen.add(name)
         names.append(name)
     return names
+
+
+def _native_port_types(node: Mapping[str, Any], field_name: str) -> list[str | None] | None:
+    """Capture the positional socket-type roster from serialized LiteGraph."""
+    if field_name not in node:
+        return None
+    raw = node[field_name]
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"UI node {node.get('id')!r} {field_name} must be a list")
+    types: list[str | None] = []
+    for index, item in enumerate(raw):
+        if item is None:
+            types.append(None)
+            continue
+        if not isinstance(item, Mapping):
+            raise ValueError(
+                f"UI node {node.get('id')!r} {field_name}[{index}] must be an object or null"
+            )
+        socket_type = item.get("type")
+        if socket_type == "":
+            socket_type = None
+        if isinstance(socket_type, (list, tuple)):
+            # LiteGraph serializes combo widgets as their finite string enum
+            # in the socket ``type`` position.  The typed execution carrier
+            # records the semantic kind; the source UI and raw-widget witness
+            # retain the exact choices and selected literal independently.
+            if not socket_type or any(
+                not isinstance(choice, str) or not choice.strip()
+                for choice in socket_type
+            ):
+                raise ValueError(
+                    f"UI node {node.get('id')!r} {field_name}[{index}].type "
+                    "choice list must contain only nonblank strings"
+                )
+            socket_type = "CHOICE"
+        if socket_type is not None and (
+            not isinstance(socket_type, str) or not socket_type.strip()
+        ):
+            raise ValueError(
+                f"UI node {node.get('id')!r} {field_name}[{index}].type must be a nonblank string or null"
+            )
+        types.append(socket_type)
+    return types
+
+
+def _native_input_optionality(node: Mapping[str, Any]) -> list[bool] | None:
+    """Capture Comfy's positional optional socket marker (LiteGraph shape 7)."""
+    if "inputs" not in node:
+        return None
+    raw = node["inputs"]
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"UI node {node.get('id')!r} inputs must be a list")
+    optional: list[bool] = []
+    for index, item in enumerate(raw):
+        if item is None:
+            optional.append(False)
+            continue
+        if not isinstance(item, Mapping):
+            raise ValueError(
+                f"UI node {node.get('id')!r} inputs[{index}] must be an object or null"
+            )
+        shape = item.get("shape")
+        if shape is not None and (isinstance(shape, bool) or not isinstance(shape, int)):
+            raise ValueError(
+                f"UI node {node.get('id')!r} inputs[{index}].shape must be an integer or null"
+            )
+        optional.append(shape == 7)
+    return optional
+
+
+def _native_input_asset_kinds(
+    node: Mapping[str, Any],
+    schema_provider: SchemaProvider | None,
+    class_type: str,
+) -> list[str | None] | None:
+    """Align source-provided schema asset markers with the native input roster."""
+    names = _native_port_names(node, "inputs")
+    if names is None:
+        return None
+    schema = schema_for(schema_provider, class_type)
+    declared = getattr(schema, "inputs", {}) if schema is not None else {}
+    kinds = [
+        (
+            str(getattr(declared.get(name), "asset_kind"))
+            if isinstance(name, str)
+            and declared.get(name) is not None
+            and getattr(declared.get(name), "asset_kind", None) is not None
+            else None
+        )
+        for name in names
+    ]
+    return kinds if any(kind is not None for kind in kinds) else None
 
 
 def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider | None = None) -> dict[str, Any]:
@@ -1417,6 +1528,12 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
             "_input_provenance": input_provenance,
             "native_input_names": _native_port_names(node, "inputs"),
             "native_output_names": _native_port_names(node, "outputs"),
+            "native_input_types": _native_port_types(node, "inputs"),
+            "native_output_types": _native_port_types(node, "outputs"),
+            "native_input_optional": _native_input_optionality(node),
+            "native_input_asset_kinds": _native_input_asset_kinds(
+                node, schema_provider, class_type
+            ),
         }
         if widgets_present:
             api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
@@ -1504,7 +1621,12 @@ def _coerce_raw_widget_payload(raw: Any) -> RawWidgetPayload | None:
     )
 
 
-def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
+def _merge_slim_ui(
+    raw: dict[str, Any],
+    converted: dict[str, Any],
+    *,
+    schema_provider: SchemaProvider | None = None,
+) -> None:
     """Merge slim _ui {id, pos, size, properties} from raw litegraph nodes onto converted API nodes.
 
     Called after convert_ui_to_api so pos/properties survive on the comfy-converter path.
@@ -1549,6 +1671,12 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                 node_data.setdefault("_ui", slim)
                 node_data["native_input_names"] = _native_port_names(raw_node, "inputs")
                 node_data["native_output_names"] = _native_port_names(raw_node, "outputs")
+                node_data["native_input_types"] = _native_port_types(raw_node, "inputs")
+                node_data["native_output_types"] = _native_port_types(raw_node, "outputs")
+                node_data["native_input_optional"] = _native_input_optionality(raw_node)
+                node_data["native_input_asset_kinds"] = _native_input_asset_kinds(
+                    raw_node, schema_provider, str(raw_node.get("type") or raw_node.get("class_type") or "")
+                )
             else:
                 node_data["_ui"] = {}
 
@@ -1879,6 +2007,11 @@ def _decode_serialized_vibe(
         node_size = _decode_envelope_geometry(entry, node_metadata, "size", node_id)
         native_input_names = entry.get("native_input_names")
         native_output_names = entry.get("native_output_names")
+        native_input_types = entry.get("native_input_types")
+        native_output_types = entry.get("native_output_types")
+        native_input_optional = entry.get("native_input_optional")
+        native_input_asset_kinds = entry.get("native_input_asset_kinds")
+        native_output_slots = entry.get("native_output_slots")
         workflow.nodes[str(key)] = VibeNode(
             id=node_id,
             class_type=class_type,
@@ -1893,6 +2026,11 @@ def _decode_serialized_vibe(
             size=node_size,
             native_input_names=deepcopy(native_input_names),
             native_output_names=deepcopy(native_output_names),
+            native_input_types=deepcopy(native_input_types),
+            native_output_types=deepcopy(native_output_types),
+            native_input_optional=deepcopy(native_input_optional),
+            native_input_asset_kinds=deepcopy(native_input_asset_kinds),
+            native_output_slots=deepcopy(native_output_slots),
         )
 
     integrity_issues = _graph_integrity_issues(workflow.nodes, [])
@@ -2083,6 +2221,18 @@ def from_envelope(
     )
     _capture_import_virtual_wires(workflow)
     _validate_virtual_wire_endpoints(workflow)
+    # ``VibeWorkflow.from_envelope`` decodes the root graph before this public
+    # door installs recursive typed carriers.  Refresh both retained custody
+    # records only after those carriers are authoritative; otherwise a valid
+    # definition changes the fingerprint immediately and an untouched envelope
+    # loses its opaque raw fields on first emission.
+    _attach_workflow_snapshot(
+        workflow,
+        detached,
+        source_representation="vibe",
+        schema_provider=schema_provider,
+    )
+    workflow.metadata[_UI_DOOR_KEY] = _capture_ui_door(detached, workflow)
     return workflow
 
 
@@ -2290,6 +2440,11 @@ def _from_api_impl(
                 "_input_provenance",
                 "native_input_names",
                 "native_output_names",
+                "native_input_types",
+                "native_output_types",
+                "native_input_optional",
+                "native_input_asset_kinds",
+                "native_output_slots",
             }
         }
         allowed_metadata = {
@@ -2321,6 +2476,16 @@ def _from_api_impl(
                     "reconciliation action: remove it or classify it as semantic/presentation"
                 )
             metadata = {key: value for key, value in metadata.items() if key in allowed_metadata}
+        authored_literal_fields = sorted(
+            str(key)
+            for key, provenance in input_provenance.items()
+            if provenance == "widget" and key in raw_inputs
+        )
+        if authored_literal_fields:
+            # Canonical normalized provenance, rather than raw ``_ui``, tells
+            # the ready emitter which explicitly serialized values must remain
+            # present even when they equal a schema default.
+            metadata["keep_defaults"] = authored_literal_fields
         # ── retain control_after_generate (UI-only) into metadata ──
         # Captured here, before the compile-time `_is_ui_only_prompt_input` filter
         # (workflow.py:471) drops it from the compiled API dict, so the emitter can
@@ -2381,9 +2546,17 @@ def _from_api_impl(
             size=_geometry_pair(_ui_node.get("size")) if isinstance(_ui_raw, dict) else None,
             native_input_names=deepcopy(node.get("native_input_names")),
             native_output_names=deepcopy(node.get("native_output_names")),
+            native_input_types=deepcopy(node.get("native_input_types")),
+            native_output_types=deepcopy(node.get("native_output_types")),
+            native_input_optional=deepcopy(node.get("native_input_optional")),
+            native_input_asset_kinds=deepcopy(node.get("native_input_asset_kinds")),
+            native_output_slots=deepcopy(node.get("native_output_slots")),
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
-        if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:
+        if (
+            workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES
+            and mode_to_litegraph(workflow.nodes[str(node_id)].mode) not in (2, 4)
+        ):
             workflow.outputs.append(VibeOutput(node_id=str(node_id), output_type=workflow.nodes[str(node_id)].class_type))
     workflow.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
 

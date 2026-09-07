@@ -1,0 +1,43 @@
+{
+  "bind": {
+    "semantic_digest": "72e4dc7bf7a9857556e1fdc8d10f3c1a199243d6725c17269e8115523dafc663",
+    "workflow_identity": "audio/qwen3_tts_custom_voice"
+  },
+  "canvas": {},
+  "format_version": 1,
+  "groups": [],
+  "links": [
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 4,
+        "to_uid": "n2"
+      },
+      "occurrence_index": 0
+    }
+  ],
+  "nodes": {
+    "n1": {
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        140.0
+      ]
+    },
+    "n2": {
+      "pos": [
+        520.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    }
+  }
+}

@@ -21,8 +21,8 @@
   "4": {
     "class_type": "EmptySD3LatentImage",
     "inputs": {
-      "width": 1024,
-      "height": 1024
+      "height": 1024,
+      "width": 1024
     }
   },
   "5": {
@@ -58,24 +58,24 @@
   "8": {
     "class_type": "KSampler",
     "inputs": {
-      "seed": 770044821593082,
-      "steps": 25,
       "cfg": 4,
       "sampler_name": "res_multistep",
-      "model": [
-        "6",
+      "seed": 770044821593082,
+      "steps": 25,
+      "latent_image": [
+        "4",
         0
       ],
-      "positive": [
-        "5",
+      "model": [
+        "6",
         0
       ],
       "negative": [
         "7",
         0
       ],
-      "latent_image": [
-        "4",
+      "positive": [
+        "5",
         0
       ]
     }

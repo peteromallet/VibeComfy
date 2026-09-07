@@ -23,6 +23,7 @@ class InputSpec:
     min: int | float | None = None
     max: int | float | None = None
     unresolved_choices: bool = False
+    asset_kind: str | None = None
 
 @dataclass(frozen=True)
 class OutputSpec:
@@ -142,6 +143,7 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
         "min": getattr(spec, "min", None),
         "max": getattr(spec, "max", None),
         "unresolved_choices": bool(getattr(spec, "unresolved_choices", False)),
+        "asset_kind": getattr(spec, "asset_kind", None),
     }
 
 
@@ -231,6 +233,7 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             min=spec.get("min") if isinstance(spec.get("min"), (int, float)) else None,
             max=spec.get("max") if isinstance(spec.get("max"), (int, float)) else None,
             unresolved_choices=spec.get("unresolved_choices") is True,
+            asset_kind=spec.get("asset_kind") if isinstance(spec.get("asset_kind"), str) else None,
         )
     raw_outputs = raw.get("outputs")
     outputs = (

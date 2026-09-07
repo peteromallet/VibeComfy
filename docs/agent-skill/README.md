@@ -32,7 +32,7 @@ checkout has not installed console scripts, use the equivalent fallback:
 | `search-comfy-workflows` | `vibecomfy search ...`; Hivemind raw HTTP | Local search and raw Hivemind HTTP are available. Astrid executor use may require a bound Astrid project. |
 | `explain-comfy-workflow` | `vibecomfy inspect`, `vibecomfy analyze info`, `vibecomfy port check`, `vibecomfy nodes spec` | Available. Answers workflow questions from evidence without editing or running unless the user asks. |
 | `reorganise-comfy-workflow` | `vibecomfy reorganise ...`; `/reorganise_comfy_workflow`; `route="reorganise"` | Available for explicit layout-only cleanup. Preview is deterministic and offline by default; apply is preview-first and refuses stale source graphs before writing the exact previewed candidate. |
-| `edit-comfy-workflow` | `vibecomfy port check`, `vibecomfy port convert`, Python `VibeWorkflow`, `vibecomfy validate`, `vibecomfy doctor` | Available. |
+| `edit-comfy-workflow` | `vibecomfy port check`, `vibecomfy nodes reconcile`, positional-source `vibecomfy port convert`, Python `VibeWorkflow`, `vibecomfy validate`, `vibecomfy doctor` | Available. Load candidates through `load_bundle()` before editing. |
 | `run-comfy-workflow` | `vibecomfy run ...` | CLI exists. Embedded local runs require a discoverable ComfyUI root and `comfy` module; server and RunPod paths are separate runtime options. |
 | `debug-comfy-workflow` | `vibecomfy doctor`, `vibecomfy port doctor-all`, `vibecomfy inspect`, `vibecomfy analyze`, logs/runtime doctor | Available. |
-| `add-comfy-workflow-template` | source JSON + manifest + `vibecomfy port check` + `vibecomfy port convert --ready-id` + tests | Available as a procedural template-addition workflow. |
+| `add-comfy-workflow-template` | source JSON + manifest + `vibecomfy port check`, `nodes reconcile`, and positional-source `vibecomfy port convert --ready-id` + tests | Available as a procedural template-addition workflow. |

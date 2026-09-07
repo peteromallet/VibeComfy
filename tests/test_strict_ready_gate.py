@@ -387,7 +387,7 @@ def test_core_get_image_size_is_not_attributed_to_kjnodes() -> None:
         clear_known_node_packs_cache()
 
 
-def test_repaired_templates_omit_schema_defaults_but_keep_editable_inputs() -> None:
+def test_schema_default_literals_remain_editable_public_inputs() -> None:
     cases = (
         (
             "ready_templates/video/ltx2_3_lightricks_iclora_hdr.py",
@@ -401,7 +401,7 @@ def test_repaired_templates_omit_schema_defaults_but_keep_editable_inputs() -> N
         module = _load_ready_template(relative_path)
         workflow = module.build()
         api = workflow.compile("api")
-        assert input_name not in api[node_id]["inputs"]
+        assert api[node_id]["inputs"][input_name] == default
         assert module.PUBLIC_INPUT_METADATA[input_name].default == default
         diagnostics = gate._v26_shape_diagnostics(
             ready_id=relative_path,
@@ -415,12 +415,39 @@ def test_repaired_templates_omit_schema_defaults_but_keep_editable_inputs() -> N
 
         workflow.set_input(input_name, default)
         explicit_default_api = workflow.compile("api")
-        expected_inputs = dict(api[node_id]["inputs"])
-        expected_inputs[input_name] = default
-        assert explicit_default_api[node_id]["inputs"] == expected_inputs
+        assert explicit_default_api[node_id]["inputs"] == api[node_id]["inputs"]
 
         workflow.set_input(input_name, default + 1)
         assert workflow.compile("api")[node_id]["inputs"][input_name] == default + 1
+
+
+def test_v26_shape_preserves_explicit_source_schema_defaults_as_semantics() -> None:
+    relative_path = "ready_templates/video/wan_i2v.py"
+    module = _load_ready_template(relative_path)
+    api = module.build().compile("api")
+
+    assert api["37"]["inputs"]["weight_dtype"] == "default"
+    assert api["38"]["inputs"]["device"] == "default"
+    assert {
+        key: api["3"]["inputs"][key]
+        for key in ("steps", "scheduler", "denoise")
+    } == {"steps": 20, "scheduler": "simple", "denoise": 1}
+    assert {
+        key: api["56"]["inputs"][key]
+        for key in ("filename_prefix", "format", "codec")
+    } == {
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto",
+        "codec": "auto",
+    }
+
+    diagnostics = gate._v26_shape_diagnostics(
+        ready_id="video/wan_i2v",
+        path=Path(__file__).parents[1] / relative_path,
+        relative_path=relative_path,
+        enforced=True,
+    )
+    assert not any(item["code"] == "v26_schema_default_kwarg" for item in diagnostics)
 
 
 def test_schema_default_omission_survives_envelope_round_trip() -> None:

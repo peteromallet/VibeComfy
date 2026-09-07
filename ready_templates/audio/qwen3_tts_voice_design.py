@@ -20,7 +20,7 @@ READY_METADATA = ReadyMetadata.build(
     capability='audio',
     inputs=PUBLIC_INPUT_METADATA,
     custom_node_packs={'ComfyUI-QwenTTS': {'commit': 'd8122a8ba835b65fd65c113d2b273b1ad1579293', 'url': 'https://github.com/1038lab/ComfyUI-QwenTTS.git', 'class_schema_sha256': '4137bb4f37ea178be0e794377829905d9ede1bc65496a23a51d766a3f03b2c84', 'classes_used': ['AILab_Qwen3TTSVoiceDesign'], 'pip_packages': ['accelerate', 'librosa', 'openai-whisper', 'qwen-tts', 'soundfile', 'tiktoken'], 'status': 'discovered'}},
-    provenance={'source_path': 'ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json', 'source_id': 'qwen3_tts_voice_design', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json', 'output_mode': 'ready_template', 'ready_id': 'audio/qwen3_tts_voice_design'},
+    provenance={'source_path': 'ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json', 'source_id': 'audio/qwen3_tts_voice_design', 'upstream_source_id': 'qwen3_tts_voice_design', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json', 'output_mode': 'ready_template', 'ready_id': 'audio/qwen3_tts_voice_design'},
 )
 
 def build() -> VibeWorkflow:

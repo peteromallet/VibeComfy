@@ -216,6 +216,56 @@ def _normalize_native_port_names(
     return result
 
 
+def _normalize_native_port_types(
+    value: Any, *, field_name: str
+) -> list[str | None] | None:
+    """Validate one positional native socket-type roster."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{field_name} must be a list or tuple")
+    result: list[str | None] = []
+    for index, socket_type in enumerate(value):
+        if socket_type is not None and (
+            not isinstance(socket_type, str) or not socket_type.strip()
+        ):
+            raise ValueError(
+                f"{field_name}[{index}] must be a nonblank string or null"
+            )
+        result.append(socket_type)
+    return result
+
+
+def _normalize_native_input_optionality(value: Any) -> list[bool] | None:
+    """Validate the positional optional-input roster captured from LiteGraph."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise TypeError("native_input_optional must be a list or tuple")
+    result: list[bool] = []
+    for index, optional in enumerate(value):
+        if not isinstance(optional, bool):
+            raise ValueError(f"native_input_optional[{index}] must be a bool")
+        result.append(optional)
+    return result
+
+
+def _normalize_native_output_slots(value: Any) -> list[int] | None:
+    """Validate explicitly authored numeric output-slot witnesses."""
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise TypeError("native_output_slots must be a list or tuple")
+    result: set[int] = set()
+    for index, slot in enumerate(value):
+        if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
+            raise ValueError(
+                f"native_output_slots[{index}] must be a nonnegative integer"
+            )
+        result.add(slot)
+    return sorted(result)
+
+
 @dataclass(slots=True)
 class VibeNode:
     id: str
@@ -231,6 +281,11 @@ class VibeNode:
     size: list[float] | None = None
     native_input_names: list[str | None] | None = None
     native_output_names: list[str | None] | None = None
+    native_input_types: list[str | None] | None = None
+    native_output_types: list[str | None] | None = None
+    native_input_optional: list[bool] | None = None
+    native_input_asset_kinds: list[str | None] | None = None
+    native_output_slots: list[int] | None = None
 
     def __post_init__(self) -> None:
         self.native_input_names = _normalize_native_port_names(
@@ -239,6 +294,35 @@ class VibeNode:
         self.native_output_names = _normalize_native_port_names(
             self.native_output_names, field_name="native_output_names"
         )
+        self.native_input_types = _normalize_native_port_types(
+            self.native_input_types, field_name="native_input_types"
+        )
+        self.native_output_types = _normalize_native_port_types(
+            self.native_output_types, field_name="native_output_types"
+        )
+        self.native_input_optional = _normalize_native_input_optionality(
+            self.native_input_optional
+        )
+        self.native_input_asset_kinds = _normalize_native_port_types(
+            self.native_input_asset_kinds, field_name="native_input_asset_kinds"
+        )
+        self.native_output_slots = _normalize_native_output_slots(
+            self.native_output_slots
+        )
+        for names_field, values_field in (
+            ("native_input_names", "native_input_types"),
+            ("native_output_names", "native_output_types"),
+            ("native_input_names", "native_input_optional"),
+            ("native_input_names", "native_input_asset_kinds"),
+        ):
+            names = getattr(self, names_field)
+            values = getattr(self, values_field)
+            if values is not None and names is None:
+                raise ValueError(f"{values_field} requires {names_field}")
+            if values is not None and len(values) != len(names):
+                raise ValueError(
+                    f"{values_field} length must match {names_field} length"
+                )
 
     @property
     def provenance(self) -> str:
@@ -697,6 +781,11 @@ class VibeWorkflow:
                     "metadata": self._semantic_node_metadata(node),
                     "native_input_names": copy.deepcopy(node.native_input_names),
                     "native_output_names": copy.deepcopy(node.native_output_names),
+                    "native_input_types": copy.deepcopy(node.native_input_types),
+                    "native_output_types": copy.deepcopy(node.native_output_types),
+                    "native_input_optional": copy.deepcopy(node.native_input_optional),
+                    "native_input_asset_kinds": copy.deepcopy(node.native_input_asset_kinds),
+                    "native_output_slots": copy.deepcopy(node.native_output_slots),
                 }
             )
         nodes.sort(key=lambda item: (item["scope_path"], item["uid"], item["class_type"]))
@@ -883,7 +972,10 @@ class VibeWorkflow:
         self.outputs.clear()
         for node_id, node in self.nodes.items():
             _register_common_inputs(self, node_id, node)
-            if node.class_type in OUTPUT_NODE_NAMES:
+            if (
+                node.class_type in OUTPUT_NODE_NAMES
+                and mode_to_litegraph(node.mode) not in (_MODE_MUTED, _MODE_BYPASS)
+            ):
                 self.outputs.append(VibeOutput(node_id=node_id, output_type=node.class_type))
         self.inputs.update(manual_inputs)
         self.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
@@ -1205,10 +1297,28 @@ class VibeWorkflow:
         pass_raw = bool(kwargs.pop("pass_raw", False))
         explicit_id = kwargs.pop("_id", None)
         explicit_provenance = kwargs.pop("_provenance", None)
-        from vibecomfy.templates import coerce_node_kwargs
+        has_explicit_native_ports = "_native_ports" in kwargs
+        explicit_native_ports = kwargs.pop("_native_ports", None)
+        from vibecomfy.templates import (
+            _apply_explicit_native_port_carriers,
+            _hydrate_native_schema_carriers,
+            coerce_node_kwargs,
+        )
 
         kwargs = coerce_node_kwargs(self, class_type, kwargs, pass_raw=pass_raw)
         node = self.add_node(class_type, _id=explicit_id, _provenance=explicit_provenance)
+        # Capture the same retained schema authority used by generated/public
+        # wrappers at node creation.  Handles can then resolve known types
+        # without consulting an ambient provider during later replay.
+        if has_explicit_native_ports:
+            _apply_explicit_native_port_carriers(node, explicit_native_ports)
+        else:
+            _hydrate_native_schema_carriers(
+                node,
+                class_type,
+                (),
+                authored_input_names=tuple(str(name) for name in kwargs),
+            )
         # Mint extrinsic uid: seed from explicit id when provided, else creation order.
         seed = f"id:{explicit_id}" if explicit_id is not None else None
         node.uid = self._mint_uid(seed=seed)
@@ -1677,7 +1787,11 @@ def _validate_public_io_for_projection(
 
 
         target_type = _node_input_socket_type(target, target_field)
-        if public_input.type is not None and target_type is not None and not _types_match(public_input.type, target_type):
+        if (
+            public_input.type is not None
+            and target_type is not None
+            and not _public_input_matches_target(public_input, target, target_field, target_type)
+        ):
             raise WorkflowCompileError("public_input_incompatible", f"public input {name!r} type {public_input.type!r} is incompatible with {target_type!r}", detail={"node_id": str(public_input.node_id), "field": public_input.field}, next_action="Bind the public input to a compatible socket type.")
         if public_input.type is not None and target_type is None:
             raise WorkflowCompileError("public_input_untyped", f"public input {name!r} has no proven target socket type", detail={"node_id": str(public_input.node_id), "field": public_input.field}, next_action="Declare the target socket type before exposing it publicly.")
@@ -1909,6 +2023,7 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
     input_values: dict[str, Any] = {}
     input_names: list[str | None] = []
     input_types: list[str | None] = []
+    input_optional: list[bool] = []
     if isinstance(raw_inputs, Mapping):
         if any(
             isinstance(value, Mapping)
@@ -1928,6 +2043,7 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
             input_name = item.get("name")
             input_names.append(str(input_name) if input_name is not None else None)
             input_types.append(str(item.get("type")) if item.get("type") is not None else None)
+            input_optional.append(item.get("shape") == 7)
             if input_name is not None and item.get("link") is None and "value" in item:
                 input_values[str(input_name)] = copy.deepcopy(item["value"])
     raw_outputs = raw_node.get("outputs", [])
@@ -1974,6 +2090,10 @@ def _raw_recursive_node(raw_node: Mapping[str, Any], node_id: str) -> VibeNode:
         mode=litegraph_to_mode(raw_node.get("mode", NodeMode.ENABLED)),
         native_input_names=input_names or None,
         native_output_names=output_names or None,
+        native_input_types=input_types or None,
+        native_output_types=output_types or None,
+        native_input_optional=input_optional or None,
+        native_output_slots=copy.deepcopy(raw_node.get("native_output_slots")),
     )
 
 
@@ -2415,7 +2535,41 @@ class _NodeBuilder:
         return self.node.id
 
     def out(self, slot: int | str) -> Handle:
-        output_slot = _socket_index(_node_output_names(self.node), slot)
+        # An explicitly authored numeric slot is itself the only authority we
+        # need when a raw/custom node has no retained roster.  Do not ask an
+        # ambient provider merely to discover that the type is unknown: doing
+        # so makes provider-free generated workflows nondeterministic and can
+        # invoke expensive runtime schema discovery.  Known native/metadata
+        # rosters remain authoritative for holes and bounds.
+        if isinstance(slot, int) and not isinstance(slot, bool):
+            if slot < 0:
+                raise WorkflowCompileError(
+                    "unknown_output_handle",
+                    f"Output slot {slot} is invalid for {self.node.class_type} node {self.node.id}",
+                )
+            native_names = self.node.native_output_names
+            metadata_names = self.node.metadata.get("output_names")
+            known_names = (
+                native_names
+                if isinstance(native_names, list)
+                else metadata_names
+                if isinstance(metadata_names, (list, tuple))
+                else None
+            )
+            if isinstance(known_names, (list, tuple)):
+                if slot >= len(known_names) or known_names[slot] is None:
+                    raise WorkflowCompileError(
+                        "unknown_output_handle",
+                        f"Output slot {slot} is outside or a hole in the native roster "
+                        f"for {self.node.class_type} node {self.node.id}",
+                    )
+            else:
+                self.node.native_output_slots = sorted(
+                    {*list(self.node.native_output_slots or ()), slot}
+                )
+            output_slot = slot
+        else:
+            output_slot = _socket_index(_node_output_names(self.node), slot)
         if output_slot is None:
             output_names = self.node.metadata.get("output_names")
             if isinstance(output_names, (list, tuple)) and slot in output_names:
@@ -2442,7 +2596,12 @@ class _NodeBuilder:
                 "register output_names metadata or pass an integer slot. "
                 "Full named-output lookup awaits MP-6 schema integration."
             )
-        return Handle(node_id=self.node.id, output_slot=output_slot, output_type=_node_output_type(self.node, output_slot))
+        return Handle(
+            node_id=self.node.id,
+            output_slot=output_slot,
+            output_type=_node_output_type(self.node, output_slot),
+            name=str(slot) if isinstance(slot, str) else None,
+        )
 
     def __iter__(self):
         output_names = _node_output_names(self.node)
@@ -2465,11 +2624,33 @@ def _node_output_type(node: VibeNode | None, output_slot: int | str) -> str | No
     try:
         index = int(str(output_slot))
     except (TypeError, ValueError):
-        index = None
+        index = _socket_index(node.native_output_names, output_slot)
+    native_output_types = getattr(node, "native_output_types", None)
+    if (
+        isinstance(native_output_types, (list, tuple))
+        and index is not None
+        and 0 <= index < len(native_output_types)
+    ):
+        value = native_output_types[index]
+        return str(value) if value is not None else None
     if isinstance(output_types, (list, tuple)) and index is not None and 0 <= index < len(output_types):
         value = output_types[index]
         return str(value) if value is not None else None
-    schema = _schema_for_node(node)
+    schema = node.metadata.get("schema")
+    witnessed_slots = getattr(node, "native_output_slots", None)
+    if (
+        schema is None
+        and index is not None
+        and isinstance(witnessed_slots, (list, tuple))
+        and index in witnessed_slots
+        and node.native_output_names is None
+    ):
+        # The exact slot is retained but its type is canonically unknown.
+        # Unknown is a stable typed state; it is not permission for an ambient
+        # schema lookup during structural authoring or generated-source load.
+        return None
+    if schema is None:
+        schema = _schema_for_node(node)
     outputs = getattr(schema, "outputs", None) or []
     if index is not None and 0 <= index < len(outputs):
         value = getattr(outputs[index], "type", None)
@@ -2499,6 +2680,15 @@ def _node_output_names(node: VibeNode) -> list[str | None]:
 def _node_input_type(node: VibeNode | None, input_name: str) -> str | None:
     if node is None:
         return None
+    index = _socket_index(node.native_input_names, input_name)
+    native_input_types = getattr(node, "native_input_types", None)
+    if (
+        isinstance(native_input_types, (list, tuple))
+        and index is not None
+        and 0 <= index < len(native_input_types)
+    ):
+        value = native_input_types[index]
+        return str(value) if value is not None else None
     schema = _schema_for_node(node)
     inputs = getattr(schema, "inputs", {}) or {}
     spec = inputs.get(input_name)
@@ -2753,12 +2943,42 @@ def _types_match(a: Any, b: Any) -> bool:
     return bool(a_values & {"ENUM", "CHOICE"} and b_values & {"ENUM", "CHOICE"})
 
 
+def _public_input_matches_target(
+    public_input: VibeInput, target: VibeNode, target_field: str, target_type: str
+) -> bool:
+    """Validate one public input against retained typed target authority."""
+    if _types_match(public_input.type, target_type):
+        return True
+    if (
+        str(public_input.type).upper() != "IMAGE"
+        or str(target_type).upper() not in {"CHOICE", "ENUM"}
+        or public_input.media_semantics != "image"
+    ):
+        return False
+    index = _socket_index(target.native_input_names, target_field)
+    return bool(
+        index is not None
+        and target.native_input_asset_kinds is not None
+        and 0 <= index < len(target.native_input_asset_kinds)
+        and target.native_input_asset_kinds[index] == "image"
+    )
+
+
 def _node_input_socket_type(node: VibeNode | None, input_name: Any) -> str | None:
     if node is None:
         return None
     metadata = node.metadata if isinstance(node.metadata, dict) else {}
-    declared = metadata.get("input_types")
     names = getattr(node, "native_input_names", None) or metadata.get("input_names")
+    native_types = getattr(node, "native_input_types", None)
+    native_index = _socket_index(getattr(node, "native_input_names", None), input_name)
+    if (
+        isinstance(native_types, (list, tuple))
+        and native_index is not None
+        and 0 <= native_index < len(native_types)
+        and native_types[native_index] is not None
+    ):
+        return str(native_types[native_index])
+    declared = metadata.get("input_types")
     if isinstance(declared, Mapping):
         value = declared.get(str(input_name), declared.get(input_name))
         if value is not None:
@@ -2782,10 +3002,18 @@ def _node_output_socket_type(node: VibeNode | None, output: Any) -> str | None:
     if node is None:
         return None
     metadata = node.metadata if isinstance(node.metadata, dict) else {}
-    declared = metadata.get("output_types")
     index = _socket_index(getattr(node, "native_output_names", None) or metadata.get("output_names"), output)
     if index is None:
         index = _socket_index(None, output)
+    native_types = getattr(node, "native_output_types", None)
+    if (
+        isinstance(native_types, (list, tuple))
+        and index is not None
+        and 0 <= index < len(native_types)
+        and native_types[index] is not None
+    ):
+        return str(native_types[index])
+    declared = metadata.get("output_types")
     if isinstance(declared, Mapping):
         value = declared.get(str(output), declared.get(output))
         if value is not None:
@@ -2842,7 +3070,33 @@ def _port_index_for_node(
 ) -> int:
     """Resolve one authored socket through the single native/metadata roster."""
     roster = _port_roster(node, direction)
-    if require_roster and not isinstance(roster, (list, tuple)):
+    witnessed_output_slots = (
+        getattr(node, "native_output_slots", None)
+        if direction == "output"
+        else None
+    )
+    witnessed_index = (
+        value
+        if isinstance(value, int) and not isinstance(value, bool)
+        else (
+            int(value.strip())
+            if allow_numeric_string
+            and isinstance(value, str)
+            and value.strip().isdigit()
+            else None
+        )
+    )
+    witnessed_numeric_output = bool(
+        not isinstance(roster, (list, tuple))
+        and witnessed_index is not None
+        and isinstance(witnessed_output_slots, (list, tuple))
+        and witnessed_index in witnessed_output_slots
+    )
+    if (
+        require_roster
+        and not isinstance(roster, (list, tuple))
+        and not witnessed_numeric_output
+    ):
         raise WorkflowCompileError(
             "unknown_virtual_wire_port",
             f"cannot derive {direction} port {value!r}: native {direction} roster is missing at {where}",
@@ -2895,6 +3149,16 @@ def _port_index_for_node(
         raise WorkflowCompileError(
             "unknown_virtual_wire_port",
             f"{direction} port {value!r} at {where} is outside or a hole in the native Python roster",
+        )
+    if (
+        require_roster
+        and not isinstance(roster, (list, tuple))
+        and direction == "output"
+        and index not in (witnessed_output_slots or ())
+    ):
+        raise WorkflowCompileError(
+            "unknown_virtual_wire_port",
+            f"output port {value!r} at {where} has no explicit Python slot witness",
         )
     return index
 
@@ -2981,6 +3245,42 @@ def _choose_bypass_input_slot(
     for ordinal, feed in enumerate(feeds):
         idx = _input_index_for_edge(bypass_node, feed)
         indexed.append((ordinal if idx is None else idx, feed))
+    output_index = _socket_index(bypass_node.native_output_names, bypass_output)
+    output_name = (
+        bypass_node.native_output_names[output_index]
+        if output_index is not None
+        and bypass_node.native_output_names is not None
+        and 0 <= output_index < len(bypass_node.native_output_names)
+        else None
+    )
+    if isinstance(output_name, str):
+        name_candidates: list[int] = []
+        for ordinal, (_, feed) in enumerate(indexed):
+            if str(feed.to_input).casefold() != output_name.casefold():
+                continue
+            input_type = _node_input_socket_type(bypass_node, feed.to_input)
+            source_type = _node_output_socket_type(
+                nodes.get(str(feed.from_node)) if nodes else None, feed.from_output
+            )
+            if any(
+                left is not None and right is not None and not _types_match(left, right)
+                for left, right in (
+                    (input_type, output_type),
+                    (input_type, target_type),
+                    (source_type, target_type),
+                )
+            ):
+                continue
+            name_candidates.append(ordinal)
+        if len(name_candidates) == 1:
+            return name_candidates[0]
+        if len(name_candidates) > 1:
+            raise WorkflowCompileError(
+                "bypass_ambiguous",
+                f"bypassed node {bypass_node.id!r} has multiple inbound sources named {output_name!r}",
+                detail={"node_id": bypass_node.id, "target_node_id": target_node_id, "target_input": target_input},
+                next_action="Connect exactly one same-name inbound source.",
+            )
     candidates: list[int] = []
     for ordinal, (input_index, feed) in enumerate(indexed):
         input_type = _node_input_socket_type(bypass_node, feed.to_input)
@@ -3005,6 +3305,18 @@ def _choose_bypass_input_slot(
         f"bypassed node {bypass_node.id!r} has no socket-compatible inbound source",
         detail={"node_id": bypass_node.id, "target_node_id": target_node_id, "target_input": target_input},
         next_action="Reconnect the bypassed node with a compatible source socket.",
+    )
+
+
+def _node_input_is_optional(node: VibeNode | None, input_name: Any) -> bool:
+    """Return source-captured optionality for an exact native input only."""
+    if node is None or node.native_input_optional is None:
+        return False
+    index = _socket_index(node.native_input_names, input_name)
+    return bool(
+        index is not None
+        and 0 <= index < len(node.native_input_optional)
+        and node.native_input_optional[index]
     )
 
 
@@ -3219,7 +3531,12 @@ def _resolve_virtual_wire_legs(
                 require_roster=True,
                 allow_numeric_string=False,
             )
-            from_output = _port_name_for_node(source_node, from_index, "output", where)
+            source_roster = _port_roster(source_node, "output")
+            from_output = (
+                str(from_index)
+                if not isinstance(source_roster, (list, tuple))
+                else _port_name_for_node(source_node, from_index, "output", where)
+            )
             to_input = _port_name_for_node(target_node, to_index, "input", where)
             resolved = _ResolvedVirtualWireLeg(
                 name,
@@ -3419,7 +3736,7 @@ def _resolve_bypass_edges(
         seen: frozenset[str],
         target_node_id: str,
         target_input: str,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str] | None:
         if node_id in seen:
             raise WorkflowCompileError(
                 "bypass_cycle",
@@ -3439,20 +3756,29 @@ def _resolve_bypass_edges(
         bypass_node = nodes.get(node_id) if nodes is not None else None
         feeds = incoming.get(node_id, [])
         if not feeds:
+            target = nodes.get(target_node_id) if nodes is not None else None
+            if _node_input_is_optional(target, target_input):
+                return None
             raise WorkflowCompileError(
                 "bypass_dangling",
                 f"bypassed node {node_id!r} has no inbound source",
                 detail={"node_id": node_id, "target_node_id": target_node_id, "target_input": target_input},
                 next_action="Connect an input to the bypassed node before compiling.",
             )
-        slot = _choose_bypass_input_slot(
-            bypass_node,
-            from_out,
-            feeds,
-            nodes,
-            target_node_id=target_node_id,
-            target_input=target_input,
-        )
+        try:
+            slot = _choose_bypass_input_slot(
+                bypass_node,
+                from_out,
+                feeds,
+                nodes,
+                target_node_id=target_node_id,
+                target_input=target_input,
+            )
+        except WorkflowCompileError as exc:
+            target = nodes.get(target_node_id) if nodes is not None else None
+            if exc.code == "bypass_no_match" and _node_input_is_optional(target, target_input):
+                return None
+            raise
         feed = feeds[slot]
         return _follow(
             str(feed.from_node), feed.from_output, seen | {node_id}, target_node_id, target_input
@@ -3474,6 +3800,8 @@ def _resolve_bypass_edges(
                 to_id,
                 str(edge.to_input),
             )
+            if resolved is None:
+                continue
             nf, no = resolved
             result.append(VibeEdge(nf, no, edge.to_node, edge.to_input))
         else:
@@ -3502,10 +3830,13 @@ def _execution_projection(
         # point at it.  Ordinary authored VibeEdges remain untouched so their
         # cardinality diagnostics are still meaningful.
     dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(projected_nodes)
+    # Resolve transparent Python helpers first so bypass demand is evaluated at
+    # the real consumer field.  This preserves the consumer's typed optionality
+    # instead of treating an intervening Reroute as an untyped required sink.
+    projected_nodes, projected_edges = _resolve_projection_helpers(projected_nodes, projected_edges)
     resolved_edges = _resolve_bypass_edges(
         projected_edges, dropped_ids, bypassed_ids, projected_nodes
     )
-    projected_nodes, resolved_edges = _resolve_projection_helpers(projected_nodes, resolved_edges)
     projected_nodes = {
         str(node_id): node
         for node_id, node in projected_nodes.items()

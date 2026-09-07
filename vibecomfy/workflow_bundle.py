@@ -334,15 +334,17 @@ def validate_sidecar(sidecar: Any, workflow: VibeWorkflow) -> dict[str, Any]:
                     (source_node, from_port, "output"),
                     (target_node, to_port, "input"),
                 ):
-                    roster = getattr(node, f"native_{direction}_names", None) if node is not None else None
-                    if roster is None:
-                        raise WorkflowBundleError(
-                            f"sidecar link {index} requires a native {direction} roster"
+                    try:
+                        _port_index_for_node(
+                            node,
+                            port_index,
+                            direction,
+                            f"sidecar link {index}",
+                            require_roster=True,
+                            allow_numeric_string=False,
                         )
-                    if port_index >= len(roster) or roster[port_index] is None:
-                        raise WorkflowBundleError(
-                            f"sidecar link {index} {direction} port {port_index} is outside or a hole in the native roster"
-                        )
+                    except WorkflowCompileError as exc:
+                        raise WorkflowBundleError(str(exc)) from exc
             key = (scope, ref["from_uid"], from_port, ref["to_uid"], to_port)
             if key not in expected: raise WorkflowBundleError(f"sidecar link {index} edge_ref does not match a Python semantic edge")
         else:

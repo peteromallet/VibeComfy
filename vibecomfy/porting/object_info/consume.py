@@ -11,7 +11,7 @@ import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
 from vibecomfy.errors import ObjectInfoCacheCorruptError
@@ -366,6 +366,79 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     if curated_outputs is None:
         return None
     return {"outputs": curated_outputs}
+
+
+def get_classes(class_types: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Resolve a class set against one content-witnessed reader snapshot.
+
+    Bulk static consumers must not call :func:`get_class` once per AST node:
+    every scalar lookup intentionally rechecks the content witness for every
+    pack already read.  This variant performs the same before/after reader
+    checks once for the requested set, reads each required pack at most once,
+    and retries if publication or any retained pack changes during the batch.
+    """
+    global _index
+
+    requested = tuple(sorted({str(item) for item in class_types if str(item)}))
+    if not requested:
+        return {}
+    with _reader_lock:
+        for attempt in range(2):
+            _sync_reader()
+            assert _reader_state is not None
+            root = _reader_state["active"]
+            if _index is None:
+                _index = _read_index_at_root(root)
+            by_filename: dict[str, list[str]] = {}
+            for class_type in requested:
+                filename = _index.get(class_type)
+                if filename is not None:
+                    by_filename.setdefault(filename, []).append(class_type)
+            resolved: dict[str, dict[str, Any]] = {}
+            changed_during_read = False
+            for filename, names in sorted(by_filename.items()):
+                if filename not in _pack_cache:
+                    path = root / filename
+                    witness_before = cache_file_witness(path)
+                    _reader_state["pack_sigs"][filename] = witness_before
+                    pack = _read_pack_at_root(root, filename)
+                    witness_after = cache_file_witness(path)
+                    if witness_before != witness_after:
+                        changed_during_read = True
+                        break
+                    _pack_cache[filename] = pack
+                    _reader_state["pack_sigs"][filename] = witness_after
+                pack = _pack_cache[filename]
+                for class_type in names:
+                    entry = pack.get(class_type)
+                    if isinstance(entry, dict):
+                        resolved[class_type] = entry
+            if changed_during_read:
+                _index = None
+                _pack_cache.clear()
+                # Reconcile the before-read witness through the normal reader
+                # boundary.  A mutable legacy root retries; a modified
+                # committed generation fails its manifest check instead of
+                # admitting bytes from a tampered generation.
+                _sync_reader()
+                if attempt:
+                    raise ObjectInfoCacheCorruptError(
+                        "object_info cache changed during batch class load"
+                    )
+                continue
+            if not _sync_reader():
+                for class_type in requested:
+                    if class_type in resolved:
+                        continue
+                    curated_outputs = _CURATED_OUTPUTS.get(class_type)
+                    if curated_outputs is not None:
+                        resolved[class_type] = {"outputs": curated_outputs}
+                return resolved
+            if attempt:
+                raise ObjectInfoCacheCorruptError(
+                    "object_info cache changed during batch class load"
+                )
+    raise AssertionError("unreachable")
 
 
 def resolve_class_entry(

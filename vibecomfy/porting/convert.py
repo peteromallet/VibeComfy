@@ -587,6 +587,13 @@ def _conversion_provenance(
         merged["workflow_shape"] = dict(workflow_shape)
     merged["output_mode"] = output_mode
     if ready_id is not None:
+        # A promoted ready artifact is identified by its namespaced ready id.
+        # Preserve an upstream/source declaration for provenance, but never let
+        # an unnamespaced upstream id become the canonical generated identity.
+        prior_source_id = merged.get("source_id")
+        if prior_source_id and str(prior_source_id) != str(ready_id):
+            merged.setdefault("upstream_source_id", prior_source_id)
+        merged["source_id"] = ready_id
         merged["ready_id"] = ready_id
     return merged
 
@@ -652,7 +659,15 @@ def _ready_metadata(
     if source_path is not None:
         metadata.setdefault("source_workflow", _repo_relative_provenance_path(source_path))
     if provenance:
-        metadata.setdefault("provenance", _normalize_provenance_paths(provenance))
+        authored_provenance = metadata.get("provenance")
+        ready_provenance = dict(authored_provenance) if isinstance(authored_provenance, dict) else {}
+        ready_provenance.update(_normalize_provenance_paths(provenance))
+        prior_source_id = ready_provenance.get("source_id")
+        if prior_source_id and str(prior_source_id) != str(ready_id):
+            ready_provenance.setdefault("upstream_source_id", prior_source_id)
+        ready_provenance["source_id"] = ready_id
+        ready_provenance["ready_id"] = ready_id
+        metadata["provenance"] = ready_provenance
     _ensure_sageattention_runtime_package(metadata, workflow)
     return metadata
 

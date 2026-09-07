@@ -4,7 +4,7 @@
 
 Its core job is translation: import a ComfyUI workflow, represent it as editable
 Python, validate the result, and compile it back to the API JSON that ComfyUI queues.
-JSON is the import/export format. Python is the authoring surface.
+JSON is the import/export format. Python is the authoring surface. Load candidates through `load_bundle()` when you need the canonical bundle and its identity; compile the returned `VibeWorkflow` to API JSON only at the execution boundary.
 See [Why Python, Not JSON?](docs/comparisons/why_python_not_json.md).
 
 The generated Python is intentionally ordinary code because Python is the
@@ -137,7 +137,7 @@ If I already have ComfyUI workflows or custom nodes, index them with `python -m 
 List ready templates with `python -m vibecomfy.cli workflows list --ready`.
 Inspect `image/z_image` with `python -m vibecomfy.cli inspect image/z_image`.
 Copy it to `recipes/my_z_image.py` with `python -m vibecomfy.cli copy-to-recipe image/z_image --out recipes/my_z_image.py`.
-If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, first run `python -m vibecomfy.cli port check <workflow.json> --json` and `python -m vibecomfy.cli nodes install-plan <workflow.json>`, then convert it with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
+If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, treat it as import evidence: run `python -m vibecomfy.cli port check <workflow.json> --json`, `python -m vibecomfy.cli nodes reconcile --workflow <workflow.json> --json`, and `python -m vibecomfy.cli nodes install-plan <workflow.json>` against the same local context. Then use the positional source with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`; edit and validate the emitted Python, and use `load_bundle()` when reopening it.
 Edit the copied or converted Python itself: change prompts, seeds, steps, model choices, wiring, and output prefixes in the generated/template call sites, not by editing compiled API JSON.
 Validate the recipe with `python -m vibecomfy.cli validate recipes/my_z_image.py`.
 For converted scratchpads, validate `out/scratchpads/<name>.py` instead.
@@ -161,8 +161,9 @@ flowchart LR
 ```
 
 `compile("api")` returns the dict that ComfyUI's `queue_prompt` accepts. It is
-useful for inspection and runtime, but it is not the format VibeComfy asks
-agents to edit.
+derived execution data, useful for inspection and runtime, but it is not the
+format VibeComfy asks agents to edit or treat as a reusable source. `load_bundle()`
+reopens the canonical Python candidate; a raw JSON export remains an import input.
 
 The main artifact types are:
 
@@ -197,15 +198,17 @@ template. Give this to an agent when starting from raw JSON:
 ```text
 Run `python -m vibecomfy.cli port check <workflow.json> --json` before editing or GPU time.
 Run `python -m vibecomfy.cli nodes install-plan <workflow.json>` against the same custom-node context, then use `nodes ensure`, `nodes lock`, or `nodes restore` when the workflow needs packs that are missing or unpinned.
-Convert to a scratchpad with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
+Run `python -m vibecomfy.cli nodes reconcile --workflow <workflow.json> --json`, then convert the positional source with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
 Validate the emitted Python with `python -m vibecomfy.cli validate out/scratchpads/<name>.py`.
-If the workflow should become reusable, promote it to a ready template with `port convert --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py`.
+If the workflow should become reusable, promote it with the same positional source: `python -m vibecomfy.cli port convert <workflow.json> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json`.
 ```
 
 Promote durable workflows to Python ready templates. Keep raw JSON as source
 evidence; do not make compiled API JSON the reusable source of truth.
 
 ## Deeper Docs
+
+The authoring, sidecar, browser transaction, and no-GPU boundaries are defined in [VibeWorkflow](docs/vibeworkflow.md) and the [agent reference](docs/agent-skill/REFERENCE.md).
 
 - [Authoring](docs/authoring.md)
 - [Porting workbench](docs/templates/porting_workbench.md)

@@ -109,7 +109,10 @@ FALLBACK_CLASS_TYPES: frozenset[str] = frozenset({
     "Note",
     "MarkdownNote",
 })
-RESERVED_WRAPPER_INPUT_NAMES: frozenset[str] = frozenset({"class", "from", "type"})
+# Only Python keywords require the wrapper spelling escape.  ``type`` is a
+# builtin but a legal parameter name, and generated wrappers expose the native
+# Comfy field under that exact name.
+RESERVED_WRAPPER_INPUT_NAMES: frozenset[str] = frozenset({"class", "from"})
 
 _STATIC_WRAPPER_MODULES: tuple[str, ...] = (
     "core",

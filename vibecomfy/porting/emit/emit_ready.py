@@ -898,14 +898,22 @@ def _canonical_semantic_lines(
         for key in (
             "schema_source", "unresolved", "reconciliation", "diagnostics",
             "provenance", "input_names", "output_names", "input_types", "output_types",
+            "keep_defaults",
         ):
             if key in source_metadata:
                 runtime_metadata[key] = copy.deepcopy(source_metadata[key])
         lines.append(f"{node_expr}.metadata = {render(runtime_metadata)}")
-        if node.native_input_names is not None:
-            lines.append(f"{node_expr}.native_input_names = {render(node.native_input_names)}")
-        if node.native_output_names is not None:
-            lines.append(f"{node_expr}.native_output_names = {render(node.native_output_names)}")
+        # Ready wrappers hydrate legacy schema carriers while they build.  The
+        # emitted workflow is the authority, including an explicit absence, so
+        # always overwrite every carrier rather than leaving wrapper evidence
+        # behind when the authored node has ``None``.
+        lines.append(f"{node_expr}.native_input_names = {render(node.native_input_names)}")
+        lines.append(f"{node_expr}.native_output_names = {render(node.native_output_names)}")
+        lines.append(f"{node_expr}.native_input_types = {render(node.native_input_types)}")
+        lines.append(f"{node_expr}.native_output_types = {render(node.native_output_types)}")
+        lines.append(f"{node_expr}.native_input_optional = {render(node.native_input_optional)}")
+        lines.append(f"{node_expr}.native_input_asset_kinds = {render(node.native_input_asset_kinds)}")
+        lines.append(f"{node_expr}.native_output_slots = {render(node.native_output_slots)}")
     for field_name in ("definitions", "interfaces", "boundary_ports", "virtual_wires"):
         value = copy.deepcopy(getattr(workflow, field_name, None))
         if value:
@@ -982,12 +990,14 @@ def _canonical_semantic_lines(
     # that public lifecycle is rejected instead of being smuggled in through a
     # private dataclass constructor.
     from vibecomfy.metadata import OUTPUT_NODE_NAMES
+    from vibecomfy.workflow import mode_to_litegraph
 
     inferred_output_ids = sorted(
         (
             str(node_id)
             for node_id, node in workflow.nodes.items()
             if node.class_type in OUTPUT_NODE_NAMES
+            and mode_to_litegraph(node.mode) not in (2, 4)
         ),
         key=lambda item: (int(item) if item.isdigit() else 1 << 30, item),
     )
@@ -1788,6 +1798,18 @@ def _emit_build_function(
             # ready-template emission paths (typed wrapper + raw_call), mirroring
             # the scratchpad _node() mechanism. node()/raw_call apply it verbatim.
             uid_arg = ("_uid", repr(node.uid)) if node.uid else None
+            native_ports_arg = (
+                "_native_ports",
+                repr({
+                    "native_input_names": copy.deepcopy(node.native_input_names),
+                    "native_output_names": copy.deepcopy(node.native_output_names),
+                    "native_input_types": copy.deepcopy(node.native_input_types),
+                    "native_output_types": copy.deepcopy(node.native_output_types),
+                    "native_input_optional": copy.deepcopy(node.native_input_optional),
+                    "native_input_asset_kinds": copy.deepcopy(node.native_input_asset_kinds),
+                    "native_output_slots": copy.deepcopy(node.native_output_slots),
+                }),
+            )
 
             if use_wrapper:
                 all_args = []
@@ -1804,6 +1826,7 @@ def _emit_build_function(
                     all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
+                all_args.append(native_ports_arg)
                 # v2.6.4 Fix 3: drop _outputs= for schema-known typed wrappers.
                 # The wrapper class already knows its output names from the
                 # generated schema (vibecomfy/nodes/<pack>.py). Only
@@ -1825,6 +1848,7 @@ def _emit_build_function(
                     all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
+                all_args.append(native_ports_arg)
                 if extras_expr is not None:
                     all_args.append(("_extras", extras_expr))
                 call_name = "node"
@@ -1848,18 +1872,37 @@ def _emit_build_function(
             )
 
             # -- readability diagnostic: long one-line node call ----------
-            if diagnostics is not None and len(single_line) > 120:
+            # `_native_ports` is an internal custody payload that deliberately
+            # makes every emitted call multiline.  Measure the authored call
+            # surface without that payload so ordinary short nodes do not gain
+            # spurious readability warnings, while genuinely long user values
+            # keep the existing diagnostic.
+            readable_kwarg_lines = [
+                f"**{expr}" if key == "**" else f"{key}={expr}"
+                for key, expr in all_args
+                if key != "_native_ports"
+            ]
+            if use_wrapper:
+                readable_expr = f"{call_name}({', '.join(readable_kwarg_lines)})"
+            else:
+                readable_expr = f"raw_call({', '.join([repr(node.class_type), repr(raw_node_id), *readable_kwarg_lines])})"
+            readable_single_line = (
+                f"{body_indent}{assignment_target} = {readable_expr}"
+                if assignment_target is not None
+                else f"{body_indent}{readable_expr}"
+            )
+            if diagnostics is not None and len(readable_single_line) > 120:
                 diagnostics.append(
                     EmissionDiagnostic(
                         code=READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
                         message=(
                             f"node call for {node.class_type!r} (node {nid}) would be a single "
-                            f"line of {len(single_line)} chars (>120); multi-line formatting preferred."
+                            f"line of {len(readable_single_line)} chars (>120); multi-line formatting preferred."
                         ),
                         severity="warning",
                         node_id=str(nid),
                         class_type=node.class_type,
-                        detail={"line_length": len(single_line)},
+                        detail={"line_length": len(readable_single_line)},
                     )
                 )
 

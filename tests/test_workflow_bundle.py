@@ -538,6 +538,80 @@ def _connected_workflow() -> VibeWorkflow:
     return workflow
 
 
+def test_strict_sidecar_accepts_only_exact_schema_less_output_slot_witness() -> None:
+    workflow = _connected_workflow()
+    workflow.nodes["a"].native_output_names = None
+    workflow.nodes["a"].native_output_slots = [0]
+    sidecar = _strict_sidecar(workflow)
+    sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
+
+    assert validate_sidecar(sidecar, workflow)["links"]
+
+    workflow.nodes["a"].native_output_slots = [1]
+    sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
+    with pytest.raises(WorkflowBundleError, match="unknown_virtual_wire_port"):
+        validate_sidecar(sidecar, workflow)
+
+    workflow.nodes["a"].native_output_names = [None]
+    workflow.nodes["a"].native_output_slots = [0]
+    sidecar["bind"]["semantic_digest"] = workflow.semantic_digest()
+    with pytest.raises(WorkflowBundleError, match="outside or a hole"):
+        validate_sidecar(sidecar, workflow)
+
+
+def test_bundle_roundtrip_preserves_schema_less_authored_output_slot_witness(
+    tmp_path: Path,
+) -> None:
+    workflow = _workflow("slot-witness-bundle")
+    source = workflow.node("SchemaLessSource")
+    source.out(3)
+    workflow.nodes["target"] = VibeNode(
+        "target",
+        "Target",
+        uid="target",
+        inputs={"value": None},
+        native_input_names=["value"],
+    )
+    workflow.edges.append(VibeEdge(source.node.id, "3", "target", "value"))
+    sidecar = {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": workflow.id,
+            "semantic_digest": workflow.semantic_digest(),
+        },
+        "nodes": {
+            source.node.uid: {"id": 1, "pos": [0, 0]},
+            "target": {"id": 2, "pos": [10, 10]},
+        },
+        "links": [
+            {
+                "edge_ref": {
+                    "scope_path": "",
+                    "from_uid": source.node.uid,
+                    "from_port": 3,
+                    "to_uid": "target",
+                    "to_port": 0,
+                },
+                "occurrence_index": 0,
+                "id": 9,
+            }
+        ],
+        "groups": [],
+        "canvas": {"zoom": 1, "pan": [0, 0]},
+    }
+    destination = tmp_path / "slot_witness.py"
+
+    emitted = emit_bundle_with_candidate(
+        workflow, destination, {"operation": "authored"}, sidecar
+    )
+    loaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+
+    assert emitted.semantic_digest == loaded.semantic_digest
+    assert loaded.workflow.nodes[source.node.id].native_output_names is None
+    assert loaded.workflow.nodes[source.node.id].native_output_slots == [3]
+    assert loaded.ui_sidecar is not None
+
+
 def test_strict_sidecar_rejects_unknown_nested_fields_and_qualified_refs() -> None:
     workflow = _connected_workflow()
     sidecar = _strict_sidecar(workflow)

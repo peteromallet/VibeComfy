@@ -205,6 +205,84 @@ def test_bypass_uses_socket_compatibility_and_rejects_no_match() -> None:
         workflow.compile()
 
 
+def test_bypass_exact_name_disambiguates_types_but_required_mismatch_stays_closed() -> None:
+    workflow = VibeWorkflow("named-bypass", WorkflowSource("named-bypass"))
+    workflow.nodes["a"] = VibeNode(
+        "a", "Source", native_output_names=["LATENT"], native_output_types=["LATENT"]
+    )
+    workflow.nodes["b"] = VibeNode(
+        "b", "Source", native_output_names=["LATENT"], native_output_types=["LATENT"]
+    )
+    workflow.nodes["middle"] = VibeNode(
+        "middle", "Filter", mode=NodeMode.BYPASSED,
+        native_input_names=["source_latent", "latent"],
+        native_input_types=["LATENT", "LATENT"],
+        native_input_optional=[False, False],
+        native_output_names=["latent"], native_output_types=["LATENT"],
+    )
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", native_input_names=["latent_image"],
+        native_input_types=["LATENT"], native_input_optional=[False],
+    )
+    workflow.edges = [
+        VibeEdge("a", "0", "middle", "source_latent"),
+        VibeEdge("b", "0", "middle", "latent"),
+        VibeEdge("middle", "latent", "sink", "latent_image"),
+    ]
+
+    assert workflow.compile()["sink"]["inputs"]["latent_image"] == ["b", 0]
+
+    workflow.edges[0].to_input = "latent"
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "bypass_ambiguous"
+    workflow.edges[0].to_input = "source_latent"
+
+    workflow.nodes["sink"].native_input_types = ["AUDIO"]
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "bypass_no_match"
+
+
+def test_inactive_source_through_reroute_drops_only_source_proven_optional_target() -> None:
+    workflow = VibeWorkflow("optional-demand", WorkflowSource("optional-demand"))
+    workflow.nodes["inactive"] = VibeNode(
+        "inactive", "LoadAudio", mode=NodeMode.BYPASSED,
+        native_input_names=[], native_input_types=[], native_input_optional=[],
+        native_output_names=["audio"], native_output_types=["AUDIO"],
+    )
+    workflow.nodes["reroute"] = VibeNode("reroute", "Reroute")
+    workflow.nodes["sink"] = VibeNode(
+        "sink", "Sink", native_input_names=["audio"],
+        native_input_types=["AUDIO"], native_input_optional=[True],
+    )
+    workflow.edges = [
+        VibeEdge("inactive", "audio", "reroute", "0"),
+        VibeEdge("reroute", "0", "sink", "audio"),
+    ]
+
+    assert workflow.compile()["sink"]["inputs"] == {}
+
+    workflow.nodes["sink"].native_input_optional = [False]
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "bypass_dangling"
+
+
+def test_inferred_outputs_exclude_inactive_sink_but_explicit_binding_stays_invalid() -> None:
+    workflow = VibeWorkflow("inactive-output", WorkflowSource("inactive-output"))
+    workflow.nodes["save"] = VibeNode(
+        "save", "SaveImage", uid="save", mode=NodeMode.BYPASSED,
+    )
+    workflow.finalize_metadata()
+    assert workflow.outputs == []
+
+    workflow.outputs.append(VibeOutput("save", "SaveImage", name="image"))
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_output_missing"
+
+
 def test_bypass_cycle_and_dangling_helper_fail_closed() -> None:
     workflow = VibeWorkflow("cycle", WorkflowSource("cycle"))
     workflow.nodes["a"] = VibeNode("a", "A", mode=NodeMode.BYPASSED)

@@ -44,6 +44,29 @@ from vibecomfy.workflow import (
 )
 
 
+_EMPTY_NATIVE_PORTS_ARG = (
+    "_native_ports={'native_input_names': None, 'native_output_names': None, "
+    "'native_input_types': None, 'native_output_types': None, "
+    "'native_input_optional': None, 'native_input_asset_kinds': None, "
+    "'native_output_slots': None}"
+)
+
+
+def _assert_emitted_call_has_empty_native_authority(
+    text: str,
+    call_header: str,
+    *required_fragments: str,
+) -> str:
+    """Assert an exact emitted call carries explicit provider-free absence."""
+    start = text.index(call_header)
+    end = text.index("\n    )", start)
+    call = text[start:end]
+    assert _EMPTY_NATIVE_PORTS_ARG in call
+    for fragment in required_fragments:
+        assert fragment in call
+    return call
+
+
 def _install_no_gpu_graphbuilder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Install a deterministic local GraphBuilder seam for compiler parity tests."""
     graph_utils = types.ModuleType("comfy_execution.graph_utils")
@@ -141,6 +164,31 @@ def test_agent_edit_view_is_rejected_by_restricted_executable_loader(tmp_path: P
     path.write_text(source, encoding="utf-8")
     with pytest.raises((AgentGeneratedLoadError, NameError)):
         load_agent_generated_scratchpad(path)
+
+
+def test_canonical_emitter_reloads_explicit_unknown_output_slot_without_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = VibeWorkflow("slot-witness", WorkflowSource("slot-witness"))
+    source = workflow.node("SchemaLessSource")
+    workflow.node("SchemaLessSink", value=source.out(3))
+    assert source.node.native_output_names is None
+    assert source.node.native_output_slots == [3]
+
+    emitted = emit_canonical_python(workflow, ready_metadata={"capability": "unknown"})
+    assert "'native_output_slots': [3]" in emitted
+    path = tmp_path / "slot_witness.py"
+    path.write_text(emitted, encoding="utf-8")
+
+    import vibecomfy.templates as templates_module
+
+    def poisoned_provider():
+        raise AssertionError("emitted native slot authority consulted ambient provider")
+
+    monkeypatch.setattr(templates_module, "_ready_schema_provider", poisoned_provider)
+    reloaded = load_agent_generated_scratchpad(path)
+    assert reloaded.semantic_digest() == workflow.semantic_digest()
+    assert reloaded.compile("api") == workflow.compile("api")
 
 
 def test_agent_edit_recursive_display_ignores_raw_ui_definitions() -> None:
@@ -401,7 +449,13 @@ def test_emit_ready_template_python_has_ready_metadata_contract() -> None:
     assert "from vibecomfy.registry.ready_template import" not in text
     assert "def _node" not in text
     assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in text
-    assert "LoadImage(_id='10', image='input.png', _uid='load')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "image, _ = LoadImage(",
+        "_id='10'",
+        "image='input.png'",
+        "_uid='load'",
+    )
     assert "_id='10'" in text
     assert "wf.metadata.setdefault('id_map'" not in text
     assert "wf._set_id_map(" not in text
@@ -846,6 +900,44 @@ def test_ready_template_id_map_contract_for_representative_emissions() -> None:
         assert emitted.id_map() == {}
 
 
+def test_ready_emitter_preserves_authored_defaults_and_native_type_field() -> None:
+    raw = {
+        "nodes": [{
+            "id": 1, "type": "CLIPLoader", "inputs": [], "outputs": [],
+            "widgets_values": ["clip.safetensors", "wan", "default"],
+        }],
+        "links": [],
+    }
+    workflow = from_ui(raw, use_comfy_converter=False)
+    source = emit_ready_template_python(
+        workflow,
+        ready_metadata={"ready_template": "video/authored-defaults"},
+        ready_requirements={"models": [], "custom_nodes": []},
+        template_id="video/authored-defaults",
+    )
+
+    assert "CLIP_NAME = 'clip.safetensors'" in source
+    assert "clip_name=CLIP_NAME" in source
+    assert "type='wan'" in source
+    assert "type_='wan'" not in source
+    assert "device='default'" in source
+
+    namespace: dict[str, Any] = {"__file__": "ready_templates/video/authored_defaults.py"}
+    exec(compile(source, "authored_defaults.py", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+    assert rebuilt.nodes["1"].metadata["keep_defaults"] == [
+        "clip_name", "device", "type",
+    ]
+    reemitted = emit_ready_template_python(
+        rebuilt,
+        ready_metadata={"ready_template": "video/authored-defaults"},
+        ready_requirements={"models": [], "custom_nodes": []},
+        template_id="video/authored-defaults",
+    )
+    assert "type='wan'" in reemitted
+    assert "device='default'" in reemitted
+
+
 def test_ready_template_ltx_tail_lines_are_inside_workflow_context() -> None:
     text = emit_ready_template_python(
         _sample_workflow(),
@@ -887,7 +979,21 @@ def test_ready_template_build_spacing_for_multiline_and_packed_simple_calls() ->
     # form) rather than 8-space (legacy `with new_workflow(...) as wf:` form).
     assert "\n    # Inputs\n    LoadImage(" in text
     assert "\n    LoadImage(\n        _id='2',\n        image='second_input_image" in text
-    assert "cliptextencode = CLIPTextEncode(_id='3', text='short positive', _uid='3')\n    cliptextencode_2 = CLIPTextEncode(_id='4', text='short negative', _uid='4')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "cliptextencode = CLIPTextEncode(",
+        "_id='3'",
+        "text='short positive'",
+        "_uid='3'",
+    )
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "cliptextencode_2 = CLIPTextEncode(",
+        "_id='4'",
+        "text='short negative'",
+        "_uid='4'",
+    )
+    assert "\n    )\n\n    cliptextencode_2 = CLIPTextEncode(" in text
     assert "\n\n    # Conditioning\n" in text
     assert "\n\n    wf = wf.finalize(PUBLIC_INPUT_METADATA" in text
 
@@ -1366,7 +1472,12 @@ def test_subgraph_ui_outputs_recover_tuple_arity(
         template_id="image/subgraph",
     )
 
-    assert "raw_call('SubgraphNode', '1', _outputs=('latent', 'mask', 'preview'), _uid='1')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "subgraphnode = raw_call('SubgraphNode', '1',",
+        "_outputs=('latent', 'mask', 'preview')",
+        "_uid='1'",
+    )
     assert "_outputs=('latent', 'mask', 'preview')" in text
 
 
@@ -1458,7 +1569,12 @@ def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
         template_id="video/test",
     )
 
-    assert "positive, negative, latent = WanImageToVideo(_id='1', _uid='1')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "positive, negative, latent = WanImageToVideo(",
+        "_id='1'",
+        "_uid='1'",
+    )
     assert "wf.connect('1.0', '2.positive')" in text
     assert "wf.connect('1.1', '2.negative')" in text
     assert "wf.connect('1.2', '2.latent_image')" in text
@@ -1503,7 +1619,12 @@ def test_ready_template_replaces_dead_unpacked_outputs_with_underscore() -> None
         template_id="video/test",
     )
 
-    assert "_, negative, _ = WanImageToVideo(_id='1', _uid='1')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "_, negative, _ = WanImageToVideo(",
+        "_id='1'",
+        "_uid='1'",
+    )
     assert "wf.connect('1.1', '2.negative')" in text
     assert "positive, negative, latent = WanImageToVideo(_id='1', _uid='1')" not in text
 
@@ -1562,8 +1683,14 @@ def test_ready_template_keeps_dead_multi_output_node_as_bare_call() -> None:
         template_id="video/test",
     )
 
-    assert "SimpleCalculatorKJ(_id='1', expression='1', _uid='1')" in text
-    assert " = SimpleCalculatorKJ(_id='1', expression='1', _uid='1')" not in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "    SimpleCalculatorKJ(",
+        "_id='1'",
+        "expression='1'",
+        "_uid='1'",
+    )
+    assert " = SimpleCalculatorKJ(" not in text
 
 
 def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
@@ -1587,8 +1714,19 @@ def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
     # CLIPTextEncode emits its deterministic class-derived name (no
     # connection-role override), and the WanImageToVideo unpacked outputs
     # keep their collision-suffixed/underscore-dead names.
-    assert "cliptextencode = CLIPTextEncode(_id='1', text='prompt', _uid='1')" in text
-    assert "_, negative, latent = WanImageToVideo(_id='2', _uid='2')" in text
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "cliptextencode = CLIPTextEncode(",
+        "_id='1'",
+        "text='prompt'",
+        "_uid='1'",
+    )
+    _assert_emitted_call_has_empty_native_authority(
+        text,
+        "_, negative, latent = WanImageToVideo(",
+        "_id='2'",
+        "_uid='2'",
+    )
     assert "wf.connect('2.1', '3.negative')" in text
     assert "wf.connect('2.2', '3.latent_image')" in text
 
@@ -2515,3 +2653,35 @@ def test_tuple_unpack_naming_uses_schema_output_names(
     # OR positional tuple-unpack if schema names are unavailable.
     assert text  # non-empty emission
     compile(text, "<unpack_test>", "exec")
+
+
+def test_canonical_emitter_rebuild_preserves_typed_port_authority_without_raw_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = VibeWorkflow("typed-ports", WorkflowSource("typed-ports"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "LoadImage", inputs={"image": "source.png"}, uid="asset-loader",
+        native_input_names=["image"], native_input_types=["CHOICE"],
+        native_input_optional=[True], native_input_asset_kinds=["image"],
+        native_output_names=["IMAGE", "MASK"], native_output_types=["IMAGE", "MASK"],
+    )
+    assert "_ui" not in workflow.nodes["1"].metadata
+
+    source = emit_canonical_python(workflow)
+    import vibecomfy.templates as templates_module
+
+    templates_module._ready_native_schema_carrier.cache_clear()
+    monkeypatch.setattr(
+        templates_module,
+        "_ready_schema_provider",
+        lambda: (_ for _ in ()).throw(AssertionError("cold load consulted ambient schema")),
+    )
+    namespace: dict[str, object] = {"__file__": "typed_ports.py"}
+    exec(compile(source, "typed_ports.py", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+
+    assert rebuilt.nodes["1"].native_input_types == ["CHOICE"]
+    assert rebuilt.nodes["1"].native_input_optional == [True]
+    assert rebuilt.nodes["1"].native_input_asset_kinds == ["image"]
+    assert rebuilt.nodes["1"].native_output_types == ["IMAGE", "MASK"]
+    assert rebuilt.semantic_digest() == workflow.semantic_digest()

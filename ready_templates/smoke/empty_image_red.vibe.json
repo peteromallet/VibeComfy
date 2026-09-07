@@ -1,0 +1,43 @@
+{
+  "bind": {
+    "semantic_digest": "5d264357facb379e162c9067c2fc361934a443989b1ac95c2babc114760a77c1",
+    "workflow_identity": "smoke/empty_image_red"
+  },
+  "canvas": {},
+  "format_version": 1,
+  "groups": [],
+  "links": [
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 3,
+        "to_uid": "n2"
+      },
+      "occurrence_index": 0
+    }
+  ],
+  "nodes": {
+    "n1": {
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        118.0
+      ]
+    },
+    "n2": {
+      "pos": [
+        520.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    }
+  }
+}

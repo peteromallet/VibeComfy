@@ -27,6 +27,7 @@ ready_templates/sources/custom_nodes/<pack>/<source>/<id>.json
 
 ```bash
 vibecomfy port check ready_templates/sources/.../<id>.json --json
+vibecomfy nodes reconcile --workflow ready_templates/sources/.../<id>.json --json
 vibecomfy port convert ready_templates/sources/.../<id>.json \
   --ready-id <media>/<id> \
   --out ready_templates/<media>/<id>.py \

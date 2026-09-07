@@ -16,7 +16,7 @@ vibecomfy doctor <workflow> --json
 vibecomfy analyze info <workflow>
 ```
 
-For source JSON or conversion failures:
+For source JSON or conversion failures, keep the source as import evidence and do not execute its API export directly:
 
 ```bash
 vibecomfy port check <workflow.json> --json

@@ -5,7 +5,7 @@ description: Reorganise an existing ComfyUI workflow layout without changing run
 
 # Reorganise Comfy Workflow
 
-Use this when the graph should become easier to review, share, or maintain, but the workflow semantics must stay unchanged. This is a layout-only path: it may move, resize, group, color, flag, or annotate UI furniture, but it must not edit topology, node classes, links, widget values, prompts, runtime payloads, or generated graph state.
+Use this when the graph should become easier to review, share, or maintain, but the workflow semantics must stay unchanged. A JSON canvas is an input or presentation artifact; load the canonical Python bundle before judging semantic equivalence. This is a layout-only path: it may move, resize, group, color, flag, or annotate UI furniture, but it must not edit topology, node classes, links, widget values, prompts, runtime payloads, or generated graph state.
 
 The explicit route is available now. Automatic main-flow integration is
 conservative: the default mode can suggest this skill after a successful

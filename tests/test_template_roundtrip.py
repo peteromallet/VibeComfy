@@ -13,6 +13,7 @@ from vibecomfy.ingest.normalize import normalize_to_api
 from vibecomfy.porting.parity import class_type_counter, topology_counter
 from vibecomfy.registry.ready import workflow_from_ready
 from vibecomfy.workflow_context import _CURRENT_WORKFLOW
+from vibecomfy.workflow_bundle import load_bundle
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,6 @@ SEED_ASSERTIONS = {
         "seed": (None, int),
     },
     "video/ltx2_3_runexx_talking_avatar_qwen_tts": {
-        "voice": (None, str),
         "unload_models": (None, bool),
         "seed": (None, int),
     },
@@ -256,6 +256,19 @@ def _explicit_api_comparison(
 TEMPLATE_ROWS = _template_rows()
 
 
+@pytest.mark.parametrize("template_id", [row["id"] for row in TEMPLATE_ROWS])
+def test_all_ready_templates_load_compile_and_reopen_canonical_bundle(template_id: str) -> None:
+    first = load_bundle(template_id)
+    first_api = first.workflow.compile("api")
+    reopened = load_bundle(template_id)
+    reopened_api = reopened.workflow.compile("api")
+
+    assert first.python_path is not None
+    assert first.python_path.suffix == ".py"
+    assert first.workflow.semantic_digest() == reopened.workflow.semantic_digest()
+    assert first_api == reopened_api
+
+
 def test_audited_source_paths_exist() -> None:
     for template_id, source in AUDITED_SOURCE_MAPPINGS.items():
         assert (REPO_ROOT / source).is_file(), f"{template_id} audited source is missing: {source}"
@@ -307,6 +320,27 @@ def test_audited_seed_sensitive_fields_keep_source_values_and_types(
         if source_field is not None:
             assert ready_value == source_value
             assert type(ready_value) is type(source_value)
+
+
+def test_talking_avatar_uses_schema_valid_human_audited_corruption_recovery() -> None:
+    """The upstream UI row is internally inconsistent with its pinned schema.
+
+    Commit 4edbe1cb recorded the first numeric widget as the audited seed.  The
+    current pinned QwenTTS schema additionally proves ``voice`` is a VOICE
+    socket, so the stale string recovery from that old commit is not replayed.
+    """
+    api = _api_for_ready("video/ltx2_3_runexx_talking_avatar_qwen_tts")
+    [voice_clone] = [
+        node
+        for node in api.values()
+        if node.get("class_type") == "AILab_Qwen3TTSVoiceClone"
+    ]
+    inputs = voice_clone["inputs"]
+    assert "voice" not in inputs
+    assert inputs["unload_models"] is True
+    assert type(inputs["unload_models"]) is bool
+    assert inputs["seed"] == 986337553816914
+    assert type(inputs["seed"]) is int
 
 
 def test_generate_corruption_fixture() -> None:

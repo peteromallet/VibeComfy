@@ -48,7 +48,8 @@ READY_METADATA = ReadyMetadata.build(
     inputs=PUBLIC_INPUT_METADATA,
     models=MODELS,
     source_path='ready_templates/video/wan22_i2v_comfy_lightx2v.py',
-    source_id='03_video_wan2_2_14B_i2v_subgraphed',
+    source_id='video/wan22_i2v_comfy_lightx2v',
+    upstream_source_id='03_video_wan2_2_14B_i2v_subgraphed',
     source_type='ready_template',
     source_workflow_path='ready_templates/video/wan22_i2v_comfy_lightx2v.py',
     source_ref='ready_templates/video/wan22_i2v_comfy_lightx2v.py',
@@ -77,7 +78,7 @@ def build() -> VibeWorkflow:
     )
 
     # Loaders
-    cliploader = CLIPLoader(_id='2', clip_name=CLIP_NAME, type_='wan')
+    cliploader = CLIPLoader(_id='2', clip_name=CLIP_NAME, type='wan')
     vaeloader = VAELoader(_id='3', vae_name=VAE_NAME)
     unetloader = UNETLoader(_id='4', unet_name=UNET_NAME)
     unetloader_2 = UNETLoader(_id='5', unet_name=UNET_NAME_2)

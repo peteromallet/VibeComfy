@@ -1594,10 +1594,17 @@ def _resolve_output_slot_and_type(
     """
     schema = schema_cache.get(class_type)
     native_roster = getattr(node, "native_output_names", None) if node is not None else None
+    native_types = getattr(node, "native_output_types", None) if node is not None else None
     if from_output.isdigit():
         slot = int(from_output)
         if isinstance(native_roster, list) and slot < len(native_roster):
-            socket_type = ""
+            socket_type = (
+                native_types[slot]
+                if isinstance(native_types, list)
+                and slot < len(native_types)
+                and native_types[slot] is not None
+                else ""
+            )
             if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
                 socket_type = getattr(schema.outputs[slot], "type", "") or ""
             return slot, socket_type
@@ -1621,7 +1628,13 @@ def _resolve_output_slot_and_type(
         except ValueError:
             slot = -1
         if slot >= 0:
-            socket_type = ""
+            socket_type = (
+                native_types[slot]
+                if isinstance(native_types, list)
+                and slot < len(native_types)
+                and native_types[slot] is not None
+                else ""
+            )
             if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
                 socket_type = getattr(schema.outputs[slot], "type", "") or ""
             return slot, socket_type
@@ -3846,7 +3859,16 @@ def emit_ui_json(
         # verbatim rather than inferring an ordinal from UI/schema evidence.
         if not schema_outputs and isinstance(node.native_output_names, list):
             schema_outputs = [
-                _DynamicOutputSpec("", name or f"output_{slot}")
+                _DynamicOutputSpec(
+                    (
+                        node.native_output_types[slot]
+                        if isinstance(node.native_output_types, list)
+                        and slot < len(node.native_output_types)
+                        and node.native_output_types[slot] is not None
+                        else ""
+                    ),
+                    name or f"output_{slot}",
+                )
                 for slot, name in enumerate(node.native_output_names)
             ]
 
@@ -3919,17 +3941,32 @@ def emit_ui_json(
             incoming_by_name = {edge.to_input: edge for edge in incoming_sorted}
             for slot_idx, name in enumerate(node.native_input_names):
                 edge = incoming_by_name.get(name) if isinstance(name, str) else None
-                socket_type = "UNKNOWN"
+                socket_type = (
+                    node.native_input_types[slot_idx]
+                    if isinstance(node.native_input_types, list)
+                    and slot_idx < len(node.native_input_types)
+                    and node.native_input_types[slot_idx] is not None
+                    else "UNKNOWN"
+                )
                 link_id = None
                 if edge is not None:
                     from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
-                    _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
+                    _, source_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
+                    if not socket_type or socket_type == "UNKNOWN":
+                        socket_type = source_type
                     link_id = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
-                inputs.append({
+                slot = {
                     "name": name or f"input_{slot_idx}",
                     "type": socket_type or "UNKNOWN",
                     "link": link_id,
-                })
+                }
+                if (
+                    isinstance(node.native_input_optional, list)
+                    and slot_idx < len(node.native_input_optional)
+                    and node.native_input_optional[slot_idx]
+                ):
+                    slot["shape"] = 7
+                inputs.append(slot)
         else:
             for edge in incoming_sorted:
                 from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""

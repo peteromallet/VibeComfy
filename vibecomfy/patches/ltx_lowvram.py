@@ -71,6 +71,7 @@ def apply(workflow: VibeWorkflow) -> VibeWorkflow:
                 to_input="dependencies",
             )
         )
+        _retain_authored_input_port(node, "dependencies")
 
     _ensure_current_ltx_schema_defaults(workflow)
 
@@ -223,6 +224,23 @@ def _drop_inputs(workflow: VibeWorkflow, node_id: str, keys: tuple[str, ...]) ->
         for edge in workflow.edges
         if not (str(edge.to_node) == str(node_id) and edge.to_input in key_set)
     ]
+
+
+def _retain_authored_input_port(node, name: str) -> None:
+    """Retain a named port introduced by this patch without guessing schema."""
+    names = list(node.native_input_names or ())
+    if name in names:
+        return
+    names.append(name)
+    node.native_input_names = names
+    if node.native_input_types is not None:
+        node.native_input_types = [*node.native_input_types, None]
+    if node.native_input_asset_kinds is not None:
+        node.native_input_asset_kinds = [*node.native_input_asset_kinds, None]
+    # The patch witnesses the port name, but not whether the installed class
+    # declares it optional.  Remove any stale whole-roster optionality claim.
+    node.native_input_optional = None
+    node.__post_init__()
 
 
 patch = Patch("ltx_lowvram", applies_to, apply, rationale)

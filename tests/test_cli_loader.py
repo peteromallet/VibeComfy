@@ -191,7 +191,14 @@ def test_load_bundle_accepts_only_explicit_ephemeral_workflow() -> None:
     bundle = load_bundle(workflow)
 
     assert bundle.python_path is None
-    assert bundle.provenance == {"operation": "ephemeral"}
+    assert bundle.provenance["operation"] == "ephemeral"
+    assert bundle.provenance["parent_revision"] == ""
+    assert bundle.provenance["revision_evidence"] == [
+        {
+            "revision_id": bundle.provenance["revision_evidence"][0]["revision_id"],
+            "workflow_identity": "ephemeral",
+        }
+    ]
 
 
 def test_production_inspection_enters_bundle_boundary(monkeypatch: pytest.MonkeyPatch) -> None:

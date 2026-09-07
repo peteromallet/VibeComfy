@@ -1878,3 +1878,173 @@ def test_batch3_agent_edit_state_workflow_allocated_exactly_once_and_reused(
     state2 = _batch3_agent_state(tmp_path, deepcopy(raw), workflow=allocated)
     _stage_ingest(state2, TurnContext(session_id="b3-b", turn_id="t3"))
     assert state2.workflow is allocated, "workflow must be reused across stages"
+
+
+def test_native_typed_port_authority_survives_ui_envelope_and_ui_emit() -> None:
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    class Provider:
+        def get_schema(self, class_type):
+            if class_type == "LoadImage":
+                return NodeSchema(
+                    "LoadImage", "core",
+                    {"image": InputSpec("CHOICE", required=True, asset_kind="image")},
+                    [OutputSpec("IMAGE", "IMAGE")],
+                )
+            return None
+
+    raw = {
+        "nodes": [{
+            "id": 1, "type": "LoadImage", "mode": 0,
+            "inputs": [{"name": "image", "type": "CHOICE", "shape": 7}],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": None}],
+            "widgets_values": ["source.png"],
+        }],
+        "links": [],
+    }
+    workflow = from_ui(raw, schema_provider=Provider(), use_comfy_converter=False)
+    node = workflow.nodes["1"]
+    assert node.native_input_names == ["image"]
+    assert node.native_input_types == ["CHOICE"]
+    assert node.native_input_optional == [True]
+    assert node.native_input_asset_kinds == ["image"]
+    assert node.native_output_names == ["IMAGE"]
+    assert node.native_output_types == ["IMAGE"]
+
+    rebuilt = from_envelope(workflow.to_envelope())
+    assert rebuilt.nodes["1"].native_input_types == ["CHOICE"]
+    assert rebuilt.nodes["1"].native_input_optional == [True]
+    assert rebuilt.nodes["1"].native_input_asset_kinds == ["image"]
+    assert rebuilt.nodes["1"].native_output_types == ["IMAGE"]
+
+    emitted = emit_ui_json(rebuilt, schema_provider=Provider())
+    emitted_node = emitted["nodes"][0]
+    assert emitted_node["inputs"] == [{
+        "name": "image", "type": "CHOICE", "shape": 7,
+    }]
+    assert emitted_node["outputs"][0]["type"] == "IMAGE"
+
+
+def test_native_typed_port_authority_rejects_misaligned_carriers() -> None:
+    from vibecomfy.workflow import VibeNode
+
+    with pytest.raises(ValueError, match="native_input_types length"):
+        VibeNode(
+            "1", "Node", native_input_names=["a", "b"],
+            native_input_types=["IMAGE"],
+        )
+    with pytest.raises(ValueError, match="native_input_names"):
+        VibeNode("1", "Node", native_input_optional=[True])
+
+
+def test_native_choice_list_socket_type_normalizes_without_losing_widget_literal() -> None:
+    raw = {
+        "nodes": [{
+            "id": 92,
+            "type": "VHS_VideoCombine",
+            "inputs": [{
+                "name": "pix_fmt",
+                "type": ["yuv420p", "yuv420p10le"],
+                "widget": {"name": "pix_fmt"},
+            }],
+            "outputs": [],
+            "widgets_values": ["yuv420p10le"],
+        }],
+        "links": [],
+    }
+
+    workflow = from_ui(raw, use_comfy_converter=False)
+    node = workflow.nodes["92"]
+    assert node.native_input_names == ["pix_fmt"]
+    assert node.native_input_types == ["CHOICE"]
+    assert node.inputs["pix_fmt"] == "yuv420p10le"
+    assert node.raw_widgets is not None
+    assert node.raw_widgets.values == ["yuv420p10le"]
+
+
+@pytest.mark.parametrize("malformed", [[], [""], ["ok", 1], [True], [{}]])
+def test_native_choice_list_socket_type_rejects_malformed_claims(malformed) -> None:
+    raw = {
+        "nodes": [{
+            "id": 1, "type": "ChoiceNode",
+            "inputs": [{"name": "choice", "type": malformed}],
+            "outputs": [],
+        }],
+        "links": [],
+    }
+    with pytest.raises(ValueError, match="choice list must contain only nonblank strings"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_image_upload_schema_marker_survives_frozen_schema_payload() -> None:
+    from copy import deepcopy
+
+    from vibecomfy.porting.edit.admit import _validate_schema_payload_structure
+    from vibecomfy.schema import NodeSchema, node_schema_from_payload, schema_payload_from_node_schema
+    from vibecomfy.schema.types import SchemaSnapshotError
+    from vibecomfy.schema.provider import _parse_input_spec
+
+    spec = _parse_input_spec([[], {"image_upload": True}], required=True)
+    assert spec.asset_kind == "image"
+    payload = schema_payload_from_node_schema(
+        "LoadImage", NodeSchema("LoadImage", "core", {"image": spec}, [])
+    )
+    assert payload["inputs"]["image"]["asset_kind"] == "image"
+    restored = node_schema_from_payload("LoadImage", payload)
+    assert restored.inputs["image"].asset_kind == "image"
+
+    # The admission door accepts the complete canonical carrier while keeping
+    # forged or malformed asset claims fail-closed.  Build only the nested
+    # shell required by the structural validator so this test exercises the
+    # same codec path used by real editor snapshots.
+    provenance = {
+        "source_provider": None, "source_path": None, "source_cache_path": None,
+        "source_server_url": None, "source_package": None, "source_version": None,
+        "source_hash": None, "confidence": 1.0, "conflicts": [],
+        "ignored_evidence": [],
+    }
+    payload["widget_input_order"] = []
+    payload["provenance"] = provenance
+    snapshot_payload = {
+        "contract_version": "schema-snapshot-v1",
+        "identity": {
+            "runtime_fingerprint": None, "cache_fingerprint": None,
+            "request_fingerprint": None, "server_url": None,
+        },
+        "content_digest": "test-digest",
+        "precedence": [], "selected_source": "test", "generation": 0,
+        "conflicts": [], "timestamp": None, "version": "schema-snapshot-v1",
+        "schemas": {"LoadImage": payload}, "missing_classes": [],
+        "input_order": {"LoadImage": ["image"]}, "node_classes": {},
+        "workflow_observation_authoritative": False,
+        "ambient_lookup_forbidden": True,
+    }
+    _validate_schema_payload_structure(snapshot_payload, label="schema")
+
+    for malformed in ("", "audio", True, 1, [], {}):
+        tampered = deepcopy(snapshot_payload)
+        tampered["schemas"]["LoadImage"]["inputs"]["image"]["asset_kind"] = malformed
+        with pytest.raises(SchemaSnapshotError, match="canonical 'image' claim"):
+            _validate_schema_payload_structure(tampered, label="schema")
+
+    missing = deepcopy(snapshot_payload)
+    del missing["schemas"]["LoadImage"]["inputs"]["image"]["asset_kind"]
+    with pytest.raises(SchemaSnapshotError, match="incomplete or unknown fields"):
+        _validate_schema_payload_structure(missing, label="schema")
+
+
+def test_recursive_node_decodes_typed_optional_socket_carriers() -> None:
+    from vibecomfy.workflow import _raw_recursive_node
+
+    node = _raw_recursive_node({
+        "id": "inner", "type": "Inner",
+        "inputs": [{"name": "latent", "type": "LATENT", "shape": 7}],
+        "outputs": [{"name": "LATENT", "type": "LATENT"}],
+        "native_output_slots": [3, 0, 3],
+    }, "inner")
+    assert node.native_input_names == ["latent"]
+    assert node.native_input_types == ["LATENT"]
+    assert node.native_input_optional == [True]
+    assert node.native_output_names == ["LATENT"]
+    assert node.native_output_types == ["LATENT"]
+    assert node.native_output_slots == [0, 3]

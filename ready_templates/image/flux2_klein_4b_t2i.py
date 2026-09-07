@@ -15,7 +15,7 @@ WIDGET__NAME_4 = 'flux-2-klein-4b.safetensors'
 
 READY_METADATA = ReadyMetadata.build(
     capability='image',
-    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'source_id': 'flux2_klein_4b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_4b_t2i'},
+    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'source_id': 'image/flux2_klein_4b_t2i', 'upstream_source_id': 'flux2_klein_4b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_4b_t2i'},
 )
 
 # === Subgraph functions ===
@@ -40,7 +40,7 @@ def text_to_image_flux2_klein_4b(
     flux2scheduler = Flux2Scheduler()
     emptyflux2latentimage = EmptyFlux2LatentImage()
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='flux2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
     randomnoise = RandomNoise(control_after_generate='randomize')
     negative = CLIPTextEncode(text='', clip=cliploader)
@@ -86,7 +86,7 @@ def text_to_image_flux2_klein_4b_distilled(
     flux2scheduler = Flux2Scheduler(steps=4)
     emptyflux2latentimage = EmptyFlux2LatentImage()
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='flux2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
 
     randomnoise = RandomNoise(

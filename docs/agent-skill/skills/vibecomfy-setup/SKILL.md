@@ -156,7 +156,8 @@ vibecomfy config set-library --no-models
 
 ## Verify
 
-Finish every setup with:
+Finish every setup with the canonical candidate still represented by Python; use API JSON only at the runtime boundary:
+
 
 ```bash
 vibecomfy config show --json

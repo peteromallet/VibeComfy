@@ -14,7 +14,7 @@ PUBLIC_INPUT_METADATA = {
 READY_METADATA = ReadyMetadata.build(
     capability='image',
     inputs=PUBLIC_INPUT_METADATA,
-    provenance={'source_path': 'ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json', 'source_id': 'flux2_klein_4b_image_edit_distilled', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json', 'output_mode': 'ready_template', 'ready_id': 'edit/flux2_klein_4b_image_edit_distilled'},
+    provenance={'source_path': 'ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json', 'source_id': 'edit/flux2_klein_4b_image_edit_distilled', 'upstream_source_id': 'flux2_klein_4b_image_edit_distilled', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/flux2_klein_4b_image_edit_distilled.json', 'output_mode': 'ready_template', 'ready_id': 'edit/flux2_klein_4b_image_edit_distilled'},
 )
 
 # === Subgraph functions ===
@@ -36,7 +36,7 @@ def image_edit_flux2_klein_4b_distilled(
 
     ksamplerselect = KSamplerSelect(sampler_name='euler')
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='flux2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
 
     randomnoise = RandomNoise(
@@ -153,7 +153,7 @@ def image_edit_flux2_klein_4b_distilled_dual(
     )
 
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='flux2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
 
     imagescaletototalpixels_2 = ImageScaleToTotalPixels(
