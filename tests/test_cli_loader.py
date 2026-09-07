@@ -12,36 +12,7 @@ import pytest
 import vibecomfy.cli_loader as cli_loader
 from vibecomfy.cli_loader import load_bundle, load_workflow_any
 from vibecomfy.security.provenance import Provenance
-from vibecomfy.artifacts import Image, Video
 from vibecomfy.workflow_bundle import WorkflowBundleError
-
-
-def _lazy_op_workflow(*, public: dict, output_type: str):
-    """Stub candidate for T14-lazy ops: construct returns Image/Video, run() fail-closes."""
-
-    class Workflow:
-        def __init__(self):
-            self.inputs = dict(public)
-            self.metadata = {}
-            self.outputs = [SimpleNamespace(output_type=output_type, node_id="2")]
-            self.bound: dict[str, object] = {}
-            self.touched = False
-            self.nodes = {"2": SimpleNamespace(id="2")}
-
-        def copy(self):
-            return type(self)()
-
-        def set_prompt(self, value):
-            self.bound["prompt"] = value
-            return self
-
-        def set_input(self, name, value):
-            self.bound[name] = value
-
-        def finalize_metadata(self):
-            return None
-
-    return Workflow
 
 
 def test_load_workflow_any_accepts_basename_ready_id() -> None:
