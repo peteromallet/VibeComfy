@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -143,8 +144,18 @@ def _resolve_source(row: dict[str, Any]) -> tuple[Path | None, str, str]:
     return None, "unresolved_source", ""
 
 
+@lru_cache(maxsize=1)
+def _authoring_schema_provider():
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    return get_authoring_schema_provider()
+
+
 def _api_for_source(path: Path) -> dict[str, Any]:
-    return normalize_to_api(load_workflow_json(path))
+    return normalize_to_api(
+        load_workflow_json(path),
+        schema_provider=_authoring_schema_provider(),
+    )
 
 
 def _api_for_ready(template_id: str) -> dict[str, Any]:
