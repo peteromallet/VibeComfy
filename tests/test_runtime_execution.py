@@ -9,7 +9,12 @@ import pytest
 
 import vibecomfy.runtime.execution as execution_module
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-from vibecomfy.workflow_bundle import load_bundle
+from vibecomfy.workflow_bundle import (
+    ApprovedProjectionRecord,
+    WorkflowBundleError,
+    canonical_digest,
+    load_bundle,
+)
 from vibecomfy.runtime.execution import (
     authorized_queue_payload,
     collect_output_paths,
@@ -77,6 +82,28 @@ def test_authorized_payload_is_detached_exact_record_projection() -> None:
     assert payload == record.to_dict()["api_projection"]
     payload["1"]["inputs"]["value"] = 99
     assert record.to_dict()["api_projection"]["1"]["inputs"]["value"] == 7
+
+
+def test_digest_consistent_forged_record_is_rejected_before_queue() -> None:
+    record, bundle = _approved()
+    payload = record.to_dict()
+    api = dict(payload["api_projection"])
+    node = dict(api["1"])
+    inputs = dict(node["inputs"])
+    inputs["value"] = 99
+    node["inputs"] = inputs
+    api["1"] = node
+    forged = ApprovedProjectionRecord(
+        payload["revision_id"],
+        payload["selected_variant"],
+        payload["input_binding"],
+        api,
+        payload["ui_projection"],
+        canonical_digest(api),
+    )
+    with pytest.raises(WorkflowBundleError, match="current bundle"):
+        authorized_queue_payload(forged, bundle)
+    assert authorized_queue_payload(record, bundle)["1"]["inputs"]["value"] == 7
 
 
 def test_bare_payload_is_rejected_before_embedded_transport() -> None:

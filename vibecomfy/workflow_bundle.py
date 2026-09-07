@@ -968,6 +968,23 @@ class ApprovedProjectionRecord:
             raise WorkflowBundleError("approved projection UI projection does not match")
         if self.api_digest != canonical_digest(_thaw_json(self.api_projection)):
             raise WorkflowBundleError("approved projection API digest is invalid")
+        # Caller-supplied projections are not current-bundle evidence.  Recompile
+        # the live Python API graph so a digest-consistent forged record cannot
+        # authorize a different queued semantic payload.
+        try:
+            fresh_api = current.workflow.compile(
+                "api",
+                variant=self.selected_variant,
+                run_inputs=_thaw_json(self.input_binding),
+            )
+        except Exception as exc:
+            raise WorkflowBundleError(
+                f"approved projection could not recompile current bundle: {type(exc).__name__}: {exc}"
+            ) from exc
+        if canonical_json(_thaw_json(self.api_projection)) != canonical_json(fresh_api):
+            raise WorkflowBundleError(
+                "approved projection API projection does not match current bundle"
+            )
 
 
 def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":

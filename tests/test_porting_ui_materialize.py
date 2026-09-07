@@ -5,10 +5,13 @@ import copy
 
 import pytest
 
+from pathlib import Path
+
 from vibecomfy.porting.emit.ui import emit_ui_json, materialize_litegraph_node
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.security.provenance import Provenance
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
-from vibecomfy.workflow_bundle import WorkflowBundleError, materialize_ui_json
+from vibecomfy.workflow_bundle import WorkflowBundleError, load_bundle, materialize_ui_json
 
 
 class _Provider:
@@ -330,6 +333,22 @@ def test_materialize_emits_root_python_virtual_legs_without_sidecar_links() -> N
     }
     result = materialize_ui_json(wf, sidecar)
     assert result["links"] == [[1, 51, 0, 52, 0, ""]]
+
+
+def test_materialize_does_not_duplicate_visual_slot_links_for_native_roster_offset() -> None:
+    bundle = load_bundle(
+        Path("ready_templates/smoke/empty_image_red.py"),
+        trust=Provenance.USER_CONFIRMED,
+    )
+    emitted = emit_ui_json(bundle.workflow)
+    materialized = bundle.materialize_ui()
+    assert len(bundle.workflow.edges) == 1
+    assert len(emitted["links"]) == 1
+    assert len(materialized["links"]) == 1
+    assert materialized["links"][0][1:6] == emitted["links"][0][1:6]
+    save = next(node for node in materialized["nodes"] if node.get("type") == "SaveImage")
+    images = next(slot for slot in save["inputs"] if slot.get("name") == "images")
+    assert images["link"] == materialized["links"][0][0]
 
 
 def _single_node_fixture(

@@ -136,9 +136,8 @@ def test_decoded_record_requires_current_bundle() -> None:
     assert calls == []
 
 
-def test_load_and_stub_do_not_compile_or_contact_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_and_stub_do_not_contact_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     record, bundle = _approved()
-    monkeypatch.setattr(VibeWorkflow, "compile", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("compile")))
     monkeypatch.setattr(WorkflowBundle, "compile", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("compile")))
     monkeypatch.setattr(WorkflowBundle, "materialize_ui", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("ui")))
     monkeypatch.setattr(execution, "ComfyClient", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("client")))

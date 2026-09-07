@@ -4761,14 +4761,23 @@ def _overlay_validated_presentation(
             rebuilt_links.extend(materialize_link(candidate) for candidate in candidates)
 
     # Preserve non-semantic emitter links (for example explicit virtual-wire
-    # display links) when no sidecar row can identify their endpoint.
+    # display links) when no sidecar row can identify their endpoint.  Key
+    # through the same native-roster mapping used to index emitted_by_key so a
+    # visual-slot link is not appended again after its semantic key was kept.
     for raw_link in envelope.get("links", []):
         if not isinstance(raw_link, (list, tuple)) or len(raw_link) < 6:
             continue
-        key = (
-            uid_by_old_id.get(raw_link[1]), int(raw_link[2]),
-            uid_by_old_id.get(raw_link[3]), int(raw_link[4]),
-        )
+        source_uid = uid_by_old_id.get(raw_link[1])
+        target_uid = uid_by_old_id.get(raw_link[3])
+        from_port = int(raw_link[2])
+        to_port = int(raw_link[4])
+        source_node = wf_by_uid.get(source_uid) if source_uid is not None else None
+        target_node = wf_by_uid.get(target_uid) if target_uid is not None else None
+        if source_node is not None:
+            from_port = _semantic_port(source_node, by_uid.get(source_uid), from_port, "output")
+        if target_node is not None:
+            to_port = _semantic_port(target_node, by_uid.get(target_uid), to_port, "input")
+        key = (source_uid, from_port, target_uid, to_port)
         if key not in emitted_by_key:
             rebuilt_links.append(materialize_link(list(raw_link)))
     envelope["links"] = rebuilt_links
