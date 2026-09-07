@@ -1264,6 +1264,115 @@ def test_batch_reader_rejects_modified_committed_pack(
         consume.get_classes(["ReaderClass"])
 
 
+def test_class_entry_snapshot_is_coherent_nested_concurrent_and_resets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({
+            "ReaderClass": _object_info_entry(
+                python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+            ),
+            "LateClass": _object_info_entry(
+                python_module="reader", name="LateClass", output_names=["IMAGE"]
+            ),
+        }),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    with consume.class_entry_snapshot(["ReaderClass", "MissingClass"]):
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+        assert consume.get_class("MissingClass") is None
+        with pytest.raises(
+            ObjectInfoCacheCorruptError,
+            match="identity-specific object_info lookup.*captured",
+        ):
+            consume.resolve_class_entry(
+                "ReaderClass",
+                identity=consume.ObjectInfoIdentity(
+                    pack_slug="reader", evidence_identity="late-identity"
+                ),
+            )
+        with pytest.raises(
+            ObjectInfoCacheCorruptError,
+            match="identity-specific object_info lookup.*captured",
+        ):
+            consume.get_class_by_identity(
+                "ReaderClass",
+                pack_slug="reader",
+                evidence_identity="late-identity",
+            )
+
+        active_root = consume._reader_state["active"]
+        pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+        pack = active_root / pack_name
+        original_mtime_ns = pack.stat().st_mtime_ns
+        updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+        assert len(updated.encode()) == pack.stat().st_size
+        pack.write_text(updated, encoding="utf-8")
+        os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+        # A nested conversion over the captured set inherits the same view.
+        with consume.class_entry_snapshot(["ReaderClass"]):
+            assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+            assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+
+        # A late class from the same changed pack cannot be mixed into the
+        # already-captured operation generation.
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_class("LateClass")
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_classes(["LateClass"])
+        with consume.class_entry_snapshot(["LateClass"]):
+            assert consume.get_class("LateClass")["outputs"][0]["name"] == "VIDEO"
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_class("LateClass")
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        returned = consume.get_class("ReaderClass")
+        returned["outputs"][0]["name"] = "POISONED"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        async def inherited_child() -> str:
+            child_value = consume.get_class("ReaderClass")
+            child_value["outputs"][0]["name"] = "CHILD-POISON"
+            await asyncio.sleep(0)
+            return consume.get_class("ReaderClass")["outputs"][0]["name"]
+
+        async def run_child() -> str:
+            return await asyncio.create_task(inherited_child())
+
+        assert asyncio.run(run_child()) == "IMAGE"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        # ContextVar state does not leak to a concurrent operation, which sees
+        # the newly witnessed bytes while this operation retains its snapshot.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            concurrent_name = pool.submit(
+                lambda: consume.get_class("ReaderClass")["outputs"][0]["name"]
+            ).result()
+        assert concurrent_name == "VIDEO"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "VIDEO"
+
+    with pytest.raises(RuntimeError, match="snapshot abort"):
+        with consume.class_entry_snapshot(["ReaderClass"]):
+            raise RuntimeError("snapshot abort")
+    assert consume._CLASS_ENTRY_SNAPSHOT.get() is None
+
+
 # ---------------------------------------------------------------------------
 # effective_widget_names_for_class (widget_schema tiered lookup)
 # ---------------------------------------------------------------------------

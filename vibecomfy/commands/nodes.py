@@ -141,8 +141,14 @@ def _compatible_socket_search(provider: object, socket_type: str, *, socket_role
         # one class.  Compatible-with is a real schema consumer, so focus-load
         # each advertised class through the canonical getter.  A getter error
         # is provider failure, not an absent class, and must remain typed.
-        if schema is None and callable(getter):
+        if callable(getter):
             try:
+                # Enumeration can be a partial/listing-only view.  Socket
+                # compatibility is a schema consumer, so always refresh the
+                # advertised class through the provider's authoritative
+                # getter.  A getter miss must not fall back to stale listing
+                # data, which could claim an input or output that was never
+                # witnessed by the authoritative provider.
                 schema = getter(class_type)
             except SchemaProviderError:
                 raise

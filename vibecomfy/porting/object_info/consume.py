@@ -6,12 +6,16 @@ All public functions are deterministic and do not require ComfyUI or network.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping
 
 from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
 from vibecomfy.errors import ObjectInfoCacheCorruptError
@@ -145,6 +149,17 @@ _index: dict[str, str] | None = None
 _pack_cache: dict[str, dict[str, dict[str, Any]]] = {}
 _reader_lock = threading.RLock()
 _reader_state: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class _ClassEntrySnapshot:
+    entries: Mapping[str, dict[str, Any]]
+    misses: frozenset[str]
+
+
+_CLASS_ENTRY_SNAPSHOT: ContextVar[_ClassEntrySnapshot | None] = ContextVar(
+    "_CLASS_ENTRY_SNAPSHOT", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -359,6 +374,20 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     ``display_name``, ``description``, ``inputs``, ``input_order``,
     ``input_order_all``, ``object_info_widget_order``, ``outputs``, ``function``.
     """
+    class_type = str(class_type)
+    snapshot = _CLASS_ENTRY_SNAPSHOT.get()
+    if snapshot is not None:
+        if class_type in snapshot.entries:
+            # Preserve get_class()'s historical caller-owned mutable result
+            # without allowing one consumer (or inherited async context) to
+            # mutate the operation snapshot seen by another.
+            return copy.deepcopy(snapshot.entries[class_type])
+        if class_type in snapshot.misses:
+            return None
+        raise ObjectInfoCacheCorruptError(
+            f"object_info class {class_type!r} was not captured for this operation"
+        )
+
     entry = _resolve_class_type(class_type)
     if entry is not None:
         return entry
@@ -366,6 +395,49 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     if curated_outputs is None:
         return None
     return {"outputs": curated_outputs}
+
+
+@contextmanager
+def class_entry_snapshot(class_types: Iterable[str]):
+    """Bind one content-witnessed object-info view for a bounded operation.
+
+    Scalar lookups intentionally recheck loaded pack bytes on every call. A
+    conversion performs many related lookups against one logical input, so it
+    first captures all known classes with :func:`get_classes` and reuses that
+    coherent view. An unrequested late lookup fails closed rather than mixing
+    entries from two cache generations. Outside this context scalar freshness
+    is unchanged.
+    """
+    requested = tuple(sorted({str(item) for item in class_types if str(item)}))
+    current = _CLASS_ENTRY_SNAPSHOT.get()
+    if current is not None and all(
+        item in current.entries or item in current.misses
+        for item in requested
+    ):
+        # A nested operation over a subset inherits the outer operation's
+        # coherent view. ContextVar isolation still gives concurrent callers
+        # independent snapshots, and an unrelated nested class set captures a
+        # fresh view which is reset back to this one on exit.
+        yield
+        return
+    # An unrelated nested operation gets its own coherent capture and then
+    # restores the outer snapshot. It must not ask the outer scope to resolve
+    # classes which were absent from that operation's declared set.
+    outer_token = _CLASS_ENTRY_SNAPSHOT.set(None) if current is not None else None
+    try:
+        resolved = get_classes(requested)
+    finally:
+        if outer_token is not None:
+            _CLASS_ENTRY_SNAPSHOT.reset(outer_token)
+    state = _ClassEntrySnapshot(
+        entries=MappingProxyType(copy.deepcopy(resolved)),
+        misses=frozenset(set(requested) - set(resolved)),
+    )
+    token = _CLASS_ENTRY_SNAPSHOT.set(state)
+    try:
+        yield
+    finally:
+        _CLASS_ENTRY_SNAPSHOT.reset(token)
 
 
 def get_classes(class_types: Iterable[str]) -> dict[str, dict[str, Any]]:
@@ -382,6 +454,21 @@ def get_classes(class_types: Iterable[str]) -> dict[str, dict[str, Any]]:
     requested = tuple(sorted({str(item) for item in class_types if str(item)}))
     if not requested:
         return {}
+    snapshot = _CLASS_ENTRY_SNAPSHOT.get()
+    if snapshot is not None:
+        late = [
+            item for item in requested
+            if item not in snapshot.entries and item not in snapshot.misses
+        ]
+        if late:
+            raise ObjectInfoCacheCorruptError(
+                f"object_info classes {late!r} were not captured for this operation"
+            )
+        return {
+            item: copy.deepcopy(snapshot.entries[item])
+            for item in requested
+            if item in snapshot.entries
+        }
     with _reader_lock:
         for attempt in range(2):
             _sync_reader()
@@ -462,6 +549,12 @@ def resolve_class_entry(
             low_confidence=False,
         )
 
+    if _CLASS_ENTRY_SNAPSHOT.get() is not None:
+        raise ObjectInfoCacheCorruptError(
+            "identity-specific object_info lookup is not part of the captured "
+            "class-only operation snapshot"
+        )
+
     try:
         entry = get_class_by_identity(
             class_type,
@@ -531,6 +624,11 @@ def get_class_by_identity(
     evidence_identity: str | None = None,
 ) -> dict[str, Any] | None:
     """Return the cache entry for *class_type* keyed by explicit pack identity."""
+    if _CLASS_ENTRY_SNAPSHOT.get() is not None:
+        raise ObjectInfoCacheCorruptError(
+            "identity-specific object_info lookup is not part of the captured "
+            "class-only operation snapshot"
+        )
     matches = _identity_lookup_matches(
         class_type,
         pack_slug=pack_slug,

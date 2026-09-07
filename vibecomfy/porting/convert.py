@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import difflib
+import functools
 import importlib.util
 import logging
 import tempfile
@@ -15,7 +16,7 @@ from vibecomfy.porting.emitter import (
     emit_ready_template_python,
     emit_scratchpad_python,
 )
-from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
+from vibecomfy.porting.object_info.consume import ObjectInfoIdentity, class_entry_snapshot
 from vibecomfy._compile._resolve import ResolveDiagnostics
 from vibecomfy.porting.parity import (
     class_type_counter,
@@ -184,6 +185,22 @@ def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, Obje
     return result
 
 
+def _with_conversion_object_info_snapshot(func):
+    """Resolve repeated object-info reads against one conversion snapshot."""
+    @functools.wraps(func)
+    def wrapped(workflow: VibeWorkflow, *args: Any, **kwargs: Any):
+        class_types = {str(node.class_type) for node in workflow.nodes.values()}
+        class_types.update(
+            str(node["class_type"])
+            for node in workflow._semantic_definition_nodes(workflow.definitions)
+        )
+        with class_entry_snapshot(class_types):
+            return func(workflow, *args, **kwargs)
+
+    return wrapped
+
+
+@_with_conversion_object_info_snapshot
 def port_convert_workflow(
     workflow: VibeWorkflow,
     *,

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 
 import pytest
+
+import vibecomfy.porting.convert as convert_module
 
 from vibecomfy.porting.convert import (
     ManualTemplateRefusal,
@@ -30,6 +33,52 @@ def _regular_node(
     n = VibeNode(node_id, class_type, pos=pos, size=size)
     n.uid = node_id
     return n
+
+
+def test_port_convert_binds_one_object_info_snapshot_for_the_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    active = False
+
+    @contextmanager
+    def capture(class_types):
+        nonlocal active
+        captured.append(sorted(class_types))
+        active = True
+        try:
+            yield
+        finally:
+            active = False
+
+    original_emit = convert_module.emit_scratchpad_python
+
+    def checked_emit(*args, **kwargs):
+        assert active is True
+        return original_emit(*args, **kwargs)
+
+    monkeypatch.setattr(convert_module, "class_entry_snapshot", capture)
+    monkeypatch.setattr(convert_module, "emit_scratchpad_python", checked_emit)
+    wf = _wf("snapshot-bound")
+    wf.nodes["1"] = _regular_node("1", "SaveImage")
+    wf.definitions = {
+        "subgraphs": [{
+            "name": "Inner",
+            "nodes": [{
+                "id": "recursive",
+                "uid": "recursive",
+                "type": "RecursiveOnly",
+                "inputs": {},
+            }],
+            "links": [],
+        }]
+    }
+
+    result = port_convert_workflow(wf, validate=False)
+
+    assert result.text
+    assert captured == [["RecursiveOnly", "SaveImage"]]
+    assert active is False
 
 
 def test_port_convert_ready_template_emits_structured_custom_node_refs():
