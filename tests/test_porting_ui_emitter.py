@@ -477,6 +477,26 @@ def test_numeric_from_output_resolves_directly() -> None:
     assert link[5] == "IMAGE"  # socket type from OutputSpec
 
 
+def test_native_output_roster_distinguishes_absent_from_explicit_empty() -> None:
+    provider = _Provider(
+        {"Source": _schema("Source", [OutputSpec("IMAGE", "image")])}
+    )
+
+    absent = _wf("absent-native-roster")
+    absent.nodes["1"] = VibeNode("1", "Source", native_output_names=None)
+    [absent_node] = emit_ui_json(absent, schema_provider=provider)["nodes"]
+    assert [(row["name"], row["type"]) for row in absent_node["outputs"]] == [
+        ("image", "IMAGE")
+    ]
+
+    explicit_empty = _wf("explicit-empty-native-roster")
+    explicit_empty.nodes["1"] = VibeNode(
+        "1", "Source", native_output_names=[], native_output_types=[]
+    )
+    [empty_node] = emit_ui_json(explicit_empty, schema_provider=provider)["nodes"]
+    assert empty_node["outputs"] == []
+
+
 def test_emit_ui_json_rejects_embedded_api_link_without_edge() -> None:
     wf = _wf("raw-link")
     wf.nodes["1"] = VibeNode("1", "Source")

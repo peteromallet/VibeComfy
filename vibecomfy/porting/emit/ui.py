@@ -265,7 +265,28 @@ def _materialized_schema_outputs(
     schema: Any | None,
 ) -> list[Any]:
     """Expand an explicitly dynamic node's base output schema for the editor."""
-    base = list(getattr(schema, "outputs", None) or []) if schema else []
+    native_names = getattr(node, "native_output_names", None)
+    native_types = getattr(node, "native_output_types", None)
+    if isinstance(native_names, list):
+        # A node's retained native roster is the exact materialized socket
+        # shape.  A class schema is only a generic declaration and may be
+        # older or shorter than a particular rendered node (including
+        # positional holes), so it cannot collapse those retained indices.
+        base = [
+            _DynamicOutputSpec(
+                (
+                    native_types[slot]
+                    if isinstance(native_types, list)
+                    and slot < len(native_types)
+                    and native_types[slot] is not None
+                    else ""
+                ),
+                name or f"output_{slot}",
+            )
+            for slot, name in enumerate(native_names)
+        ]
+    else:
+        base = list(getattr(schema, "outputs", None) or []) if schema else []
     count = _dynamic_output_count(node, schema)
     if count is None or not base:
         return base

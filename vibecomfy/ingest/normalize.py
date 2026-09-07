@@ -546,7 +546,11 @@ def _validate_json_semantics(value: Any, *, path: str = "value") -> None:
     raise ValueError(f"non-JSON semantic value at {path}: {type(value).__name__}")
 
 
-def _validate_api_shape(api: Any) -> None:
+def _validate_api_shape(
+    api: Any,
+    *,
+    allow_internal_widget_provenance: bool = False,
+) -> None:
     if not isinstance(api, Mapping):
         raise ValueError("API workflow must be a mapping")
     seen: set[str] = set()
@@ -571,9 +575,22 @@ def _validate_api_shape(api: Any) -> None:
         inputs = node.get("inputs", {})
         if not isinstance(inputs, Mapping):
             raise ValueError(f"node {node_id!r} inputs must be a mapping")
+        input_provenance = node.get("_input_provenance")
+        if not isinstance(input_provenance, Mapping):
+            input_provenance = {}
         for name, value in inputs.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError(f"node {node_id!r} input names must be nonblank strings")
+            # The offline UI door records the channel before converting the
+            # positional widget vector into the API-shaped mapping.  A
+            # two-item widget literal is otherwise indistinguishable here
+            # from an API edge and would be rejected before ``from_api`` can
+            # route it back to the literal channel.
+            if (
+                allow_internal_widget_provenance
+                and input_provenance.get(name) == "widget"
+            ):
+                continue
             if is_canonical_api_link(value):
                 if (not isinstance(value[0], str) or not value[0].strip()
                         or "#" in value[0] or "/" in value[0]
@@ -2300,12 +2317,14 @@ def from_ui(
         use_comfy_converter=use_comfy_converter,
         comfy_converter_strict=comfy_converter_strict,
     )
-    workflow = from_api(
-        api,
-        source_path=source_path,
-        workflow_id=workflow_id,
-        schema_provider=schema_provider,
-    )
+    with untrusted_scope():
+        workflow = _from_api_impl(
+            api,
+            source_path=source_path,
+            workflow_id=workflow_id,
+            schema_provider=schema_provider,
+            allow_internal_widget_provenance=True,
+        )
     # Graph-level LiteGraph groups are first-class on the IR.  The API dict
     # produced by the converter drops them, so carry them across from the raw
     # graph here (fail-closed: a non-list groups is rejected).
@@ -2430,11 +2449,15 @@ def _from_api_impl(
     source_path: str | None = None,
     workflow_id: str | None = None,
     schema_provider: SchemaProvider | None = None,
+    allow_internal_widget_provenance: bool = False,
 ) -> VibeWorkflow:
     """Ingest a Comfy prompt dict. Caller holds :func:`untrusted_scope`."""
     api_workflow = deepcopy(api_workflow)
     _validate_json_semantics(api_workflow, path="api")
-    _validate_api_shape(api_workflow)
+    _validate_api_shape(
+        api_workflow,
+        allow_internal_widget_provenance=allow_internal_widget_provenance,
+    )
     _enforce_exec_source_limits(api_workflow, surface="api.ingest")
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),
@@ -2446,7 +2469,11 @@ def _from_api_impl(
         if not isinstance(node, dict):
             continue
         raw_inputs = dict(node.get("inputs", {}))
-        input_provenance = node.get("_input_provenance")
+        input_provenance = (
+            node.get("_input_provenance")
+            if allow_internal_widget_provenance
+            else None
+        )
         if not isinstance(input_provenance, dict):
             input_provenance = {}
         inputs: dict[str, Any] = {}
@@ -2610,7 +2637,11 @@ def _from_api_impl(
     for node_id, node in api_workflow.items():
         if not isinstance(node, dict):
             continue
-        input_provenance = node.get("_input_provenance")
+        input_provenance = (
+            node.get("_input_provenance")
+            if allow_internal_widget_provenance
+            else None
+        )
         if not isinstance(input_provenance, dict):
             input_provenance = {}
         for name, value in dict(node.get("inputs", {})).items():

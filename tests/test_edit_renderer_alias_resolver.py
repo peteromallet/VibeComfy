@@ -96,7 +96,7 @@ _SUBMIT_GRAPH: dict[str, Any] = {
         {
             "id": 1,
             "type": "AudioDecoder",
-            "inputs": {},
+            "inputs": [],
             "outputs": [
                 {"name": "AUDIO", "type": "AUDIO", "links": []},
             ],
@@ -105,7 +105,7 @@ _SUBMIT_GRAPH: dict[str, Any] = {
             "id": 2,
             "type": "SaveAudio",
             # Declared socket input; the literal-write channel stays closed.
-            "inputs": {"audio": None},
+            "inputs": [{"name": "audio", "type": "AUDIO", "link": None}],
             "outputs": [],
         },
     ],
@@ -302,7 +302,7 @@ _BLANK_ROW_GRAPH: dict[str, Any] = {
         {
             "id": 1,
             "type": "AudioDecoder",
-            "inputs": {},
+            "inputs": [],
             "outputs": [
                 {"name": "FRAME", "type": "IMAGE", "links": []},
                 {},
@@ -313,7 +313,7 @@ _BLANK_ROW_GRAPH: dict[str, Any] = {
             "id": 2,
             "type": "SaveAudio",
             # Declared socket input; the literal-write channel stays closed.
-            "inputs": {"audio": None},
+            "inputs": [{"name": "audio", "type": "AUDIO", "link": None}],
             "outputs": [],
         },
     ],
@@ -358,6 +358,8 @@ def test_blank_interior_row_alias_admits_and_replays_true_index() -> None:
     assert ok is True, error
     assert candidate is not None
     assert op_count == 1
+    assert len(candidate.get("links", [])) == 1
+    assert candidate["links"][0][2] == 2
     by_id = {str(node.get("id")): node for node in candidate.get("nodes", [])}
     save_node = by_id.get("2") or {}
     entries = [

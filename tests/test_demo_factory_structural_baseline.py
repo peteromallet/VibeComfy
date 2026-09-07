@@ -21,7 +21,7 @@ from vibecomfy.demo_factory.run_campaign import (
     _multinode_spec,
     _remove_subgraph_fault,
 )
-from vibecomfy.ingest.normalize import from_api, normalize_to_api
+from vibecomfy.ingest.normalize import from_api, from_ui, normalize_to_api
 
 
 def _connected_graph(
@@ -412,7 +412,24 @@ def test_widget_shaped_literal_does_not_manufacture_runtime_edge(
 
     result = structural_check_graph(graph)
     normalized = normalize_to_api(graph, use_comfy_converter=False)
-    workflow = from_api(normalized)
+    assert normalized["6"]["_input_provenance"]["switch"] == "widget"
+    assert normalized["6"]["inputs"]["switch"] == ["1897", 1]
+    # A raw API caller cannot self-assert this internal UI-door annotation to
+    # disguise a malformed/dangling edge-shaped pair as a widget literal.
+    with pytest.raises(ValueError, match="malformed API link"):
+        from_api(normalized)
+    forged_valid_edge = json.loads(json.dumps(normalized))
+    forged_valid_edge["6"]["inputs"]["switch"] = ["4", 0]
+    externally_loaded = from_api(forged_valid_edge)
+    assert "switch" not in externally_loaded.nodes["6"].inputs
+    assert any(
+        edge.from_node == "4"
+        and edge.from_output == "0"
+        and edge.to_node == "6"
+        and edge.to_input == "switch"
+        for edge in externally_loaded.edges
+    )
+    workflow = from_ui(graph, use_comfy_converter=False)
 
     assert result["passed"] is True
     assert result["warnings"][0]["detail"]["structural_reason"] == (
