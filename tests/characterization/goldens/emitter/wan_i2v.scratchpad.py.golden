@@ -12,6 +12,7 @@ from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionEncode, C
 CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
 CLIP_NAME_2 = 'clip_vision_h.safetensors'
 DEFAULT_FPS = 16
+DEFAULT_FRAMES = 33
 DEFAULT_PROMPT = 'a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around'
 DEFAULT_PROMPT_2 = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
 DEFAULT_SEED = 987948718394761
@@ -28,6 +29,9 @@ PUBLIC_INPUT_METADATA = {
     'image': InputSpec(node='52', field='image', default='image_to_video_wan_start_image.png', aliases=('input_image',)),
     'fps': InputSpec(node='55', field='fps', default=DEFAULT_FPS),
     'negative_prompt': InputSpec(node='7', field='text', default=DEFAULT_PROMPT_2, aliases=('negative',)),
+    'width': InputSpec(node='50', field='width', default=512, type='INT'),
+    'height': InputSpec(node='50', field='height', default=512, type='INT'),
+    'frames': InputSpec(node='50', field='length', default=DEFAULT_FRAMES, type='INT'),
 }
 
 READY_METADATA = ReadyMetadata.build(
@@ -120,12 +124,12 @@ def build() -> VibeWorkflow:
 
     positive, negative, latent = WanImageToVideo(
         _id='50',
-        widget_0=512,
-        widget_1=512,
-        widget_2=33,
-        widget_3=1,
+        batch_size=1,
+        height=512,
+        length=DEFAULT_FRAMES,
+        width=512,
         _uid='n10',
-        _native_ports={'native_input_names': ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae', 'widget_0', 'widget_1', 'widget_2', 'widget_3'], 'native_output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'native_input_types': ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE', None, None, None, None], 'native_output_types': ['CONDITIONING', 'CONDITIONING', 'LATENT'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
+        _native_ports={'native_input_names': ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae'], 'native_output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'native_input_types': ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE'], 'native_output_types': ['CONDITIONING', 'CONDITIONING', 'LATENT'], 'native_input_optional': [False, False, False, False, True, True, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Sampling
@@ -234,14 +238,14 @@ def build() -> VibeWorkflow:
     wf.nodes['49'].native_input_optional = [False]
     wf.nodes['49'].native_input_asset_kinds = None
     wf.nodes['49'].native_output_slots = None
-    wf.nodes['50'].inputs = {'widget_0': 512, 'widget_1': 512, 'widget_2': 33, 'widget_3': 1}
+    wf.nodes['50'].inputs = {'batch_size': 1, 'height': 512, 'length': 33, 'width': 512}
     wf.nodes['50'].widgets = {}
-    wf.nodes['50'].metadata = {'provenance': 'agent_authored', 'output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'keep_defaults': ['clip_vision_output', 'negative', 'positive', 'start_image', 'vae', 'widget_0', 'widget_1', 'widget_2', 'widget_3']}
-    wf.nodes['50'].native_input_names = ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae', 'widget_0', 'widget_1', 'widget_2', 'widget_3']
+    wf.nodes['50'].metadata = {'provenance': 'agent_authored', 'output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'keep_defaults': ['batch_size', 'clip_vision_output', 'height', 'length', 'negative', 'positive', 'start_image', 'vae', 'width']}
+    wf.nodes['50'].native_input_names = ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae']
     wf.nodes['50'].native_output_names = ['POSITIVE', 'NEGATIVE', 'LATENT']
-    wf.nodes['50'].native_input_types = ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE', None, None, None, None]
+    wf.nodes['50'].native_input_types = ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE']
     wf.nodes['50'].native_output_types = ['CONDITIONING', 'CONDITIONING', 'LATENT']
-    wf.nodes['50'].native_input_optional = None
+    wf.nodes['50'].native_input_optional = [False, False, False, False, True, True, False, False, False]
     wf.nodes['50'].native_input_asset_kinds = None
     wf.nodes['50'].native_output_slots = None
     wf.nodes['51'].inputs = {'crop': 'none'}
