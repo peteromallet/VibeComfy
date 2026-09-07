@@ -1156,29 +1156,12 @@ class TestAdaptPromptGraphFactsInjection:
         assert "unknown_class_types" in facts_str
         assert "CustomSampler" in facts_str
 
-    def test_precedent_adaptation_plan_wraps_graph_facts(self) -> None:
-        """Simulate how precedent_adaptation_plan gets graph_facts injected
-        as part of the combined adaptation plan text."""
+    def test_revision_evidence_carries_graph_facts(self) -> None:
+        """Current prompt context retains deterministic graph facts as evidence."""
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 
         facts = collect_graph_facts(_graph_with_terminal_socket_types())
-        facts_dict = facts.to_dict()
-        facts_str = json.dumps(facts_dict, indent=2, sort_keys=True)
-
-        # Build a combined adaptation plan that mimics the edit.py assembly:
-        # precedent_adaptation_prompt + "\n\n" + adapt_scoped_research_context
-        adapt_scoped = (
-            "## Scoped Research Context (execution_protocol_notes)\n"
-            "This is contextual evidence, NOT authoritative guidance.\n"
-            '{"research_goal": "test"}\n\n'
-            "## Graph Facts (workflow topology evidence)\n"
-            "Deterministic topology/readiness evidence about the current graph. "
-            "Use this to understand the workflow structure, terminal outputs, "
-            "and any known blockers. NOT a revision verdict.\n"
-            f"{facts_str}"
-        )
-
-        combined_plan = adapt_scoped.strip()
+        facts_str = json.dumps({"graph_facts": facts.to_dict()}, indent=2, sort_keys=True)
 
         messages = build_batch_messages(
             task="adapt image generation",
@@ -1186,13 +1169,14 @@ class TestAdaptPromptGraphFactsInjection:
             python_source="img = LoadImage()",
             signature_catalog="LoadImage(image), SaveImage(images)",
             available_node_names="LoadImage, SaveImage",
-            precedent_adaptation_plan=combined_plan,
+            revision_evidence_json=facts_str,
         )
 
         user_content = messages[1]["content"]
-        assert "Precedent adaptation plan (structured):" in user_content
+        assert "Revision evidence (JSON; collected before this model call):" in user_content
+        assert facts_str in user_content
         # Graph facts evidence is present
-        assert "Graph Facts" in user_content
+        assert "graph_facts" in user_content
         assert "current_output_node_types" in user_content
         assert "terminal_output_socket_types" in user_content
         assert "socket_type_mismatches" in user_content
