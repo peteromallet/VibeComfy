@@ -517,11 +517,13 @@ def test_snapshot_none_fails_closed_on_semantic_and_layout_paths() -> None:
     batch = admit_operations(None, [field])
     assert isinstance(batch, AdmissionRejected)
 
-    try:
-        layout_operation_v1._normalize_layout_op(geometry)
-        raise AssertionError("layout envelope must fail closed without a snapshot")
-    except layout_operation_v1.LayoutOperationError as exc:
-        assert exc.code == "missing_touched_schema"
+    # The layout parser normalizes syntax before the common admission gate; the
+    # gate is the fail-closed authority when no retained snapshot exists.
+    normalized_geometry = layout_operation_v1._normalize_layout_op(geometry)
+    assert normalized_geometry["op"] == "set_node_geometry"
+    layout_rejected = admit_operation(None, normalized_geometry)
+    assert isinstance(layout_rejected, AdmissionRejected)
+    assert layout_rejected.typed_reason == "missing_touched_schema"
 
     admitted = admit_operations(admission_snapshot_for(None, None), [unknown])
     assert isinstance(admitted, AdmissionRejected)
