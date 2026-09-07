@@ -176,9 +176,11 @@ def _infer_public_input_bindings(
     edges_in: dict[str, list[Any]],
     *,
     reserved_names: set[str] | None = None,
+    reserved_targets: set[tuple[str, str]] | None = None,
 ) -> list[_PublicInputBinding]:
     bindings: list[_PublicInputBinding] = []
     used_names: set[str] = set(reserved_names or set())
+    used_targets: set[tuple[str, str]] = set(reserved_targets or set())
 
     def add(
         name: str,
@@ -193,6 +195,13 @@ def _infer_public_input_bindings(
         candidate_names = {name, *aliases}
         if candidate_names & used_names:
             return
+        target = (str(node_id), str(field))
+        # A retained public-input descriptor owns its target even when its
+        # authored name differs from the heuristic role name.  Inference must
+        # not create a second semantic name for that same field and later fold
+        # it into the retained descriptor's aliases.
+        if target in used_targets:
+            return
         node = workflow_nodes.get(node_id)
         if node is None:
             return
@@ -202,6 +211,7 @@ def _infer_public_input_bindings(
         if field not in available or field in incoming:
             return
         used_names.update(candidate_names)
+        used_targets.add(target)
         bindings.append(
             _PublicInputBinding(
                 name=name,
@@ -226,15 +236,16 @@ def _infer_public_input_bindings(
                 metadata = getattr(node, "metadata", {})
                 semantic = metadata.get("semantic", metadata.get("semantic_metadata", {})) if isinstance(metadata, Mapping) else {}
                 role = semantic.get("role", semantic.get("prompt_role")) if isinstance(semantic, Mapping) else None
-                if isinstance(role, str) and "negative" in role.lower():
+                target_available = (str(node_id), "text") not in used_targets
+                if isinstance(role, str) and "negative" in role.lower() and target_available:
                     negative_candidate = negative_candidate or (str(node_id), "text")
-                elif value.strip():
+                elif value.strip() and target_available:
                     prompt_candidate = prompt_candidate or (str(node_id), "text")
         primitive_value = _resolve_graph_field_get_string(fields.get("value"), workflow_nodes)
         if class_type in {"PrimitiveStringMultiline", "PrimitiveString"} and isinstance(
             primitive_value,
             str,
-        ) and primitive_value.strip():
+        ) and primitive_value.strip() and (str(node_id), "value") not in used_targets:
             prompt_candidate = prompt_candidate or (str(node_id), "value")
         if class_type == "LoadImage" and "image" in fields:
             add("image", str(node_id), "image", type="IMAGE", required=True, aliases=("input_image",), media_semantics="image")
@@ -275,6 +286,7 @@ def _public_input_specs(
 ) -> list[_PublicInputSpec]:
     specs: list[_PublicInputSpec] = []
     used_names: set[str] = set()
+    used_targets: set[tuple[str, str]] = set()
 
     def add(binding: _PublicInputBinding) -> None:
         if binding.name in used_names:
@@ -320,6 +332,7 @@ def _public_input_specs(
         )
         used_names.add(binding.name)
         used_names.update(binding.aliases)
+        used_targets.add((str(binding.node_id), str(binding.field)))
 
     for input_name, (old_id, field) in dict(registered_inputs or {}).items():
         resolved_field = field
@@ -333,7 +346,12 @@ def _public_input_specs(
                 resolved_field = resolved.name
         add(_PublicInputBinding(name=input_name, node_id=str(old_id), field=resolved_field))
 
-    inferred = _infer_public_input_bindings(workflow_nodes, edges_in, reserved_names=used_names)
+    inferred = _infer_public_input_bindings(
+        workflow_nodes,
+        edges_in,
+        reserved_names=used_names,
+        reserved_targets=used_targets,
+    )
     for binding in inferred:
         add(binding)
     return specs

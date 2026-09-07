@@ -6,6 +6,7 @@ from vibecomfy.artifacts import Image
 from vibecomfy.cli_loader import load_bundle
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
+from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.router import pick
 
 
@@ -53,6 +54,7 @@ def _t2i(
         defaults={"width": 1024, "height": 1024},
     )
     candidate = workflow.copy()
+    stamp_workflow_origin(candidate, "op", "ops/image.py:t2i")
     for patch in result.explicit_patches:
         patch.apply(candidate)
     approved_bundle = load_bundle(candidate)

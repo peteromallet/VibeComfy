@@ -207,6 +207,12 @@ def test_duplicate_input_name_emit_imagescale_width() -> None:
             ),
         }
     )
+    with pytest.raises(ValueError, match="UI node 89 inputs contains duplicate name 'width'"):
+        ingest_workflow_and_ui(ui, schema_provider=provider)
+    # The supported source names both targets explicitly, preserving both links.
+    ui["nodes"][1]["inputs"][3]["name"] = "width_1"
+    ui["nodes"][1]["inputs"][3]["widget"]["name"] = "width_1"
+    provider._schemas["ImageScale"].inputs["width_1"] = InputSpec("INT")
     workflow, _retained = ingest_workflow_and_ui(ui, schema_provider=provider)
     width_edges = [e.to_input for e in workflow.edges if e.to_node == "89"]
     assert "width" in width_edges
@@ -217,7 +223,7 @@ def test_duplicate_input_name_emit_imagescale_width() -> None:
         prior_ui_payload=ui,
         guard_original_ui=ui,
     )
-    assert len(emitted["links"]) == 2
+    assert emitted["links"] == [[1, 110, 0, 89, 1, "INT"], [2, 7, 0, 89, 3, "INT"]]
 
 
 def test_duplicate_input_name_emit_coordinates() -> None:
@@ -263,6 +269,12 @@ def test_duplicate_input_name_emit_coordinates() -> None:
         "groups": [],
         "extra": {},
     }
+    with pytest.raises(ValueError, match="UI node 28 outputs contains duplicate name 'coordinates'"):
+        ingest_workflow_and_ui(ui, schema_provider=None)
+    ui["nodes"][0]["outputs"][1]["name"] = "coordinates_1"
+    with pytest.raises(ValueError, match="UI node 33 inputs contains duplicate name 'coordinates'"):
+        ingest_workflow_and_ui(ui, schema_provider=None)
+    ui["nodes"][1]["inputs"][2]["name"] = "coordinates_1"
     workflow, _retained = ingest_workflow_and_ui(ui, schema_provider=None)
     emitted = emit_ui_json(
         workflow,
@@ -270,7 +282,7 @@ def test_duplicate_input_name_emit_coordinates() -> None:
         prior_ui_payload=ui,
         guard_original_ui=ui,
     )
-    assert len(emitted["links"]) == 1
+    assert emitted["links"] == [[1, 28, 1, 33, 1, "FLOAT"]]
 
 
 def test_dict_row_vhs_format_field_emits() -> None:

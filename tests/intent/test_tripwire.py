@@ -34,6 +34,63 @@ FORBIDDEN = frozenset(
 
 EXEMPT_FILE = "vibecomfy/intent/_refusal_spine_probe.py"
 
+# Law 5 retains canonical dictionary accessors in the ingest owner. These
+# exact local calls read canonical IR; they do not admit a second raw-UI path.
+_CANONICAL_FOUR = frozenset({
+    "canonical_definition_links", "canonical_definition_nodes",
+    "canonical_node_widgets", "canonical_node_widgets_values",
+})
+_WORKFLOW_LOCAL_ACCESSORS = {
+    ("VibeWorkflow", "_semantic_definition_nodes"): _CANONICAL_FOUR - {"canonical_definition_links"},
+    ("VibeWorkflow", "to_envelope"): frozenset({"_restore_untouched_envelope"}),
+    ("VibeWorkflow", "from_envelope"): frozenset({"_decode_serialized_vibe"}),
+    ("_validate_recursive_execution_contract", "walk"): _CANONICAL_FOUR,
+    ("_raw_recursive_node",): frozenset({"canonical_node_widgets", "canonical_node_widgets_values"}),
+    ("_expand_authored_definitions", "expand_record"): _CANONICAL_FOUR,
+    ("_apply_definition_variant", "walk"): _CANONICAL_FOUR,
+    ("_resolve_workflow_virtual_wire_records", "visit"): frozenset({"canonical_definition_nodes"}),
+}
+
+
+def _forbidden_imports(tree: ast.AST, module_name: str) -> set[str]:
+    bad: set[str] = set()
+
+    def visit(node: ast.AST, scope: tuple[str, ...] = ()) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scope = (*scope, node.name)
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            allowed = _WORKFLOW_LOCAL_ACCESSORS.get(scope, frozenset())
+            if (
+                module_name == "vibecomfy.workflow"
+                and isinstance(node, ast.ImportFrom)
+                and node.module == "vibecomfy.ingest.normalize"
+                and node.level == 0
+                and node.names
+                and all(alias.name in allowed and alias.asname is None for alias in node.names)
+            ):
+                return
+            bad.update(_imported_names(node) & FORBIDDEN)
+        for child in ast.iter_child_nodes(node):
+            visit(child, scope)
+
+    visit(tree)
+    return bad
+
+
+@pytest.mark.parametrize("source,module_name,allowed", [
+    ("class VibeWorkflow:\n def from_envelope(self):\n  from vibecomfy.ingest.normalize import _decode_serialized_vibe", "vibecomfy.workflow", True),
+    ("class VibeWorkflow:\n def other(self):\n  from vibecomfy.ingest.normalize import _decode_serialized_vibe", "vibecomfy.workflow", False),
+    ("from vibecomfy.ingest.normalize import _decode_serialized_vibe", "vibecomfy.workflow", False),
+    ("class VibeWorkflow:\n def from_envelope(self):\n  from vibecomfy.ingest.normalize import from_ui", "vibecomfy.workflow", False),
+    ("class VibeWorkflow:\n def from_envelope(self):\n  from vibecomfy.ingest.normalize import _decode_serialized_vibe as decode", "vibecomfy.workflow", False),
+    ("class VibeWorkflow:\n def from_envelope(self):\n  from vibecomfy.ingest.normalize import *", "vibecomfy.workflow", False),
+    ("class VibeWorkflow:\n def from_envelope(self):\n  from vibecomfy.ingest.normalize import _decode_serialized_vibe", "vibecomfy.intent.judge", False),
+    ("def _raw_recursive_node():\n from vibecomfy.ingest.normalize import canonical_node_widgets", "vibecomfy.workflow", True),
+    ("def _raw_recursive_node():\n def other():\n  from vibecomfy.ingest.normalize import canonical_node_widgets", "vibecomfy.workflow", False),
+])
+def test_local_accessor_allowance_is_exact(source: str, module_name: str, allowed: bool) -> None:
+    assert (not _forbidden_imports(ast.parse(source), module_name)) is allowed
+
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -180,8 +237,7 @@ class TestTripwireOneHop:
     ) -> None:
         for mod_name, mod_path in one_hop_modules.items():
             tree = _tree_for_path(mod_path)
-            imports = _imported_names(tree)
-            bad = imports & FORBIDDEN
+            bad = _forbidden_imports(tree, mod_name)
             assert not bad, (
                 f"One-hop module {mod_name} ({mod_path}) imports forbidden "
                 f"symbols: {sorted(bad)}"

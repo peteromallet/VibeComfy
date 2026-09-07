@@ -981,7 +981,14 @@ class VibeWorkflow:
                 self.outputs.append(VibeOutput(node_id=node_id, output_type=node.class_type))
         self.inputs.update(manual_inputs)
         self.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
-        self.requirements = _infer_requirements(self)
+        inferred = _infer_requirements(self)
+        # Refresh inferred model/custom-node facts without discarding detached
+        # diagnostics captured at an earlier ingress boundary.
+        previous = self.requirements
+        inferred.missing_models = list(previous.missing_models)
+        inferred.missing_nodes = list(previous.missing_nodes)
+        inferred.unsupported = list(previous.unsupported)
+        self.requirements = inferred
         return self
 
     def finalize(

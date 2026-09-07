@@ -1,116 +1,263 @@
-# vibecomfy: generated scratchpad
-"""Auto-generated VibeComfy scratchpad."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, EmptySD3LatentImage, KSampler, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
 
+
+CLIP_NAME = 'qwen_3_4b.safetensors'
+DEFAULT_PROMPT = 'A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.'
+DEFAULT_SEED = 770044821593082
+GUIDE_STRENGTH = 4
+UNET_NAME = 'z_image_bf16.safetensors'
+VAE_NAME = 'ae.safetensors'
+
+
+PUBLIC_INPUT_METADATA = {
+    'model': InputSpec(node='3', field='unet_name', default=UNET_NAME),
+    'prompt': InputSpec(node='5', field='text', default=DEFAULT_PROMPT),
+    'seed': InputSpec(node='8', field='seed', default=DEFAULT_SEED),
+    'steps': InputSpec(node='8', field='steps', default=25),
+    'width': InputSpec(node='4', field='width', default=1024, type='INT'),
+    'height': InputSpec(node='4', field='height', default=1024, type='INT'),
+}
+
+READY_METADATA = ReadyMetadata.build(
+    capability='image',
+    template_id='image/z_image',
+    inputs=PUBLIC_INPUT_METADATA,
+    requirements={'models': ['ae.safetensors', 'qwen_3_4b.safetensors', 'z_image_bf16.safetensors']},
+    source_path='ready_templates/sources/official/image/z_image.json',
+    source_id='image/z_image',
+    upstream_source_id='z_image',
+    source_type='api',
+    source_workflow_path='ready_templates/sources/official/image/z_image.json',
+    output_mode='ready_template',
+    ready_id='image/z_image',
+    provenance={'source_path': 'ready_templates/sources/official/image/z_image.json', 'source_id': 'image/z_image', 'upstream_source_id': 'z_image', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/z_image.json', 'output_mode': 'ready_template', 'ready_id': 'image/z_image', 'source_workflow': 'ready_templates/sources/official/image/z_image.json'},
+)
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = VibeWorkflow(
-        'image/z_image',
-        WorkflowSource(
-            id='image/z_image',
-            path='ready_templates/sources/official/image/z_image.json',
-            source_type='scratchpad',
-            provenance={},
-        ),
+    wf = new_workflow(READY_METADATA, source_path=__file__)
+
+    # Loaders
+    cliploader = CLIPLoader(
+        _id='1',
+        clip_name=CLIP_NAME,
+        type='lumina2',
+        _uid='n1',
+        _native_ports={'native_input_names': ['clip_name', 'type', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['CHOICE', 'CHOICE', 'CHOICE'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    cliploader = _node(wf, 'CLIPLoader', '1', _uid='n1',
-        _outputs=('CLIP',),
-        clip_name='qwen_3_4b.safetensors',
-        type='lumina2',
+    vaeloader = VAELoader(
+        _id='2',
+        vae_name=VAE_NAME,
+        _uid='n2',
+        _native_ports={'native_input_names': ['vae_name'], 'native_output_names': ['VAE'], 'native_input_types': ['CHOICE'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    vaeloader = _node(wf, 'VAELoader', '2', _uid='n2',
-        _outputs=('VAE',),
-        vae_name='ae.safetensors',
+
+    unetloader = UNETLoader(
+        _id='3',
+        unet_name=UNET_NAME,
+        _uid='n3',
+        _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    unetloader = _node(wf, 'UNETLoader', '3', _uid='n3',
-        _outputs=('MODEL',),
-        unet_name='z_image_bf16.safetensors',
-    )
-    emptysd3latentimage = _node(wf, 'EmptySD3LatentImage', '4', _uid='n4',
-        _outputs=('LATENT',),
+
+    # Sampling
+    emptysd3latentimage = EmptySD3LatentImage(
+        _id='4',
         width=1024,
         height=1024,
+        _uid='n4',
+        _native_ports={'native_input_names': ['width', 'height', 'batch_size'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    positive = _node(wf, 'CLIPTextEncode', '5', _uid='n5',
-        _outputs=('CONDITIONING',),
-        text='A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.',
-        clip=cliploader.out('CLIP'),
+
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        _id='5',
+        text=DEFAULT_PROMPT,
+        _uid='n5',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    modelsamplingauraflow = _node(wf, 'ModelSamplingAuraFlow', '6', _uid='n6',
-        _outputs=('MODEL',),
+
+    modelsamplingauraflow = ModelSamplingAuraFlow(
+        _id='6',
         shift=3,
-        model=unetloader.out('MODEL'),
+        _uid='n6',
+        _native_ports={'native_input_names': ['shift', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    negative = _node(wf, 'CLIPTextEncode', '7', _uid='n7',
-        _outputs=('CONDITIONING',),
+
+    cliptextencode_2 = CLIPTextEncode(
+        _id='7',
         text='',
-        clip=cliploader.out('CLIP'),
+        _uid='n7',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ksampler = _node(wf, 'KSampler', '8', _uid='n8',
-        _outputs=('LATENT',),
-        seed=770044821593082,
+
+    ksampler = KSampler(
+        _id='8',
+        seed=DEFAULT_SEED,
         steps=25,
-        cfg=4,
+        cfg=GUIDE_STRENGTH,
         sampler_name='res_multistep',
-        latent_image=emptysd3latentimage.out('LATENT'),
-        model=modelsamplingauraflow.out('MODEL'),
-        negative=negative.out('CONDITIONING'),
-        positive=positive.out('CONDITIONING'),
+        _uid='n8',
+        _native_ports={'native_input_names': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False, False, False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    vaedecode = _node(wf, 'VAEDecode', '11', _uid='n9',
-        _outputs=('IMAGE',),
-        samples=ksampler.out('LATENT'),
-        vae=vaeloader.out('VAE'),
+
+    # Decode
+    vaedecode = VAEDecode(
+        _id='11',
+        _uid='n9',
+        _native_ports={'native_input_names': ['samples', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    saveimage = _node(wf, 'SaveImage', '9', _uid='n10',
+
+    # Outputs
+    saveimage = SaveImage(
+        _id='9',
         filename_prefix='z-image',
-        images=vaedecode.out('IMAGE'),
+        _uid='n10',
+        _native_ports={'native_input_names': ['filename_prefix', 'extra_pnginfo', 'prompt', 'images'], 'native_output_names': None, 'native_input_types': ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE'], 'native_output_types': None, 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    wf.finalize_metadata()
+    wf.connect('1.0', '5.clip')
+    wf.connect('3.0', '6.model')
+    wf.connect('1.0', '7.clip')
+    wf.connect('4.0', '8.latent_image')
+    wf.connect('6.0', '8.model')
+    wf.connect('7.0', '8.negative')
+    wf.connect('5.0', '8.positive')
+    wf.connect('8.0', '11.samples')
+    wf.connect('2.0', '11.vae')
+    wf.connect('11.0', '9.images')
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='z-image')
+    wf.nodes['1'].inputs = {'clip_name': 'qwen_3_4b.safetensors', 'type': 'lumina2'}
+    wf.nodes['1'].widgets = {}
+    wf.nodes['1'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['clip_name', 'type']}
+    wf.nodes['1'].native_input_names = ['clip_name', 'type', 'device']
+    wf.nodes['1'].native_output_names = ['CLIP']
+    wf.nodes['1'].native_input_types = ['CHOICE', 'CHOICE', 'CHOICE']
+    wf.nodes['1'].native_output_types = ['CLIP']
+    wf.nodes['1'].native_input_optional = [False, False, True]
+    wf.nodes['1'].native_input_asset_kinds = None
+    wf.nodes['1'].native_output_slots = None
+    wf.nodes['11'].inputs = {}
+    wf.nodes['11'].widgets = {}
+    wf.nodes['11'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['samples', 'vae']}
+    wf.nodes['11'].native_input_names = ['samples', 'vae']
+    wf.nodes['11'].native_output_names = ['IMAGE']
+    wf.nodes['11'].native_input_types = ['LATENT', 'VAE']
+    wf.nodes['11'].native_output_types = ['IMAGE']
+    wf.nodes['11'].native_input_optional = [False, False]
+    wf.nodes['11'].native_input_asset_kinds = None
+    wf.nodes['11'].native_output_slots = None
+    wf.nodes['2'].inputs = {'vae_name': 'ae.safetensors'}
+    wf.nodes['2'].widgets = {}
+    wf.nodes['2'].metadata = {'provenance': 'agent_authored', 'output_names': ['VAE'], 'keep_defaults': ['vae_name']}
+    wf.nodes['2'].native_input_names = ['vae_name']
+    wf.nodes['2'].native_output_names = ['VAE']
+    wf.nodes['2'].native_input_types = ['CHOICE']
+    wf.nodes['2'].native_output_types = ['VAE']
+    wf.nodes['2'].native_input_optional = [False]
+    wf.nodes['2'].native_input_asset_kinds = None
+    wf.nodes['2'].native_output_slots = None
+    wf.nodes['3'].inputs = {'unet_name': 'z_image_bf16.safetensors'}
+    wf.nodes['3'].widgets = {}
+    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name']}
+    wf.nodes['3'].native_input_names = ['unet_name', 'weight_dtype']
+    wf.nodes['3'].native_output_names = ['MODEL']
+    wf.nodes['3'].native_input_types = ['CHOICE', 'CHOICE']
+    wf.nodes['3'].native_output_types = ['MODEL']
+    wf.nodes['3'].native_input_optional = [False, False]
+    wf.nodes['3'].native_input_asset_kinds = None
+    wf.nodes['3'].native_output_slots = None
+    wf.nodes['4'].inputs = {'height': 1024, 'width': 1024}
+    wf.nodes['4'].widgets = {}
+    wf.nodes['4'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['height', 'width']}
+    wf.nodes['4'].native_input_names = ['width', 'height', 'batch_size']
+    wf.nodes['4'].native_output_names = ['LATENT']
+    wf.nodes['4'].native_input_types = ['INT', 'INT', 'INT']
+    wf.nodes['4'].native_output_types = ['LATENT']
+    wf.nodes['4'].native_input_optional = [False, False, False]
+    wf.nodes['4'].native_input_asset_kinds = None
+    wf.nodes['4'].native_output_slots = None
+    wf.nodes['5'].inputs = {'text': 'A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.'}
+    wf.nodes['5'].widgets = {}
+    wf.nodes['5'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['5'].native_input_names = ['text', 'clip']
+    wf.nodes['5'].native_output_names = ['CONDITIONING']
+    wf.nodes['5'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['5'].native_output_types = ['CONDITIONING']
+    wf.nodes['5'].native_input_optional = [False, False]
+    wf.nodes['5'].native_input_asset_kinds = None
+    wf.nodes['5'].native_output_slots = None
+    wf.nodes['6'].inputs = {'shift': 3}
+    wf.nodes['6'].widgets = {}
+    wf.nodes['6'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['model', 'shift']}
+    wf.nodes['6'].native_input_names = ['shift', 'model']
+    wf.nodes['6'].native_output_names = ['MODEL']
+    wf.nodes['6'].native_input_types = ['FLOAT', 'MODEL']
+    wf.nodes['6'].native_output_types = ['MODEL']
+    wf.nodes['6'].native_input_optional = [False, False]
+    wf.nodes['6'].native_input_asset_kinds = None
+    wf.nodes['6'].native_output_slots = None
+    wf.nodes['7'].inputs = {'text': ''}
+    wf.nodes['7'].widgets = {}
+    wf.nodes['7'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['7'].native_input_names = ['text', 'clip']
+    wf.nodes['7'].native_output_names = ['CONDITIONING']
+    wf.nodes['7'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['7'].native_output_types = ['CONDITIONING']
+    wf.nodes['7'].native_input_optional = [False, False]
+    wf.nodes['7'].native_input_asset_kinds = None
+    wf.nodes['7'].native_output_slots = None
+    wf.nodes['8'].inputs = {'cfg': 4, 'sampler_name': 'res_multistep', 'seed': 770044821593082, 'steps': 25}
+    wf.nodes['8'].widgets = {}
+    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['cfg', 'latent_image', 'model', 'negative', 'positive', 'sampler_name', 'seed', 'steps']}
+    wf.nodes['8'].native_input_names = ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive']
+    wf.nodes['8'].native_output_names = ['LATENT']
+    wf.nodes['8'].native_input_types = ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['8'].native_output_types = ['LATENT']
+    wf.nodes['8'].native_input_optional = [False, False, False, False, False, False, False, False, False, False]
+    wf.nodes['8'].native_input_asset_kinds = None
+    wf.nodes['8'].native_output_slots = None
+    wf.nodes['9'].inputs = {'filename_prefix': 'z-image'}
+    wf.nodes['9'].widgets = {}
+    wf.nodes['9'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'images']}
+    wf.nodes['9'].native_input_names = ['filename_prefix', 'extra_pnginfo', 'prompt', 'images']
+    wf.nodes['9'].native_output_names = None
+    wf.nodes['9'].native_input_types = ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE']
+    wf.nodes['9'].native_output_types = None
+    wf.nodes['9'].native_input_optional = [False, True, True, False]
+    wf.nodes['9'].native_input_asset_kinds = None
+    wf.nodes['9'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('model', '3', 'unet_name', 'z_image_bf16.safetensors', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['model'].default = None
+    wf.register_input('prompt', '5', 'text', 'A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['prompt'].default = None
+    wf.register_input('seed', '8', 'seed', 770044821593082, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['seed'].default = None
+    wf.register_input('steps', '8', 'steps', 25, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['steps'].default = None
+    public_output_0 = wf.outputs[0]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveImage'
+    public_output_0.name = 'image'
+    public_output_0.artifact_kind = 'image'
+    public_output_0.mime_type = 'image/png'
+    public_output_0.filename_prefix = 'z-image'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    wf.requirements.models = ['ae.safetensors', 'qwen_3_4b.safetensors', 'z_image_bf16.safetensors']
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
     return wf
-
-
-def _node(
-    wf: VibeWorkflow,
-    class_type: str,
-    _id: str,
-    _extras: dict | None = None,
-    _outputs: tuple[str, ...] | None = None,
-    _uid: str | None = None,
-    **kwargs,
-):
-    """Create a node, preserving the original node id from the source workflow.
-
-    `_extras` carries kwargs whose names are not valid Python identifiers
-    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
-    They are applied to the new node post-construction.
-    """
-    from vibecomfy.handles import Handle
-    builder = wf.node(class_type, **kwargs)
-    if _uid:
-        builder.node.uid = _uid
-    if _outputs is not None:
-        builder.node.metadata["output_names"] = list(_outputs)
-    if _extras:
-        for key, value in _extras.items():
-            if isinstance(value, Handle):
-                wf.connect(value, f"{builder.node.id}.{key}")
-            else:
-                builder.node.inputs[key] = value
-    if builder.node.id != _id:
-        old_id = builder.node.id
-        node = wf.nodes.pop(old_id)
-        node.id = _id
-        wf.nodes[_id] = node
-        for edge in wf.edges:
-            if edge.to_node == old_id:
-                edge.to_node = _id
-            if edge.from_node == old_id:
-                edge.from_node = _id
-    return builder
 

@@ -4378,6 +4378,16 @@ def emit_ui_json(
             "lastRerouteId": 0,
         }
 
+    # Python-owned recursive interfaces and their local endpoint bindings are
+    # semantic carriers.  They are not recoverable from LiteGraph's native
+    # inputNode/outputNode or -10/-20 boundary encoding, which is deliberately
+    # unsupported.  Emit the exact detached typed carriers even when empty so
+    # a remove-all edit cannot be resurrected from definition port decoration
+    # during the next ingest.
+    if effective_defs is not None or wf.interfaces or wf.boundary_ports:
+        envelope["interfaces"] = deepcopy(wf.interfaces)
+        envelope["boundary_ports"] = deepcopy(wf.boundary_ports)
+
     # When include_main_positions=True, always emit state counters even if there
     # are no definitions (the lean default ties state to definitions presence).
     if include_main_positions and "state" not in envelope:

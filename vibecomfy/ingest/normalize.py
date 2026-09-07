@@ -325,7 +325,15 @@ def _door_node_fingerprint(workflow: "VibeWorkflow") -> tuple[Any, ...]:
     # input label that becomes the Python kwarg) must flip this fingerprint
     # so the emit door cannot restore the captured original and discard it.
     # Inner bodies / furniture stay door-owned and are not fingerprinted.
-    return (nodes, edges, public_inputs, public_outputs, _door_definitions_fingerprint(workflow))
+    return (
+        nodes,
+        edges,
+        public_inputs,
+        public_outputs,
+        _door_definitions_fingerprint(workflow),
+        _door_freeze(workflow.interfaces),
+        _door_freeze(workflow.boundary_ports),
+    )
 
 
 def _capture_ui_door(

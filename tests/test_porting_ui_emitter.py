@@ -257,6 +257,57 @@ def _canonical_python_owned_boundary_door() -> tuple[dict[str, Any], VibeWorkflo
     )
 
 
+def test_python_owned_recursive_boundary_carriers_survive_edited_ui_reload() -> None:
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.porting.parity import compile_equivalent
+
+    workflow = _python_owned_boundary_workflow()
+    before_api = workflow.compile("api")
+    # Force deterministic reconstruction instead of an untouched-door replay.
+    workflow.nodes["source"].metadata["label"] = "edited"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(workflow)
+    rebuilt = from_ui(
+        emitted,
+        source_path="python-owned:edited-boundary",
+        use_comfy_converter=False,
+    )
+
+    assert emitted["interfaces"] == workflow.interfaces
+    assert emitted["boundary_ports"] == workflow.boundary_ports
+    assert rebuilt.interfaces == workflow.interfaces
+    assert rebuilt.boundary_ports == workflow.boundary_ports
+    equal, diffs = compile_equivalent(rebuilt.compile("api"), before_api)
+    assert equal, diffs
+
+
+def test_recursive_carrier_edit_prevents_untouched_door_passthrough() -> None:
+    from vibecomfy.ingest.normalize import from_ui
+
+    raw = emit_ui_json(_python_owned_boundary_workflow())
+    workflow = from_ui(raw, source_path="python-owned:carrier-edit", use_comfy_converter=False)
+    scope = next(iter(workflow.interfaces))
+    workflow.interfaces[scope]["inputs"][0]["name"] = "renamed_image"
+    workflow.boundary_ports[0]["name"] = "renamed_image"
+    next(edge for edge in workflow.edges if edge.to_node == "1").to_input = "renamed_image"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emitted = emit_ui_json(workflow)
+
+    assert emitted["interfaces"][scope]["inputs"][0]["name"] == "renamed_image"
+    assert emitted["boundary_ports"][0]["name"] == "renamed_image"
+    assert raw["boundary_ports"][0]["name"] == "image"
+    rebuilt = from_ui(
+        emitted,
+        source_path="python-owned:carrier-edit-rebuilt",
+        use_comfy_converter=False,
+    )
+    rebuilt.compile("api")
+
+
 def _partition_ui_corpus(
     paths: list[str] | list[Path],
 ) -> tuple[

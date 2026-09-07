@@ -26,6 +26,13 @@ from .uid import SCOPE_CHAIN_JOIN, SCOPE_LOCAL_SEP, make_uid
 _FORBIDDEN_NAME_CHARS = (SCOPE_LOCAL_SEP, SCOPE_CHAIN_JOIN)
 
 
+def _canonical_local_node_id(value: Any) -> Any:
+    """Match native integer and canonical string spellings of one local id."""
+    if isinstance(value, str) or type(value) is int:
+        return str(value)
+    return value
+
+
 def sanitize_subgraph_name(name: str) -> str:
     """Replace uid separators in a subgraph name so it cannot break scope parsing."""
     cleaned = str(name)
@@ -59,7 +66,7 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
         ]
         skel_nodes.append(
             {
-                "id": node.get("id"),
+                "id": _canonical_local_node_id(node.get("id")),
                 "type": node.get("type") or node.get("class_type"),
                 "inputs": inputs,
                 "outputs": outputs,
@@ -80,9 +87,9 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
                 # canonical recursive scope path.
                 skel_links.append(
                     {
-                        "origin_id": values[1],
+                        "origin_id": _canonical_local_node_id(values[1]),
                         "origin_slot": values[2],
-                        "target_id": values[3],
+                        "target_id": _canonical_local_node_id(values[3]),
                         "target_slot": values[4],
                         "type": values[5],
                     }
@@ -94,9 +101,9 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
         elif isinstance(link, Mapping):
             skel_links.append(
                 {
-                    "origin_id": link.get("origin_id"),
+                    "origin_id": _canonical_local_node_id(link.get("origin_id")),
                     "origin_slot": link.get("origin_slot"),
-                    "target_id": link.get("target_id"),
+                    "target_id": _canonical_local_node_id(link.get("target_id")),
                     "target_slot": link.get("target_slot"),
                     "type": link.get("type"),
                 }

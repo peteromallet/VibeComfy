@@ -2,27 +2,56 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import vibecomfy.ops.image as image_ops
 from vibecomfy.blocks.save import image as save_image
 from vibecomfy.patches.seed import seed
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
-def test_image_op_stamps_origin_metadata(monkeypatch) -> None:
+def test_image_op_stamps_origin_metadata_before_transport_guard(monkeypatch) -> None:
+    from vibecomfy import load_bundle as real_load_bundle
+    from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle
+
     workflow = _prompt_save_workflow()
+    captured: dict[str, object] = {}
+    original_compile = WorkflowBundle.compile
+
+    def capture_compile(bundle, *args, **kwargs):
+        record = original_compile(bundle, *args, **kwargs)
+        captured["record"] = record
+        captured["compiled_bundle"] = bundle
+        return record
+
+    monkeypatch.setattr(WorkflowBundle, "compile", capture_compile)
 
     monkeypatch.setattr(
         image_ops,
         "pick",
         lambda *args, **kwargs: SimpleNamespace(template_id="image/test", explicit_patches=[]),
     )
-    monkeypatch.setattr(image_ops, "load_workflow_any", lambda template_id: workflow)
 
-    artifact = image_ops._t2i("a fox")
+    def load(reference):
+        bundle = real_load_bundle(workflow if isinstance(reference, str) else reference)
+        if not isinstance(reference, str):
+            captured["workflow"] = reference
+            captured["bundle"] = bundle
+        return bundle
 
-    assert artifact.workflow.metadata["entrypoint"] == "op"
-    assert artifact.workflow.metadata["layer"] == "ops/image.py:t2i"
-    assert artifact.compile()["2"]["class_type"] == "SaveImage"
+    monkeypatch.setattr(image_ops, "load_bundle", load)
+    with pytest.raises(RuntimeError, match="approved-record runtime transport is not available"):
+        image_ops._t2i("a fox")
+
+    candidate = captured["workflow"]
+    assert candidate.metadata["entrypoint"] == "op"
+    assert candidate.metadata["layer"] == "ops/image.py:t2i"
+    record = captured["record"]
+    assert isinstance(record, ApprovedProjectionRecord)
+    projection = record.to_dict()["api_projection"]
+    assert projection["2"]["class_type"] == "SaveImage"
+    assert projection["2"]["inputs"]["filename_prefix"] == "a fox"
+    assert projection == candidate.compile("api", run_inputs={"prompt": "a fox"})
 
 
 def test_block_stamping_preserves_existing_origin() -> None:
@@ -78,7 +107,11 @@ def test_patch_preserves_existing_origin() -> None:
 
 def _prompt_save_workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("op-origin", WorkflowSource("op-origin"))
-    prompt = workflow.add_node("CLIPTextEncode", text="initial prompt")
-    workflow.add_node("SaveImage", images=prompt.id)
+    source = workflow.node("LoadImage", _id="1", image="input.png")
+    save = workflow.node("SaveImage", _id="2", filename_prefix="out")
+    workflow.connect(source.out(0), f"{save.id}.images")
+    for node in workflow.nodes.values():
+        node.uid = node.id
+    workflow.register_input("prompt", "2", "filename_prefix", "out")
     workflow.finalize_metadata()
     return workflow

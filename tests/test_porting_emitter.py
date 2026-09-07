@@ -2735,6 +2735,22 @@ def test_canonical_emitter_rebuild_preserves_exact_materialized_input_alias(
     assert rebuilt.nodes[retained_descriptors["image"].node_id].inputs["image"] == "second.png"
 
 
+def test_canonical_emitter_does_not_infer_over_retained_motion_prompt_target() -> None:
+    from vibecomfy.registry.ready import workflow_from_ready
+
+    ready_id = "video/ltx2_3_runexx_motion_transfer_dwpose"
+    workflow = workflow_from_ready(ready_id)
+    source = emit_canonical_python(workflow)
+    namespace: dict[str, object] = {"__file__": "motion_transfer.py"}
+    exec(compile(source, "motion_transfer.py", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+
+    assert rebuilt.semantic_digest() == workflow.semantic_digest()
+    assert rebuilt.compile("api") == workflow.compile("api")
+    assert rebuilt.inputs["negative_prompt"].aliases == ("negative",)
+    assert "prompt" not in rebuilt.inputs["negative_prompt"].aliases
+
+
 @pytest.mark.parametrize(
     "changed",
     [
