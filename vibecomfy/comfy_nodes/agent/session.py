@@ -4738,8 +4738,15 @@ def record_idempotent_response(
             raise
         pending_bundle = None
         try:
+            layout = stamped_response.get("layout_reorganisation")
+            layout_prepared = (
+                isinstance(layout, Mapping)
+                and layout.get("candidate_prepared") is True
+                and layout.get("advisory") is False
+            )
             layout_only = (
                 authority_receipt.replay.verification_kind == "layout_structural_noop"
+                or layout_prepared
             )
             capture_parent = requested_revision if layout_only else requested_parent
             bundle_metadata, pending_bundle = _capture_candidate_bundle(
@@ -4782,8 +4789,31 @@ def record_idempotent_response(
                     else None
                 )
                 applyable = applyable and layout_verification is not None
+                from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+                from vibecomfy.comfy_nodes.agent._frag_state import (
+                    derived_accepted_delta_envelope,
+                )
+
+                accepted_batch_for_layout = stamped_response.get("accepted_batch")
+                if not isinstance(accepted_batch_for_layout, list):
+                    accepted_batch_for_layout = []
+                layout_delta = derived_accepted_delta_envelope(
+                    {"accepted_batch": accepted_batch_for_layout}
+                )
+                semantic_ok, semantic_candidate, _, _ = recompute_apply(
+                    submit_graph,
+                    layout_delta,
+                    schema_provider=schema_provider_from_witness(
+                        authority_receipt.schema_witness
+                    ),
+                )
+                layout_source = (
+                    semantic_candidate
+                    if semantic_ok and isinstance(semantic_candidate, Mapping)
+                    else submit_graph
+                )
                 layout_operation_envelope = build_layout_operation_envelope(
-                    submit_graph, candidate_graph
+                    layout_source, candidate_graph
                 )
                 from vibecomfy.porting.edit.admit import (
                     AdmissionRejected,
@@ -4793,14 +4823,13 @@ def record_idempotent_response(
 
                 admission_snapshot = snapshot_from_schema_witness(
                     authority_receipt.schema_witness,
-                    submit_graph=submit_graph,
+                    submit_graph=layout_source,
                 )
                 layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
                 if isinstance(layout_ops, list) and layout_ops:
                     admitted_layout = admit_operations(admission_snapshot, layout_ops)
                     if isinstance(admitted_layout, AdmissionRejected):
                         applyable = False
-                        layout_operation_envelope = None
             from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
 
             accepted_batch = stamped_response.get("accepted_batch")
