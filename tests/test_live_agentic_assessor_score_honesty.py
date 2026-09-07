@@ -1055,6 +1055,78 @@ def test_assessor_rejects_explicit_null_candidate_aliases(
     assert any(issue["check"] == "response_malformed" for issue in assessment["issues"])
 
 
+def test_real_successful_non_edit_terminal_may_carry_sole_null_candidate() -> None:
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorResult,
+        ImplementationResult,
+        Report,
+    )
+
+    response = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(
+                research=True,
+                implement=False,
+                route="research",
+                task="research_nodes",
+            ),
+            implementation=ImplementationResult(
+                message="Grounded answer.",
+                durable_response={"graph_unchanged": True},
+            ),
+        ),
+        reply="Grounded answer.",
+    ).to_dict()
+
+    assert response["candidate"] is None
+    assert response["graph_unchanged"] is True
+    assert response["route"] == "research"
+    assert assessor_module._response_envelope_is_valid(response) is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "route": "research",
+            "candidate": None,
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "revise",
+            "candidate": None,
+        },
+        {
+            "ok": False,
+            "graph_unchanged": True,
+            "route": "research",
+            "candidate": None,
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "research",
+            "candidate": None,
+            "candidate_graph": {"nodes": [], "links": []},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "research",
+            "outcome": {"kind": "answer", "candidate": None},
+        },
+    ],
+)
+def test_null_candidate_exemption_rejects_changed_edit_failed_or_ambiguous_carriers(
+    response: dict,
+) -> None:
+    assert assessor_module._candidate_carriers_are_well_formed(response) is False
+
+
 def test_assessor_rejects_unsupported_nested_candidate_transaction_contract(
     tmp_path: Path,
 ) -> None:
