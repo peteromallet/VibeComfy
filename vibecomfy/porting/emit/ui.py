@@ -4640,16 +4640,23 @@ def _overlay_validated_presentation(
     def _semantic_port(node_obj: Any, ui_node: Mapping[str, Any] | None, slot: int, direction: str) -> int:
         roster = getattr(node_obj, f"native_{direction}_names", None)
         sockets = ui_node.get("outputs" if direction == "output" else "inputs") if isinstance(ui_node, Mapping) else None
-        if not isinstance(roster, list) or not isinstance(sockets, list):
-            return slot
-        if 0 <= slot < len(sockets) and isinstance(sockets[slot], Mapping):
-            name = sockets[slot].get("name")
+        name = None
+        if isinstance(sockets, list) and 0 <= slot < len(sockets) and isinstance(sockets[slot], Mapping):
+            raw_name = sockets[slot].get("name")
+            name = raw_name if isinstance(raw_name, str) else None
+        if isinstance(roster, list) and name is not None:
             matches = [
                 index for index, roster_name in enumerate(roster)
-                if isinstance(name, str) and roster_name == name
+                if roster_name == name
             ]
             if len(matches) == 1:
                 return matches[0]
+        # Schema-less emit names native slots output_N / input_N. Sidecar
+        # edge_ref already stores that native index, so index emitted links
+        # the same way when the roster is missing or does not uniquely match.
+        prefix = "output_" if direction == "output" else "input_"
+        if isinstance(name, str) and name.startswith(prefix) and name[len(prefix):].isdigit():
+            return int(name[len(prefix):])
         return slot
 
     emitted_by_key: dict[tuple[str, int, str, int], list[list[Any]]] = defaultdict(list)
@@ -5178,9 +5185,18 @@ def structural_validate(
         if widget_count is not None:
             wv_len = len(node.get("widgets_values", []))
             if wv_len > widget_count:
-                errors.append(
-                    f"node {node['id']}({class_type}): widgets_values length {wv_len} "
-                    f"exceeds schema widget count {widget_count}"
+                # Committed widget tables can be a named subset of live
+                # source slots (widget_N / extra UI widgets).  Extra values
+                # are retained; they are not a missing-schema hard error.
+                skipped.append(
+                    {
+                        "node_id": node["id"],
+                        "class_type": class_type,
+                        "reason": (
+                            f"widgets_values length {wv_len} exceeds schema "
+                            f"widget count {widget_count}; extra source slots retained"
+                        ),
+                    }
                 )
         else:
             skipped.append(

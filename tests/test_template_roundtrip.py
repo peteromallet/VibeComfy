@@ -11,10 +11,15 @@ import pytest
 
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.ingest.normalize import normalize_to_api
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.parity import class_type_counter, topology_counter
 from vibecomfy.registry.ready import workflow_from_ready
 from vibecomfy.workflow_context import _CURRENT_WORKFLOW
-from vibecomfy.workflow_bundle import load_bundle
+from vibecomfy.workflow_bundle import (
+    WorkflowBundleError,
+    WorkflowReconciliationError,
+    load_bundle,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -283,6 +288,36 @@ def test_all_ready_templates_load_compile_and_reopen_canonical_bundle(template_i
     assert first.python_path.suffix == ".py"
     assert first.workflow.semantic_digest() == reopened.workflow.semantic_digest()
     assert first_api == reopened_api
+
+
+@pytest.mark.parametrize("template_id", [row["id"] for row in TEMPLATE_ROWS])
+def test_all_ready_templates_materialize_sidecar_ui(template_id: str) -> None:
+    bundle = load_bundle(template_id)
+    emitted = emit_ui_json(bundle.workflow)
+    materialized = bundle.materialize_ui()
+    emit_endpoints = [tuple(link[1:6]) for link in (emitted.get("links") or [])]
+    mat_endpoints = [tuple(link[1:6]) for link in (materialized.get("links") or [])]
+    assert Counter(mat_endpoints) == Counter(emit_endpoints)
+    assert len(materialized.get("links") or []) == len(emitted.get("links") or [])
+
+
+@pytest.mark.parametrize("template_id", [row["id"] for row in TEMPLATE_ROWS])
+def test_approval_compile_succeeds_or_typed_fail_closed(template_id: str) -> None:
+    bundle = load_bundle(template_id)
+    try:
+        bundle.compile()
+    except WorkflowReconciliationError as exc:
+        assert exc.missing_classes
+    except WorkflowBundleError as exc:
+        text = str(exc)
+        assert any(
+            token in text
+            for token in (
+                "not locally registered",
+                "not present locally",
+                "object-info identity does not resolve",
+            )
+        ), text
 
 
 def test_audited_source_paths_exist() -> None:
