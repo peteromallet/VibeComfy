@@ -7,6 +7,75 @@ from types import SimpleNamespace
 from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit, read_session_chat
 from vibecomfy.comfy_nodes.agent.reorganise import _metrics_payload
 from vibecomfy.comfy_nodes.agent.session import payload_hash, read_state, structural_graph_hash
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+
+_INPUT_ROSTERS = {
+    "CheckpointLoaderSimple": ["ckpt_name"],
+    "CLIPTextEncode": ["text", "clip"],
+    "KSampler": ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "model", "positive", "negative", "latent_image"],
+    "VAEDecode": ["samples", "vae"],
+    "SaveImage": ["filename_prefix", "images"],
+}
+def _reorganise_schema_provider():
+    class Provider:
+        def __init__(self):
+            self._schemas = {
+                "CheckpointLoaderSimple": NodeSchema(
+                    class_type="CheckpointLoaderSimple",
+                    pack=None,
+                    inputs={"ckpt_name": InputSpec("COMBO")},
+                    outputs=[OutputSpec("MODEL", "MODEL"), OutputSpec("CLIP", "CLIP"), OutputSpec("VAE", "VAE")],
+                    source_provider="test",
+                    confidence=1.0,
+                ),
+                "CLIPTextEncode": NodeSchema(
+                    class_type="CLIPTextEncode",
+                    pack=None,
+                    inputs={"text": InputSpec("STRING"), "clip": InputSpec("CLIP")},
+                    outputs=[OutputSpec("CONDITIONING", "CONDITIONING")],
+                    source_provider="test",
+                    confidence=1.0,
+                ),
+                "KSampler": NodeSchema(
+                    class_type="KSampler",
+                    pack=None,
+                    inputs={name: InputSpec("ANY") for name in _INPUT_ROSTERS["KSampler"]},
+                    outputs=[OutputSpec("LATENT", "LATENT")],
+                    source_provider="test",
+                    confidence=1.0,
+                ),
+                "VAEDecode": NodeSchema(
+                    class_type="VAEDecode",
+                    pack=None,
+                    inputs={"samples": InputSpec("LATENT"), "vae": InputSpec("VAE")},
+                    outputs=[OutputSpec("IMAGE", "IMAGE")],
+                    source_provider="test",
+                    confidence=1.0,
+                ),
+                "SaveImage": NodeSchema(
+                    class_type="SaveImage",
+                    pack=None,
+                    inputs={"filename_prefix": InputSpec("STRING"), "images": InputSpec("IMAGE")},
+                    outputs=[],
+                    source_provider="test",
+                    confidence=1.0,
+                ),
+            }
+        def get_schema(self, class_type):
+            return self._schemas.get(class_type)
+        def schemas(self):
+            return self._schemas
+    return Provider()
+
+
+_OUTPUT_ROSTERS = {
+    "CheckpointLoaderSimple": ["MODEL", "CLIP", "VAE"],
+    "CLIPTextEncode": ["CONDITIONING"],
+    "KSampler": ["LATENT"],
+    "VAEDecode": ["IMAGE"],
+    "SaveImage": [],
+}
 
 
 def _node(node_id: int, class_type: str, uid: str) -> dict:
@@ -15,14 +84,35 @@ def _node(node_id: int, class_type: str, uid: str) -> dict:
         "type": class_type,
         "pos": [node_id * 10, node_id * 20],
         "size": [200, 80],
-        "inputs": [{"name": f"input_{i}"} for i in range(4)],
-        "outputs": [{"name": f"{class_type}_out_{i}"} for i in range(4)],
-        "properties": {"vibecomfy_uid": uid, "kept": uid},
+        "color": "#202020",
+        "bgcolor": "#101010",
+        "title": class_type,
+        "inputs": [{"name": name} for name in _INPUT_ROSTERS[class_type]],
+        "outputs": [{"name": name} for name in _OUTPUT_ROSTERS[class_type]],
+        "properties": {
+            "vibecomfy_uid": uid,
+        },
     }
 
 
+def _with_revision(graph: dict, tmp_path) -> dict:
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    seeded = json.loads(json.dumps(graph))
+    seeded["workflow_id"] = "6b4611de-b2b2-42f2-b358-5f566d6a8933"
+    bundle = capture_bundle(
+        seeded,
+        tmp_path / "seed.py",
+        {"operation": "captured"},
+        schema_provider=_reorganise_schema_provider(),
+    )
+    seeded["revision_id"] = bundle.revision_id
+    seeded["parent_revision"] = ""
+    return seeded
+
+
 def _ui() -> dict:
-    return {
+    graph = {
         "nodes": [
             _node(1, "CheckpointLoaderSimple", "checkpoint"),
             _node(2, "CLIPTextEncode", "positive"),
@@ -31,10 +121,10 @@ def _ui() -> dict:
             _node(5, "SaveImage", "save"),
         ],
         "links": [
-            [1, 1, 0, 3, 0, "MODEL"],
-            [2, 2, 0, 3, 1, "CONDITIONING"],
+            [1, 1, 0, 3, 6, "MODEL"],
+            [2, 2, 0, 3, 7, "CONDITIONING"],
             [3, 3, 0, 4, 0, "LATENT"],
-            [4, 4, 0, 5, 0, "IMAGE"],
+            [4, 4, 0, 5, 1, "IMAGE"],
         ],
         "groups": [
             {
@@ -45,6 +135,9 @@ def _ui() -> dict:
         ],
         "extra": {"ds": {"scale": 1.0, "offset": [0, 0]}},
     }
+    for link_id, _source, _source_slot, target, target_slot, _kind in graph["links"]:
+        graph["nodes"][target - 1]["inputs"][target_slot]["link"] = link_id
+    return graph
 
 
 def _ui_with_branch() -> dict:
@@ -62,26 +155,30 @@ def _ui_with_branch() -> dict:
             node["pos"] = [12, 24]
     graph["links"].extend(
         [
-            [5, 1, 0, 7, 0, "MODEL"],
-            [6, 6, 0, 7, 1, "CONDITIONING"],
+            [5, 1, 0, 7, 6, "MODEL"],
+            [6, 6, 0, 7, 7, "CONDITIONING"],
             [7, 7, 0, 8, 0, "LATENT"],
-            [8, 8, 0, 9, 0, "IMAGE"],
+            [8, 8, 0, 9, 1, "IMAGE"],
         ]
     )
+    for link_id, _source, _source_slot, target, target_slot, _kind in graph["links"][-4:]:
+        graph["nodes"][target - 1]["inputs"][target_slot]["link"] = link_id
     return graph
 
 
 def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> None:
-    graph = _ui()
+    graph = _with_revision(_ui(), tmp_path)
     result = handle_agent_edit(
         {
             "task": "/reorganise_comfy_workflow",
             "graph": graph,
+            "revision_id": graph["revision_id"],
+            "parent_revision": graph["parent_revision"],
             "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
             "session_id": "reorganise-session",
             "idempotency_key": "reorganise-once",
         },
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
 
@@ -132,7 +229,7 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
 
 
 def test_reorganise_accepts_litegraph_indexed_geometry(tmp_path) -> None:
-    graph = _ui()
+    graph = _with_revision(_ui(), tmp_path)
     graph["nodes"][0]["size"] = {"0": 315, "1": 122}
     graph["nodes"][1]["pos"] = {"0": 123.5, "1": 456.5}
 
@@ -143,10 +240,12 @@ def test_reorganise_accepts_litegraph_indexed_geometry(tmp_path) -> None:
             "executor_route": "reorganise",
             "graph": graph,
             "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
+            "revision_id": graph["revision_id"],
+            "parent_revision": graph["parent_revision"],
             "session_id": "reorganise-indexed-geometry",
             "idempotency_key": "reorganise-indexed-geometry-once",
         },
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
 
@@ -212,8 +311,8 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "candidate")
-    before = _ui()
-    functional = _ui_with_branch()
+    before = _with_revision(_ui(), tmp_path)
+    functional = _with_revision(_ui_with_branch(), tmp_path)
     functional_hash = payload_hash(functional)
     reorganised = json.loads(json.dumps(functional))
     reorganised["nodes"][0]["pos"] = [320, 120]
@@ -267,18 +366,20 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
         "task": "add a preview branch",
         "graph": before,
         "workflow_id": "6b4611de-b2b2-42f2-b358-5f566d6a8933",
+        "revision_id": before["revision_id"],
+        "parent_revision": before["parent_revision"],
         "session_id": "auto-reorganise-session",
         "idempotency_key": "auto-reorganise-once",
     }
 
     result = handle_agent_edit(
         payload,
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
     replay = handle_agent_edit(
         payload,
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
 
@@ -343,7 +444,7 @@ def test_reorganise_route_bad_plan_fails_closed_without_candidate(tmp_path) -> N
             "session_id": "reorganise-session",
             "layout_plan": {"version": 2, "sections": []},
         },
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
 
@@ -440,7 +541,7 @@ def test_reorganise_route_layout_patch_structural_drift_fails_closed(
             "graph": _ui(),
             "session_id": "reorganise-structural-drift",
         },
-        schema_provider=object(),
+        schema_provider=_reorganise_schema_provider(),
         session_root=tmp_path,
     )
 

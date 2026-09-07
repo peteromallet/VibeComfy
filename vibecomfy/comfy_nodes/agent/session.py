@@ -1880,6 +1880,7 @@ def _capture_candidate_bundle(
     session_dir: Path,
     plan_hash: str,
     schema_witness: Mapping[str, Any],
+    submit_revision: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Path]]:
     from vibecomfy.workflow_bundle import capture_bundle
 
@@ -1889,7 +1890,12 @@ def _capture_candidate_bundle(
     captured["workflow_id"] = workflow_id
     parent_evidence = None
     if parent_revision:
-        if not _journal_has_revision(
+        submit_is_parent = (
+            isinstance(submit_revision, str)
+            and submit_revision
+            and parent_revision == submit_revision
+        )
+        if not submit_is_parent and not _journal_has_revision(
             session_dir,
             workflow_id=workflow_id,
             revision_id=parent_revision,
@@ -4732,18 +4738,28 @@ def record_idempotent_response(
             raise
         pending_bundle = None
         try:
+            layout_only = (
+                authority_receipt.replay.verification_kind == "layout_structural_noop"
+            )
+            capture_parent = requested_revision if layout_only else requested_parent
             bundle_metadata, pending_bundle = _capture_candidate_bundle(
                 graph=candidate_graph,
                 turn_dir=turn_dir,
                 workflow_id=workflow_id,
-                parent_revision=requested_parent,
+                parent_revision=capture_parent,
                 session_dir=session_dir_for(session_root, session_id),
                 plan_hash=candidate_plan_hash,
                 schema_witness=authority_receipt.schema_witness,
+                submit_revision=requested_revision if layout_only else None,
             )
             revision_id = bundle_metadata["revision_id"]
             parent_revision = bundle_metadata["parent_revision"]
-            if requested_revision != revision_id:
+            if layout_only:
+                if parent_revision != requested_revision:
+                    raise ValueError(
+                        "layout candidate parent must be the submitted revision"
+                    )
+            elif requested_revision != revision_id:
                 raise ValueError("captured bundle revision does not match the submitted revision")
             eligibility = stamped_response.get("eligibility")
             if not isinstance(eligibility, Mapping):
