@@ -438,6 +438,7 @@ def verify_apply(
     landed_ops: Sequence[EditOp] = (),
     schema_provider: Any | None = None,
     name_hints: Mapping[str, str] | None = None,
+    value_default_context: Any = None,
 ) -> ApplyGateResult:
     """Replay-verify ``post`` against ``pre`` + Δ and reject corrupt topology.
 
@@ -505,8 +506,21 @@ def verify_apply(
     # literals even though replaying the accepted source is faithful to the
     # post-IR. Typed-tool callers do not supply a source string and continue
     # to replay their canonical ops.
+    #
+    # Value-default binding is the exception: selected literals are sealed
+    # onto the accepted AddNodeOp with an immutable marker. Replay that
+    # retained proof rather than re-resolving from constructor context.
+    from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
+    has_retained_value_defaults = any(
+        isinstance(getattr(operation, "fields", None), Mapping)
+        and VALUE_DEFAULT_FIELDS_MARKER in operation.fields
+        for operation in claimed_ops
+    )
     replay_source: str | Sequence[EditOp] | None = (
-        delta if isinstance(delta, str) else (claimed_ops or delta)
+        claimed_ops
+        if has_retained_value_defaults
+        else (delta if isinstance(delta, str) else (claimed_ops or delta))
     )
     claimed_edit = bool(claimed_ops) or bool(delta)
 
@@ -554,6 +568,7 @@ def verify_apply(
         replay_source,
         schema_provider=schema_provider,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     if reconstruct_diag is not None:
         diagnostics.append(reconstruct_diag)
@@ -614,6 +629,7 @@ def _replay_reconstruct_diagnostic(
     *,
     schema_provider: Any | None,
     name_hints: Mapping[str, str] | None,
+    value_default_context: Any = None,
 ) -> CompactDiagnostic | None:
     from vibecomfy.porting.edit._interpret import interpret
 
@@ -623,6 +639,7 @@ def _replay_reconstruct_diagnostic(
         replay_source,
         schema_provider=schema_provider,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     if not replayed.ok:
         replay_codes = tuple(

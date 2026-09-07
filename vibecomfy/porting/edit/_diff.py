@@ -289,6 +289,18 @@ def _add_node_op_for(uid: str, post: VibeWorkflow, uids: set[str]) -> AddNodeOp:
         fields[str(name)] = value
     for name, value in (dict(getattr(post_node, "widgets", {}) or {})).items():
         fields[str(name)] = value
+    from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
+    metadata = getattr(post_node, "metadata", None) or {}
+    raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+    properties = raw_ui.get("properties") if isinstance(raw_ui, Mapping) else None
+    protected = (
+        properties.get("vibecomfy_value_default_fields")
+        if isinstance(properties, Mapping)
+        else None
+    )
+    if isinstance(protected, (list, tuple)) and protected:
+        fields[VALUE_DEFAULT_FIELDS_MARKER] = tuple(str(item) for item in protected)
     inputs: dict[str, LinkSourceRef] = {}
     for src_uid, port, _dst_uid, input_name in sorted(
         _incoming_connections(post, uid, uids)

@@ -34,26 +34,81 @@ def _cache_root() -> Path:
     return Path(CACHE_DIR)
 
 
+def _trusted_public_wrapper_class_types() -> dict[str, dict[str, str]]:
+    """Read trusted public wrapper maps without importing third-party code."""
+    nodes_root = Path(__file__).resolve().parents[1] / "nodes"
+    package_tree = ast.parse((nodes_root / "__init__.py").read_text(encoding="utf-8"))
+    modules: list[str] = []
+    for statement in package_tree.body:
+        if not isinstance(statement, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "MODULES" for target in statement.targets):
+            continue
+        value = ast.literal_eval(statement.value)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError("vibecomfy.nodes.MODULES must be a literal string list")
+        modules = value
+        break
+    if not modules:
+        raise ValueError("vibecomfy.nodes.MODULES is missing")
+
+    maps: dict[str, dict[str, str]] = {}
+    for module_name in modules:
+        module_path = nodes_root / f"{module_name}.py"
+        tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
+        mapping: dict[str, str] = {}
+        for statement in tree.body:
+            if not isinstance(statement, ast.Assign):
+                continue
+            if not any(
+                isinstance(target, ast.Name) and target.id == "__vibecomfy_class_types__"
+                for target in statement.targets
+            ):
+                continue
+            value = ast.literal_eval(statement.value)
+            if not isinstance(value, dict) or not all(
+                isinstance(key, str) and isinstance(class_type, str)
+                for key, class_type in value.items()
+            ):
+                raise ValueError(f"invalid public class map in {module_path}")
+            mapping.update(value)
+            break
+        maps[module_name] = mapping
+    return maps
+
+
 def _extract_class_types_from_template(template_path: str | Path) -> list[str]:
-    """Parse a narrative template and return every class type used in node calls.
+    """Parse a template for raw calls and trusted public wrapper calls.
 
-    The ``_node`` helper signature is::
-
-        _node(wf, class_type: str, _id: str, ...)
-        _at(wf, _id: str, class_type: str, ...)
-        raw_call(wf, class_type: str, _id: str, ...)
-
-    We extract the second positional argument (a string literal).
+    Template source is never imported or executed.  Public wrapper identity is
+    read from the repository's checked-in ``__vibecomfy_class_types__`` maps.
     """
     source = Path(template_path).read_text(encoding="utf-8")
     tree = ast.parse(source)
     class_types: list[str] = []
+    trusted_maps = _trusted_public_wrapper_class_types()
+    imported_wrappers: dict[str, str] = {}
+
+    for statement in tree.body:
+        if not isinstance(statement, ast.ImportFrom) or not statement.module:
+            continue
+        if statement.module != "vibecomfy.nodes" and not statement.module.startswith("vibecomfy.nodes."):
+            continue
+        module_name = statement.module.removeprefix("vibecomfy.nodes.")
+        public_map = trusted_maps.get(module_name, {})
+        for alias in statement.names:
+            class_type = public_map.get(alias.name)
+            if class_type is not None:
+                imported_wrappers[alias.asname or alias.name] = class_type
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
 
         func = node.func
+        if isinstance(func, ast.Name) and func.id in imported_wrappers:
+            class_types.append(imported_wrappers[func.id])
+            continue
         if isinstance(func, ast.Name) and func.id in {"_node", "node", "raw_call"}:
             class_arg_index = 0 if func.id == "raw_call" and node.args and isinstance(node.args[0], ast.Constant) else 1
         elif isinstance(func, ast.Name) and func.id == "_at":

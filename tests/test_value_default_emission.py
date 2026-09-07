@@ -11,18 +11,32 @@ from vibecomfy.porting.edit.value_defaults import (
     ValueDefaultContext,
     ValueUserOverride,
 )
-from vibecomfy.schema import InputSpec, NodeSchema
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.schema.types import (
+    FrozenSchemaSnapshotProvider, capture_schema_snapshot, schema_payload_from_node_schema,
+)
 
 
-class _Provider:
-    def __init__(self, schema: NodeSchema) -> None:
-        self.schema = schema
+class _Provider(FrozenSchemaSnapshotProvider):
+    def __init__(self, schema: NodeSchema, *, node_classes=None) -> None:
+        payload = schema_payload_from_node_schema(schema.class_type, schema)
+        super().__init__(capture_schema_snapshot(
+            class_types=[schema.class_type],
+            request_snapshot={
+                "contract_version": "schema_snapshot_v1",
+                "schemas": {schema.class_type: payload},
+                "missing_classes": [],
+                "node_classes": dict(node_classes or {}),
+            },
+        ))
 
-    def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.schema if class_type == self.schema.class_type else None
 
-
-def _schema(*, default: int | None = 20, required: bool = True) -> NodeSchema:
+def _schema(
+    *,
+    default: int | None = 20,
+    required: bool = True,
+    with_image_socket: bool = False,
+) -> NodeSchema:
     return NodeSchema(
         class_type="ValueDefaultNode",
         pack=None,
@@ -34,8 +48,17 @@ def _schema(*, default: int | None = 20, required: bool = True) -> NodeSchema:
                 min=1,
                 max=100,
             ),
+            **(
+                {"image": InputSpec("IMAGE", required=False)}
+                if with_image_socket
+                else {}
+            ),
         },
-        outputs=[],
+        outputs=(
+            [OutputSpec("IMAGE", name="IMAGE")]
+            if with_image_socket
+            else []
+        ),
     )
 
 
@@ -101,7 +124,7 @@ def test_value_default_explicit_user_precedence() -> None:
     assert batch.ok is True
     assert _widget_steps(session) == 12
     assert batch.landed_ops[0].fields["steps"] == 12
-    assert batch.landed_ops[0].fields[VALUE_DEFAULT_FIELDS_MARKER] == ["steps"]
+    assert batch.landed_ops[0].fields[VALUE_DEFAULT_FIELDS_MARKER] == ("steps",)
 
 
 def test_value_default_exact_user_request_precedence_but_vague_request_has_no_authority() -> None:
@@ -158,7 +181,7 @@ def test_value_default_session_persists_effective_fields_for_replay() -> None:
 
     assert batch.ok is True
     assert batch.landed_ops[0].fields["steps"] == 37
-    assert batch.landed_ops[0].fields[VALUE_DEFAULT_FIELDS_MARKER] == ["steps"]
+    assert batch.landed_ops[0].fields[VALUE_DEFAULT_FIELDS_MARKER] == ("steps",)
     assert session.working_ui["nodes"][0]["widgets_values"][0] == 37
     assert session.value_default_context is not None
     assert session.value_default_context.protected_nodes[0].uid
@@ -168,9 +191,11 @@ def test_value_default_session_persists_effective_fields_for_replay() -> None:
     assert replay_batch.ok is True
     assert replay.working_ui["nodes"][0]["widgets_values"] == session.working_ui["nodes"][0]["widgets_values"]
 
+    uid = session.value_default_context.protected_nodes[0].uid
+    later_provider = _Provider(_schema(), node_classes={uid: "ValueDefaultNode"})
     later = EditSession(
         session.working_ui,
-        schema_provider=provider,
+        schema_provider=later_provider,
         value_default_context=ValueDefaultContext(
             user_overrides=(
                 ValueUserOverride("ValueDefaultNode", "steps", 12),
@@ -178,7 +203,6 @@ def test_value_default_session_persists_effective_fields_for_replay() -> None:
         ),
     )
     later.render()
-    uid = session.value_default_context.protected_nodes[0].uid
     later_name = later.name_by_uid[uid]
     edit = later.apply_batch(f"{later_name}.steps = 12")
     assert edit.ok is True
@@ -269,9 +293,13 @@ def test_value_default_edit_after_requires_and_accepts_user_receipt() -> None:
         ),
     )
 
+    replay_provider = _Provider(
+        _schema(default=20),
+        node_classes={uid: "ValueDefaultNode"},
+    )
     refused = EditSession(
         added.working_ui,
-        schema_provider=provider,
+        schema_provider=replay_provider,
         value_default_context=protected,
     )
     refused.render()
@@ -285,7 +313,7 @@ def test_value_default_edit_after_requires_and_accepts_user_receipt() -> None:
 
     accepted = EditSession(
         added.working_ui,
-        schema_provider=provider,
+        schema_provider=replay_provider,
         value_default_context=authorized,
     )
     accepted.render()
@@ -314,9 +342,12 @@ def test_value_default_direct_multi_op_apply_gates_edit_after_add() -> None:
 def test_value_default_selected_source_instance_is_consumed_once() -> None:
     session = _session(
         ValueDefaultContext(bindings=(_binding(37),)),
-        schema=_schema(default=20),
+        schema=_schema(default=20, with_image_socket=True),
     )
-    batch = session.apply_batch("a = ValueDefaultNode()\nb = ValueDefaultNode()\n")
+    batch = session.apply_batch(
+        "a = ValueDefaultNode()\n"
+        "b = ValueDefaultNode(image=a.IMAGE_0)\n"
+    )
 
     assert batch.ok is True
     assert [
@@ -456,7 +487,7 @@ def test_value_default_alias_unmatched_prior_does_not_block_case01_literal() -> 
         schema_provider=_Provider(schema),
         value_default_context=context,
     )
-    batch = session.apply_batch(f"n = ManualSigmas(sigmas={sigma_string!r})")
+    batch = session.apply_batch(f"n = ManualSigmas(widget_0={sigma_string!r})")
 
     assert batch.ok is True
     assert session.working_ui["nodes"][0]["widgets_values"] == [sigma_string]

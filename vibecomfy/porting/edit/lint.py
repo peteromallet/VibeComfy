@@ -74,7 +74,10 @@ from vibecomfy.porting.resolution import (
     ResolutionIssue,
     build_lg_id_maps,
 )
-from vibecomfy.porting.edit._ir_utils import _canonical_input_name_for_class
+from vibecomfy.porting.edit._ir_utils import (
+    _canonical_input_name_for_class,
+    _input_spec_for_field,
+)
 from vibecomfy.porting.endpoint_invariant import dynamic_port_authorized
 from vibecomfy.porting.edit.admit import AdmissionSnapshot
 
@@ -882,6 +885,22 @@ def _lint_set_node_field(
         # final decision.  Nodes with no widget surface at all still
         # hard-reject genuinely unknown fields.
         node = index.node_by_uid(target.scope_path, target.uid)
+        class_type = ""
+        if isinstance(node, dict):
+            class_type = str(node.get("type") or node.get("class_type") or "")
+        if schema_provider is not None and class_type and target.field_path:
+            from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+            from vibecomfy.schema.provider import schema_for
+
+            schema = schema_for(schema_provider, class_type)
+            spec = _input_spec_for_field(
+                getattr(schema, "inputs", {}) or {},
+                target.field_path,
+            ) if schema is not None else None
+            if spec is not None and input_spec_is_literal_widget(spec):
+                # Schema-known literal widgets remain editable even when the
+                # current compact vector is empty because the field is linked.
+                return op, None, "passed"
         widgets_values = door_get_widgets_values(node) if isinstance(node, dict) else None
         has_widget_surface = (
             isinstance(widgets_values, (list, dict))

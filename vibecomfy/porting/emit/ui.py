@@ -4008,6 +4008,15 @@ def emit_ui_json(
             incoming_by_name = {edge.to_input: edge for edge in incoming_sorted}
             for slot_idx, name in enumerate(node.native_input_names):
                 edge = incoming_by_name.get(name) if isinstance(name, str) else None
+                if (
+                    edge is None
+                    and isinstance(name, str)
+                    and name in widget_name_set
+                ):
+                    # Unlinked widgets live in widgets_values, not the physical
+                    # input array.  A prior widget→link conversion that was
+                    # auto-unlinked by SetNodeField must not keep a dead slot.
+                    continue
                 socket_type = (
                     node.native_input_types[slot_idx]
                     if isinstance(node.native_input_types, list)
@@ -4033,6 +4042,8 @@ def emit_ui_json(
                     and node.native_input_optional[slot_idx]
                 ):
                     slot["shape"] = 7
+                if isinstance(name, str) and name in widget_name_set:
+                    slot["widget"] = {"name": name}
                 inputs.append(slot)
         else:
             for edge in incoming_sorted:
@@ -5214,6 +5225,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
+    LinkTargetRef,
     RemoveLinkOp,
     RemoveNodeOp,
     SetModeOp,
@@ -5976,6 +5988,11 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
             set_node_fields.setdefault(
                 (op.target.scope_path, op.target.uid), set()
             ).add(op.target.field_path)
+            # A literal assignment on a previously linked widget auto-unlinks
+            # that input. Record the op so later folding can attribute the
+            # target socket and the inferred source output; unlinked fields
+            # remain a topology no-op.
+            record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")
@@ -6222,6 +6239,20 @@ def _expected_ui_links(
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
                 records = [record for record in records if not endpoint_match(record, op)]
+            continue
+        if isinstance(op, SetNodeFieldOp):
+            unlink_target = LinkTargetRef(
+                op.target.scope_path,
+                op.target.uid,
+                op.target.field_path,
+            )
+            records = [
+                record
+                for record in records
+                if not _link_matches_remove_target(
+                    record["parts"], unlink_target, original_scope
+                )
+            ]
             continue
         if isinstance(op, UpsertLinkOp):
             source = _scope_node_for_uid(original_scope, op.source.uid)
@@ -6633,6 +6664,18 @@ def _topology_owned_refs(
             if op.target.scope_path == scope_path and op.target.uid == uid:
                 inputs.add(str(op.target.input_field))
             continue
+        if isinstance(op, SetNodeFieldOp):
+            target_key = (op.target.uid, str(op.target.field_path))
+            source = endpoint_sources.get(target_key)
+            if source is None:
+                continue
+            endpoint_sources.pop(target_key, None)
+            if op.target.scope_path == scope_path and op.target.uid == uid:
+                inputs.add(str(op.target.field_path))
+            source_uid, source_scope, source_slot = source
+            if source_scope == scope_path and source_uid == uid:
+                outputs.add(source_slot)
+            continue
         if not isinstance(op, RemoveLinkOp) or op.target is None:
             continue
         target_key = (op.target.uid, str(op.target.input_field))
@@ -6657,6 +6700,8 @@ def _topology_removed_inputs(
             state[(op.target.uid, str(op.target.input_field))] = True
         elif isinstance(op, RemoveLinkOp) and op.target is not None and op.target.scope_path == scope_path:
             state[(op.target.uid, str(op.target.input_field))] = False
+        elif isinstance(op, SetNodeFieldOp) and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.field_path))] = False
     return {
         input_name
         for (target_uid, input_name), present in state.items()
@@ -7183,6 +7228,8 @@ def pin_untouched_ui(
                         # candidate's current link value through that merge.
                         if field == "inputs" and set_fields:
                             continue
+                        if field == "widgets_values" and set_fields:
+                            continue
                         if field in node:
                             merged[field] = deepcopy(node[field])
                     if (
@@ -7198,7 +7245,7 @@ def pin_untouched_ui(
                         )
                     if resolved_inputs or resolved_outputs:
                         topology_merged = _merge_topology_sockets(
-                            merged,
+                            original_node,
                             node,
                             resolved_inputs,
                             resolved_outputs,
@@ -7209,6 +7256,43 @@ def pin_untouched_ui(
                             merged["inputs"] = topology_merged.get("inputs", merged.get("inputs"))
                         if resolved_outputs:
                             merged["outputs"] = topology_merged.get("outputs", merged.get("outputs"))
+                    if set_fields and isinstance(node.get("widgets_values"), list):
+                        original_widgets = original_node.get("widgets_values")
+                        merged_widgets = (
+                            list(original_widgets)
+                            if isinstance(original_widgets, list)
+                            else []
+                        )
+                        candidate_widgets = node["widgets_values"]
+                        allowed_widget_paths = _set_node_field_allowed_ui_paths(
+                            original_node,
+                            node,
+                            set_fields,
+                            topology_input_fields=resolved_inputs,
+                        )
+                        precise_widget_indices: list[int] = []
+                        for path in allowed_widget_paths:
+                            if not (
+                                path.startswith("widgets_values[") and path.endswith("]")
+                            ):
+                                continue
+                            raw_index = path[len("widgets_values["):-1]
+                            if not raw_index.isdigit():
+                                continue
+                            widget_index = int(raw_index)
+                            if widget_index >= len(candidate_widgets):
+                                continue
+                            precise_widget_indices.append(widget_index)
+                        if precise_widget_indices:
+                            for widget_index in precise_widget_indices:
+                                while len(merged_widgets) <= widget_index:
+                                    merged_widgets.append(None)
+                                merged_widgets[widget_index] = deepcopy(
+                                    candidate_widgets[widget_index]
+                                )
+                            merged["widgets_values"] = merged_widgets
+                        else:
+                            merged["widgets_values"] = deepcopy(candidate_widgets)
                     # A concrete schema witness is emit furniture rather
                     # than an authored property, but a registry-hydrated
                     # candidate must retain it for the authority receipt. Do

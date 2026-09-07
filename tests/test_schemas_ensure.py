@@ -77,8 +77,11 @@ def test_schema_freshness_workflow_is_manual_and_artifact_based() -> None:
     job = payload["jobs"]["schema-freshness"]
     commands = "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
     uses = [step.get("uses", "") for step in job["steps"] if isinstance(step, dict)]
-    assert "schemas refresh --source" in commands
-    assert "git diff -- vibecomfy/porting/cache/object_info" in commands
+    # The workflow is an explicitly dispatched, artifact-producing freshness
+    # check; it no longer invokes the mutating schemas-refresh command.
+    assert "ensure_nodes" in commands
+    assert "object_info_source" in commands
+    assert "freshness_report.json" in commands
     assert "actions/upload-artifact@v4" in uses
     assert "contents" in payload["permissions"]
     assert "push" not in payload
@@ -747,12 +750,37 @@ class TestSchemasEnsureWorkflow:
         class_types = _extract_class_types_from_template(template_path)
         assert len(class_types) > 0, "Should find at least one class type"
         # LTX template should have UNETLoader or similar core types
-        known_types = {"UNETLoader", "CLIPTextEncode", "VAEDecode", "KSamplerSelect",
-                       "CFGGuider", "PrimitiveFloat", "INTConstant"}
-        found_known = set(class_types) & known_types
-        assert len(found_known) > 0, (
-            f"Expected at least one known class type in LTX, got {set(class_types)}"
+        # The extractor must retain the original typed-wrapper positive as
+        # well as raw-call custom nodes: core wrappers are constructor calls,
+        # while the preprocessing classes are string-keyed raw calls.
+        core_types = {"UNETLoader", "CLIPTextEncode", "VAEDecode", "KSamplerSelect",
+                      "CFGGuider", "PrimitiveFloat", "INTConstant"}
+        raw_custom_types = {"DWPreprocessor", "CannyEdgePreprocessor"}
+        found_core = set(class_types) & core_types
+        assert found_core, f"Expected typed core wrapper classes in LTX, got {set(class_types)}"
+        assert raw_custom_types <= set(class_types), (
+            f"Expected both raw custom classes in LTX, got {set(class_types)}"
         )
+
+    def test_extract_typed_wrapper_alias_rejects_lookalike_module(self, tmp_path: Path) -> None:
+        """Typed aliases are discovered only from the canonical node namespace."""
+        source = textwrap.dedent("""
+        from vibecomfy.nodes.core import UNETLoader as Loader
+        from vibecomfy.nodes.rgthree import Seed_rgthree as SeedWrapper
+        from vibecomfy.nodes_fake import UNETLoader as FakeLoader
+        def build():
+            a = Loader(unet_name='model.safetensors')
+            b = SeedWrapper(seed=1)
+            c = FakeLoader(unet_name='not-a-schema-node')
+            return a, b, c
+        """)
+        path = tmp_path / "typed_aliases.py"
+        path.write_text(source)
+        from vibecomfy.commands.schemas import _extract_class_types_from_template
+        classes = _extract_class_types_from_template(path)
+        assert classes.count("UNETLoader") == 1
+        assert classes.count("Seed (rgthree)") == 1
+        assert "not-a-schema-node" not in classes
 
     @mock.patch("vibecomfy.porting.object_info.consume.list_classes")
     @mock.patch("vibecomfy.porting.object_info.consume.get_class")
@@ -1027,7 +1055,12 @@ def _patch_registry(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> N
 def _sandbox_provider(sandbox_root: Path):
     from vibecomfy.schema.on_demand import OnDemandInstallSchemaProvider
 
-    return OnDemandInstallSchemaProvider(sandbox_root=sandbox_root)
+    provider = OnDemandInstallSchemaProvider(sandbox_root=sandbox_root)
+    # The fixture clone is already a complete local git repository.  Bind the
+    # provider's normal clone seam to that retained local pack so these tests
+    # exercise real extraction without contacting the placeholder URL.
+    provider._ensure_clone = lambda ref: sandbox_root / str(getattr(ref, "slug", _FIXTURE_SLUG))
+    return provider
 
 
 class TestSchemasEnsureCommand:

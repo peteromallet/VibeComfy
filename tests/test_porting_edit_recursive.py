@@ -84,11 +84,18 @@ def _frozen_schema_provider(workflow: VibeWorkflow):
         "Get": NodeSchema("Get", "test", {"widget_0": InputSpec("INT")}, [OutputSpec("VALUE", "VALUE")]),
         "Set": NodeSchema("Set", "test", {"value": InputSpec("INT")}, []),
         "Reroute": NodeSchema("Reroute", "test", {}, [OutputSpec("*", "")]),
+        "EchoImage": NodeSchema("EchoImage", "test", {"in": InputSpec("IMAGE")}, [OutputSpec("IMAGE", "out")]),
+        "Source": NodeSchema("Source", "test", {}, [OutputSpec("IMAGE", "out")]),
+        "Sink": NodeSchema("Sink", "test", {"image": InputSpec("IMAGE")}, []),
         "Foo": NodeSchema("Foo", "test", {}, []),
         "New": NodeSchema("New", "test", {}, []),
         "Inner": NodeSchema("Inner", "test", {}, []),
     }
     node_classes: dict[str, str] = {}
+    for node in workflow.nodes.values():
+        class_type = str(node.class_type)
+        if class_type in schemas:
+            node_classes[str(node.uid)] = class_type
     for definition in workflow.definitions.get("subgraphs", []):
         for node in definition.get("nodes", []):
             class_type = str(node.get("type", node.get("class_type", "")))

@@ -1487,7 +1487,11 @@ def _split_add_fields(
     # positional UI widget and would make emit→interpret non-isomorphic.
     widgets: dict[str, Any] = {}
     inputs: dict[str, Any] = {}
+    from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
     for name, value in fields.items():
+        if name == VALUE_DEFAULT_FIELDS_MARKER:
+            continue
         if name in widget_names or str(name).startswith("widget_"):
             widgets[name] = value
         else:
@@ -1927,6 +1931,15 @@ def apply_edit_cow(
             widgets=widgets,
             uid=uid,
         )
+        from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
+        protected_fields = op.fields.get(VALUE_DEFAULT_FIELDS_MARKER)
+        if isinstance(protected_fields, (list, tuple)) and protected_fields:
+            node.metadata["_ui"] = {
+                "properties": {
+                    "vibecomfy_value_default_fields": list(protected_fields),
+                },
+            }
         # Explicit transaction-local identity for ordered presentation lint.
         # This marker is stronger than absence of a captured UI id: a
         # programmatic pre-existing node may also have no UI furniture.

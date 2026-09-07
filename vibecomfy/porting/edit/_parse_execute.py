@@ -112,6 +112,7 @@ class _ParseExecuteMixin:
                 max_for_iterations=self.max_for_iterations,
                 cas_old=cas_old,
                 name_hints=self._transient_name_index,
+                value_default_context=self.value_default_context,
             )
             landed_ops = tuple(interpreted.landed_ops)
             frozen_landed_ops = _freeze_operation_tuple(landed_ops)
@@ -213,6 +214,7 @@ class _ParseExecuteMixin:
                     landed_ops=landed_ops,
                     schema_provider=self.schema_provider,
                     name_hints=self._transient_name_index,
+                    value_default_context=self.value_default_context,
                 )
                 apply_gate_eligible = gate.apply_eligible
                 if (
@@ -343,6 +345,7 @@ class _ParseExecuteMixin:
                 )
             if landed_ops:
                 self.workflow = interpreted.workflow
+                self.value_default_context = interpreted.value_default_context
                 # The accepted batch IS the Δ.  Each history entry records
                 # (wf_i, source, landed_ops) — the Python-surface source AND
                 # the typed ops the grammar yields are the same batch value.

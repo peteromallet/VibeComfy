@@ -245,6 +245,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             if value_default_context is not None
             else None
         )
+        self._value_default_context0 = self.value_default_context
         self.unbound_names: set[str] = set()
         # Batch 4 (Law 5): TRANSIENT within-batch name index.  When an
         # add-node statement lands, its target_name is registered here so
@@ -376,6 +377,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         if workflow is None:
             raise RuntimeError("EditSession.rollback requires retained ingest IR")
         workflow = _cow_workflow_copy(workflow)
+        context_cursor = self._value_default_context0
         remaining_ops: list[Any] = []
         remaining_resolved: list[Any] = []
         name_hints: dict[str, str] = {}
@@ -390,8 +392,10 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
                 name_hints=name_hints,
+                value_default_context=context_cursor,
             )
             workflow = result.workflow
+            context_cursor = result.value_default_context
             remaining_ops.extend(result.landed_ops)
             for outcome in result.statements:
                 if outcome.status == "applied" and outcome.op_kind == "node_call":
@@ -400,6 +404,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                     if isinstance(name, str) and isinstance(uid, str):
                         name_hints[name] = uid
         self.workflow = workflow
+        self.value_default_context = context_cursor
         self.landed_ops = remaining_ops
         self.resolved_ops = remaining_resolved
         self.touched_uids = set()
@@ -437,6 +442,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         if workflow is None:
             raise RuntimeError("EditSession.verify_delta_history requires retained ingest IR")
         workflow = _cow_workflow_copy(workflow)
+        context_cursor = self._value_default_context0
         name_hints: dict[str, str] = {}
         for index, (_pre, source, recorded_ops) in enumerate(self._history):
             result = interpret(
@@ -448,6 +454,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 max_expanded_statements=self.max_expanded_statements,
                 max_for_iterations=self.max_for_iterations,
                 name_hints=name_hints,
+                value_default_context=context_cursor,
             )
             if not result.ok:
                 raise ValueError(
@@ -455,6 +462,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                     f"replay (ok=False): {source!r}"
                 )
             generalized = diff(workflow, result.workflow)
+            context_cursor = result.value_default_context
             if equality is not None:
                 reconstructed = interpret(
                     workflow,
@@ -764,6 +772,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 pre,
                 batch,
                 schema_provider=self.schema_provider,
+                value_default_context=self.value_default_context,
             )
             if not typed_report.ok:
                 reason = (
@@ -817,6 +826,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 post,
                 landed_ops=canonical_ops,
                 schema_provider=self.schema_provider,
+                value_default_context=self.value_default_context,
             )
             if not gate.ok or not gate.apply_eligible:
                 specific = gate.reason or "verification_failed"
@@ -871,6 +881,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 )
 
             self.workflow = post
+            self.value_default_context = typed_report.value_default_context
             self._history.append((pre, frozen_canonical_ops, frozen_canonical_ops))
             self.landed_ops.extend(frozen_canonical_ops)
             self.resolved_ops = []

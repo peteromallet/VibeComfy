@@ -97,6 +97,26 @@ _SLOT_COMMENT = re.compile(
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 _PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
 _RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
+_VALUE_DEFAULT_RECEIPT_CODES = frozenset({
+    "value_default_binding_receipt",
+    "value_default_edit_receipt",
+})
+
+
+def _published_diagnostics(
+    diagnostics: Sequence[CompactDiagnostic],
+) -> tuple[CompactDiagnostic, ...]:
+    """Publish errors/warnings plus retained value-default receipts.
+
+    Ordinary info chatter stays session-local. Binding and edit receipts are
+    accepted-batch proof, so they survive the published diagnostic filter.
+    """
+    return tuple(
+        diagnostic
+        for diagnostic in diagnostics
+        if getattr(diagnostic, "severity", "error") in {"error", "warning"}
+        or getattr(diagnostic, "code", "") in _VALUE_DEFAULT_RECEIPT_CODES
+    )
 
 
 def _has_frozen_schema_authority(provider: Any) -> bool:
@@ -146,6 +166,7 @@ class InterpretationResult:
     transitions: tuple[OperationTransition, ...] = ()
     lint_result: Any = None
     occurrence_to_statement_index: Mapping[int, int] = field(default_factory=dict)
+    value_default_context: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +182,7 @@ class OperationEvaluation:
     lint_disposition: str = "passed"
     presentation_ui: Any = None
     presentation_index: Any = None
+    value_default_context: Any = None
 
 
 def _capture_presentation(
@@ -1110,6 +1132,7 @@ def interpret(
     max_for_iterations: int = 100,
     cas_old: Mapping[tuple[str, str], Any] | None = None,
     name_hints: Mapping[str, str] | None = None,
+    value_default_context: Any = None,
 ) -> InterpretationResult:
     """Interpret ``batch_source`` against ``pre_workflow``, returning a NEW IR.
 
@@ -1124,7 +1147,12 @@ def interpret(
     if provider is None:
         return _missing_schema_interpretation(pre_workflow, batch_source)
     if not isinstance(batch_source, str):
-        return _interpret_ops(pre_workflow, tuple(batch_source), schema_provider=provider)
+        return _interpret_ops(
+            pre_workflow,
+            tuple(batch_source),
+            schema_provider=provider,
+            value_default_context=value_default_context,
+        )
     return _interpret_source(
         pre_workflow,
         batch_source,
@@ -1135,6 +1163,7 @@ def interpret(
         max_for_iterations=max_for_iterations,
         cas_old=cas_old,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
 
 
@@ -1149,6 +1178,7 @@ def _interpret_source(
     max_for_iterations: int,
     cas_old: Mapping[tuple[str, str], Any] | None,
     name_hints: Mapping[str, str] | None,
+    value_default_context: Any,
 ) -> InterpretationResult:
     parsed = _parse_and_validate_batch(
         source,
@@ -1172,6 +1202,7 @@ def _interpret_source(
         cas_old=cas_old,
         source=source,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     return runner.run(parsed.expanded)
 
@@ -1181,6 +1212,7 @@ def _interpret_ops(
     ops: tuple[EditOp, ...],
     *,
     schema_provider: Any,
+    value_default_context: Any = None,
 ) -> InterpretationResult:
     """Interpret already-typed operations through the shared boundary."""
     from vibecomfy.porting.edit._ir_utils import _RECURSIVE_GUIDANCE, _has_mixed_recursive_scope
@@ -1199,6 +1231,7 @@ def _interpret_ops(
             landed_ops=(),
         )
     cursor = _cow_workflow_copy(pre_workflow)
+    context_cursor = value_default_context
     presentation_ui, presentation_index, presentation_error = _capture_presentation(
         cursor, schema_provider
     )
@@ -1228,16 +1261,47 @@ def _interpret_ops(
     transitions: list[OperationTransition] = []
     failed = False
     for index, operation in enumerate(ops):
-        evaluation = _evaluate_operation(
-            cursor,
-            operation,
-            schema_provider=schema_provider,
-            batch_operations=ops,
-            occurrence=index,
-            presentation_ui=presentation_ui,
-            presentation_index=presentation_index,
-            baseline_presentation_index=baseline_presentation_index,
+        effective_operation, next_context, value_diagnostics, value_error = (
+            _prepare_value_default_operation(
+                cursor,
+                operation,
+                schema_provider=schema_provider,
+                context=context_cursor,
+            )
         )
+        if value_error is not None:
+            evaluation = OperationEvaluation(
+                workflow=cursor,
+                normalized=operation,
+                outcome="rejected",
+                diagnostics=(value_error,),
+                lint_disposition="rejected",
+                presentation_ui=presentation_ui,
+                presentation_index=presentation_index,
+            )
+        else:
+            evaluation = _evaluate_operation(
+                cursor,
+                effective_operation,
+                schema_provider=schema_provider,
+                batch_operations=ops,
+                occurrence=index,
+                presentation_ui=presentation_ui,
+                presentation_index=presentation_index,
+                baseline_presentation_index=baseline_presentation_index,
+            )
+            if value_diagnostics:
+                evaluation = OperationEvaluation(
+                    workflow=evaluation.workflow,
+                    normalized=evaluation.normalized,
+                    lowered=evaluation.lowered,
+                    outcome=evaluation.outcome,
+                    diagnostics=tuple(value_diagnostics) + tuple(evaluation.diagnostics),
+                    lint_issue=evaluation.lint_issue,
+                    lint_disposition=evaluation.lint_disposition,
+                    presentation_ui=evaluation.presentation_ui,
+                    presentation_index=evaluation.presentation_index,
+                )
         diagnostics.extend(evaluation.diagnostics)
         transitions.append(OperationTransition(
             occurrence=index,
@@ -1249,14 +1313,17 @@ def _interpret_ops(
             lint_disposition=evaluation.lint_disposition,
         ))
         if evaluation.outcome == "staged":
-            cursor = evaluation.workflow
-            presentation_ui = evaluation.presentation_ui
-            presentation_index = evaluation.presentation_index
             effective_operation = (
                 evaluation.lowered[0]
                 if len(evaluation.lowered) == 1
                 else evaluation.normalized
             )
+            apply_diags = _apply_diagnostics(cursor, evaluation.workflow, effective_operation)
+            diagnostics.extend(apply_diags)
+            cursor = evaluation.workflow
+            context_cursor = next_context
+            presentation_ui = evaluation.presentation_ui
+            presentation_index = evaluation.presentation_index
             landed.append(effective_operation)
             outcomes.append(StatementOutcome(
                 statement_index=index,
@@ -1264,6 +1331,7 @@ def _interpret_ops(
                 status="applied",
                 op_kind=getattr(operation, "op", type(operation).__name__),
                 op=effective_operation,
+                diagnostics=apply_diags,
             ))
         elif evaluation.outcome == "noop":
             outcomes.append(StatementOutcome(
@@ -1330,6 +1398,7 @@ def _interpret_ops(
             transition.occurrence: transition.statement_index
             for transition in transitions
         },
+        value_default_context=context_cursor,
     )
 
 
@@ -1398,6 +1467,152 @@ def _apply_diagnostics(
     return ()
 
 
+def _prepare_value_default_operation(
+    workflow: VibeWorkflow,
+    operation: EditOp,
+    *,
+    schema_provider: Any,
+    context: Any,
+) -> tuple[EditOp, Any, tuple[CompactDiagnostic, ...], CompactDiagnostic | None]:
+    """Resolve the explicit default context into one canonical typed op.
+
+    This runs inside ``interpret`` before the shared operation evaluator.  Its
+    result is therefore the operation admitted, validated, replayed, and
+    published; the session never rewrites a post-state or UI representation.
+    """
+    from dataclasses import replace
+
+    from vibecomfy.porting.edit.value_defaults import (
+        VALUE_DEFAULT_FIELDS_MARKER,
+        authorize_protected_value_change,
+        bind_add_node_value_defaults,
+    )
+
+    if context is None or not getattr(context, "active", False):
+        return operation, context, (), None
+    if isinstance(operation, AddNodeOp):
+        schema = schema_for(schema_provider, operation.class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
+        existing_marker = operation.fields.get(VALUE_DEFAULT_FIELDS_MARKER)
+        if existing_marker is not None:
+            if (
+                operation.uid is None
+                or operation.node_id is None
+                or not isinstance(existing_marker, (list, tuple))
+                or not all(isinstance(field, str) and field for field in existing_marker)
+                or any(field not in schema_inputs for field in existing_marker)
+            ):
+                return operation, context, (), _diag(
+                    "invalid_value_default_replay_marker",
+                    "value-default protection is valid only on a canonical landed add-node operation",
+                    severity="error",
+                )
+            return (
+                operation,
+                context.protect_node(
+                    scope_path=operation.scope_path,
+                    uid=str(operation.uid),
+                    class_type=operation.class_type,
+                    fields=tuple(existing_marker),
+                ),
+                (),
+                None,
+            )
+        if schema is None:
+            return operation, context, (), None
+        uid = str(operation.uid or "")
+        fields, receipts, next_context, warning_records = bind_add_node_value_defaults(
+            class_type=operation.class_type,
+            scope_path=operation.scope_path,
+            uid=uid,
+            proposed_fields=operation.fields,
+            schema_inputs=schema_inputs,
+            context=context,
+        )
+        diagnostics = [
+            _diag(
+                str(record["code"]),
+                str(record["message"]),
+                severity="warning",
+                detail=record.get("detail", {}),
+            )
+            for record in warning_records
+        ]
+        diagnostics.extend(
+            _diag(
+                "value_default_binding_receipt",
+                f"Bound {receipt.class_type}.{receipt.canonical_field} from {receipt.provenance} authority.",
+                severity="info",
+                detail=receipt.to_dict(),
+            )
+            for receipt in receipts
+        )
+        if receipts:
+            fields[VALUE_DEFAULT_FIELDS_MARKER] = tuple(
+                receipt.canonical_field for receipt in receipts
+            )
+        return replace(operation, fields=fields), next_context, tuple(diagnostics), None
+    if not isinstance(operation, SetNodeFieldOp):
+        return operation, context, (), None
+    node = next(
+        (
+            candidate
+            for candidate in workflow.nodes.values()
+            if str(getattr(candidate, "uid", "") or "") == str(operation.target.uid)
+        ),
+        None,
+    )
+    if node is None:
+        return operation, context, (), None
+    class_type = str(getattr(node, "class_type", "") or "")
+    field_name = str(operation.target.field_path)
+    if not context.protects(
+        operation.target.scope_path,
+        str(operation.target.uid),
+        class_type,
+        field_name,
+    ):
+        return operation, context, (), None
+    schema = schema_for(schema_provider, class_type)
+    spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
+    old_value = _current_field_value(node, field_name)
+    receipt = authorize_protected_value_change(
+        context=context,
+        scope_path=operation.target.scope_path,
+        uid=str(operation.target.uid),
+        class_type=class_type,
+        field_name=field_name,
+        old_value=old_value,
+        new_value=operation.value,
+        spec=spec,
+    )
+    if receipt is None:
+        return operation, context, (), _diag(
+            "unauthorized_set_node_field_override",
+            (
+                f"{class_type}.{field_name} is protected by value-default binding; "
+                "a different value requires an exact user or schema-correction receipt."
+            ),
+            severity="error",
+            detail={
+                "scope_path": operation.target.scope_path,
+                "uid": str(operation.target.uid),
+                "class_type": class_type,
+                "field": field_name,
+                "old_value": old_value,
+                "proposed_value": operation.value,
+            },
+        )
+    return operation, context, (
+        _diag(
+            "value_default_edit_receipt",
+            "Protected widget edit applied with an authority receipt.",
+            severity="info",
+            detail=receipt.to_dict(),
+        ),
+    ), None
+
+
 def _op_has_scoped_target(op: EditOp) -> bool:
     """Whether an op addresses retained subgraph data rather than root IR."""
     scope_path = getattr(op, "scope_path", "")
@@ -1449,6 +1664,7 @@ class _InterpretRunner:
         cas_old: Mapping[tuple[str, str], Any] | None,
         source: str = "",
         name_hints: Mapping[str, str] | None = None,
+        value_default_context: Any = None,
     ) -> None:
         self._pre = pre_workflow
         self.workflow = _cow_workflow_copy(pre_workflow)
@@ -1456,6 +1672,8 @@ class _InterpretRunner:
         self.cas_old = dict(cas_old or {})
         self._source = source
         self._source_lines = source.splitlines()
+        self._initial_value_default_context = value_default_context
+        self.value_default_context = value_default_context
         self.unbound: set[str] = set()
         self.transient: dict[str, str] = dict(name_hints or {})
         # Names are uid-anchored for this interpreter/batch.  Once a live
@@ -1466,6 +1684,7 @@ class _InterpretRunner:
         self._transitions: list[OperationTransition] = []
         self._occurrence_to_statement_index: dict[int, int] = {}
         self._last_transition: OperationTransition | None = None
+        self._last_effective_op: EditOp | None = None
         self._future_wired_uids: frozenset[str] = frozenset()
         self._planned_add_uids: dict[int, str] = {}
         self._pre_helper_uids = {
@@ -1509,6 +1728,7 @@ class _InterpretRunner:
                 ok=False,
                 diagnostics=(diagnostic,),
                 landed_ops=(),
+                value_default_context=self._initial_value_default_context,
             )
 
         # Parse-only evidence for the orphan-add classifier. Plan the same
@@ -1636,6 +1856,7 @@ class _InterpretRunner:
                 transitions=tuple(self._transitions),
                 lint_result=_lint_result_from_transitions(tuple(self._transitions)),
                 occurrence_to_statement_index=dict(self._occurrence_to_statement_index),
+                value_default_context=self._initial_value_default_context,
             )
         ok = not any(
             outcome.status == "rejected"
@@ -1647,13 +1868,12 @@ class _InterpretRunner:
             workflow=self.workflow,
             statements=tuple(outcomes),
             ok=ok,
-            diagnostics=tuple(
-                diag for diag in diagnostics if diag.severity in {"error", "warning"}
-            ),
+            diagnostics=_published_diagnostics(diagnostics),
             landed_ops=tuple(landed),
             transitions=tuple(self._transitions),
             lint_result=lint_result,
             occurrence_to_statement_index=dict(self._occurrence_to_statement_index),
+            value_default_context=self.value_default_context,
         )
 
     def _run_one(self, item: _ExpandedStatement) -> StatementOutcome:
@@ -2054,7 +2274,7 @@ class _InterpretRunner:
             source=item.source,
             status="applied",
             op_kind="node_call",
-            op=op,
+            op=self._last_effective_op or op,
             diagnostics=() if inferred_anchor_diag is None else (inferred_anchor_diag,),
             detail={"target_name": target_name, "minted_uid": minted, "class_type": class_type},
         )
@@ -2298,7 +2518,7 @@ class _InterpretRunner:
             source=item.source,
             status="applied",
             op_kind="set_node_field",
-            op=op,
+            op=self._last_effective_op or op,
         )
 
     def _upsert_link(
@@ -2741,9 +2961,35 @@ class _InterpretRunner:
         self.name_to_uid = bindings
 
     def _apply(self, item: _ExpandedStatement, op: EditOp) -> StatementOutcome | None:
+        effective_op, next_context, value_diagnostics, value_error = (
+            _prepare_value_default_operation(
+                self.workflow,
+                op,
+                schema_provider=self.schema_provider,
+                context=self.value_default_context,
+            )
+        )
+        if value_error is not None:
+            self._last_transition = OperationTransition(
+                occurrence=len(self._transitions),
+                submitted=op,
+                normalized=op,
+                outcome="rejected",
+                diagnostics=(value_error,),
+                lint_disposition="rejected",
+            )
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="rejected",
+                reason=value_error.code,
+                op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
+                diagnostics=(value_error,),
+                op=op,
+            )
         evaluation = _evaluate_operation(
             self.workflow,
-            op,
+            effective_op,
             schema_provider=self.schema_provider,
             source=self._source_block(item) or item.source,
             presentation_ui=self._presentation_ui,
@@ -2752,10 +2998,11 @@ class _InterpretRunner:
             future_wired_uids=self._future_wired_uids,
         )
         if evaluation.outcome == "noop":
+            combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
             self._last_transition = OperationTransition(
                 occurrence=len(self._transitions), submitted=op,
                 normalized=evaluation.normalized,
-                outcome="noop", diagnostics=evaluation.diagnostics,
+                outcome="noop", diagnostics=combined,
                 lint_disposition=evaluation.lint_disposition,
             )
             return StatementOutcome(
@@ -2764,36 +3011,43 @@ class _InterpretRunner:
                 status="skipped",
                 reason="no_op",
                 op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
-                diagnostics=evaluation.diagnostics,
-                op=op,
+                diagnostics=combined,
+                op=effective_op,
             )
         if evaluation.outcome != "staged":
+            combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
             self._last_transition = OperationTransition(
                 occurrence=len(self._transitions), submitted=op,
                 normalized=evaluation.normalized,
                 lowered=evaluation.lowered,
-                outcome="rejected", diagnostics=evaluation.diagnostics,
+                outcome="rejected", diagnostics=combined,
                 lint_disposition=evaluation.lint_disposition,
             )
             return StatementOutcome(
                 statement_index=item.statement_index,
                 source=item.source,
                 status="rejected",
-                reason=(evaluation.diagnostics[0].code if evaluation.diagnostics else "apply_rejected"),
+                reason=(combined[0].code if combined else "apply_rejected"),
                 op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
-                diagnostics=evaluation.diagnostics,
-                op=op,
+                diagnostics=combined,
+                op=effective_op,
             )
         before = self.workflow
         self.workflow = evaluation.workflow
+        self.value_default_context = next_context
+        self._last_effective_op = effective_op
         self._presentation_ui = evaluation.presentation_ui
         self._presentation_index = evaluation.presentation_index
-        self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
+        combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
+        self._pending_apply_diagnostics.extend(value_diagnostics)
+        self._pending_apply_diagnostics.extend(
+            _apply_diagnostics(before, self.workflow, effective_op)
+        )
         self._last_transition = OperationTransition(
             occurrence=len(self._transitions), submitted=op,
             normalized=evaluation.normalized,
             lowered=evaluation.lowered, outcome="staged",
-            diagnostics=evaluation.diagnostics,
+            diagnostics=combined,
             lint_disposition=evaluation.lint_disposition,
         )
         return None

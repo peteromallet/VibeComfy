@@ -503,6 +503,22 @@ def _validate_one(workflow: Any, op: EditOp, provider: Any) -> None:
                     )
 
                 for field in op.fields:
+                    from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
+                    if field == VALUE_DEFAULT_FIELDS_MARKER:
+                        marker = op.fields[field]
+                        if (
+                            op.uid is None
+                            or op.node_id is None
+                            or not isinstance(marker, (list, tuple))
+                            or not all(isinstance(name, str) and name for name in marker)
+                            or any(name not in schema_inputs for name in marker)
+                        ):
+                            raise ApplyOpsError(
+                                "invalid_value_default_replay_marker",
+                                "value-default protection is valid only on a canonical landed add-node operation",
+                            )
+                        continue
                     spec = schema_inputs.get(field)
                     if spec is None:
                         # ``widget_N`` is a positional carrier explicitly

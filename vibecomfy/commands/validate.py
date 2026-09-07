@@ -190,7 +190,27 @@ def _subgraph_freshness_diagnostics(template_path: Path) -> list[str]:
         if raw_subgraph is None:
             diagnostics.append(f"{template_path}: source subgraph missing: {subgraph_id}")
             continue
-        actual = _build_subgraph_def(raw_subgraph, slug=slugs.get(subgraph_id, f"subgraph_{subgraph_id[:8]}"), source_path=source_workflow).source_hash
+        try:
+            actual = _build_subgraph_def(
+                raw_subgraph,
+                slug=slugs.get(subgraph_id, f"subgraph_{subgraph_id[:8]}"),
+                source_path=source_workflow,
+            ).source_hash
+        except ValueError as exc:
+            message = str(exc)
+            if (
+                "unsupported_boundary_encoding" in message
+                or "'-10'" in message
+                or "'-20'" in message
+                or '"-10"' in message
+                or '"-20"' in message
+            ):
+                diagnostics.append(
+                    f"{template_path}: subgraph {subgraph_id} rematerialization is "
+                    f"unsupported_boundary_encoding ({message})"
+                )
+                continue
+            raise
         if actual != expected_hash:
             diagnostics.append(f"{template_path}: subgraph {subgraph_id} source hash changed: {expected_hash} -> {actual}")
     return diagnostics
@@ -209,8 +229,11 @@ def _source_workflow_from_template(source: str) -> str | None:
                     value = ast.literal_eval(kw.value)
                 except Exception:
                     continue
-                if isinstance(value, str):
+                if isinstance(value, str) and value.endswith(".json"):
                     return value
-                if isinstance(value, dict) and isinstance(value.get("source_workflow"), str):
-                    return value["source_workflow"]
+                if isinstance(value, dict):
+                    for key in ("source_workflow", "source_workflow_path", "source_path"):
+                        candidate = value.get(key)
+                        if isinstance(candidate, str) and candidate.endswith(".json"):
+                            return candidate
     return None

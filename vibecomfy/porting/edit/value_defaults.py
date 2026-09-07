@@ -447,3 +447,266 @@ class ValueDefaultContext:
                     ),
                 )
         return context
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    """Compare authority values without bool/int or list/tuple coercion."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, Mapping):
+        return (
+            tuple(left.keys()) == tuple(right.keys())
+            and all(_values_equal(left[key], right[key]) for key in left)
+        )
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _values_equal(a, b) for a, b in zip(left, right)
+        )
+    return bool(left == right)
+
+
+def _unique_schema_valid_prior(
+    *,
+    class_type: str,
+    input_name: str,
+    spec: InputSpec,
+    context: ValueDefaultContext,
+) -> tuple[ValueDefaultBinding | None, str]:
+    """Select one schema-valid prior; ambiguity never becomes authority."""
+    from vibecomfy.porting.edit.validate import validate_literal_value
+
+    valid: list[ValueDefaultBinding] = []
+    refused_invalid = False
+    for binding in context.selected_bindings(class_type, input_name):
+        issues = validate_literal_value(
+            value=binding.thawed_value(),
+            spec=spec,
+            class_type=class_type,
+            input_name=input_name,
+            context="value_default_prior",
+        )
+        if any(getattr(issue, "severity", "error") == "error" for issue in issues):
+            refused_invalid = True
+            continue
+        valid.append(binding)
+    if not valid:
+        reason = "invalid_source_prior" if refused_invalid else "no_eligible_source_prior"
+        return None, reason
+    first = valid[0].thawed_value()
+    if any(not _values_equal(first, item.thawed_value()) for item in valid[1:]):
+        return None, "conflicting_source_priors"
+    return valid[0], "unique_schema_valid_source_prior"
+
+
+def bind_add_node_value_defaults(
+    *,
+    class_type: str,
+    scope_path: str,
+    uid: str,
+    proposed_fields: Mapping[str, Any],
+    schema_inputs: Mapping[str, InputSpec],
+    context: ValueDefaultContext | None,
+) -> tuple[
+    dict[str, Any],
+    tuple[ValueDefaultReceipt, ...],
+    ValueDefaultContext | None,
+    tuple[Mapping[str, Any], ...],
+]:
+    """Resolve constructor literals before the canonical AddNodeOp is built.
+
+    The return value is data only: effective named fields, immutable receipts,
+    the next immutable context, and warning records for presentation.  It does
+    not inspect UI JSON or mutate a workflow.
+    """
+    if context is None or not context.active:
+        return dict(proposed_fields), (), context, ()
+
+    effective = dict(proposed_fields)
+    receipts: list[ValueDefaultReceipt] = []
+    warnings: list[Mapping[str, Any]] = []
+    consumed: list[str] = []
+    for input_name, spec in schema_inputs.items():
+        from vibecomfy.porting.authoring_surface import input_spec_is_socket_only
+
+        if input_spec_is_socket_only(spec):
+            continue
+        override = (
+            context.explicit_override(class_type, input_name)
+            or context.explicit_request_override(class_type, input_name, spec)
+        )
+        prior, prior_reason = _unique_schema_valid_prior(
+            class_type=class_type,
+            input_name=input_name,
+            spec=spec,
+            context=context,
+        )
+        chosen = False
+        chosen_value: Any = None
+        basis = ""
+        provenance = ""
+        source_instance_id = ""
+        role_label = ""
+        reason = ""
+        if override is not None:
+            chosen = True
+            chosen_value = override.thawed_value()
+            basis = "explicit_user_value"
+            provenance = "user"
+            source_instance_id = override.source_instance_id
+            role_label = override.role_label
+            reason = "exact structured user override"
+        elif prior is not None:
+            chosen = True
+            chosen_value = prior.thawed_value()
+            basis = "source_prior"
+            provenance = prior.provenance
+            source_instance_id = prior.source_instance_id
+            role_label = prior.role_label
+            reason = prior_reason
+        elif input_name not in effective and getattr(spec, "default", None) is not None:
+            chosen = True
+            chosen_value = deepcopy(spec.default)
+            basis = "schema_default"
+            provenance = "schema_default"
+            reason = "authoritative retained schema default"
+
+        if (
+            not chosen
+            and input_name not in effective
+            and bool(getattr(spec, "required", False))
+            and getattr(spec, "default", None) is None
+        ):
+            warnings.append({
+                "code": "missing_required_add_node_input",
+                "message": f"{class_type} requires input {input_name!r} for add_node.",
+                "detail": {
+                    "scope_path": scope_path,
+                    "class_type": class_type,
+                    "input": input_name,
+                },
+            })
+
+        if input_name in effective:
+            proposed_value = effective[input_name]
+            if not chosen:
+                continue
+            if not _values_equal(proposed_value, chosen_value):
+                warnings.append({
+                    "code": "value_default_literal_normalized",
+                    "message": (
+                        f"{class_type}.{input_name} proposed {proposed_value!r}; "
+                        f"the qualified {basis} value {chosen_value!r} was applied."
+                    ),
+                    "detail": {
+                        "scope_path": scope_path,
+                        "class_type": class_type,
+                        "field": input_name,
+                        "proposed_value": proposed_value,
+                        "effective_value": chosen_value,
+                        "effective_basis": basis,
+                    },
+                })
+                reason = f"{reason}; conflicting constructor literal normalized"
+            else:
+                reason = f"{reason}; redundant constructor literal normalized"
+
+        if chosen:
+            effective[input_name] = chosen_value
+            receipts.append(ValueDefaultReceipt(
+                class_type=class_type,
+                canonical_field=input_name,
+                old_value=None,
+                new_value=chosen_value,
+                basis=basis,
+                provenance=provenance,
+                validation_result="passed",
+                source_instance_id=source_instance_id,
+                role_label=role_label,
+                reason=reason,
+            ))
+            if source_instance_id:
+                consumed.append(source_instance_id)
+
+    next_context = context
+    if receipts:
+        next_context = context.protect_node(
+            scope_path=scope_path,
+            uid=uid,
+            class_type=class_type,
+            fields=tuple(receipt.canonical_field for receipt in receipts),
+            source_instance_ids=tuple(consumed),
+        )
+    return effective, tuple(receipts), next_context, tuple(warnings)
+
+
+def authorize_protected_value_change(
+    *,
+    context: ValueDefaultContext | None,
+    scope_path: str,
+    uid: str,
+    class_type: str,
+    field_name: str,
+    old_value: Any,
+    new_value: Any,
+    spec: InputSpec | None,
+) -> ValueDefaultReceipt | None:
+    """Return a receipt for a protected edit, or ``None`` to refuse it."""
+    if (
+        context is None
+        or not context.active
+        or not context.protects(scope_path, uid, class_type, field_name)
+    ):
+        return ValueDefaultReceipt(
+            class_type=class_type,
+            canonical_field=field_name,
+            old_value=old_value,
+            new_value=new_value,
+            basis="unprotected",
+            provenance="ordinary_edit",
+            validation_result="not_required",
+        )
+    basis = ""
+    provenance = ""
+    reason = ""
+    if _values_equal(old_value, new_value):
+        basis = "redundant_existing_value"
+        provenance = "existing_bound_value"
+        reason = "assignment equals the protected value"
+    else:
+        override = (
+            context.explicit_override(class_type, field_name)
+            or context.explicit_request_override(class_type, field_name, spec)
+        )
+        if override is not None and _values_equal(override.thawed_value(), new_value):
+            basis = "explicit_user_value"
+            provenance = "user"
+            reason = "exact user override matches the proposed value"
+        elif spec is not None and getattr(spec, "default", None) is not None:
+            from vibecomfy.porting.edit.validate import validate_literal_value
+
+            old_issues = validate_literal_value(
+                value=old_value,
+                spec=spec,
+                class_type=class_type,
+                input_name=field_name,
+                context="protected_value",
+            )
+            if (
+                any(getattr(issue, "severity", "error") == "error" for issue in old_issues)
+                and _values_equal(spec.default, new_value)
+            ):
+                basis = "schema_correction"
+                provenance = "schema_default"
+                reason = "protected value invalid under current schema; unique declared-default correction"
+    if not basis:
+        return None
+    return ValueDefaultReceipt(
+        class_type=class_type,
+        canonical_field=field_name,
+        old_value=old_value,
+        new_value=new_value,
+        basis=basis,
+        provenance=provenance,
+        validation_result="passed",
+        reason=reason,
+    )
