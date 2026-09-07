@@ -954,7 +954,39 @@ def _canonical_semantic_lines(
             "media_semantics": None,
             "allow_missing_target": False,
         }
-    for name in sorted(authored_inputs, key=str):
+    def read_input(item: Any, key: str) -> Any:
+        return item[key] if isinstance(item, Mapping) else getattr(item, key)
+
+    descriptor_fields = (
+        "node_id", "field", "value", "type", "default", "required", "range",
+        "media_semantics", "allow_missing_target",
+    )
+    from vibecomfy.testing.canonical import canonical_bytes
+
+    def descriptor_bytes(item: Any) -> bytes:
+        return canonical_bytes(
+            {field_name: read_input(item, field_name) for field_name in descriptor_fields}
+        )
+
+    materialized_alias_owners: dict[str, str] = {}
+    for owner_name, owner in authored_inputs.items():
+        for alias in tuple(read_input(owner, "aliases")):
+            candidate = authored_inputs.get(alias)
+            if candidate is None or tuple(read_input(candidate, "aliases")):
+                continue
+            if descriptor_bytes(candidate) == descriptor_bytes(owner):
+                previous = materialized_alias_owners.setdefault(str(alias), str(owner_name))
+                if previous != str(owner_name):
+                    materialized_alias_owners.pop(str(alias), None)
+
+    ordered_input_names = [
+        *sorted(
+            (name for name in authored_inputs if name not in materialized_alias_owners),
+            key=str,
+        ),
+        *sorted(materialized_alias_owners, key=str),
+    ]
+    for name in ordered_input_names:
         item = authored_inputs[name]
         read = (
             (lambda key: item[key])
@@ -968,12 +1000,16 @@ def _canonical_semantic_lines(
             render(read("value")),
             f"type={render(read('type'))}",
             f"default={render(read('default'))}",
-            f"required={bool(read('required'))!r}",
+            f"required={render(read('required'))}",
             f"range={render(read('range'))}",
             f"aliases={render(tuple(read('aliases')))}",
             f"media_semantics={render(read('media_semantics'))}",
-            f"allow_missing_target={bool(read('allow_missing_target'))!r}",
+            f"allow_missing_target={render(read('allow_missing_target'))}",
         ]
+        if name in materialized_alias_owners:
+            register_args.append(
+                f"materialized_alias_of={materialized_alias_owners[name]!r}"
+            )
         lines.append(f"wf.register_input({', '.join(register_args)})")
         # ``register_input`` predates the distinction between an omitted
         # default and an explicitly-authored ``None`` and therefore falls

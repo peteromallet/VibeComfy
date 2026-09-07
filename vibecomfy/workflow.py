@@ -1025,6 +1025,7 @@ class VibeWorkflow:
         media_semantics: str | None = None,
         media: str | None = None,
         allow_missing_target: bool = False,
+        materialized_alias_of: str | None = None,
     ) -> "VibeWorkflow":
         if media_semantics is not None and media is not None and media_semantics != media:
             raise ValueError(
@@ -1033,7 +1034,23 @@ class VibeWorkflow:
             )
         resolved_media_semantics = media_semantics if media_semantics is not None else media
         alias_tuple = _normalize_input_aliases(aliases)
-        self._validate_input_aliases(name, alias_tuple)
+        if materialized_alias_of is None:
+            self._validate_input_aliases(name, alias_tuple)
+        else:
+            self._validate_materialized_input_alias(
+                name,
+                materialized_alias_of,
+                node_id=str(node_id),
+                field=field,
+                value=value,
+                type=type,
+                default=default,
+                required=required,
+                range=range,
+                aliases=alias_tuple,
+                media_semantics=resolved_media_semantics,
+                allow_missing_target=allow_missing_target,
+            )
         self._validate_input_target(name, node_id, field, allow_missing=allow_missing_target)
         if allow_missing_target:
             node = self.nodes[str(node_id)]
@@ -1049,7 +1066,11 @@ class VibeWorkflow:
             field=field,
             value=value,
             type=type,
-            default=value if default is None else default,
+            default=(
+                default
+                if materialized_alias_of is not None
+                else (value if default is None else default)
+            ),
             required=required,
             range=range,
             aliases=alias_tuple,
@@ -1058,6 +1079,91 @@ class VibeWorkflow:
         )
         self._manual_input_names.add(name)
         return self
+
+    def _validate_materialized_input_alias(
+        self,
+        name: str,
+        owner_name: str,
+        *,
+        node_id: str,
+        field: str,
+        value: Any,
+        type: str | None,
+        default: Any,
+        required: bool,
+        range: Any,
+        aliases: tuple[str, ...],
+        media_semantics: str | None,
+        allow_missing_target: bool,
+    ) -> None:
+        """Admit one exact materialized alias descriptor during canonical reload.
+
+        Ready ``InputSpec`` objects expose compatibility aliases both through
+        ``VibeInput.aliases`` and as primary entries in ``workflow.inputs``.
+        Canonical source has to reconstruct that retained representation, but
+        the ordinary public registration path must keep rejecting overlapping
+        alias and primary domains.  This explicit mode therefore accepts only
+        a byte-for-byte-equivalent binding already claimed by exactly one
+        retained owner.
+        """
+        if name in self.inputs:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias already exists as a primary input"
+            )
+        if aliases:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias cannot declare aliases"
+            )
+        owner = self.inputs.get(owner_name)
+        if owner is None:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias owner {owner_name!r} is missing"
+            )
+        owners = [
+            existing_name
+            for existing_name, item in self.inputs.items()
+            if name in item.aliases
+        ]
+        if owners != [owner_name]:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias must be claimed by exactly "
+                f"one owner {owner_name!r}; found {owners!r}"
+            )
+        candidate = {
+            "node_id": node_id,
+            "field": field,
+            "value": value,
+            "type": type,
+            "default": default,
+            "required": required,
+            "range": range,
+            "media_semantics": media_semantics,
+            "allow_missing_target": allow_missing_target,
+        }
+        retained = {
+            "node_id": owner.node_id,
+            "field": owner.field,
+            "value": owner.value,
+            "type": owner.type,
+            "default": owner.default,
+            "required": owner.required,
+            "range": owner.range,
+            "media_semantics": owner.media_semantics,
+            "allow_missing_target": owner.allow_missing_target,
+        }
+        from vibecomfy.testing.canonical import canonical_bytes
+
+        try:
+            exact = canonical_bytes(candidate) == canonical_bytes(retained)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias descriptor is not canonical"
+            ) from exc
+        if not exact:
+            raise ValueError(
+                f"register_input({name!r}): materialized alias descriptor differs "
+                f"from retained owner {owner_name!r}"
+            )
 
     def set_input(self, name: str, value: Any) -> "VibeWorkflow":
         target = self._resolve_input(name)

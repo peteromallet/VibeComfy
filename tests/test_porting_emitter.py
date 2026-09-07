@@ -2685,3 +2685,109 @@ def test_canonical_emitter_rebuild_preserves_typed_port_authority_without_raw_ui
     assert rebuilt.nodes["1"].native_input_asset_kinds == ["image"]
     assert rebuilt.nodes["1"].native_output_types == ["IMAGE", "MASK"]
     assert rebuilt.semantic_digest() == workflow.semantic_digest()
+
+
+@pytest.mark.parametrize(
+    "ready_id",
+    [
+        "edit/flux2_klein_4b_image_edit_distilled",
+        "video/ltx2_3_i2v",
+    ],
+)
+def test_canonical_emitter_rebuild_preserves_exact_materialized_input_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    ready_id: str,
+) -> None:
+    from vibecomfy.registry.ready import workflow_from_ready
+    import vibecomfy.templates as templates_module
+
+    workflow = workflow_from_ready(ready_id)
+    retained_digest = workflow.semantic_digest()
+    materialized_pairs = [
+        (owner_name, alias)
+        for owner_name, owner in workflow.inputs.items()
+        for alias in owner.aliases
+        if alias in workflow.inputs
+    ]
+    assert materialized_pairs
+    retained_descriptors = dict(workflow.inputs)
+
+    source = emit_canonical_python(workflow)
+    for owner_name, _alias in materialized_pairs:
+        assert f"materialized_alias_of={owner_name!r}" in source
+    templates_module._ready_native_schema_carrier.cache_clear()
+    monkeypatch.setattr(
+        templates_module,
+        "_ready_schema_provider",
+        lambda: (_ for _ in ()).throw(AssertionError("cold load consulted ambient schema")),
+    )
+    namespace: dict[str, object] = {"__file__": "materialized_alias.py"}
+    exec(compile(source, "materialized_alias.py", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+
+    assert rebuilt.semantic_digest() == retained_digest
+    assert rebuilt.compile("api") == workflow.compile("api")
+    for owner_name, alias in materialized_pairs:
+        assert rebuilt.inputs[owner_name] == retained_descriptors[owner_name]
+        assert rebuilt.inputs[alias] == retained_descriptors[alias]
+    rebuilt.set_input("image", "first.png")
+    rebuilt.set_input("input_image", "second.png")
+    assert rebuilt.nodes[retained_descriptors["image"].node_id].inputs["image"] == "second.png"
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"node_id": "2"},
+        {"field": "other"},
+        {"value": 1.0},
+        {"type": "FLOAT"},
+        {"default": 1.0},
+        {"required": 1},
+        {"range": [0, 1]},
+        {"media_semantics": "image"},
+        {"allow_missing_target": 0},
+        {"aliases": ("other_alias",)},
+    ],
+)
+def test_materialized_input_alias_rejects_any_descriptor_difference(
+    changed: dict[str, object],
+) -> None:
+    workflow = VibeWorkflow("alias-guard", WorkflowSource("alias-guard"))
+    workflow.nodes["1"] = VibeNode(
+        "1", "PrimitiveInt", inputs={"amount": 1, "other": 1}
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2", "PrimitiveInt", inputs={"amount": 1, "other": 1}
+    )
+    workflow.register_input(
+        "amount", "1", "amount", 1, type="INT",
+        default=1, required=True, aliases=("alias_amount",),
+    )
+    descriptor: dict[str, object] = {
+        "node_id": "1",
+        "field": "amount",
+        "value": 1,
+        "type": "INT",
+        "default": 1,
+        "required": True,
+        "range": None,
+        "aliases": (),
+        "media_semantics": None,
+        "allow_missing_target": False,
+    }
+    descriptor.update(changed)
+
+    with pytest.raises(ValueError, match="materialized alias"):
+        workflow.register_input(
+            "alias_amount",
+            str(descriptor.pop("node_id")),
+            str(descriptor.pop("field")),
+            descriptor.pop("value"),
+            materialized_alias_of="amount",
+            **descriptor,
+        )
+
+    assert "alias_amount" not in workflow.inputs
+    with pytest.raises(ValueError, match="conflicts with an existing alias"):
+        workflow.register_input("alias_amount", "1", "amount", 1)
