@@ -831,7 +831,13 @@ def _emit_ready_template_python_inner(
     # semantic IR afterwards so inferred ready-template metadata never becomes
     # a competing authority.
     tail_lines = [
-        *(f"    {line}" for line in _canonical_connection_lines(workflow)),
+        *(
+            f"    {line}"
+            for line in _canonical_connection_lines(
+                workflow,
+                retained_node_ids=set(workflow_nodes),
+            )
+        ),
         *tail_lines[:-1],
         tail_lines[-1].replace("return wf.finalize(", "wf = wf.finalize(", 1),
         *(
@@ -1495,12 +1501,18 @@ def _canonical_definition_helpers(
     return lines, literal_container(definitions)
 
 
-def _canonical_connection_lines(workflow: Any) -> list[str]:
-    """Render authored edges through the public connection API."""
+def _canonical_connection_lines(
+    workflow: Any,
+    *,
+    retained_node_ids: set[str],
+) -> list[str]:
+    """Render authored edges whose endpoints survive canonical preparation."""
     return [
         f"wf.connect({f'{edge.from_node}.{edge.from_output}'!r}, "
         f"{f'{edge.to_node}.{edge.to_input}'!r})"
         for edge in workflow.edges
+        if str(edge.from_node) in retained_node_ids
+        and str(edge.to_node) in retained_node_ids
     ]
 
 

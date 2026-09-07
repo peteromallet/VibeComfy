@@ -359,6 +359,57 @@ def test_canonical_emitter_does_not_duplicate_imported_link_views(tmp_path: Path
     assert reloaded.semantic_digest() == workflow.semantic_digest()
 
 
+def test_canonical_emitter_filters_only_edges_to_removed_ui_only_nodes(
+    tmp_path: Path,
+) -> None:
+    def _node(
+        node_id: str,
+        class_type: str,
+        *,
+        inputs: tuple[str, ...] = (),
+        outputs: tuple[str, ...] = (),
+    ) -> VibeNode:
+        return VibeNode(
+            node_id,
+            class_type,
+            uid=node_id,
+            native_input_names=list(inputs),
+            native_output_names=list(outputs),
+            native_input_types=["*"] * len(inputs),
+            native_output_types=["*"] * len(outputs),
+        )
+
+    terminal = VibeWorkflow("canonical/terminal-ui", WorkflowSource("canonical/terminal-ui"))
+    terminal.nodes["source"] = _node("source", "SchemaLessSource", outputs=("value",))
+    terminal.nodes["preview"] = _node(
+        "preview", "PreviewAny", inputs=("source",), outputs=("value",)
+    )
+    terminal.connect("source.value", "preview.source")
+
+    terminal_source = emit_canonical_python(terminal)
+    assert "wf.connect('source.value', 'preview.source')" not in terminal_source
+    terminal_path = tmp_path / "terminal_ui.py"
+    terminal_path.write_text(terminal_source, encoding="utf-8")
+    terminal_reloaded = load_agent_generated_scratchpad(terminal_path)
+    assert set(terminal_reloaded.nodes) == {"source"}
+    assert terminal_reloaded.edges == []
+
+    passthrough = terminal.copy()
+    passthrough.id = "canonical/ui-passthrough"
+    passthrough.source = WorkflowSource("canonical/ui-passthrough")
+    passthrough.nodes["sink"] = _node("sink", "SchemaLessSink", inputs=("value",))
+    passthrough.connect("preview.value", "sink.value")
+
+    passthrough_source = emit_canonical_python(passthrough)
+    assert "wf.connect('source.value', 'preview.source')" in passthrough_source
+    assert "wf.connect('preview.value', 'sink.value')" in passthrough_source
+    passthrough_path = tmp_path / "ui_passthrough.py"
+    passthrough_path.write_text(passthrough_source, encoding="utf-8")
+    passthrough_reloaded = load_agent_generated_scratchpad(passthrough_path)
+    assert set(passthrough_reloaded.nodes) == {"source", "preview", "sink"}
+    assert passthrough_reloaded.semantic_digest() == passthrough.semantic_digest()
+
+
 def test_scratchpad_rejects_noncanonical_projection_options() -> None:
     with pytest.raises(ValueError, match="canonical defaults"):
         emit_scratchpad_python(_sample_workflow(), keep_virtual_wires=False)

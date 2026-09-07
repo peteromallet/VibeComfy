@@ -22,6 +22,7 @@ from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.parity import compile_equivalent
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 from vibecomfy.testing.canonical import canonical_equal
+from vibecomfy.workflow import WorkflowCompileError
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +224,48 @@ _EXCLUDE_PATHS = {
     "ready_templates/sources/manifests/ready_regeneration.json",
 }
 
+_TYPED_IDEOGRAM = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "node_resolution"
+    / "ideogram4_t2i.typed_boundary.json"
+)
+
+
+def _ui_class_types(raw: dict[str, Any]) -> set[str]:
+    found: set[str] = set()
+
+    def visit_definitions(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        for definition in value.get("subgraphs", []):
+            if not isinstance(definition, dict):
+                continue
+            visit_nodes(definition.get("nodes", []))
+            visit_definitions(definition.get("definitions"))
+
+    def visit_nodes(nodes: Any) -> None:
+        if not isinstance(nodes, list):
+            return
+        for node in nodes:
+            if isinstance(node, dict) and node.get("type") is not None:
+                found.add(str(node["type"]))
+
+    visit_nodes(raw.get("nodes"))
+    visit_definitions(raw.get("definitions"))
+    return found
+
+
+def _expected_structural_observation(error: ValueError) -> str | None:
+    message = str(error)
+    if message.startswith("unsupported_boundary_encoding:"):
+        return "unsupported_native_boundary"
+    if "references unknown endpoint" in message:
+        return "dangling_endpoint"
+    if "ambiguous virtual-wire target path" in message:
+        return "ambiguous_virtual_wire"
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Unit test: read-back on a small synthetic workflow
@@ -287,12 +330,33 @@ def test_independent_readback_multi_edge() -> None:
     assert equal, f"multi-edge read-back mismatch: {diffs[:5]}"
 
 
+def test_independent_readback_typed_ideogram_boundaries() -> None:
+    raw = json.loads(_TYPED_IDEOGRAM.read_text(encoding="utf-8"))
+    workflow = from_ui(raw, source_path=str(_TYPED_IDEOGRAM), use_comfy_converter=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        envelope = emit_ui_json(workflow)
+    rebuilt = from_ui(envelope, source_path="typed-ideogram:readback", use_comfy_converter=False)
+    expected = workflow.compile("api")
+    actual = rebuilt.compile("api")
+    equal, diffs = compile_equivalent(actual, expected)
+
+    assert len(workflow.definitions["subgraphs"]) == 2
+    assert len(workflow.interfaces) == 2
+    assert len(workflow.boundary_ports) == 14
+    assert len(expected) == len(actual) == 35
+    assert rebuilt.interfaces == workflow.interfaces
+    assert rebuilt.boundary_ports == workflow.boundary_ports
+    assert equal, diffs[:5]
+
+
 # ---------------------------------------------------------------------------
 # Corpus-wide: Layer-1 read-back parity for all known-class workflows
 # ---------------------------------------------------------------------------
 
 
-def test_independent_readback_corpus() -> None:
+def test_independent_readback_corpus(record_property: Any) -> None:
     """Layer-1 read-back == compile('api') up to isomorphism for the offline corpus.
 
     Iterates every UI-shaped JSON workflow in ``ready_templates/sources/``, emits UI JSON,
@@ -302,70 +366,76 @@ def test_independent_readback_corpus() -> None:
     """
     provider = _provider()
     schema_provider = _local_schema_provider()
-    json_paths = [p for p in _corpus_json_paths() if p not in _EXCLUDE_PATHS]
-
+    from vibecomfy.porting.object_info.consume import class_entry_snapshot
     checked = 0
-    skipped = 0
-    failures: list[str] = []
+    ignored_non_ui = 0
+    observations: list[dict[str, Any]] = []
+    corpus: list[tuple[str, dict[str, Any]]] = []
+    class_types: set[str] = set()
+    for path in (path for path in _corpus_json_paths() if path not in _EXCLUDE_PATHS):
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(raw.get("nodes"), list):
+            corpus.append((path, raw))
+            class_types.update(_ui_class_types(raw))
+        else:
+            ignored_non_ui += 1
 
-    for path in json_paths:
-        with open(path) as fh:
-            raw = json.load(fh)
-        if not isinstance(raw.get("nodes"), list):
-            continue
-
-        wf = from_ui(raw)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+    # One immutable object-info witness covers the whole census operation.
+    # Every referenced root/recursive class is predeclared; no late ambient
+    # provider read can mix generations or repeat pack hashing per workflow.
+    with class_entry_snapshot(class_types):
+        for path, raw in corpus:
+            relative = str(Path(path).relative_to("ready_templates/sources"))
             try:
-                envelope = emit_ui_json(wf)
-            except Exception:
-                skipped += 1
+                workflow = from_ui(raw, schema_provider=schema_provider)
+            except ValueError as error:
+                category = _expected_structural_observation(error)
+                if category is None:
+                    raise
+                observations.append(
+                    {"path": relative, "category": category, "detail": str(error)}
+                )
                 continue
-
-        try:
-            api = wf.compile("api")
-        except Exception:
-            skipped += 1
-            continue
-
-        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                envelope = emit_ui_json(workflow, schema_provider=schema_provider)
+            try:
+                api = workflow.compile("api")
+            except WorkflowCompileError as error:
+                observations.append(
+                    {
+                        "path": relative,
+                        "category": f"compile_{error.code}",
+                        "detail": str(error),
+                    }
+                )
+                continue
             reconstructed = _reconstruct_api_from_links_and_widget_order(
                 envelope,
                 widget_order_provider=provider,
                 schema_provider=schema_provider,
             )
-        except Exception:
-            skipped += 1
-            continue
 
-        equal, diffs = compile_equivalent(reconstructed, api)
-        if not equal:
-            failures.append(f"{path}: {diffs[:3]}")
-        else:
-            checked += 1
+            equal, diffs = compile_equivalent(reconstructed, api)
+            if equal:
+                checked += 1
+            else:
+                observations.append(
+                    {
+                        "path": relative,
+                        "category": "historical_parity_mismatch",
+                        "detail": diffs[:5],
+                    }
+                )
 
-    assert checked > 0, (
-        f"No workflows passed read-back parity."
-        f" (checked={checked}, skipped={skipped}, failures={len(failures)})"
+    # Preserve the historical corpus contract: this is an independent-path
+    # census with explicit observations, while supported typed recursive
+    # parity is asserted above.  A mismatch is never reported as a pass.
+    record_property(
+        "independent_readback_observations",
+        json.dumps(observations, sort_keys=True, default=str),
     )
-    # The Layer-1 read-back is independent — it doesn't call _normalize_ui_to_api.
-    # Failures are expected for workflows that also fail the self-consistency check
-    # (listed in docs/templates/corpus_parity_allowlist.md).  The test passes if at least
-    # SOME workflows succeed, proving the read-back path is functional.
-    if failures:
-        print(
-            f"\n[T14] Layer-1 read-back parity: {checked} passed,"
-            f" {len(failures)} failed, {skipped} skipped"
-        )
-        print("  Failures (expected — match corpus_parity_allowlist.md):")
-        for f in failures[:10]:
-            print(f"    {f}")
-        if len(failures) > 10:
-            print(f"    ... and {len(failures) - 10} more")
-
-    print(
-        f"\n[T14] Layer-1 independent read-back parity verified on"
-        f" {checked} corpus workflows (skipped={skipped})"
+    assert checked > 0, (
+        "No corpus workflow passed independent read-back parity "
+        f"(observations={len(observations)}, ignored_non_ui={ignored_non_ui})"
     )
