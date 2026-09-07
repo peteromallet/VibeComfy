@@ -28,11 +28,17 @@ def test_top_level_public_api_exports_promised_names() -> None:
         assert name in vibecomfy.__all__
 
 
-def test_nodes_package_layout_stays_collapsed() -> None:
+def test_nodes_package_layout_keeps_runtime_and_stub_modules_aligned() -> None:
     nodes_dir = Path("vibecomfy/nodes")
 
     assert not (nodes_dir / "_generated").exists()
-    assert sorted(path.relative_to(nodes_dir).as_posix() for path in nodes_dir.rglob("*.pyi")) == []
+    from vibecomfy.nodes import MODULES
+
+    assert {path.relative_to(nodes_dir).as_posix() for path in nodes_dir.rglob("*.pyi")} == {
+        "__init__.pyi", *(f"{name}.pyi" for name in MODULES)
+    }
+    for name in MODULES:
+        assert (nodes_dir / f"{name}.py").is_file()
 
 
 def test_runpod_dependencies_stay_out_of_core_metadata() -> None:
