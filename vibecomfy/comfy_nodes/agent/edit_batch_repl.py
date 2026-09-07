@@ -78,8 +78,6 @@ import time
 from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
-from vibecomfy.ingest.normalize import door_get_nodes
-
 
 class MissingEditBatchReplDepsError(KeyError):
     """Façade globals lacked one or more names the batch REPL requires.
