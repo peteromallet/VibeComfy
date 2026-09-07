@@ -38,7 +38,7 @@ import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.server import comfy_server
 from vibecomfy.runtime.session import ServerSession, SessionConfig, _comfy_server_argv
 
-from tests._runtime_session_helpers import FakeProcess, _workflow
+from tests._runtime_session_helpers import FakeProcess, _workflow, _approved
 
 # ``vibecomfy.runtime.run`` is shadowed by the ``run`` function export in the
 # package __init__, so the submodule must be fetched via importlib.
@@ -125,7 +125,7 @@ def test_embedded_run_helper_surfaces_startup_error_with_canonical_argv(
     config = _rich_config(ready_timeout_sec=1)
 
     with pytest.raises(RuntimeStartupError) as exc_info:
-        asyncio.run(run_module.run(_workflow(), config=config))
+        asyncio.run(run_module.run(*_approved(_workflow()), config=config))
 
     error = exc_info.value
     assert error.next_action == NEXT_ACTION

@@ -5,9 +5,14 @@ import json
 import shlex
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.cli import build_parser
 from vibecomfy.commands.doctor import _cmd_doctor, _video_frame_cap_warnings
 from vibecomfy.errors import MissingModelAssetError
+from vibecomfy.cli_loader import load_bundle as real_load_bundle
+from vibecomfy.security.provenance import Provenance
+from vibecomfy.registry import models_loader
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -18,29 +23,48 @@ MODEL_ENTRY = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _explicit_local_doctor_authorization(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "vibecomfy.commands.doctor.load_bundle",
+        lambda path: real_load_bundle(path, trust=Provenance.USER_CONFIRMED),
+    )
+    registry = tmp_path / "models.yaml"
+    registry.write_text(
+        "models:\n"
+        "  - id: missing.safetensors\n"
+        "    canonical_name: missing.safetensors\n"
+        "    source:\n"
+        "      kind: url\n"
+        "      url: https://example.test/models/missing.safetensors\n"
+        "      filename: missing.safetensors\n"
+        "    min_size: 0\n"
+        "    targets:\n"
+        "      - node_pack: comfy_core\n"
+        "        path: checkpoints/missing.safetensors\n"
+        "      - node_pack: comfy_core\n"
+        "        path: vae/missing.safetensors\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(models_loader, "DEFAULT_REGISTRY_PATH", registry)
+    models_loader._clear_cache()
+
+
 def _write_scratchpad(path: Path) -> Path:
     path.write_text(
         f"""
-from vibecomfy.registry.ready_template import build_api_ready_workflow
-
-API_WORKFLOW = {{
-    "1": {{"class_type": "SaveImage", "inputs": {{}}}},
-}}
-
-READY_METADATA = {{"ready_template": "test/model-missing"}}
-READY_REQUIREMENTS = {{
-    "models": [{MODEL_ENTRY!r}],
-    "custom_nodes": [],
-}}
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 def build():
-    return build_api_ready_workflow(
-        API_WORKFLOW,
-        READY_METADATA,
-        source_path=__file__,
-        workflow_id="test/model-missing",
-        requirements=READY_REQUIREMENTS,
+    workflow = VibeWorkflow(
+        id="test/model-missing",
+        source=WorkflowSource(id="test/model-missing", path=__file__),
+        metadata={{"model_assets": [{MODEL_ENTRY!r}] }},
     )
+    workflow.nodes["1"] = VibeNode(
+        id="1", class_type="CheckpointLoaderSimple", inputs={{"ckpt_name": "missing.safetensors"}}, uid="model-missing-1"
+    )
+    return workflow
 """,
         encoding="utf-8",
     )
@@ -51,9 +75,11 @@ def _write_raw_json_workflow(path: Path) -> Path:
     path.write_text(
         json.dumps(
             {
+                "workflow_id": "test/raw-model",
                 "nodes": [
                     {
                         "id": 1,
+                        "uid": "test/raw-model:1",
                         "type": "VAELoader",
                         "properties": {
                             "models": [
@@ -67,6 +93,33 @@ def _write_raw_json_workflow(path: Path) -> Path:
                 ]
             }
         ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_canonical_vae_workflow(path: Path) -> Path:
+    """Write a retained, named Python workflow; this is an authoring door."""
+    path.write_text(
+        f"""
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+MODEL_ASSET = {dict(MODEL_ENTRY, subdir="vae")!r}
+
+def build():
+    workflow = VibeWorkflow(
+        id="test/named-vae",
+        source=WorkflowSource(id="test/named-vae", path=__file__),
+        metadata={{"model_assets": [MODEL_ASSET]}},
+    )
+    workflow.nodes["1"] = VibeNode(
+        id="1",
+        class_type="VAELoader",
+        inputs={{"vae_name": MODEL_ASSET["name"]}},
+        uid="named-vae-1",
+    )
+    return workflow
+""",
         encoding="utf-8",
     )
     return path
@@ -93,12 +146,34 @@ def test_doctor_reports_missing_model_with_url_and_expected_path(
     assert MODEL_ENTRY["url"] in captured.out
 
 
-def test_doctor_reports_missing_model_from_raw_json_workflow(
+def test_doctor_rejects_raw_json_before_canonical_conversion(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    workflow = _write_raw_json_workflow(tmp_path / "workflow.json")
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path / "models"))
+    monkeypatch.setattr("vibecomfy.commands.doctor.get_schema_provider", lambda _mode: None)
+    monkeypatch.setattr("vibecomfy.commands.doctor._read_doctor_lockfile", lambda: [])
+    assert _cmd_doctor(argparse.Namespace(path=str(workflow))) == 1
+    output = capsys.readouterr().out.lower()
+    assert "workflow diagnosis requires canonical python" in output
+    assert "port check" in output
+
+    assert _cmd_doctor(
+        argparse.Namespace(path=str(workflow), json=True)
+    ) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["layer"] == "Python scratchpad import/build"
+    assert "requires canonical Python workflow authority" in payload["errors"][0]
+    assert payload["recommended_command"].endswith(" --json")
+
+
+def test_doctor_reports_missing_model_from_canonical_named_workflow(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    workflow = _write_raw_json_workflow(tmp_path / "workflow.json")
+    workflow = _write_canonical_vae_workflow(tmp_path / "workflow.py")
     models_root = tmp_path / "models"
     monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(models_root))
     monkeypatch.setattr("vibecomfy.commands.doctor.get_schema_provider", lambda _mode: None)
@@ -194,7 +269,7 @@ def test_doctor_warns_when_bounded_video_generation_has_uncapped_loadvideo() -> 
         WorkflowSource(id="video/bounded"),
         metadata={"unbound_inputs": {"num_frames": "10.length"}},
     )
-    workflow.nodes["1"] = VibeNode(id="1", class_type="LoadVideo", inputs={"file": "source.mp4"})
+    workflow.nodes["1"] = VibeNode(id="1", class_type="LoadVideo", inputs={"file": "source.mp4"}, uid="video/bounded:1")
 
     warnings = _video_frame_cap_warnings(workflow)
 

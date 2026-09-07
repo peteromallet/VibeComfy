@@ -18,6 +18,8 @@ from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarge
 import vibecomfy.runtime.attempt as runtime_attempt
 from vibecomfy.runtime.session import SessionConfig, _model_assets_from_workflow
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.schema import InputSpec, NodeSchema
+from vibecomfy.workflow_bundle import WorkflowBundleError, load_bundle
 
 
 def test_extract_from_raw_workflow_normalises_model_metadata() -> None:
@@ -417,68 +419,76 @@ def test_model_asset_install_policy_still_ignores_non_registry_url_and_path_valu
         _model_assets_from_workflow(workflow)
 
 
-def test_attempt_report_serializes_classified_model_references(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_attempt_report_serializes_only_approved_model_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     workflow = VibeWorkflow("models", WorkflowSource("models"))
-    workflow.nodes["1"] = VibeNode("1", "UNETLoader", inputs={"unet_name": "registry.safetensors"})
-    workflow.nodes["2"] = VibeNode(
-        "2",
+    workflow.nodes["1"] = VibeNode(
+        "1",
         "UNETLoader",
-        inputs={"unet_name": "https://example.test/models/external.safetensors"},
+        inputs={"unet_name": "registry.safetensors"},
+        uid="models-1",
     )
-    workflow.nodes["3"] = VibeNode("3", "VAELoader", inputs={"vae_name": "/models/vae/local.safetensors"})
-    workflow.nodes["4"] = VibeNode("4", "LoraLoader", inputs={"lora_name": "./loras/patch.safetensors"})
     registry = [
         ModelEntry(
             id="registry",
             source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
             canonical_name="registry.safetensors",
             min_size=1,
-            targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
+            targets=(
+                ModelTarget(
+                    node_pack="comfy_core",
+                    path="diffusion_models/registry.safetensors",
+                ),
+            ),
         )
     ]
     monkeypatch.setattr("vibecomfy.registry.models_loader.load_registry", lambda: registry)
+    monkeypatch.setattr("vibecomfy.fetch.is_present", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(runtime_attempt, "_collect_drift_for_bundle", lambda _workflow: {})
 
-    bundle = runtime_attempt.build_attempt_bundle(workflow, {}, backend="api")
+    class Provider:
+        def get_schema(self, class_type: str):
+            if class_type == "UNETLoader":
+                return NodeSchema(
+                    "UNETLoader",
+                    None,
+                    {"unet_name": InputSpec("STRING", asset_kind="model")},
+                    [],
+                )
+            return None
 
-    manifest_by_node = {entry["node_id"]: entry for entry in bundle["model_manifest"]}
-    assert {
-        node_id: (entry["reference_type"], entry["downloadable"], entry.get("unresolved"))
-        for node_id, entry in manifest_by_node.items()
-    } == {
-        "1": ("registry-backed", True, None),
-        "2": ("external-url", False, True),
-        "3": ("absolute-path", False, True),
-        "4": ("relative-path", False, True),
-    }
-    assert manifest_by_node["1"] == {
-        "name": "registry.safetensors",
-        "subdir": "diffusion_models",
-        "url": "https://example.test/registry.safetensors",
-        "expected_sha256": None,
-        "actual_sha256": None,
-        "node_id": "1",
-        "class_type": "UNETLoader",
-        "field": "unet_name",
-        "value": "registry.safetensors",
-        "reference_type": "registry-backed",
-        "downloadable": True,
-    }
-    for node_id, expected_subdir in {"2": "diffusion_models", "3": "vae", "4": "loras"}.items():
-        assert {
-            "node_id",
-            "class_type",
-            "field",
-            "value",
-            "subdir",
-            "reference_type",
-            "downloadable",
-            "unresolved",
-        } <= set(manifest_by_node[node_id])
-        assert manifest_by_node[node_id]["subdir"] == expected_subdir
-        assert manifest_by_node[node_id]["expected_sha256"] is None
-        assert manifest_by_node[node_id]["actual_sha256"] is None
+    approved_bundle = load_bundle(workflow)
+    record = approved_bundle.compile(schema_provider=Provider())
+    attempt = runtime_attempt.build_attempt_bundle(
+        approved_bundle, record, backend="api"
+    )
+    assert attempt["compiled_prompt"] == record.api_projection
+    assert attempt["model_manifest"] == [
+        {
+            "name": "registry.safetensors",
+            "subdir": "diffusion_models",
+            "url": "https://example.test/registry.safetensors",
+            "expected_sha256": None,
+            "actual_sha256": None,
+            "node_id": "1",
+            "class_type": "UNETLoader",
+            "field": "unet_name",
+            "value": "registry.safetensors",
+            "reference_type": "registry-backed",
+            "downloadable": True,
+        }
+    ]
 
+    refused = VibeWorkflow("unapproved-model", WorkflowSource("unapproved-model"))
+    refused.nodes["1"] = VibeNode(
+        "1",
+        "UNETLoader",
+        inputs={"unet_name": "https://example.test/external.safetensors"},
+        uid="unapproved-model-1",
+    )
+    with pytest.raises(WorkflowBundleError, match="model reference"):
+        load_bundle(refused).compile(schema_provider=Provider())
 
 def test_attempt_hash_uses_fetch_target_path_and_not_models_subdir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

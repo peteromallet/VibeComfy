@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from vibecomfy.schema import InputSpec, NodeSchema
 from vibecomfy.schema.cache import write_object_info_cache
 from vibecomfy.schema.validate import (
     SchemaNormalizationRequired,
+    apply_schema_normalization,
     propose_schema_normalization,
 )
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
@@ -35,6 +37,7 @@ from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 from tests._runtime_session_helpers import (
     WarmProvider,
     _workflow,
+    _approved,
     fake_comfy,  # noqa: F401 -- pytest fixture imported for use in tests
     fake_server,  # noqa: F401 -- pytest fixture imported for use in tests
     _patch_fast_runtime_run,
@@ -63,8 +66,9 @@ def test_async_warmup_populates_cache_then_validates() -> None:
     provider = WarmProvider()
 
     async def run_prepare() -> dict:
+        record, bundle = _approved(_workflow())
         return await _prepare_prompt_async(
-            _workflow(),
+            record, bundle,
             backend="api",
             schema_provider=provider,
             on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
@@ -93,8 +97,8 @@ def test_session_caches_schema_provider_across_runs(
     async def run_twice() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
-            await session.run(_workflow(seed=2))
+            await session.run(*_approved(_workflow()))
+            await session.run(*_approved(_workflow(seed=2)))
         finally:
             await session.stop()
 
@@ -123,8 +127,8 @@ def test_provider_unavailable_falls_back_to_structural_with_error_and_metadata(
     async def run_twice() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            first = await session.run(_workflow())
-            second = await session.run(_workflow(seed=2))
+            first = await session.run(*_approved(_workflow()))
+            second = await session.run(*_approved(_workflow(seed=2)))
             metadata_paths.extend([Path(first.metadata_path), Path(second.metadata_path)])
         finally:
             await session.stop()
@@ -154,7 +158,7 @@ def test_schema_degradation_env_offramp_downgrades_to_warning(
     async def run_once() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -176,9 +180,9 @@ def test_server_session_validates_against_started_url(
         built_for.append(server_url)
         return provider
 
-    async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False, normalize_approval=None):
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False):
         prepared_with.append(schema_provider)
-        return workflow.compile(backend=backend)
+        return record.to_dict()["api_projection"]
 
     monkeypatch.setattr(session_module, "_build_schema_provider", fake_build)
     monkeypatch.setattr(session_module, "_prepare_prompt_async", fake_prepare)
@@ -186,7 +190,7 @@ def test_server_session_validates_against_started_url(
     async def run_once() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
             assert session.url == "http://127.0.0.1:8200"
         finally:
             await session.stop()
@@ -309,6 +313,7 @@ def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema()
         "1",
         "vibecomfy.code",
         inputs={"value": 41},
+        uid="runtime-code",
         metadata={
             "_ui": {
                 "properties": intent_node_properties(
@@ -336,8 +341,13 @@ def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema()
     )
 
     async def run_prepare() -> dict:
+        from vibecomfy.schema.provider import _builtin_schema
+
+        record, bundle = _approved(
+            workflow, schema_provider=_StrictProvider({"vibecomfy.code": _builtin_schema("vibecomfy.code")})
+        )
         return await _prepare_prompt_async(
-            workflow,
+            record, bundle,
             backend="api",
             schema_provider=provider,
             on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
@@ -353,6 +363,46 @@ def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema()
     assert api["1"]["inputs"]["execution_mode"] == RUNTIME_CODE_EXECUTION_MODE
 
 
+def _authoring_provider_with_unknown_input() -> _StrictProvider:
+    return _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple",
+                None,
+                {
+                    "ckpt_name": InputSpec("STRING"),
+                    "widget_0": InputSpec("STRING"),
+                },
+                [],
+            )
+        }
+    )
+
+
+def _approved_normalized(workflow: VibeWorkflow, provider: Any):
+    """Apply the typed proposal, re-author those exact bytes, then approve."""
+    old_record, _old_bundle = _approved(
+        workflow, schema_provider=_authoring_provider_with_unknown_input()
+    )
+    old_api = old_record.to_dict()["api_projection"]
+    proposal = propose_schema_normalization(old_api, provider)
+    assert proposal.ops
+    normalized_api = apply_schema_normalization(old_api, proposal)
+
+    normalized = copy.deepcopy(workflow)
+    for op in proposal.ops:
+        node = normalized.nodes[op.node_id]
+        assert node.class_type == op.class_type
+        assert node.inputs[op.field] == op.before
+        if op.kind == "drop":
+            del node.inputs[op.field]
+        else:
+            node.inputs[op.field] = copy.deepcopy(op.after)
+    record, bundle = _approved(normalized, schema_provider=provider)
+    assert record.api_projection == normalized_api
+    return (record, bundle), proposal
+
+
 def _workflow_with_unknown_input() -> VibeWorkflow:
     """CheckpointLoaderSimple plus an undeclared widget alias input."""
     workflow = VibeWorkflow("normalization-test", WorkflowSource("normalization-test"))
@@ -360,12 +410,13 @@ def _workflow_with_unknown_input() -> VibeWorkflow:
         "1",
         "CheckpointLoaderSimple",
         inputs={"ckpt_name": "model-a.safetensors", "widget_0": "ui copy"},
+        uid="runtime-normalization-1",
     )
     return workflow
 
 
-def test_prepare_prompt_async_refuses_unapproved_normalization_with_details() -> None:
-    provider = _StrictProvider(
+def test_prepare_prompt_async_refuses_schema_drift_with_typed_proposal() -> None:
+    runtime_provider = _StrictProvider(
         {
             "CheckpointLoaderSimple": NodeSchema(
                 "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
@@ -373,12 +424,16 @@ def test_prepare_prompt_async_refuses_unapproved_normalization_with_details() ->
         }
     )
     workflow = _workflow_with_unknown_input()
+    record, bundle = _approved(
+        workflow, schema_provider=_authoring_provider_with_unknown_input()
+    )
 
     async def run_prepare() -> dict:
         return await _prepare_prompt_async(
-            workflow,
+            record,
+            bundle,
             backend="api",
-            schema_provider=provider,
+            schema_provider=runtime_provider,
             on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
         )
 
@@ -392,97 +447,89 @@ def test_prepare_prompt_async_refuses_unapproved_normalization_with_details() ->
     assert "before='ui copy'" in text
     assert "after=None" in text
     assert "reason=" in text
-    payload = excinfo.value.to_dict()
-    ops = payload["normalization"]["ops"]
-    assert [op["field"] for op in ops] == ["widget_0"]
-
-
-def test_prepare_prompt_async_applies_approved_normalization_and_evidences() -> None:
-    provider = _StrictProvider(
-        {
-            "CheckpointLoaderSimple": NodeSchema(
-                "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
-            )
-        }
-    )
-    workflow = _workflow_with_unknown_input()
-    proposal = propose_schema_normalization(workflow.compile("api"), provider)
-    assert [op.field for op in proposal.ops] == ["widget_0"]
-
-    async def run_prepare() -> dict:
-        return await _prepare_prompt_async(
-            workflow,
-            backend="api",
-            schema_provider=provider,
-            on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
-            normalize_approval=proposal.digest(),
-        )
-
-    api = asyncio.run(run_prepare())
-
-    assert api["1"]["inputs"] == {"ckpt_name": "model-a.safetensors"}
-    # Evidence: the applied, approved proposal rides on the prepared prompt.
-    assert api.normalization is not None
-    applied_ops = [op.to_dict() for op in api.normalization.ops]
-    assert applied_ops == [
-        {
-            "node_id": "1",
-            "class_type": "CheckpointLoaderSimple",
-            "field": "widget_0",
-            "kind": "drop",
-            "before": "ui copy",
-            "after": None,
-            "reason": "input is not declared by the live node schema and would be rejected at queue time",
-        }
+    assert [op["field"] for op in excinfo.value.to_dict()["normalization"]["ops"]] == [
+        "widget_0"
     ]
 
 
-def test_prepare_prompt_async_rejects_wrong_approval_digest() -> None:
-    provider = _StrictProvider(
+def test_explicit_preapproval_normalization_queues_exact_new_record() -> None:
+    runtime_provider = _StrictProvider(
         {
             "CheckpointLoaderSimple": NodeSchema(
                 "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
             )
         }
     )
-    workflow = _workflow_with_unknown_input()
+    (record, bundle), proposal = _approved_normalized(
+        _workflow_with_unknown_input(), runtime_provider
+    )
 
-    async def run_prepare() -> dict:
-        return await _prepare_prompt_async(
-            workflow,
+    prepared = asyncio.run(
+        _prepare_prompt_async(
+            record,
+            bundle,
             backend="api",
-            schema_provider=provider,
+            schema_provider=runtime_provider,
             on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
-            normalize_approval="0000000000000000000000000000000000000000000000000000000000000000",
         )
+    )
+    assert prepared == record.api_projection
+    assert prepared["1"]["inputs"] == {"ckpt_name": "model-a.safetensors"}
+    assert proposal.to_dict()["ops"][0]["field"] == "widget_0"
+    assert prepared.normalization is None
 
-    with pytest.raises(SchemaNormalizationRequired):
-        asyncio.run(run_prepare())
+
+def test_schema_normalization_rejects_stale_proposal_against_changed_payload() -> None:
+    runtime_provider = _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple", None, {"ckpt_name": InputSpec("STRING")}, []
+            )
+        }
+    )
+    old_record, _old_bundle = _approved(
+        _workflow_with_unknown_input(),
+        schema_provider=_authoring_provider_with_unknown_input(),
+    )
+    api = old_record.to_dict()["api_projection"]
+    proposal = propose_schema_normalization(api, runtime_provider)
+    api["1"]["inputs"]["widget_0"] = "changed after approval"
+
+    from vibecomfy.schema.validate import SchemaNormalizationMismatch
+
+    with pytest.raises(
+        SchemaNormalizationMismatch, match="changed since approval"
+    ):
+        apply_schema_normalization(api, proposal)
 
 
-def test_embedded_session_refuses_unapproved_normalization_before_queueing(
+def test_embedded_session_refuses_schema_drift_before_queueing(
     fake_comfy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _patch_watchdog_and_flush(monkeypatch)
-    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: _strict_provider())
+    runtime_provider = _strict_provider()
+    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: runtime_provider)
+    record, bundle = _approved(
+        _workflow_with_unknown_input(),
+        schema_provider=_authoring_provider_with_unknown_input(),
+    )
 
     async def run_once() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow_with_unknown_input())
+            await session.run(record, bundle)
         finally:
             await session.stop()
 
     with pytest.raises(SchemaNormalizationRequired):
         asyncio.run(run_once())
-    # The refusal happens at queue preparation: nothing was ever queued.
     assert fake_comfy.instances[0].queue_calls == []
 
 
-def test_embedded_session_records_approved_normalization_evidence_in_metadata(
+def test_embedded_session_queues_preapproved_normalized_record_and_metadata(
     fake_comfy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -491,26 +538,27 @@ def test_embedded_session_records_approved_normalization_evidence_in_metadata(
     _patch_watchdog_and_flush(monkeypatch)
     provider = _strict_provider()
     monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: provider)
-    workflow = _workflow_with_unknown_input()
-    proposal = propose_schema_normalization(workflow.compile("api"), provider)
-    assert proposal.ops
+    (record, bundle), proposal = _approved_normalized(
+        _workflow_with_unknown_input(), provider
+    )
 
     async def run_once() -> RunResult:
         session = EmbeddedSession()
         try:
-            return await session.run(workflow, normalize_approval=proposal.digest())
+            return await session.run(record, bundle)
         finally:
             await session.stop()
 
     result = asyncio.run(run_once())
-
-    assert fake_comfy.instances[0].queue_calls[0]["1"]["inputs"] == {"ckpt_name": "model-a.safetensors"}
-    metadata = session_module.json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
-    assert metadata["schema_normalization"] == [op.to_dict() for op in proposal.ops]
-    assert metadata["schema_normalization"][0]["field"] == "widget_0"
-    assert metadata["schema_normalization"][0]["before"] == "ui copy"
-    assert metadata["schema_normalization"][0]["after"] is None
-    assert metadata["schema_normalization"][0]["reason"]
+    queued = fake_comfy.instances[0].queue_calls[0]
+    assert queued == record.api_projection
+    metadata = session_module.json.loads(
+        Path(result.metadata_path).read_text(encoding="utf-8")
+    )
+    assert metadata["compiled_prompt"] == queued
+    assert metadata["api_digest"] == record.api_digest
+    assert "schema_normalization" not in metadata
+    assert proposal.to_dict()["ops"][0]["after"] is None
 
 
 def test_env_var_disables_gate(
@@ -522,7 +570,7 @@ def test_env_var_disables_gate(
     async def run_once() -> ServerSession:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
             return session
         finally:
             await session.stop()
@@ -689,9 +737,10 @@ def test_cache_only_prepare_reports_cache_mismatch_and_skipped_classes(tmp_path:
             return {"runtime_fingerprint": "fresh-runtime"}
 
     unavailable: list[str] = []
+    record, bundle = _approved(_workflow())
     api = asyncio.run(
         _prepare_prompt_async(
-            _workflow(),
+            record, bundle,
             backend="api",
             schema_provider=Provider(),
             on_unavailable=unavailable.append,
@@ -747,7 +796,7 @@ def test_embedded_session_rejects_schema_invalid_workflow(
     async def run_once() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -767,7 +816,7 @@ def test_server_session_rejects_schema_invalid_workflow(
     async def run_once() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -788,7 +837,7 @@ def test_embedded_session_schema_validate_env_off_ramp(
     async def run_once() -> EmbeddedSession:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
             return session
         finally:
             await session.stop()
@@ -814,7 +863,7 @@ def test_embedded_and_server_schema_validate_env_off_ramp_parity(
     async def run_embedded() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
             embedded_provider.append(session._schema_provider)
         finally:
             await session.stop()
@@ -822,7 +871,7 @@ def test_embedded_and_server_schema_validate_env_off_ramp_parity(
     async def run_server() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
             server_provider.append(session._schema_provider)
         finally:
             await session.stop()

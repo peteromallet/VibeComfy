@@ -52,10 +52,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         bundle.require_canonical_authority("workflow diagnosis")
         workflow = bundle.workflow
     except Exception as exc:
-        print("Layer: Python scratchpad import/build")
-        print(f"Error: {type(exc).__name__}: {exc}")
-        print("Next: fix the Python file until build() returns a VibeWorkflow.")
-        print(f"Port preflight: vibecomfy port check {args.path} --json")
+        payload = {
+            "status": "error",
+            "layer": "Python scratchpad import/build",
+            "errors": [f"{type(exc).__name__}: {exc}"],
+            "recommended_command": f"vibecomfy port check {args.path} --json",
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
     helper_issues = workflow.helper_diagnostics()
     helper_blockers = [issue for issue in helper_issues if issue.severity != "info"]
@@ -73,26 +76,6 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             for issue in helper_issues:
                 print(f"- {issue.message}")
             print(f"Next: {payload['recommended_command']}")
-        return 1
-    try:
-        _approved_record = bundle.compile(schema_provider=schema_provider)
-    except WorkflowReconciliationError as exc:
-        from vibecomfy.schema.ensure_capture import format_template_gap
-
-        payload = {
-            "status": "error",
-            "layer": "Schema reconciliation",
-            "errors": [str(exc)],
-            "missing_classes": list(exc.missing_classes),
-            "recommended_command": format_template_gap(args.path, exc.missing_classes),
-        }
-        emit(payload, json=json_output, text_renderer=_render_doctor_error)
-        return 1
-    except Exception as exc:
-        print("Layer: Python scratchpad import/build")
-        print(f"Error: {type(exc).__name__}: {exc}")
-        print("Next: fix the Python file until build() returns a VibeWorkflow.")
-        print(f"Port preflight: vibecomfy port check {args.path} --json")
         return 1
     if lint:
         for warning in _lint_untyped_raw_refs(Path(args.path)):
@@ -130,6 +113,39 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if missing_models:
         payload = {"status": "error", "missing_models": missing_models, "nodepack_warnings": drift_warnings, "suggested_patches": suggested_patches}
         emit(payload, json=json_output, text_renderer=lambda data: _render_list_section("Missing models", data["missing_models"], data))
+        return 1
+    # Compilation is an execution-readiness gate.  Run source-backed model
+    # diagnostics first so a missing local asset is reported with its exact
+    # path and source URL instead of being collapsed into a generic compile
+    # failure.  Raw/UI imports have already failed the canonical-authority
+    # check above and cannot reach this diagnostic path.
+    try:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+    except WorkflowReconciliationError as exc:
+        from vibecomfy.schema.ensure_capture import format_template_gap
+
+        payload = {
+            "status": "error",
+            "layer": "Schema reconciliation",
+            "errors": [str(exc)],
+            "missing_classes": list(exc.missing_classes),
+            "recommended_command": format_template_gap(args.path, exc.missing_classes),
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
+        return 1
+    except Exception as exc:
+        if not workflow.nodes:
+            errors = ["[empty_workflow] workflow contains no nodes"]
+        else:
+            errors = [f"{type(exc).__name__}: {exc}"]
+        payload = {
+            "status": "error",
+            "layer": "VibeWorkflow validation",
+            "errors": errors,
+            "nodepack_warnings": drift_warnings,
+            "suggested_patches": suggested_patches,
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
     warnings = _doctor_warnings(workflow)
     if warnings:
