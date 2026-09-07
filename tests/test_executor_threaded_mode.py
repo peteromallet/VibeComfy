@@ -168,7 +168,8 @@ def test_threaded_run_uses_execute_profile_closed_checkpoint_and_hard_cap() -> N
     )
 
     assert result.ok is True
-    assert result.graph is graph
+    assert result.graph == graph
+    assert result.graph is not graph
     assert seen["stage"] == "execute"
     assert seen["request"].max_batches == THREADED_MAX_AGENT_BATCHES
     assert seen["request"].pipeline_mode == "threaded"
@@ -258,7 +259,8 @@ def test_threaded_accepted_edit_survives_projection_failure() -> None:
     )
 
     assert result.ok is True
-    assert result.graph is graph
+    assert result.graph == graph
+    assert result.graph is not graph
     assert "edit landed" in result.reply
     assert "1 operation" in result.reply
     assert len(ended) == 1

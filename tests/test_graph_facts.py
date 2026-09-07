@@ -56,7 +56,7 @@ def test_widget_index_resolves_field_name_and_current_value() -> None:
 
     assert widget_field_name_for_index(graph, 2, 2) == "steps"
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
     assert fact.field_name == "steps"
     assert fact.widget_index == 2
     assert fact.raw_value == 20
@@ -70,7 +70,7 @@ def test_widget_index_resolves_field_name_and_current_value() -> None:
 def test_static_widget_is_overridden_and_inert_when_semantic_input_is_linked() -> None:
     graph = _linked_steps_graph()
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
 
     assert fact.field_name == "steps"
     assert fact.raw_value == 20
@@ -82,7 +82,7 @@ def test_static_widget_is_overridden_and_inert_when_semantic_input_is_linked() -
 def test_linked_source_value_is_resolved_for_simple_constant_widget_node() -> None:
     graph = _linked_steps_graph(source_value=77)
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
 
     assert fact.effective_value == 77
     assert fact.effective_value_known is True
@@ -99,7 +99,7 @@ def test_linked_source_value_is_resolved_for_simple_constant_widget_node() -> No
 def test_linked_source_value_is_resolved_for_primitive_with_control_widget() -> None:
     graph = _linked_steps_graph_with_control_widget(source_value=77)
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
 
     assert fact.effective_value == 77
     assert fact.effective_value_known is True
@@ -124,7 +124,7 @@ def test_linked_source_reports_shared_output_fanout() -> None:
     )
     graph["links"].append([11, 1, 0, 3, 0, "INT"])
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
 
     assert fact.source is not None
     assert fact.source.outgoing_link_count == 2
@@ -148,7 +148,7 @@ def test_linked_source_follows_single_reroute_passthrough() -> None:
         [10, 3, 0, 2, 0, "INT"],
     ]
 
-    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, widget_index=2))
+    fact = inspect_effective_field(graph, GraphFieldTarget(node_id=2, field_name="steps", widget_index=2))
 
     assert fact.effective_value == 77
     assert fact.effective_value_known is True
@@ -202,7 +202,7 @@ def test_effective_comparison_ignores_overridden_static_widget_change() -> None:
     change = compare_effective_field(
         before,
         after,
-        GraphFieldTarget(node_id=2, widget_index=2),
+        GraphFieldTarget(node_id=2, field_name="steps", widget_index=2),
     )
 
     assert change.before.raw_value == 20

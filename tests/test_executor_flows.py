@@ -153,7 +153,7 @@ def test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph(
     """The direct terminal reply path cannot bypass node-ID grounding."""
     request = ExecutorRequest(
         query="change the checkpoint",
-        graph={"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}], "links": []},
+        graph={"nodes": [{"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"}], "links": []},
         profile="default",
     )
     plan = ClassifyDecision(
@@ -169,6 +169,7 @@ def test_terminal_no_candidate_reply_still_grounds_ids_against_original_graph(
                 "graph_unchanged": True,
                 "no_candidate_reason": "no_changes",
                 "outcome": {"kind": "noop"},
+                "terminal_state": "no_candidate",
                 "accepted_batch": [],
             },
         ):
@@ -291,6 +292,7 @@ def test_terminal_no_candidate_response_does_not_promote_rollback_graph() -> Non
         "outcome": {"kind": "noop"},
         "graph_unchanged": True,
         "no_candidate_reason": "no_changes",
+        "terminal_state": "no_candidate",
         "apply_eligible": True,
     }
 
@@ -555,6 +557,7 @@ def _fake_handle_agent_edit_pure_clarify(payload: dict, **kwargs: Any) -> dict:
             "kind": "clarify",
             "question": "Hotshot nodes are not currently installed.",
         },
+        "terminal_state": "no_candidate",
         "apply_eligible": False,
         "apply_eligibility": {
             "applyable": False,
@@ -1055,7 +1058,7 @@ class TestSimpleEditFlow:
         self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Session ID is forwarded to handle_agent_edit."""
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="edit graph",
             graph=input_graph,
@@ -1076,7 +1079,7 @@ class TestSimpleEditFlow:
         self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """Edit result serializes correctly."""
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="add KSampler",
             graph=input_graph,
@@ -1097,7 +1100,7 @@ class TestSimpleEditFlow:
         self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
         """A no-candidate agent-edit response must not become an applyable candidate."""
-        input_graph = {"nodes": [{"id": 1, "type": "KSampler"}]}
+        input_graph = {"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="Switch to generating 16 frames with Hotshot",
             graph=input_graph,
@@ -1307,7 +1310,7 @@ class TestGraphDescribeFlow:
     ) -> None:
         """When research fails (empty corpus), the pipeline still completes."""
 
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="describe and edit my graph",
             graph=input_graph,
@@ -1737,7 +1740,7 @@ class TestExecutorEdgeCases:
         ) as mock_edit:
             request = ExecutorRequest(
                 query="just chatting",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
             result = run_executor(request)
@@ -1850,7 +1853,7 @@ class TestExecutorFailureHandling:
         mock_edit.side_effect = RuntimeError("Edit engine crashed")
         request = ExecutorRequest(
             query="edit graph",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -2508,7 +2511,7 @@ def test_research_package_usable_gate_matrix() -> None:
 
 def test_run_executor_implements_when_adapt_research_never(profile_dir: Path) -> None:
     """RC2 end-to-end: never research on adapt with a graph still implements."""
-    def never_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "") -> tuple[AgentResearchTrace, EvidencePack]:
+    def never_research_stage(*, route: str, question: str, spec: Any, research_brief: str = "", **kwargs: Any) -> tuple[AgentResearchTrace, EvidencePack]:
         del route, spec, research_brief
         return _failed_research_trace(status="ok", verdict="refine"), EvidencePack(
             artifacts={
@@ -2628,6 +2631,7 @@ def test_research_as_answer_reply_is_substantive_when_research_never_empty(profi
             question: str,
             spec: Any,
             research_brief: str = "",
+            **kwargs: Any,
         ) -> tuple[AgentResearchTrace, EvidencePack]:
             del route, spec, research_brief
             question_artifact = EvidenceArtifact(
@@ -3044,7 +3048,7 @@ class TestRouteGateFlows:
         profile_dir: Path,
     ) -> None:
         """revise report: research=None, implementation present, route=revise."""
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="edit the graph",
             graph=input_graph,
@@ -3077,7 +3081,7 @@ class TestRouteGateFlows:
         """revise uses handle_agent_edit as an internal candidate engine."""
         request = ExecutorRequest(
             query="edit the graph",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -3136,7 +3140,7 @@ class TestRouteGateFlows:
 
         request = ExecutorRequest(
             query="what's in my graph?",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -3165,7 +3169,7 @@ class TestRouteGateFlows:
         ) as mock_edit:
             request = ExecutorRequest(
                 query="what do you mean?",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
             result = run_executor(request)
@@ -3283,7 +3287,7 @@ class TestRouteGateFlows:
         """adapt report: research present, implementation present."""
 
 
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="adapt workflow precedent",
             graph=input_graph,
@@ -3315,7 +3319,7 @@ class TestRouteGateFlows:
 
         request = ExecutorRequest(
             query="adapt workflow precedent",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -3341,7 +3345,7 @@ class TestRouteGateFlows:
         profile_dir: Path,
     ) -> None:
         """WebSocket classify progress event emits route and task for revise."""
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="set seed to 42",
             graph=input_graph,
@@ -3379,7 +3383,7 @@ class TestRouteGateFlows:
 
         request = ExecutorRequest(
             query="explain my graph",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             session_id="sess-inspect",
             profile="default",
         )
@@ -3446,7 +3450,7 @@ class TestRouteGateFlows:
         """WebSocket classify progress event emits route and task for adapt."""
 
 
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="research precedent for audio lipsync",
             graph=input_graph,
@@ -3481,7 +3485,7 @@ class TestRouteGateFlows:
     ) -> None:
         """revise: research phase event emitted with status='skipped'."""
         with mock.patch("vibecomfy.executor.core._ws_send") as mock_ws_send:
-            input_graph = {"nodes": [{"id": 1}]}
+            input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
             request = ExecutorRequest(
                 query="set seed to 42",
                 graph=input_graph,
@@ -3587,7 +3591,7 @@ class TestRouteGateFlows:
         profile_dir: Path,
     ) -> None:
         """Without explicit route, legacy plan.implement=True still runs implement."""
-        input_graph = {"nodes": [{"id": 1}]}
+        input_graph = {"nodes": [{"id": 1, "class_type": "KSampler"}]}
         request = ExecutorRequest(
             query="edit graph",
             graph=input_graph,
@@ -3628,7 +3632,7 @@ class TestRouteGateFlows:
             result = run_executor(
                 ExecutorRequest(
                     query="maybe edit this graph",
-                    graph={"nodes": [{"id": 1}]},
+                    graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                     profile="default",
                 )
             )
@@ -3727,7 +3731,7 @@ class TestRouteGateFlows:
         result = run_executor(
             ExecutorRequest(
                 query="adapt a precedent",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
         )
@@ -4514,7 +4518,7 @@ class TestRouteIntentBoundaries:
         with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify_side_effect):
             request = ExecutorRequest(
                 query=f"{expected_route} request",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
             result = run_executor(request)
@@ -4551,7 +4555,7 @@ class TestRouteIntentBoundaries:
 
         request = ExecutorRequest(
             query="make it more cinematic",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -4585,7 +4589,7 @@ class TestRouteIntentBoundaries:
 
         request = ExecutorRequest(
             query="change the positive prompt to 'a red rose'",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -4619,7 +4623,7 @@ class TestRouteIntentBoundaries:
 
         request = ExecutorRequest(
             query="add the Wan control LoRA chain from the Kijai template",
-            graph={"nodes": [{"id": 1}]},
+            graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
             profile="default",
         )
         result = run_executor(request)
@@ -4703,7 +4707,7 @@ class TestApplyEligibilityMatrix:
         with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify_side_effect):
             request = ExecutorRequest(
                 query="route eligibility check",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
             result = run_executor(request)
@@ -4745,7 +4749,7 @@ class TestApplyEligibilityMatrix:
         with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=bad_edit):
             request = ExecutorRequest(
                 query="what does this do?",
-                graph={"nodes": [{"id": 1}]},
+                graph={"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 profile="default",
             )
             result = run_executor(request)
@@ -5812,7 +5816,7 @@ def test_staged_implement_failure_reports_retained_turn(
 ) -> None:
     request = ExecutorRequest(
         query="wire the audio output",
-        graph={"nodes": [{"id": 1}], "links": []},
+        graph={"nodes": [{"id": 1, "class_type": "KSampler"}], "links": []},
         profile="default",
     )
     result = run_executor(request)
