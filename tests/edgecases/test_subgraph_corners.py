@@ -17,7 +17,7 @@ def test_subgraph_empty_definitions_no_crash() -> None:
     """Empty definitions dict should not cause crashes during conversion."""
     wf = VibeWorkflow(
         "empty-defs",
-        WorkflowSource("source/empty_defs", source_type="api"),
+        WorkflowSource("empty-defs", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     result = port_convert_workflow(wf, raw_workflow={"definitions": {}})
@@ -29,7 +29,7 @@ def test_subgraph_empty_list_no_crash() -> None:
     """Empty subgraphs list should not cause crashes."""
     wf = VibeWorkflow(
         "empty-subgraphs",
-        WorkflowSource("source/empty_subgraphs", source_type="api"),
+        WorkflowSource("empty-subgraphs", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     result = port_convert_workflow(
@@ -43,7 +43,7 @@ def test_ready_template_with_raw_workflow_subgraphs() -> None:
     """Ready template emission with raw_workflow containing subgraph definitions."""
     wf = VibeWorkflow(
         "sub-ready",
-        WorkflowSource("source/sub_ready", source_type="api"),
+        WorkflowSource("sub-ready", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode(

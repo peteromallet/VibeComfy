@@ -28,6 +28,6 @@ def empty_hunyuan_video(
         "vibecomfy.blocks.latent.empty_hunyuan_video",
         "EmptyHunyuanLatentVideo",
         block_id=block_id,
-        widgets={"widget_0": shape.width, "widget_1": shape.height, "widget_2": shape.length, "widget_3": shape.batch_size},
+        inputs={"width": shape.width, "height": shape.height, "length": shape.length, "batch_size": shape.batch_size},
     )
     return Handles(latent=Handle(node_id=node.id, output_slot=0, name="latent"))

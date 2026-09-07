@@ -36,12 +36,12 @@ WRITE_MODE = os.environ.get("VIBECOMFY_CHARACTERIZATION_WRITE") == "1"
 _FLAT_SCHEMA = None
 
 
-def _flat_schema_provider():
+def _flat_schema_provider(graph: dict[str, Any]):
     """Return a minimal schema provider for the flat.json fixture."""
     from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
     class SP:
-        def get_schema(self, ct: str) -> Any:
+        def schemas(self) -> dict[str, NodeSchema]:
             return {
                 "CheckpointLoaderSimple": NodeSchema(
                     "CheckpointLoaderSimple",
@@ -119,9 +119,20 @@ def _flat_schema_provider():
                     {"": InputSpec("*")},
                     [OutputSpec("*", "")],
                 ),
-            }.get(ct)
+            }
 
-    return SP()
+        def get_schema(self, ct: str) -> Any:
+            return self.schemas().get(ct)
+
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema.types import FrozenSchemaSnapshotProvider
+
+    provider = SP()
+    return FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(schema_provider=provider, graph=graph)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +183,7 @@ def test_agent_edit_roundtrip(case_name: str) -> None:
     batch_code = (case_dir / "batch.py.txt").read_text(encoding="utf-8").strip()
 
     # --- Create session ---
-    session = EditSession(input_ui, schema_provider=_flat_schema_provider())
+    session = EditSession(input_ui, schema_provider=_flat_schema_provider(input_ui))
     session.render()
 
     # --- Apply batch ---

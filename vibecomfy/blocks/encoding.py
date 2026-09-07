@@ -19,14 +19,14 @@ def text_pair(
         "vibecomfy.blocks.encoding.text_pair",
         "CLIPTextEncode",
         block_id=block_id,
-        widgets={"widget_0": positive},
+        inputs={"text": positive},
     )
     neg = add_block_node(
         workflow,
         "vibecomfy.blocks.encoding.text_pair",
         "CLIPTextEncode",
         block_id=block_id,
-        widgets={"widget_0": negative},
+        inputs={"text": negative},
     )
     connect(workflow, clip, pos, "clip")
     connect(workflow, clip, neg, "clip")
@@ -50,7 +50,7 @@ def clip_vision(
         "vibecomfy.blocks.encoding.clip_vision",
         "CLIPVisionEncode",
         block_id=block_id,
-        widgets={"widget_0": crop},
+        inputs={"crop": crop},
     )
     connect(workflow, clip_vision, node, "clip_vision")
     connect(workflow, image, node, "image")

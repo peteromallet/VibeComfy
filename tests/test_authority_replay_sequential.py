@@ -34,18 +34,52 @@ class _ClipSchemaProvider:
     """Minimal provider that knows CLIPTextEncode — enough to add nodes offline."""
 
     def __init__(self) -> None:
-        self._schema = NodeSchema(
-            class_type="CLIPTextEncode",
-            pack="core",
-            inputs={
-                "text": InputSpec(type="STRING", required=True),
-                "clip": InputSpec(type="CLIP", required=True),
-            },
-            outputs=[OutputSpec(type="CONDITIONING", name="CONDITIONING")],
-        )
+        self._schemas = {
+            "CLIPTextEncode": NodeSchema(
+                class_type="CLIPTextEncode",
+                pack="core",
+                inputs={
+                    "text": InputSpec(type="STRING", required=True),
+                    "clip": InputSpec(type="CLIP", required=True),
+                },
+                outputs=[OutputSpec(type="CONDITIONING", name="CONDITIONING")],
+            ),
+            "EmptyLatentImage": NodeSchema(
+                class_type="EmptyLatentImage",
+                pack="core",
+                inputs={
+                    "width": InputSpec(type="INT"),
+                    "height": InputSpec(type="INT"),
+                    "batch_size": InputSpec(type="INT"),
+                },
+                outputs=[OutputSpec(type="LATENT", name="LATENT")],
+            ),
+            "KSampler": NodeSchema(
+                class_type="KSampler",
+                pack="core",
+                inputs={"seed": InputSpec(type="INT")},
+                outputs=[OutputSpec(type="LATENT", name="LATENT")],
+            ),
+        }
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self._schema if class_type == "CLIPTextEncode" else None
+        return self._schemas.get(class_type)
+
+    def schemas(self) -> dict[str, NodeSchema]:
+        return dict(self._schemas)
+
+
+def _frozen_provider(submit: dict):
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema.types import FrozenSchemaSnapshotProvider
+
+    return FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(
+            schema_provider=_ClipSchemaProvider(), graph=submit
+        )
+    )
 
 
 def _submit_graph() -> dict:
@@ -84,8 +118,8 @@ def _sequential_candidate(submit: dict, envelope: dict, schema_provider) -> dict
 
 def test_replay_matches_executor_candidate_on_multi_add_with_remove() -> None:
     """The authority must accept the candidate sequential interpret produces."""
-    schema_provider = _ClipSchemaProvider()
     submit = _submit_graph()
+    schema_provider = _frozen_provider(submit)
     envelope = _envelope(
         [
             {"op": "remove_node", "target": ["", "2"]},
@@ -123,8 +157,8 @@ def test_replay_matches_executor_candidate_on_multi_add_with_remove() -> None:
 
 def test_recompute_apply_is_sequential_invariant() -> None:
     """For any delta, recompute_apply must equal one-at-a-time interpret+emit."""
-    schema_provider = _ClipSchemaProvider()
     submit = _submit_graph()
+    schema_provider = _frozen_provider(submit)
     envelope = _envelope(
         [
             {"op": "set_node_field", "target": ["", "5", "seed"], "value": 99},

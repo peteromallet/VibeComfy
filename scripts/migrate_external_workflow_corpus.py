@@ -21,6 +21,7 @@ from typing import Any
 
 from vibecomfy.ingest import from_envelope
 from vibecomfy.testing.canonical import canonical_form
+from vibecomfy.workflow import NodeMode, mode_to_litegraph
 
 
 def _json_pointer(parts: tuple[str, ...]) -> str:
@@ -151,8 +152,13 @@ def _migrate_envelope(raw: dict[str, Any], *, filename: str) -> tuple[dict[str, 
     mode_values: dict[str, int] = {}
     for node_id, entry in migrated["nodes"].items():
         mode = entry.get("mode")
-        if not isinstance(mode, int) or isinstance(mode, bool):
-            raise ValueError(f"{filename}: node {node_id!r} mode is not an integer: {mode!r}")
+        if isinstance(mode, NodeMode):
+            mode = mode_to_litegraph(mode)
+            entry["mode"] = mode
+        elif isinstance(mode, bool) or not isinstance(mode, int) or mode not in (0, 2, 4):
+            raise ValueError(
+                f"{filename}: node {node_id!r} mode is not a valid LiteGraph mode: {mode!r}"
+            )
         if "mode" not in raw_nodes[node_id]:
             modes_added += 1
             old_metadata = raw_nodes[node_id].get("metadata") or {}

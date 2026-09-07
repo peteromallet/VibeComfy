@@ -18,7 +18,7 @@ def test_unknown_class_type_no_crash() -> None:
     """Unknown class types should not crash conversion."""
     wf = VibeWorkflow(
         "unknown-ct",
-        WorkflowSource("source/unknown_ct", source_type="api"),
+        WorkflowSource("unknown-ct", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",
@@ -36,7 +36,7 @@ def test_widget_prefixed_inputs_normalized() -> None:
     """widget_N prefixed inputs should be normalized during conversion."""
     wf = VibeWorkflow(
         "widget-prefix",
-        WorkflowSource("source/widget_prefix", source_type="api"),
+        WorkflowSource("widget-prefix", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",
@@ -49,14 +49,16 @@ def test_widget_prefixed_inputs_normalized() -> None:
     assert result.validation.ok
     # widget_0 should be resolved to a proper name (image) for LoadImage
     # The emitted text should NOT contain the raw widget_0 for this known class
-    assert "widget_0" not in result.text.lower()
+    assert "image='test_image.png'" in result.text
+    # Raw widget evidence is retained separately from the typed constructor input.
+    assert "wf.nodes['1'].widgets = {'widget_0': 'test_image.png'}" in result.text
 
 
 def test_link_edge_handling() -> None:
     """Edges between nodes should be preserved as proper links, not raw arrays."""
     wf = VibeWorkflow(
         "link-test",
-        WorkflowSource("source/link_test", source_type="api"),
+        WorkflowSource("link-test", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["1"].metadata["output_names"] = ["image"]
@@ -78,7 +80,7 @@ def test_broadcast_source_handling() -> None:
     """Nodes that broadcast to multiple targets should be handled."""
     wf = VibeWorkflow(
         "broadcast",
-        WorkflowSource("source/broadcast", source_type="api"),
+        WorkflowSource("broadcast", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["1"].metadata["output_names"] = ["image"]

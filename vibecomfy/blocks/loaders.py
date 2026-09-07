@@ -29,21 +29,21 @@ def unet_clip_vae(
         "vibecomfy.blocks.loaders.unet_clip_vae",
         "UNETLoader",
         block_id=block_id,
-        widgets={"widget_0": names.unet_name, "widget_1": names.unet_weight_dtype},
+        inputs={"unet_name": names.unet_name, "weight_dtype": names.unet_weight_dtype},
     )
     clip = add_block_node(
         workflow,
         "vibecomfy.blocks.loaders.unet_clip_vae",
         "CLIPLoader",
         block_id=block_id,
-        widgets={"widget_0": names.clip_name, "widget_1": names.clip_type, "widget_2": names.clip_device},
+        inputs={"clip_name": names.clip_name, "type": names.clip_type, "device": names.clip_device},
     )
     vae = add_block_node(
         workflow,
         "vibecomfy.blocks.loaders.unet_clip_vae",
         "VAELoader",
         block_id=block_id,
-        widgets={"widget_0": names.vae_name},
+        inputs={"vae_name": names.vae_name},
     )
     return Handles(
         unet=Handle(node_id=unet.id, output_slot=0, name="unet"),
@@ -65,7 +65,7 @@ def clip_vision(
         "vibecomfy.blocks.loaders.clip_vision",
         "CLIPVisionLoader",
         block_id=block_id,
-        widgets={"widget_0": clip_name},
+        inputs={"clip_name": clip_name},
     )
     return Handles(clip_vision=Handle(node_id=node.id, output_slot=0, name="clip_vision"))
 
@@ -83,6 +83,7 @@ def load_image(
         "vibecomfy.blocks.loaders.load_image",
         "LoadImage",
         block_id=block_id,
-        widgets={"widget_0": image, "widget_1": upload},
+        inputs={"image": image},
     )
+    node.metadata["widget_kwargs"]["upload"] = upload
     return Handles(image=Handle(node_id=node.id, output_slot=0, name="image"))

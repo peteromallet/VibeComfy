@@ -20,7 +20,7 @@ def add_block_node(
     # `_provenance` is a reserved keyword on add_node; pop it so it never
     # leaks into node.inputs and forward it explicitly.
     explicit_provenance = raw_inputs.pop("_provenance", None)
-    node = workflow.add_node(class_type, _provenance=explicit_provenance, **raw_inputs)
+    node = workflow.node(class_type, _provenance=explicit_provenance, **raw_inputs).node
     widget_kwargs = dict(widgets or {})
     node.widgets.update(widget_kwargs)
     node.metadata.update(metadata or {})
