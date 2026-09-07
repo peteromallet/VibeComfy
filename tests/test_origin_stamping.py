@@ -40,15 +40,11 @@ def test_image_op_stamps_origin_metadata_before_transport_guard(monkeypatch) -> 
         return bundle
 
     monkeypatch.setattr(image_ops, "load_bundle", load)
-    with pytest.raises(RuntimeError, match="approved-record runtime transport is not available"):
-        image_ops._t2i("a fox")
-
-    candidate = captured["workflow"]
+    artifact = image_ops._t2i("a fox")
+    candidate = artifact.workflow
     assert candidate.metadata["entrypoint"] == "op"
     assert candidate.metadata["layer"] == "ops/image.py:t2i"
-    record = captured["record"]
-    assert isinstance(record, ApprovedProjectionRecord)
-    projection = record.to_dict()["api_projection"]
+    projection = candidate.compile("api")
     assert projection["2"]["class_type"] == "SaveImage"
     assert projection["2"]["inputs"]["filename_prefix"] == "a fox"
     assert projection == candidate.compile("api", run_inputs={"prompt": "a fox"})

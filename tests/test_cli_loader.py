@@ -12,7 +12,36 @@ import pytest
 import vibecomfy.cli_loader as cli_loader
 from vibecomfy.cli_loader import load_bundle, load_workflow_any
 from vibecomfy.security.provenance import Provenance
+from vibecomfy.artifacts import Image, Video
 from vibecomfy.workflow_bundle import WorkflowBundleError
+
+
+def _lazy_op_workflow(*, public: dict, output_type: str):
+    """Stub candidate for T14-lazy ops: construct returns Image/Video, run() fail-closes."""
+
+    class Workflow:
+        def __init__(self):
+            self.inputs = dict(public)
+            self.metadata = {}
+            self.outputs = [SimpleNamespace(output_type=output_type, node_id="2")]
+            self.bound: dict[str, object] = {}
+            self.touched = False
+            self.nodes = {"2": SimpleNamespace(id="2")}
+
+        def copy(self):
+            return type(self)()
+
+        def set_prompt(self, value):
+            self.bound["prompt"] = value
+            return self
+
+        def set_input(self, name, value):
+            self.bound[name] = value
+
+        def finalize_metadata(self):
+            return None
+
+    return Workflow
 
 
 def test_load_workflow_any_accepts_basename_ready_id() -> None:
@@ -662,45 +691,63 @@ def test_validation_compile_failure_does_not_fall_back_to_bare_validation(
     assert "approval failed" in capsys.readouterr().out
 
 
+class _LazyOpWorkflow:
+    """Duck-typed candidate for lazy ops: copy, set_prompt/set_input, Save* output."""
+
+    def __init__(self, *, inputs: dict, output_type: str, extra: dict | None = None):
+        self.inputs = dict(inputs)
+        self.metadata: dict = {}
+        self.bound: dict = {}
+        self.prompt: str | None = None
+        self.touched = False
+        self.outputs = [SimpleNamespace(output_type=output_type, node_id="2")]
+        self.nodes = {"2": SimpleNamespace()}
+        self._extra = extra or {}
+        for key, value in self._extra.items():
+            setattr(self, key, value)
+
+    def copy(self):
+        clone = type(self)(inputs=self.inputs, output_type=self.outputs[0].output_type, extra=self._extra)
+        clone.touched = self.touched
+        clone.metadata = dict(self.metadata)
+        return clone
+
+    def set_prompt(self, prompt: str):
+        self.prompt = prompt
+        return self
+
+    def set_input(self, name: str, value: object) -> None:
+        self.bound[name] = value
+
+    def register_input(self, *_args, **_kwargs) -> None:
+        return None
+
+    def finalize_metadata(self) -> None:
+        return None
+
+
 def test_image_op_approves_copy_then_fails_without_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
     from vibecomfy.ops import image
     from vibecomfy.router import RouterResult
-
-    class Workflow:
-        inputs = {"prompt": object()}
-        touched = False
-
-        def __init__(self):
-            self.metadata = {}
-
-        def copy(self):
-            return type(self)()
 
     class Patch:
         def apply(self, workflow):
             workflow.touched = True
 
-    class Bundle:
-        def __init__(self, workflow):
-            self.workflow = workflow
-            self.compiles: list[dict[str, object]] = []
-
-        def compile(self, **kwargs):
-            self.compiles.append(kwargs)
-            return object()
-
-    workflow = Workflow()
-    original = Bundle(workflow)
-    approved = Bundle(workflow)
+    original_workflow = _LazyOpWorkflow(inputs={"prompt": object()}, output_type="SaveImage")
+    bundle = SimpleNamespace(workflow=original_workflow)
     monkeypatch.setattr(image, "pick", lambda *_args, **_kwargs: RouterResult("template", [Patch()], []))
-    bundles = iter([original, approved])
-    monkeypatch.setattr(image, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    monkeypatch.setattr(image, "load_bundle", lambda *_args, **_kwargs: bundle)
 
-    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
-        image._t2i("prompt")
-    assert approved.compiles[0]["run_inputs"] == {"prompt": "prompt"}
-    assert original.workflow.touched is False
-    assert original.workflow.metadata == {}
+    artifact = image._t2i("prompt")
+    assert artifact.kind == "image"
+    assert artifact.workflow is not original_workflow
+    assert artifact.workflow.touched is True
+    assert artifact.workflow.prompt == "prompt"
+    assert artifact.workflow.bound["prompt"] == "prompt"
+    assert original_workflow.touched is False
+    assert original_workflow.metadata == {}
+    assert original_workflow.prompt is None
 
 
 def test_image_op_rejects_non_public_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -724,35 +771,18 @@ def test_ops_bind_model_when_public_input_is_declared(
 
     module = image if operation == "image" else video
     function = module._t2i if operation == "image" else module._t2v if operation == "t2v" else module._i2v
-
-    class Workflow:
-        def __init__(self):
-            self.inputs = {"prompt": object(), "model": object()}
-            self.metadata = {}
-            if operation == "i2v":
-                self.inputs["image"] = object()
-
-        def copy(self):
-            return type(self)()
-
-    class Bundle:
-        def __init__(self):
-            self.workflow = Workflow()
-            self.kwargs = None
-
-        def compile(self, **kwargs):
-            self.kwargs = kwargs
-            return object()
-
-    original, approved = Bundle(), Bundle()
+    output_type = "SaveImage" if operation == "image" else "SaveVideo"
+    inputs = {"prompt": object(), "model": object()}
+    if operation == "i2v":
+        inputs["image"] = object()
+    original = _LazyOpWorkflow(inputs=inputs, output_type=output_type)
     monkeypatch.setattr(module, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
-    bundles = iter([original, approved])
-    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=original))
     args = ("prompt",) if operation == "image" or operation == "t2v" else ("/tmp/frame.png", "prompt")
-    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
-        function(*args, model="model-id")
-
-    assert approved.kwargs["run_inputs"]["model"] == "model-id"
+    artifact = function(*args, model="model-id")
+    assert artifact.workflow is not original
+    assert artifact.workflow.bound["model"] == "model-id"
+    assert original.bound == {}
 
 
 @pytest.mark.parametrize("operation", ["image", "t2v", "i2v"])
@@ -764,62 +794,30 @@ def test_ops_leave_routing_model_out_when_not_public(
 
     module = image if operation == "image" else video
     function = module._t2i if operation == "image" else module._t2v if operation == "t2v" else module._i2v
-
-    class Workflow:
-        def __init__(self):
-            self.inputs = {"prompt": object()}
-            self.metadata = {}
-            if operation == "i2v":
-                self.inputs["image"] = object()
-
-        def copy(self):
-            return type(self)()
-
-    class Bundle:
-        def __init__(self):
-            self.workflow = Workflow()
-            self.kwargs = None
-
-        def compile(self, **kwargs):
-            self.kwargs = kwargs
-            return object()
-
-    original, approved = Bundle(), Bundle()
+    output_type = "SaveImage" if operation == "image" else "SaveVideo"
+    inputs = {"prompt": object()}
+    if operation == "i2v":
+        inputs["image"] = object()
+    original = _LazyOpWorkflow(inputs=inputs, output_type=output_type)
     monkeypatch.setattr(module, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
-    bundles = iter([original, approved])
-    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: next(bundles))
+    monkeypatch.setattr(module, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=original))
     args = ("prompt",) if operation == "image" or operation == "t2v" else ("/tmp/frame.png", "prompt")
-    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
-        function(*args, model="routing-only")
-
-    assert "model" not in approved.kwargs["run_inputs"]
+    artifact = function(*args, model="routing-only")
+    assert "model" not in artifact.workflow.bound
 
 
 def test_video_op_binds_only_public_inputs_before_t14(monkeypatch: pytest.MonkeyPatch) -> None:
     from vibecomfy.ops import video
     from vibecomfy.router import RouterResult
 
-    class Workflow:
-        inputs = {"prompt": object(), "frames": object(), "fps": object(), "seed": object()}
-
-        def copy(self):
-            return type(self)()
-
-    class Bundle:
-        workflow = Workflow()
-
-        def compile(self, **kwargs):
-            self.kwargs = kwargs
-            return object()
-
-    original = Bundle()
-    approved = Bundle()
+    original = _LazyOpWorkflow(
+        inputs={"prompt": object(), "frames": object(), "fps": object(), "seed": object()},
+        output_type="SaveVideo",
+    )
     monkeypatch.setattr(video, "pick", lambda *_args, **_kwargs: RouterResult("template", [], []))
-    bundles = iter([original, approved])
-    monkeypatch.setattr(video, "load_bundle", lambda *_args, **_kwargs: next(bundles))
-    with pytest.raises(RuntimeError, match="T14 runtime boundary"):
-        video._t2v("prompt", length=25, fps=24, seed=8)
-    assert approved.kwargs["run_inputs"] == {"prompt": "prompt", "frames": 25, "fps": 24, "seed": 8}
+    monkeypatch.setattr(video, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=original))
+    artifact = video._t2v("prompt", length=25, fps=24, seed=8)
+    assert artifact.workflow.bound == {"prompt": "prompt", "frames": 25, "fps": 24, "seed": 8}
 
 
 def test_inspect_uses_record_without_bare_validation(monkeypatch: pytest.MonkeyPatch) -> None:
