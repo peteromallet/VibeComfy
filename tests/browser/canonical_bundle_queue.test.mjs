@@ -100,6 +100,71 @@ function pythonApprovedFixture(t, revisionId = "t19-python-revision", profile = 
   return null;
 }
 
+const PYTHON_READY_CLI_FIXTURE_CODE = `
+import argparse
+import contextlib
+import hashlib
+import io
+import json
+from types import SimpleNamespace
+from vibecomfy.commands import run as run_command
+from vibecomfy.testing.canonical import canonical_digest
+
+captured = []
+def transport(record, bundle, **_kwargs):
+    captured.append((record, bundle))
+    return SimpleNamespace(run_id="t25-browser", prompt_id="t25-browser", metadata_path="offline.json")
+run_command.run_embedded_sync = transport
+args = argparse.Namespace(
+    path="smoke/empty_image_red", runtime="embedded", server_url=None,
+    backend="api", prompt=None, seed=None, steps=None, memory_profile=None,
+    ensure_packs=False, ensure_models=False, shared_models_root=None,
+    quiet_schema_degradation=False,
+)
+with contextlib.redirect_stdout(io.StringIO()):
+    exit_code = run_command._cmd_run(args)
+if exit_code != 0 or len(captured) != 1:
+    raise SystemExit("actual CLI path did not produce exactly one approved record")
+record, bundle = captured[0]
+api = bundle.workflow.compile("api")
+if canonical_digest(api) != record.api_digest:
+    raise SystemExit("independent bundle API digest differs from CLI approved record")
+canonical = record.to_canonical_bytes()
+print(json.dumps({
+    "canonical": canonical.decode("utf-8"),
+    "revision_id": bundle.revision_id,
+    "api_digest": canonical_digest(api),
+    "record_digest": hashlib.sha256(canonical).hexdigest(),
+    "node_count": len(api),
+}))
+`;
+
+function pythonReadyCliFixture(t) {
+  const configured = typeof process.env.VIBECOMFY_PYTHON === "string" && process.env.VIBECOMFY_PYTHON
+    ? process.env.VIBECOMFY_PYTHON
+    : null;
+  const candidates = [...new Set([configured, "python3", "python"].filter(Boolean))];
+  for (const executable of candidates) {
+    const result = spawnSync(executable, ["-c", PYTHON_READY_CLI_FIXTURE_CODE], {
+      cwd: WORKTREE_ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PYTHONPATH: [WORKTREE_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+        VIBECOMFY_HEADLESS: "1",
+      },
+    });
+    if (result.error?.code === "ENOENT") continue;
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(`Python ready CLI fixture failed under ${executable}: ${result.stderr || result.stdout}`);
+    }
+    return JSON.parse(result.stdout);
+  }
+  t.skip("no python interpreter available for the ready CLI fixture");
+  return null;
+}
+
 function approvedContext(fixture, panel, overrides = {}) {
   const revisionId = overrides.revisionId ?? fixture.receipt.revision_id;
   const parentRevision = overrides.parentRevision ?? "";
@@ -1138,6 +1203,48 @@ test("safe numeric spellings remain queueable", async (t) => {
     });
     assert.deepEqual(harness.app.queuePrompt("caller"), { prompt_id: "prompt-1" });
     assert.equal(harness.apiQueuePromptCalls.length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("actual ready CLI record keeps revision and API custody through browser queue", async (t) => {
+  const pythonFixture = pythonReadyCliFixture(t);
+  if (!pythonFixture) return;
+  const record = JSON.parse(pythonFixture.canonical);
+  assert.equal(record.revision_id, pythonFixture.revision_id);
+  assert.equal(sha256Hex(record.api_projection), pythonFixture.api_digest);
+  assert.equal(sha256HexFromString(pythonFixture.canonical), pythonFixture.record_digest);
+  assert.equal(Object.keys(record.api_projection).length, pythonFixture.node_count);
+
+  const { harness, extension, runtimeModule, runtime } = await setupQueueHarness();
+  try {
+    const fixture = {
+      canonical: pythonFixture.canonical,
+      receipt: {
+        revision_id: pythonFixture.revision_id,
+        api_digest: pythonFixture.api_digest,
+        record_digest: pythonFixture.record_digest,
+      },
+    };
+    const panel = extension.ensureAgentPanel();
+    seedApprovedRecord(runtimeModule, runtime, panel, fixture, {
+      revisionId: pythonFixture.revision_id,
+      apiDigest: pythonFixture.api_digest,
+      recordDigest: pythonFixture.record_digest,
+      recordRecordDigest: pythonFixture.record_digest,
+    });
+
+    assert.deepEqual(harness.app.queuePrompt("browser-stub"), { prompt_id: "prompt-1" });
+    assert.deepEqual(harness.apiQueuePromptCalls, [[0, {
+      output: record.api_projection,
+      workflow: record.ui_projection,
+    }]]);
+    const saved = runtimeModule.getScopeApprovedRecord("queue-scope");
+    assert.equal(saved.canonical, pythonFixture.canonical);
+    assert.equal(saved.revisionId, pythonFixture.revision_id);
+    assert.equal(saved.apiDigest, pythonFixture.api_digest);
+    assert.equal(saved.recordDigest, pythonFixture.record_digest);
   } finally {
     await harness.dispose();
   }
