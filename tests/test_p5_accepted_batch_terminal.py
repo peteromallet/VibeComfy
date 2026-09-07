@@ -49,6 +49,8 @@ from vibecomfy.comfy_nodes.agent.executor_response import (
     serialize_executor_result,
 )
 from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.edit.session import EditSession
+from vibecomfy.schema import capture_schema_snapshot, schema_payload_from_node_schema
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
@@ -78,8 +80,26 @@ def _schema(class_type: str, outputs: list[OutputSpec] | None = None) -> NodeSch
 
 
 class _Provider:
-    def __init__(self, schemas: dict[str, NodeSchema]) -> None:
+    def __init__(
+        self,
+        schemas: dict[str, NodeSchema],
+        *,
+        node_classes: dict[str, str] | None = None,
+    ) -> None:
         self._schemas = schemas
+        payloads = {
+            class_type: schema_payload_from_node_schema(class_type, schema)
+            for class_type, schema in schemas.items()
+        }
+        self.snapshot = capture_schema_snapshot(
+            class_types=sorted(payloads),
+            request_snapshot={
+                "contract_version": "schema_snapshot_v1",
+                "schemas": payloads,
+                "missing_classes": [],
+            },
+            node_classes=node_classes,
+        )
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)
@@ -103,7 +123,8 @@ def _batch_repl_provider() -> _Provider:
                 source_provider="test",
                 confidence=1.0,
             ),
-        }
+        },
+        node_classes={"1": "LoadImage", "2": "SaveImage"},
     )
 
 
@@ -117,9 +138,7 @@ def _ui_graph() -> dict:
     wf.connect("1.0", "2.images")
     graph = emit_ui_json(
         wf,
-        schema_provider=_Provider(
-            {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
-        ),
+        schema_provider=_batch_repl_provider(),
     )
     for node in graph["nodes"]:
         node.setdefault("properties", {})["vibecomfy_uid"] = str(node["id"])
@@ -145,16 +164,40 @@ def _run_turn(
     session_id: str = "p5-terminal",
 ):
     iterator = iter(responses)
+    graph = _ui_graph()
+    provider = _batch_repl_provider()
+    request = {
+        "graph": graph,
+        "workflow_id": _WORKFLOW_ID,
+        "task": "change the save prefix to after and finish",
+        "session_id": session_id,
+        "max_batches": 4,
+        "max_consecutive_errors": 2,
+    }
+    # Candidate publication binds to the exact revision that the admitted
+    # batch will produce.  Derive it through the real edit and bundle doors;
+    # fixed strings cannot prove the response belongs to this candidate.
+    first_batch = responses[0].get("batch") if responses else None
+    if isinstance(first_batch, str) and first_batch not in {"done()"} and not first_batch.startswith("clarify("):
+        from vibecomfy.workflow_bundle import capture_bundle
+
+        preview_session = EditSession(graph, schema_provider=provider)
+        preview = preview_session.apply_batch(first_batch)
+        assert preview.ok and preview.landed_ops
+        preview_path = tmp_path / f".{session_id}-candidate-preview.py"
+        captured = capture_bundle(
+            {**preview_session.working_ui, "workflow_id": _WORKFLOW_ID},
+            preview_path,
+            {"operation": "captured"},
+            schema_provider=provider,
+        )
+        request["revision_id"] = captured.revision_id
+        request["parent_revision"] = captured.parent_revision
+        preview_path.unlink(missing_ok=True)
+        preview_path.with_suffix(".vibe.json").unlink(missing_ok=True)
     return handle_agent_edit(
-        {
-            "graph": _ui_graph(),
-            "workflow_id": _WORKFLOW_ID,
-            "task": "change the save prefix to after and finish",
-            "session_id": session_id,
-            "max_batches": 4,
-            "max_consecutive_errors": 2,
-        },
-        schema_provider=_batch_repl_provider(),
+        request,
+        schema_provider=provider,
         deepseek_client=lambda _messages: next(iterator),
         session_root=tmp_path,
     )
