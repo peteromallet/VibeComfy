@@ -20,7 +20,9 @@ def _scenario_paths() -> list[Path]:
 
 def test_live_agentic_workflow_scenarios_have_source_ui_when_local_corpus_exists() -> None:
     root = repo_root()
-    if not (root / "external_workflows" / "corpus").is_dir():
+    ignored_corpus = root / "external_workflows" / "corpus"
+    # A two-file leftover directory is not the ignored full corpus this test needs.
+    if not ignored_corpus.is_dir() or len(list(ignored_corpus.glob("*.json"))) < 50:
         pytest.skip("external workflow corpus is local ignored data")
 
     missing: list[str] = []
