@@ -79,10 +79,10 @@
   "50": {
     "class_type": "WanImageToVideo",
     "inputs": {
-      "widget_0": 512,
-      "widget_1": 512,
-      "widget_2": 33,
-      "widget_3": 1,
+      "batch_size": 1,
+      "height": 512,
+      "length": 33,
+      "width": 512,
       "negative": [
         "7",
         0

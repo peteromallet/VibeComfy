@@ -133,26 +133,26 @@
   ],
   [
     "WanImageToVideo",
-    "widget_0",
+    "batch_size",
+    "1",
+    1
+  ],
+  [
+    "WanImageToVideo",
+    "height",
     "512",
     1
   ],
   [
     "WanImageToVideo",
-    "widget_1",
-    "512",
-    1
-  ],
-  [
-    "WanImageToVideo",
-    "widget_2",
+    "length",
     "33",
     1
   ],
   [
     "WanImageToVideo",
-    "widget_3",
-    "1",
+    "width",
+    "512",
     1
   ]
 ]
