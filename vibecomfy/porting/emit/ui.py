@@ -4631,14 +4631,44 @@ def _overlay_validated_presentation(
     if not isinstance(side_links, list):
         raise ValueError("validated sidecar links must be a list")
     uid_by_old_id = {native_id: uid for uid, native_id in old_id_by_uid.items()}
+    wf_by_uid = {
+        str(node.uid): node
+        for node in getattr(wf, "nodes", {}).values()
+        if getattr(node, "uid", None)
+    }
+
+    def _semantic_port(node_obj: Any, ui_node: Mapping[str, Any] | None, slot: int, direction: str) -> int:
+        roster = getattr(node_obj, f"native_{direction}_names", None)
+        sockets = ui_node.get("outputs" if direction == "output" else "inputs") if isinstance(ui_node, Mapping) else None
+        if not isinstance(roster, list) or not isinstance(sockets, list):
+            return slot
+        if 0 <= slot < len(sockets) and isinstance(sockets[slot], Mapping):
+            name = sockets[slot].get("name")
+            matches = [
+                index for index, roster_name in enumerate(roster)
+                if isinstance(name, str) and roster_name == name
+            ]
+            if len(matches) == 1:
+                return matches[0]
+        return slot
+
     emitted_by_key: dict[tuple[str, int, str, int], list[list[Any]]] = defaultdict(list)
     for link in envelope.get("links", []):
         if not isinstance(link, (list, tuple)) or len(link) < 6:
             continue
         source_uid = uid_by_old_id.get(link[1])
         target_uid = uid_by_old_id.get(link[3])
-        if source_uid is not None and target_uid is not None:
-            emitted_by_key[(source_uid, int(link[2]), target_uid, int(link[4]))].append(list(link))
+        if source_uid is None or target_uid is None:
+            continue
+        from_port = int(link[2])
+        to_port = int(link[4])
+        source_node = wf_by_uid.get(source_uid)
+        target_node = wf_by_uid.get(target_uid)
+        if source_node is not None:
+            from_port = _semantic_port(source_node, by_uid.get(source_uid), from_port, "output")
+        if target_node is not None:
+            to_port = _semantic_port(target_node, by_uid.get(target_uid), to_port, "input")
+        emitted_by_key[(source_uid, from_port, target_uid, to_port)].append(list(link))
 
     rebuilt_links: list[list[Any]] = []
     used_link_ids: set[int] = set()
