@@ -151,11 +151,13 @@ def _authoring_schema_provider():
     return get_authoring_schema_provider()
 
 
-def _api_for_source(path: Path) -> dict[str, Any]:
-    return normalize_to_api(
-        load_workflow_json(path),
-        schema_provider=_authoring_schema_provider(),
-    )
+def _api_for_source(path: Path, *, named_widgets: bool = False) -> dict[str, Any]:
+    if named_widgets:
+        return normalize_to_api(
+            load_workflow_json(path),
+            schema_provider=_authoring_schema_provider(),
+        )
+    return normalize_to_api(load_workflow_json(path))
 
 
 def _api_for_ready(template_id: str) -> dict[str, Any]:
@@ -211,7 +213,10 @@ def _comparison_for(row: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        source_api = _api_for_source(source_path)
+        source_api = _api_for_source(
+            source_path,
+            named_widgets=template_id in STRICT_ROUNDTRIP_TEMPLATE_IDS,
+        )
         ready_api = _api_for_ready(template_id)
     except Exception as exc:
         return {
