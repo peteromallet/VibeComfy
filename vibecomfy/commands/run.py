@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.workflow_bundle import WorkflowAuthorityError
 from vibecomfy.runtime.run import run_embedded_sync, run_sync
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
 from vibecomfy.schema import get_schema_provider
@@ -71,7 +72,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 args.path,
                 schema_provider=schema_provider,
             )
+            bundle.require_canonical_authority("workflow execution")
             workflow = bundle.workflow
+        except WorkflowAuthorityError as exc:
+            print(f"run failed: {exc}", file=sys.stderr)
+            return 1
         except SyntaxError as exc:
             _print_source_migration_failure(args.path, f"SyntaxError: {exc}")
             return 1

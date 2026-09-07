@@ -28,7 +28,9 @@ def _load_workflow(value: str) -> VibeWorkflow:
     # Analysis is a production inspection boundary.  Resolve through the
     # canonical bundle seam; callers consume its workflow only for report
     # rendering and never treat a bare compatibility result as authority.
-    return load_bundle(value).workflow
+    bundle = load_bundle(value)
+    bundle.require_canonical_authority("workflow analysis")
+    return bundle.workflow
 
 
 def _cmd_info(args: argparse.Namespace) -> int:

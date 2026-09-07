@@ -73,6 +73,7 @@ async def run(
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    bundle.require_canonical_authority("runtime execution")
     workflow = bundle.workflow
     run_id, run_dir = _allocate_run_dir("run")
     log_path = run_dir / "comfy.log"
@@ -264,6 +265,7 @@ async def run_embedded(
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    bundle.require_canonical_authority("runtime execution")
     session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(bundle.workflow))
     try:
         return await session.run(

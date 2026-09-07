@@ -69,18 +69,16 @@ vibecomfy run <workflow.py> --runtime server
 
 ## RunPod
 
-Use RunPod when requested or when local execution is unavailable and a GPU run is necessary:
+Use RunPod when requested or when local execution is unavailable and a GPU run is necessary. The acceptance script is a retired fail-closed placeholder; it exits before provisioning and cannot establish an end-to-end result. The validation and matrix commands are live remote operations:
 
 ```bash
-python scripts/runpod_acceptance.py
-python scripts/runpod_validate.py
-VIBECOMFY_MATRIX_SCOPE=<family> uv run python scripts/runpod_corpus_matrix.py
+python scripts/runpod_acceptance.py  # refusal only; no live acceptance
+python scripts/runpod_validate.py   # one remote smoke
+VIBECOMFY_MATRIX_SCOPE=<family> uv run python scripts/runpod_corpus_matrix.py  # remote matrix
 pytest --runpod -m runpod tests/smoke/test_layer2_runpod_ops.py
 ```
 
-Use `runpod_acceptance.py` when the user asks whether the package works end to end in practice. It proves setup inspection, dependency dry-runs, direct API JSON queueing, raw JSON conversion, Python ready-template execution, converted-JSON Python execution, embedded runtime, existing ComfyUI server runtime, and artifact collection. Add `--model-template <ready_id> --model-phase <phase>` when the live proof must include a real model-backed template.
-
-Use `runpod_validate.py` only for the cheapest launch/runtime sanity check. Use `runpod_corpus_matrix.py` after acceptance is green and the question is model-family or corpus coverage. Start with the smallest family/smoke scope that answers the question.
+Use `runpod_validate.py` for the cheapest live launch/runtime sanity check. Use `runpod_corpus_matrix.py` only for model-family or corpus coverage after the smoke is green, starting with the smallest scope that answers the question. These are GPU/network checks and do not replace the no-GPU structural gates. Use `port check` and `port convert` for import conversion; use the offline approved-record transport to check record bytes and queue payloads.
 
 ## Report Outputs
 

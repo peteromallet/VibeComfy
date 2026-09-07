@@ -6,34 +6,22 @@ Run the live validation from the VibeComfy repo:
 python scripts/runpod_validate.py
 ```
 
-For the fuller end-to-end acceptance path, run:
+The historical `runpod_acceptance.py` entry point is now a fail-closed placeholder and does not launch a pod. Do not use it as evidence of end-to-end behavior.
+
+That smoke launches a pod, uploads the checkout, installs VibeComfy and ComfyUI,
+starts the managed runtime, executes the committed Python ready-template smoke,
+checks its generated artifact, and terminates the pod. It is a launch/runtime
+smoke, not a proof of direct API queueing, raw-JSON conversion, server-mode
+execution, or model quality.
+
+The retired acceptance placeholder does not support model-backed proof. For model-family coverage, use the live matrix after the smoke is green:
 
 ```bash
-python scripts/runpod_acceptance.py
-```
-
-That suite launches a pod, uploads the checkout, installs VibeComfy and ComfyUI,
-then proves the core user paths in one evidence bundle:
-
-- setup inspection: `config show`, `runtime doctor`, and managed runtime smoke
-- dependency planning: `nodes install-plan`, `fetch --dry-run`, and model-stage dry-run
-- direct Comfy API JSON queueing against a managed Comfy server
-- raw JSON intake via `port check` and `port convert`
-- converted JSON-as-Python execution through embedded runtime
-- ready-template Python execution through embedded runtime
-- the same ready-template and converted Python workflows against an already-running
-  ComfyUI HTTP server through `--runtime server --server-url`
-
-The default acceptance path uses the no-model red-image smoke graph so it proves
-runtime plumbing quickly. Add a model-backed ready template when you want a real
-model-family proof on the same pod:
-
-```bash
-python scripts/runpod_acceptance.py --model-template image/z_image --model-phase core
+VIBECOMFY_MATRIX_SCOPE=image_core python scripts/runpod_corpus_matrix.py
 ```
 
 Artifacts are downloaded under `out/runpod_artifacts/<timestamp>/`, including
-`out/corpus_matrix/results.tsv`, `out/corpus_matrix/acceptance_summary.json`,
+`out/corpus_matrix/results.tsv`,
 `out/runs/**/metadata.json`, output media, and logs.
 
 Install the RunPod support extra from the VibeComfy repo:
@@ -71,10 +59,10 @@ What the script does:
 
 The cheap smoke exists only to prove launch, upload, runtime startup, Python ready-template execution, artifact download, and termination. Production validation should execute model-backed Python ready templates from `ready_templates/`, not raw JSON fixtures.
 
-Use `runpod_acceptance.py` when the question is whether the package works end to
-end across representations and runtime modes. Use `runpod_validate.py` only for
-the cheapest launch/runtime sanity check. Use `runpod_corpus_matrix.py` for broad
-model-family and template coverage after acceptance is green.
+The retired `runpod_acceptance.py` placeholder does not establish an end-to-end
+result. Use `runpod_validate.py` for the cheapest live launch/runtime sanity
+check, then `runpod_corpus_matrix.py` for broad model-family and template
+coverage. Both paths require network access, credentials, and GPU capacity.
 
 The script has local signal handling, explicit `finally` termination, and a max-runtime watchdog. RunPod's current pod docs expose explicit stop/delete calls and a local scheduled stop pattern; network-volume pods should be terminated rather than stopped, so these scripts terminate the launched pod id.
 

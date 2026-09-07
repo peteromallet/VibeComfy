@@ -149,8 +149,10 @@ Agentic evidence packs use frozen artifacts such as `compiled_api.json`, `metada
 
 Use RunPod only when requested or when local execution is unavailable and a GPU run is necessary.
 
+The retired live acceptance entry point is fail-closed and exits before provisioning or running a payload. It is retained only as a diagnostic refusal that points callers to the offline approved-record transport. The other commands below are live RunPod operations and require credentials, network access, and a suitable GPU environment:
+
 ```bash
-python scripts/runpod_acceptance.py
+python scripts/runpod_acceptance.py  # expected: fail-closed refusal; no live acceptance
 python scripts/runpod_validate.py
 VIBECOMFY_MATRIX_SCOPE=<family> uv run python scripts/runpod_corpus_matrix.py
 pytest --runpod -m runpod tests/smoke/test_layer2_runpod_ops.py
@@ -158,7 +160,7 @@ pytest --runpod-full -m runpod_full tests/smoke/test_layer2_runpod_matrix.py
 vibecomfy runpod list|status|terminate|gpu-types|corpus-matrix
 ```
 
-`runpod_acceptance.py` is an end-to-end acceptance harness: it performs setup inspection, dependency dry-runs, and diagnostic direct API JSON queueing/raw JSON conversion alongside Python execution, embedded runtime, existing-server runtime, and artifact collection. Those direct API/raw JSON checks are harness diagnostics, not the normal agent authoring or execution source path. Use `--model-template <ready_id> --model-phase <phase>` when the proof must include a real model-backed workflow.
+`runpod_validate.py` launches a remote smoke pod, installs dependencies, runs one embedded ready-template smoke, and collects artifacts. `runpod_corpus_matrix.py` launches a remote corpus job, installs dependencies and optional model/runtime packages, and runs the selected matrix. Neither command is a no-GPU proof. The fail-closed acceptance placeholder does not perform setup inspection, API queueing, conversion, execution, or artifact collection; use `prepare_runpod_transport(record, bundle)` and `queue_runpod_stub(record, bundle, queue=...)` to check approved bytes and queue payloads offline. Import conversion remains `port check` followed by `port convert`.
 
 Relevant env vars:
 

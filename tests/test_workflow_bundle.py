@@ -273,6 +273,61 @@ def test_bundle_compile_rejects_unknown_variant() -> None:
         bundle.compile("missing")
 
 
+def test_unknown_or_replaced_bundle_authority_fails_closed() -> None:
+    from dataclasses import replace
+
+    bundle = load_bundle(_nonempty_workflow("authority-kind"))
+    assert bundle.authority_kind == "canonical"
+    with pytest.raises(WorkflowBundleError, match="unknown workflow authority kind"):
+        replace(bundle, authority_kind="untrusted").compile()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "workflow_id": "raw-queue-api",
+            "prompt": {"1": {"class_type": "Integer", "inputs": {"value": 7}}},
+        },
+        {
+            "workflow_id": "raw-queue-ui",
+            "nodes": [{"id": 1, "type": "Integer", "widgets_values": [7]}],
+            "links": [],
+            "groups": [],
+        },
+    ],
+)
+def test_raw_import_cannot_queue_and_explicit_python_conversion_restores_authority(
+    tmp_path: Path, payload: dict,
+) -> None:
+    from vibecomfy.runtime.execution import authorized_queue_payload
+    from vibecomfy.testing.canonical import canonical_digest
+
+    source = tmp_path / "raw.json"
+    source.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    raw = load_bundle(source)
+    api = {"1": {"class_type": "Integer", "inputs": {"value": 7}}}
+    record = ApprovedProjectionRecord(
+        raw.revision_id, None, {}, api, {}, canonical_digest(api)
+    )
+    with pytest.raises(WorkflowBundleError, match="runtime queue.*import evidence only"):
+        authorized_queue_payload(record, raw)
+
+    destination = tmp_path / "converted.py"
+    converted = emit_bundle(
+        raw.workflow,
+        destination,
+        {"operation": "captured", "source_digest": "a" * 64},
+    )
+    assert converted.authority_kind == "canonical"
+    reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+    assert reloaded.authority_kind == "canonical"
+    assert reloaded.compile().api_projection["1"]["class_type"] == "Integer"
+
+
 def test_bundle_compile_rejects_unresolved_class_and_identity() -> None:
     unknown = _workflow("unknown-class")
     unknown.add_node("NotARealNode", uid="unknown-node", value=1)

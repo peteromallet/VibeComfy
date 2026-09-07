@@ -75,6 +75,7 @@ def authorized_queue_payload(
         )
     if not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime queue requires a WorkflowBundle")
+    bundle.require_canonical_authority("runtime queue")
     record.assert_matches(
         bundle,
         record.selected_variant,

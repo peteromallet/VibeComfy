@@ -90,6 +90,7 @@ def _cmd_runtime_smoke(args: argparse.Namespace) -> int:
 def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
     try:
         bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("runtime evaluation")
         result = eval_node_sync(
             bundle,
             args.node,

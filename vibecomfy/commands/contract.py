@@ -9,7 +9,9 @@ from vibecomfy.contracts.surface import build_contract_surface
 
 
 def _cmd_contract_inspect(args: argparse.Namespace) -> int:
-    workflow = load_bundle(args.workflow).workflow
+    bundle = load_bundle(args.workflow)
+    bundle.require_canonical_authority("contract inspection")
+    workflow = bundle.workflow
     contract = build_contract(workflow)
     payload = contract.to_dict()
     payload.update(build_contract_surface(workflow, contract=payload))
@@ -36,7 +38,9 @@ def _render_contract_inspect(payload: dict) -> str:
 
 
 def _cmd_contract_doctor(args: argparse.Namespace) -> int:
-    workflow = load_bundle(args.workflow).workflow
+    bundle = load_bundle(args.workflow)
+    bundle.require_canonical_authority("contract diagnostics")
+    workflow = bundle.workflow
     contract = build_contract(workflow)
     report = doctor_contract(workflow, contract)
     contract_payload = contract.to_dict()

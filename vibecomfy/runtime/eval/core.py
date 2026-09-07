@@ -30,6 +30,7 @@ def select_eval_workflow(bundle: WorkflowBundle, target_node_id: str) -> VibeWor
             "eval selection requires a WorkflowBundle; load the source with "
             "load_bundle(...) before calling select_eval_workflow"
         )
+    bundle.require_canonical_authority("runtime evaluation")
     workflow = bundle.workflow
     nid = str(target_node_id)
     if "#" in nid or "/" in nid:

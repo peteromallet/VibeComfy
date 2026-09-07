@@ -16,6 +16,7 @@ from vibecomfy.porting.emitter import _build_subgraph_def, _disambiguated_subgra
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.validate import format_issue
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
+from vibecomfy.workflow_bundle import WorkflowAuthorityError
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -23,6 +24,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     try:
         schema_provider = None if args.no_schema else get_schema_provider("auto")
         bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("workflow validation")
         workflow = bundle.workflow
         if not args.no_schema:
             _approved_record = bundle.compile(schema_provider=schema_provider)
@@ -38,6 +40,12 @@ def _cmd_validate(args: argparse.Namespace) -> int:
                 )
     except SubgraphFreshnessError:
         raise
+    except WorkflowAuthorityError as exc:
+        if json_output:
+            emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
+            return 1
+        print(f"workflow_authority_error: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:
         if json_output:
             emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
@@ -64,6 +72,7 @@ def build_validate_payload(path: str, *, no_schema: bool = False, check_freshnes
     """Block A back-compat: build the validation payload directly without going through the CLI."""
     schema_provider = None if no_schema else get_schema_provider("auto")
     bundle = load_bundle(path)
+    bundle.require_canonical_authority("workflow validation")
     workflow = bundle.workflow
     if not no_schema:
         _approved_record = bundle.compile(schema_provider=schema_provider)

@@ -13,6 +13,7 @@ import copy
 import json
 import math
 import os
+import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -35,6 +36,24 @@ from vibecomfy.workflow import (
 
 class WorkflowBundleError(ValueError):
     """Raised when a bundle cannot be loaded or fails a closed boundary."""
+
+
+class WorkflowAuthorityError(WorkflowBundleError):
+    """Raised when compatibility evidence reaches a canonical consumer."""
+
+
+def _workflow_authority_error(workflow: VibeWorkflow, action: str) -> WorkflowAuthorityError:
+    source_path = getattr(workflow.source, "path", None)
+    source = str(source_path or workflow.id)
+    quoted_source = shlex.quote(source)
+    stem = Path(source).stem or "workflow"
+    quoted_output = shlex.quote(f"out/scratchpads/{stem}.py")
+    return WorkflowAuthorityError(
+        f"{action} requires canonical Python workflow authority; raw UI/API JSON "
+        "is import evidence only. "
+        f"First: vibecomfy port check {quoted_source} --json. "
+        f"Then: vibecomfy port convert {quoted_source} --out {quoted_output}"
+    )
 
 
 def _freeze_json(value: Any) -> Any:
@@ -930,6 +949,7 @@ def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
         ui_sidecar=bundle.ui_sidecar,
         provenance=bundle.provenance,
         operation=operation,
+        authority_kind=bundle.authority_kind,
         parent_revision=bundle.parent_revision,
         parent_evidence={
             "revision_id": bundle.parent_revision,
@@ -956,6 +976,7 @@ def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
         ui_sidecar=bundle.ui_sidecar,
         provenance=live_provenance,
         operation=operation,
+        authority_kind=bundle.authority_kind,
         parent_revision=bundle.parent_revision,
         parent_evidence={
             "revision_id": bundle.parent_revision,
@@ -1226,11 +1247,23 @@ class WorkflowBundle:
     provenance: Mapping[str, Any]
     parent_revision: str = ""
     revision_id: str = ""
+    authority_kind: str = "canonical"
 
     @property
     def workflow_identity(self) -> str:
         """Read-only identity derived from the workflow, never independently stored."""
         return self.workflow.id
+
+    def require_canonical_authority(self, action: str) -> None:
+        """Reject compatibility imports before any canonical consumer."""
+        if self.authority_kind == "canonical":
+            return
+        if self.authority_kind != "import_evidence":
+            raise WorkflowBundleError(
+                f"{action} rejected unknown workflow authority kind "
+                f"{self.authority_kind!r}"
+            )
+        raise _workflow_authority_error(self.workflow, action)
 
     def materialize_ui(self, *, schema_provider: Any = None, strict: bool = False) -> dict[str, Any]:
         """Materialize this bundle's UI projection through the one UI boundary.
@@ -1240,6 +1273,7 @@ class WorkflowBundle:
         mutated by a caller; such a mutation must fail closed and must never
         reach the emitter or a legacy/raw UI fallback.
         """
+        self.require_canonical_authority("UI materialization")
         return materialize_ui_json(
             self.workflow,
             self.ui_sidecar,
@@ -1255,6 +1289,7 @@ class WorkflowBundle:
         schema_provider: Any = None,
     ) -> ApprovedProjectionRecord:
         """Compile this unchanged candidate into one detached approval record."""
+        self.require_canonical_authority("workflow compilation")
         current = _rebind_current_bundle(self)
         if current.revision_id != self.revision_id:
             raise WorkflowBundleError("workflow bundle revision is stale; reload before approval")
@@ -1322,6 +1357,9 @@ def materialize_ui_json(
     existing emitter.  The emitter performs semantic regeneration and the
     allowlist-only presentation overlay; it is not a second compiler.
     """
+    source_path = getattr(workflow.source, "path", None)
+    if isinstance(source_path, (str, Path)) and Path(source_path).suffix.lower() == ".json":
+        raise _workflow_authority_error(workflow, "UI materialization")
     validated = validate_sidecar(sidecar, workflow) if sidecar is not None else None
     from vibecomfy.porting.emit.ui import materialize_ui_json as _materialize_ui_json
 
@@ -1339,6 +1377,7 @@ def _make_bundle(
     ui_sidecar: Mapping[str, Any] | None,
     provenance: Any,
     operation: str,
+    authority_kind: str | None = None,
     parent_revision: str = "",
     parent_evidence: Mapping[str, Any] | None = None,
 ) -> WorkflowBundle:
@@ -1354,9 +1393,15 @@ def _make_bundle(
     ui_digest = canonical_digest(sidecar) if sidecar is not None else ""
     filtered = filter_provenance(provenance, default_operation=operation)
     parent = _resolve_parent(workflow, parent_revision, parent_evidence)
-    revision_id = canonical_digest(
-        [workflow.id, semantic_digest, ui_digest, filtered, parent]
-    )
+    bound_authority = (
+        "import_evidence" if operation == "imported" else "canonical"
+    ) if authority_kind is None else authority_kind
+    if bound_authority not in {"canonical", "import_evidence"}:
+        raise WorkflowBundleError(f"unknown workflow authority kind {bound_authority!r}")
+    revision_preimage = [workflow.id, semantic_digest, ui_digest, filtered, parent]
+    if bound_authority == "import_evidence":
+        revision_preimage.append("import_evidence")
+    revision_id = canonical_digest(revision_preimage)
     # Keep the lineage needed to reload this exact pair in the generated
     # Python source provenance.  This is identity evidence only; it is not
     # executable workflow state and is excluded from the revision digest by
@@ -1397,6 +1442,7 @@ def _make_bundle(
         provenance=bound_provenance,
         parent_revision=parent,
         revision_id=revision_id,
+        authority_kind=bound_authority,
     )
     return bundle
 
@@ -1476,12 +1522,17 @@ def load_bundle(
 ) -> WorkflowBundle:
     """Load one canonical Python/compatibility reference as a candidate bundle."""
     if isinstance(reference, VibeWorkflow):
+        source_path = getattr(reference.source, "path", None)
+        inherited_import = isinstance(source_path, (str, Path)) and Path(
+            source_path
+        ).suffix.lower() == ".json"
         return _make_bundle(
             reference,
             python_path=None,
             ui_sidecar=None,
-            provenance={"operation": "ephemeral"},
-            operation="ephemeral",
+            provenance={"operation": "imported" if inherited_import else "ephemeral"},
+            operation="imported" if inherited_import else "ephemeral",
+            authority_kind="import_evidence" if inherited_import else "canonical",
         )
     if not isinstance(reference, (str, Path)):
         raise TypeError(

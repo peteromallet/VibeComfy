@@ -153,6 +153,60 @@ def test_load_bundle_imported_api_preserves_reserved_node_ids(tmp_path: Path) ->
     assert "source" in bundle.workflow.nodes
 
 
+@pytest.mark.parametrize(
+    ("name", "payload"),
+    [
+        (
+            "raw-api.json",
+            {
+                "workflow_id": "raw-api",
+                "prompt": {
+                    "1": {"class_type": "Integer", "inputs": {"value": 7}},
+                },
+            },
+        ),
+        (
+            "raw-ui.json",
+            {
+                "workflow_id": "raw-ui",
+                "nodes": [
+                    {"id": 1, "type": "Integer", "widgets_values": [7]},
+                ],
+                "links": [],
+                "groups": [],
+            },
+        ),
+    ],
+)
+def test_raw_json_is_bound_import_evidence_and_cannot_be_rebundled_as_authority(
+    tmp_path: Path, name: str, payload: dict,
+) -> None:
+    source = tmp_path / name
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    bundle = load_bundle(source)
+    assert bundle.authority_kind == "import_evidence"
+    assert bundle.provenance["operation"] == "imported"
+    with pytest.raises(WorkflowBundleError, match="raw UI/API JSON is import evidence only") as error:
+        bundle.compile()
+    assert f"vibecomfy port check {source} --json" in str(error.value)
+    assert f"vibecomfy port convert {source} --out out/scratchpads/{source.stem}.py" in str(
+        error.value
+    )
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        bundle.materialize_ui()
+    from vibecomfy.workflow_bundle import materialize_ui_json
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        materialize_ui_json(bundle.workflow)
+
+    bundle.workflow.source.provenance["operation"] = "authored"
+    rebound = load_bundle(bundle.workflow)
+    assert rebound.authority_kind == "import_evidence"
+    assert rebound.provenance["operation"] == "imported"
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        rebound.compile()
+
+
 def test_load_bundle_prompt_identity_does_not_strip_inner_reserved_node(tmp_path: Path) -> None:
     source = tmp_path / "prompt.json"
     source.write_text(
@@ -209,7 +263,10 @@ def test_production_inspection_enters_bundle_boundary(monkeypatch: pytest.Monkey
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
     workflow = VibeWorkflow("inspection", WorkflowSource("inspection"))
-    bundle = SimpleNamespace(workflow=workflow)
+    bundle = SimpleNamespace(
+        workflow=workflow,
+        require_canonical_authority=lambda _action: None,
+    )
 
     monkeypatch.setattr(analyze, "load_bundle", lambda reference: bundle)
     monkeypatch.setattr(
@@ -240,6 +297,9 @@ def test_run_command_blocks_bare_runtime_after_bundle_compile(
             calls.append("compile")
             return self.record
 
+        def require_canonical_authority(self, _action):
+            calls.append("authority")
+
     monkeypatch.setattr(run_command, "load_bundle", lambda *_args, **_kwargs: Bundle())
     monkeypatch.setattr(run_command, "get_schema_provider", lambda *_args, **_kwargs: object())
     handoff: list[tuple[object, object]] = []
@@ -259,7 +319,7 @@ def test_run_command_blocks_bare_runtime_after_bundle_compile(
     )
 
     assert run_command._cmd_run(args) == 0
-    assert calls == ["compile", "run"]
+    assert calls == ["authority", "compile", "run"]
     assert len(handoff) == 1
     assert handoff[0][1].workflow is workflow
     assert handoff[0][0] is handoff[0][1].record
@@ -287,6 +347,9 @@ def test_run_binds_public_inputs_without_mutating_candidate(
 
     class Bundle:
         workflow = Workflow()
+
+        def require_canonical_authority(self, _action):
+            return None
 
         def compile(self, **kwargs):
             calls.append(kwargs)
@@ -383,6 +446,154 @@ def test_raw_run_failure_prints_safe_port_actions(
     assert "vibecomfy port convert '/tmp/a workflow.json' --out 'out/scratchpads/a workflow.py'" in output
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "workflow_id": "run-raw-api",
+            "prompt": {"1": {"class_type": "Integer", "inputs": {"value": 7}}},
+        },
+        {
+            "workflow_id": "run-raw-ui",
+            "nodes": [{"id": 1, "type": "Integer", "widgets_values": [7]}],
+            "links": [],
+            "groups": [],
+        },
+    ],
+)
+def test_real_raw_run_rejects_before_runtime(
+    tmp_path: Path,
+    payload: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import run as run_command
+
+    source = tmp_path / "raw workflow.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    reached: list[str] = []
+    monkeypatch.setattr(
+        run_command,
+        "run_embedded_sync",
+        lambda *_args, **_kwargs: reached.append("runtime") or pytest.fail(
+            "raw import reached runtime"
+        ),
+    )
+
+    code = run_command._cmd_run(
+        argparse.Namespace(
+            path=str(source),
+            runtime="embedded",
+            server_url=None,
+            memory_profile=None,
+            ensure_packs=False,
+            ensure_models=False,
+            prompt=None,
+            seed=None,
+            steps=None,
+            backend="api",
+            quiet_schema_degradation=False,
+        )
+    )
+
+    assert code == 1
+    assert reached == []
+    output = capsys.readouterr().err
+    assert "raw UI/API JSON is import evidence only" in output
+    assert output.count("vibecomfy port check") == 1
+    assert output.count("vibecomfy port convert") == 1
+    assert f"vibecomfy port check '{source}' --json" in output
+    assert (
+        f"vibecomfy port convert '{source}' --out "
+        "'out/scratchpads/raw workflow.py'"
+    ) in output
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "workflow_id": "consumer-raw-api",
+            "prompt": {"1": {"class_type": "Integer", "inputs": {"value": 7}}},
+        },
+        {
+            "workflow_id": "consumer-raw-ui",
+            "nodes": [{"id": 1, "type": "Integer", "widgets_values": [7]}],
+            "links": [],
+            "groups": [],
+        },
+    ],
+)
+def test_real_raw_inspect_and_no_schema_validate_reject_before_consumption(
+    tmp_path: Path,
+    payload: dict,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import inspect as inspect_command
+    from vibecomfy.commands import validate as validate_command
+
+    source = tmp_path / "consumer.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert inspect_command._cmd_inspect(
+        argparse.Namespace(workflow=str(source), field=None, json=False)
+    ) == 1
+    assert "import evidence only" in capsys.readouterr().err
+    assert validate_command._cmd_validate(
+        argparse.Namespace(
+            path=str(source),
+            json=False,
+            no_schema=True,
+            check_freshness=False,
+        )
+    ) == 1
+    validation_error = capsys.readouterr().err
+    assert "import evidence only" in validation_error
+    assert "Traceback" not in validation_error
+
+
+def test_raw_api_is_rejected_by_other_production_inspection_and_eval_consumers(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.commands import analyze, contract, runtime, workflows
+    from vibecomfy.runtime.eval import select_eval_workflow
+
+    source = tmp_path / "other-consumers.json"
+    source.write_text(
+        json.dumps(
+            {
+                "workflow_id": "other-consumers",
+                "prompt": {
+                    "1": {"class_type": "Integer", "inputs": {"value": 7}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        analyze._load_workflow(str(source))
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        workflows._resolve_workflow_for_inspection(str(source))
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        contract._cmd_contract_inspect(
+            argparse.Namespace(workflow=str(source), json=True)
+        )
+    with pytest.raises(WorkflowBundleError, match="import evidence only"):
+        select_eval_workflow(load_bundle(source), "1")
+    assert runtime._cmd_runtime_eval_node(
+        argparse.Namespace(
+            path=str(source),
+            node="1",
+            runtime="embedded",
+            server_url=None,
+            json=False,
+        )
+    ) == 1
+    assert "import evidence only" in capsys.readouterr().err
+
+
 def test_validation_mints_one_approval_record_and_no_schema_stays_compat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -404,6 +615,9 @@ def test_validation_mints_one_approval_record_and_no_schema_stays_compat(
         def compile(self, **_kwargs):
             self.compiles += 1
             return object()
+
+        def require_canonical_authority(self, _action):
+            return None
 
     bundle = Bundle()
     monkeypatch.setattr(validate_command, "load_bundle", lambda *_args, **_kwargs: bundle)
@@ -435,6 +649,9 @@ def test_validation_compile_failure_does_not_fall_back_to_bare_validation(
 
     class Bundle:
         workflow = Workflow()
+
+        def require_canonical_authority(self, _action):
+            return None
 
         def compile(self, **_kwargs):
             raise ValueError("approval failed")
@@ -623,6 +840,9 @@ def test_inspect_uses_record_without_bare_validation(monkeypatch: pytest.MonkeyP
             self.compiles += 1
             return object()
 
+        def require_canonical_authority(self, _action):
+            return None
+
     bundle = Bundle()
     captured: list[dict[str, object]] = []
     monkeypatch.setattr(inspect_command, "load_bundle", lambda *_args, **_kwargs: bundle)
@@ -649,6 +869,9 @@ def test_inspect_compile_failure_is_nonzero_without_bare_validation(
 
     class Bundle:
         workflow = Workflow()
+
+        def require_canonical_authority(self, _action):
+            return None
 
         def compile(self, **_kwargs):
             raise ValueError("approval failed")
@@ -699,7 +922,14 @@ def test_canonical_eval_message_is_t16_only(
 ) -> None:
     from vibecomfy.commands import runtime
 
-    monkeypatch.setattr(runtime, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=object()))
+    monkeypatch.setattr(
+        runtime,
+        "load_bundle",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            workflow=object(),
+            require_canonical_authority=lambda _action: None,
+        ),
+    )
     monkeypatch.setattr(runtime, "eval_node_sync", lambda *_args, **_kwargs: SimpleNamespace(to_json=lambda: {"queued": False}))
     assert runtime._cmd_runtime_eval_node(
         argparse.Namespace(path="canonical.py", node="1", server_url=None, runtime="embedded")
@@ -712,7 +942,14 @@ def test_runtime_eval_and_queue_guards_fail_before_legacy_paths(
 ) -> None:
     from vibecomfy.commands import runtime
 
-    monkeypatch.setattr(runtime, "load_bundle", lambda *_args, **_kwargs: SimpleNamespace(workflow=object()))
+    monkeypatch.setattr(
+        runtime,
+        "load_bundle",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            workflow=object(),
+            require_canonical_authority=lambda _action: None,
+        ),
+    )
     monkeypatch.setattr(runtime, "eval_node_sync", lambda *_args, **_kwargs: SimpleNamespace(to_json=lambda: {"queued": False}))
     code = runtime._cmd_runtime_eval_node(
         argparse.Namespace(path="workflow.py", node="1", server_url=None, runtime="embedded")
