@@ -20,7 +20,7 @@
           "source": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
           "node_id": "125",
           "class_type": "IndexTTSEmotionOptionsNode",
-          "member_kind": "input",
+          "member_kind": "output",
           "member": "emotion_control",
           "observed": null
         },
@@ -44,13 +44,13 @@
             "IndexTTSEmotionOptionsNode"
           ],
           "schema_member": "emotion_control",
-          "member_kind": "input",
+          "member_kind": "output",
           "schema_evidence": {
-            "type": "FLOAT"
+            "type": "EMOTION_CONTROL"
           }
         }
       ],
-      "determination": "Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode (authoritative schema: emotion_control/other_param FLOAT controls) feeds the UnifiedTTSTextNode emotion chain together with QwenEmotionNode 124 expressive-prompt conditioning; adjusting those controls/prompt is exactly the 'more engaging narration' request."
+      "determination": "Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode exposes eight named FLOAT sliders (including Sad, Disgusted, and Calm) and emits the authoritative emotion_control output into the UnifiedTTSTextNode chain, alongside QwenEmotionNode 124 expressive-prompt conditioning; adjusting those sliders/prompt is exactly the 'more engaging narration' request."
     },
     {
       "scenario_id": "image-image-editing-with-qwen-image",
@@ -207,7 +207,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/c24aa2ac329006f2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/c24aa2ac329006f2.json",
           "node_id": "94",
           "class_type": "GrowMaskWithBlur",
           "member_kind": "input",
@@ -216,7 +216,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/c24aa2ac329006f2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/c24aa2ac329006f2.json",
           "node_id": "193",
           "class_type": "KSamplerSelect",
           "member_kind": "input",
@@ -314,7 +314,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/cc0df70583f28c98.json",
           "node_id": "29",
           "class_type": "Rodin3D_Detail",
           "member_kind": "node_mode",
@@ -323,7 +323,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/cc0df70583f28c98.json",
           "node_id": "28",
           "class_type": "Rodin3D_Regular",
           "member_kind": "node_mode",
@@ -332,7 +332,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/cc0df70583f28c98.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/cc0df70583f28c98.json",
           "node_id": "61",
           "class_type": "Preview3D",
           "member_kind": "node_mode",
@@ -384,7 +384,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/f657743bc2a3db17.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/f657743bc2a3db17.json",
           "node_id": "26",
           "class_type": "TripoTextureNode",
           "member_kind": "widget",
@@ -463,7 +463,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/90a1d5ff9044902e.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/90a1d5ff9044902e.json",
           "node_id": "3",
           "class_type": "TripoTextToModelNode",
           "member_kind": "widget",
@@ -503,7 +503,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/d66a660d74cbc9ec.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/d66a660d74cbc9ec.json",
           "node_id": "48",
           "class_type": "Tencent3DTextureEditNode",
           "member_kind": "widget",
@@ -513,7 +513,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/d66a660d74cbc9ec.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/d66a660d74cbc9ec.json",
           "node_id": "38",
           "class_type": "SaveGLB",
           "member_kind": "input",
@@ -549,7 +549,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/8800a945cff8d090.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/8800a945cff8d090.json",
           "node_id": "2",
           "class_type": "UltraShapeRefine",
           "member_kind": "widget",
@@ -558,7 +558,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/8800a945cff8d090.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/8800a945cff8d090.json",
           "node_id": "6",
           "class_type": "Preview3D",
           "member_kind": "input",
@@ -777,7 +777,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/e8c20a18bba6455d.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/e8c20a18bba6455d.json",
           "node_id": "3",
           "class_type": "KSampler",
           "member_kind": "input",
@@ -786,7 +786,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/e8c20a18bba6455d.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/e8c20a18bba6455d.json",
           "node_id": "3",
           "class_type": "KSampler",
           "member_kind": "input",
@@ -833,7 +833,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/2a31ec45fd22a623.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/2a31ec45fd22a623.json",
           "node_id": "3",
           "class_type": "AceStepSFTGenerate",
           "member_kind": "widget",
@@ -842,7 +842,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/2a31ec45fd22a623.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/2a31ec45fd22a623.json",
           "node_id": "4",
           "class_type": "SaveAudio",
           "member_kind": "input",
@@ -856,7 +856,9 @@
             "mode": "exact",
             "term": "AceStepSFTGenerate"
           },
-          "matches": [],
+          "matches": [
+            "AceStepSFTGenerate"
+          ],
           "schema_member": null,
           "member_kind": null,
           "schema_evidence": null
@@ -878,7 +880,7 @@
           }
         }
       ],
-      "determination": "Checkpoint choice is authorable on the generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. The AceStep SFT pack sits outside the authoritative index (empty exact lookup recorded); SaveAudio 4 grounds the output chain."
+      "determination": "Checkpoint choice is authorable on the indexed generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. Its retained authoritative index entry and SaveAudio 4 ground the output chain."
     },
     {
       "scenario_id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
@@ -890,7 +892,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/0eb67659bfc4dc63.json",
           "node_id": "115",
           "class_type": "VAEDecodeAudio",
           "member_kind": "node_mode",
@@ -899,7 +901,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/0eb67659bfc4dc63.json",
           "node_id": "153",
           "class_type": "AudioCombine",
           "member_kind": "node_mode",
@@ -908,7 +910,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/0eb67659bfc4dc63.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/0eb67659bfc4dc63.json",
           "node_id": "187",
           "class_type": "SaveAudio",
           "member_kind": "input",
@@ -960,7 +962,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/b55994d9cb6aea42.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/b55994d9cb6aea42.json",
           "node_id": "428",
           "class_type": "SaveAudioMP3",
           "member_kind": "input",
@@ -1013,7 +1015,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/b808486c05ad607c.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/b808486c05ad607c.json",
           "node_id": "16",
           "class_type": "UVR5_Node",
           "member_kind": "widget",
@@ -1023,7 +1025,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/b808486c05ad607c.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/b808486c05ad607c.json",
           "node_id": "3",
           "class_type": "SaveAudio",
           "member_kind": "input",
@@ -1119,7 +1121,9 @@
             "mode": "exact",
             "term": "Apply Whisper"
           },
-          "matches": [],
+          "matches": [
+            "Apply Whisper"
+          ],
           "schema_member": null,
           "member_kind": null,
           "schema_evidence": null
@@ -1226,7 +1230,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/d20410227419c47a.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/d20410227419c47a.json",
           "node_id": "8",
           "class_type": "AnimateDiffLoaderV1",
           "member_kind": "widget",
@@ -1235,7 +1239,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/d20410227419c47a.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/d20410227419c47a.json",
           "node_id": "7",
           "class_type": "KSampler",
           "member_kind": "input",
@@ -1283,7 +1287,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/9a3109dc72a4bd11.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/9a3109dc72a4bd11.json",
           "node_id": "69",
           "class_type": "KSampler",
           "member_kind": "input",
@@ -1292,7 +1296,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/9a3109dc72a4bd11.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/9a3109dc72a4bd11.json",
           "node_id": "72",
           "class_type": "MarkdownNote",
           "member_kind": "widget",
@@ -1328,7 +1332,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/54a681138bec8a37.json",
           "node_id": "14",
           "class_type": "ImageResizeKJv2",
           "member_kind": "input",
@@ -1337,7 +1341,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/54a681138bec8a37.json",
           "node_id": "14",
           "class_type": "ImageResizeKJv2",
           "member_kind": "input",
@@ -1346,7 +1350,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/54a681138bec8a37.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/54a681138bec8a37.json",
           "node_id": "6",
           "class_type": "ImageGridComposite2x2",
           "member_kind": "widget",
@@ -1427,7 +1431,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/00444a9409f56c07.json",
           "node_id": "87",
           "class_type": "ControlNetApplyAdvanced",
           "member_kind": "node_mode",
@@ -1436,7 +1440,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/00444a9409f56c07.json",
           "node_id": "106",
           "class_type": "FluxGuidance",
           "member_kind": "input",
@@ -1445,7 +1449,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/00444a9409f56c07.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/00444a9409f56c07.json",
           "node_id": "27",
           "class_type": "Paste By Mask",
           "member_kind": "widget",
@@ -1575,7 +1579,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/0070184c5f1c8ca2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/0070184c5f1c8ca2.json",
           "node_id": "250",
           "class_type": "ImageBlend",
           "member_kind": "input",
@@ -1584,7 +1588,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/0070184c5f1c8ca2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/0070184c5f1c8ca2.json",
           "node_id": "232",
           "class_type": "JWImageSaturation",
           "member_kind": "widget",
@@ -1639,7 +1643,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/49d0579ed9932457.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/49d0579ed9932457.json",
           "node_id": "20",
           "class_type": "ControlNetApply",
           "member_kind": "widget",
@@ -1694,7 +1698,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/def5b5d3b3b372dd.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/def5b5d3b3b372dd.json",
           "node_id": "7",
           "class_type": "BasicScheduler",
           "member_kind": "input",
@@ -1730,7 +1734,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/1d414c3424d15ae2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/1d414c3424d15ae2.json",
           "node_id": "56",
           "class_type": "ImagePadForOutpaint",
           "member_kind": "input",
@@ -1739,7 +1743,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/1d414c3424d15ae2.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/1d414c3424d15ae2.json",
           "node_id": "69",
           "class_type": "DifferentialDiffusion",
           "member_kind": "input",
@@ -1800,7 +1804,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/5b54bf476f4234aa.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/5b54bf476f4234aa.json",
           "node_id": "3",
           "class_type": "llama_cpp_parameters",
           "member_kind": "input",
@@ -1809,7 +1813,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/5b54bf476f4234aa.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/5b54bf476f4234aa.json",
           "node_id": "3",
           "class_type": "llama_cpp_parameters",
           "member_kind": "input",
@@ -1823,7 +1827,9 @@
             "mode": "exact",
             "term": "llama_cpp_parameters"
           },
-          "matches": [],
+          "matches": [
+            "llama_cpp_parameters"
+          ],
           "schema_member": null,
           "member_kind": null,
           "schema_evidence": null
@@ -1879,7 +1885,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/19d221f074b42462.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/19d221f074b42462.json",
           "node_id": "60",
           "class_type": "ACN_AdvancedControlNetApply",
           "member_kind": "widget",
@@ -1888,7 +1894,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/19d221f074b42462.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/19d221f074b42462.json",
           "node_id": "24",
           "class_type": "BasicScheduler",
           "member_kind": "input",
@@ -1902,7 +1908,9 @@
             "mode": "exact",
             "term": "ACN_AdvancedControlNetApply"
           },
-          "matches": [],
+          "matches": [
+            "ACN_AdvancedControlNetApply"
+          ],
           "schema_member": null,
           "member_kind": null,
           "schema_evidence": null
@@ -2089,7 +2097,7 @@
       "checks": [
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/a7ecc54027245cb7.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/a7ecc54027245cb7.json",
           "node_id": "25",
           "class_type": "VAEEncode",
           "member_kind": "input",
@@ -2098,7 +2106,7 @@
         },
         {
           "surface": "graph",
-          "source": "external_workflows/corpus/a7ecc54027245cb7.json",
+          "source": "tests/fixtures/live_agentic_corpus/corpus/a7ecc54027245cb7.json",
           "node_id": "5",
           "class_type": "EmptySD3LatentImage",
           "member_kind": "input",
@@ -2160,5 +2168,5 @@
       "determination": "Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged."
     }
   ],
-  "dispatch_table": "| # | scenario_id | decision | offending_phrase | determination |\n|---|---|---|---|---|\n| 1 | audio-tts-narration-using-indextts-2 | no-change | - | Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode (authoritative schema: emotion_control/other_param FLOAT controls) feeds the UnifiedTTSTextNode emotion chain together with QwenEmotionNode 124 expressive-prompt conditioning; adjusting those controls/prompt is exactly the 'more engaging narration' request. |\n| 2 | image-image-editing-with-qwen-image | no-change | - | Lighting/integration tuning is authorable through named KSampler inputs (cfg/denoise/steps, node 135 currently cfg=1 denoise=1) plus the TextEncodeQwenImageEditPlus edit prompts (nodes 133/134); all are standard editable surfaces. |\n| 3 | live-graph-explanation-smoke | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: classification.kind=health_control; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 4 | multi-video-based-character-replacement-using | no-change | - | Selection scope is authorable: the SAM-ultra prompt (text grounding of what to select) and GrowMaskWithBlur expand/blur parameters directly control person-vs-background selection; both classes resolve with exact schema evidence. |\n| 5 | speed-distillation-research | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: assessment.require_executed_research=true (health_control). Descriptor stays unchanged. |\n| 6 | 3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2 | no-change | - | The SDXL-direct-inpaint restructuring is authorable on the existing graph: masked-area sampling runs through easy kSamplerInpainting (node 186) with KSamplerSelect 193 and easy controlnetLoader++ 189 for post-hoc ControlNet guidance, and mask treatment is parameterized on GrowMaskWithBlur 94 - all resolvable classes with exact schema evidence. |\n| 7 | 3d-3d-model-generation-and-preview-workflow-cc0df7 | no-change | - | Branch enable/bypass is authorable through node mode toggles (always/bypass/never on the Rodin API nodes and their Preview3D viewers): Detail branch 29 + Preview3D 61 active, Regular 28 + its Preview3D bypassable; both classes carry exact index schema evidence. |\n| 8 | 3d-3d-model-generation-and-retargeting-workflow-f65774 | no-change | - | The rewritten texture-quality request is authorable: TripoTextureNode node 26 currently renders texture_quality='standard' (raw widget row) and the authoritative schema declares the texture_quality COMBO with options standard\\|detailed - raising it to 'detailed' is a direct widget edit (PBR stays enabled). |\n| 9 | 3d-3d-model-generation-and-rigging-from-image-352066 | ANNOTATE | Correct the joint orientation | Structural-feature absence: the frozen authoritative schema gives TripoRigNode only original_model_task_id and TripoRetargetNode only original_model_task_id+animation - joint_orientation is absent from every surface of both rig-chain classes (verified below), and knee orientation is decided inside the Tripo cloud task. Declared expected-no-candidate contract (clarify terminal, typed joint_orientation checks); a generic no_changes label is never accepted as evidence. |\n| 10 | 3d-3d-model-generation-and-rigging-workflow-90a1d5 | no-change | - | The rewritten geometry-quality request is authorable: TripoTextToModelNode node 3 exposes the authoritative geometry_quality COMBO (standard\\|detailed) among its optional widgets; setting 'detailed' while leaving face_limit/quad untouched is a direct widget edit. |\n| 11 | 3d-3d-model-load-edit-and-export-workflow-d66a66 | no-change | - | Both halves are authorable: node 48 Tencent3DTextureEditNode carries the editable texture prompt widget, and node 38 SaveGLB (authoritative schema: mesh output union explicitly includes FILE_3D_GLB) guarantees GLB export with embedded textures. |\n| 12 | 3d-3d-shape-generation-and-export-workflow-8800a9 | no-change | - | The refinement-strength control exists in the graph itself: UltraShapeRefine node 2 carries the strength widget currently at 0.5 (the R2-aligned descriptor value), so lowering/holding it is authorable as a direct widget edit. The Ultra pack is intentionally NOT in the authoritative index (recorded empty exact lookup); Preview3D 6 provides the indexed export-chain anchor. |\n| 13 | 3d-converts-image-to-3d-model | no-change | - | Sharper surface detail is authorable on the Rodin generation node itself: node 28 Rodin3D_Regular currently requests Polygon_count '200K-Triangle' (value replays against the schema COMBO family) with Material_Type 'PBR'; raising polygon budget/detail is the graph-native lever, previewed through indexed Preview3D. |\n| 14 | 3d-generates-a-3d-mesh-from | no-change | - | Floating-bits cleanup is authorable via the marching-cubes threshold: node 62 VoxelToMeshBasic exposes the authoritative FLOAT 'threshold' (currently ~0.6) controlling iso-surface cutoff, and node 67 SaveGLB keeps the export intact. |\n| 15 | audio-acestep-audio-generation-and-processing-workfl-1b1360 | ANNOTATE | spectral-gating noise reduction | Structural-feature absence: no authorable member of the retained audio chain exposes spectral gating. The frozen schema gives KSampler ten denoise/schedule inputs, VAEEncodeAudio only audio/vae and VAEDecodeAudio only samples/vae - spectral_gate is verified absent from each - and the pack presets (FrequencyFilterPreset remove_rumble/remove_hiss, itself outside the authoritative index) are frequency filtering, not spectral gating. Converted to an expected-no-candidate contract (clarify terminal, typed spectral_gating checks); task_type corrected from text_to_image to other. |\n| 16 | audio-acestep-audio-generation-with-detail-daemon-f0859f | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 17 | audio-acestep-audio-generation-with-ksampler-e8c20a | no-change | - | Directly authorable: node 3 KSampler carries named steps=50 and scheduler='simple'; the authoritative scheduler COMBO includes karras, so steps=30 + scheduler=karras is a plain two-widget edit. |\n| 18 | audio-acestep-audio-generation-workflow-2a31ec | no-change | - | Checkpoint choice is authorable on the generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. The AceStep SFT pack sits outside the authoritative index (empty exact lookup recorded); SaveAudio 4 grounds the output chain. |\n| 19 | audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676 | no-change | - | The decode-then-combine restructure is authorable by rewiring existing nodes: separate-decode branches already exist (active VAEDecodeAudio 115; muted decode/combine/separation stages 152/153/146 with independent SaveAudio sinks like 154/167/187), so moving AudioCombine after decoding is pure re-plumbing of indexed classes. |\n| 20 | audio-audio-processing-with-chatterbox-tts-and-vc-b55994 | ALIGN | WAV | ALIGN MP3-to-FLAC: the original WAV request was disproved - exact lookup SaveAudioWAV and prefix lookup saveaudio record the COMPLETE saver inventory {SaveAudio('Save Audio (FLAC)'), SaveAudioMP3('Save Audio (MP3)'), SaveAudioOpus} with NO WAV saver. Graph node 428 SaveAudioMP3 renders the shared AUDIO stream (quality=320k); index evidence proves SaveAudio display_name 'Save Audio (FLAC)' takes the identical required AUDIO input, so retargeting node 428's AUDIO wire to SaveAudio is authorable. Descriptor rewritten accordingly. |\n| 21 | audio-audio-processing-with-voice-tts-and-noise-remo-b80848 | no-change | - | Buzz cleanup is authorable through the installed denoise stage: UVR5_Node 16 (MDX-net vocal/instrumental separation with adjustable settings) sits on the TTS output chain ahead of SaveAudio 3, so enabling/tuning it targets the robotic residue directly. The UVR pack is outside the authoritative index (empty exact lookup recorded); SaveAudio provides the indexed chain anchor. |\n| 22 | audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf | ANNOTATE | AudioLDM2 | Named-class absence covering the single named alternative: exact lookup AudioLDM2 and declared-family-prefix lookup audioldm2 over the authoritative index both return an EMPTY complete result set, and no such class exists in the corpus graph; the retained MelBandRoFormer nodes are already muted (mode=4) and their pack cache is a non-authoritative stub. Converted to an expected-no-candidate contract (requires_custom_nodes terminal); task_type corrected to other (materialized outputs are MP3 saves/audio previews only). |\n| 23 | audio-transcribes-audio-appends-text-regenerates | no-change | - | Transcription quality is authorable on the whisper stage itself: node 71 'Apply Whisper' carries the model-size widget currently at 'tiny' - selecting a larger whisper variant inside the same installed-pack COMBO is the direct fix, with append/regenerate plumbing (Text Concatenate 77, voicecraft_process 49) untouched. The Whisper pack is outside the authoritative index (empty exact lookup recorded). |\n| 24 | hotshot-16-frames-agent-edit | ANNOTATE | Hotshot | Named-class absence: declared-family-prefix lookup hotshot returns an EMPTY complete result set from the authoritative index (the ComfyUI-Hotshot@stub cache is excluded from index resolution), and the fixture graph is plain SDXL img2img (KSampler steps=20, no frame-count widget, no video output). Existing expected-no-candidate contract retained with narrowed typed terminal requires_custom_nodes. |\n| 25 | image-animatediff-image-to-video-with-latent-composi-17dc9b | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 26 | image-animatediff-video-from-images-with | no-change | - | Input-following strength is authorable two ways: lineart ControlNet strength on node 72 (currently 0.6, authoritative FLOAT strength) raises pose adherence, and the AnimateDiff motion-module length/context on loader 73 (currently 16 frames) governs temporal behavior. The ADE pack is outside the authoritative index (loader lookup recorded empty); ControlNetApplyAdvanced provides the indexed anchor. |\n| 27 | image-animatediff-video-generation-with-vae-d20410 | no-change | - | Frame count lives on the motion-module loader: node 8 AnimateDiffLoaderV1 carries the frame-length widget (currently 16), so 8-frame quick renders are a one-widget edit downstream of KSampler 7. The ADE pack is outside the authoritative index (empty lookup recorded); KSampler provides the indexed sampler anchor. |\n| 28 | image-auraflow-image-generation-with-qwen-clip-9a3109 | no-change | - | Directly authorable: node 69 KSampler carries named steps (currently 25) targeting 30; the workflow's own note (node 72) recommends 30-50 steps, confirming the range. |\n| 29 | image-background-removal-and-grid-composition-54a681 | no-change | - | Tile resolution is authorable at the four resize stages: nodes 14-17 ImageResizeKJv2 expose named width/height (currently 1024) feeding ImageGridComposite2x2 6, so resizing each tile to 512x512 before compositing is four named-input edits on an indexed class. |\n| 30 | image-dual-checkpoint-xl-image-generation-with-refin-c9df19 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 31 | image-face-detection-and-cropping-workflow-949658 | ANNOTATE | MTCNN or RetinaFace | Named-class absence covering BOTH retained alternatives: exact and declared-family-prefix lookups for MTCNN and RetinaFace each return an EMPTY complete result set from the authoritative index; neither class exists in the corpus graph, whose detection surface is UltralyticsDetectorProvider(bbox/face_yolov8m.pt)->BboxDetectorSEGS. Converted to an expected-no-candidate contract (requires_custom_nodes terminal) declaring both absent classes. |\n| 32 | image-flux-image-inpainting-and-compositing-with-con-00444a | no-change | - | The branch merge is authorable with existing nodes: muted ControlNetApplyAdvanced stages (87/90 with Canny/Depth preprocessors 88/82) can be enabled and re-conditioned onto the whole-image path, FluxGuidance 106 tunes base generation, and Cut/Paste-By-Mask (29/27) already implement region compositing - all indexed classes with exact schema evidence. |\n| 33 | image-gemini-prompt-splitter-and-text-display-workfl-caae97 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 34 | image-generates-a-2x2-seed-variation | no-change | - | Row arrangement is authorable by rewiring composition: the loop already produces four seeded variants (for-loop 42/44 with SimpleMath+ 59 seed stepping and ImageBatchSplitter 58), and replacing grid compositing (ImageGridComposite2x2 55) with chained ImageBatch concatenation yields a single horizontal row using indexed classes. |\n| 35 | image-image-comparison-and-enhancement-with-florence-007018 | no-change | - | Per-filter contribution is authorable: each enhancement stage (saturation 232, invert 233, high-pass 253, sharpen 256, normal-map 251) blends through ImageBlend nodes whose authoritative blend_factor FLOAT (node 250 currently 1.0) becomes the independent per-filter slider the query asks for. |\n| 36 | image-image-processing-with-sharpening-film-grain-an-9aa0f1 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 37 | image-image-to-image-with-controlnet-and-dwpreproces-49d057 | no-change | - | Directly authorable: node 20 ControlNetApply exposes the authoritative FLOAT strength widget; setting 0.8 softens pose guidance exactly as requested (DWPreprocessor 25 pose path untouched). |\n| 38 | image-image-to-image-with-ipadapter-and-controlnet-1999a9 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 39 | image-image-to-image-with-stable-zero123-and-backgro-def5b5 | no-change | - | Directly authorable: node 7 BasicScheduler carries named steps=8; the authoritative INT steps input takes 4 directly (SamplerCustom 6 consumes its sigmas chain unchanged). |\n| 40 | image-inpainting-with-differential-diffusion-and-rea-1d414c | no-change | - | Both levers exist as named inputs: node 56 ImagePadForOutpaint exposes top/left/right/bottom padding (currently left=200,right=200,top=104 -> reducible toward 32) plus feathering (mask-softening, currently 40 -> 16-style blur control), and node 69 DifferentialDiffusion keeps the seamless-blend sampling path; all indexed classes. |\n| 41 | image-kolors-image-generation-with-segs-detailer-and-d813fe | ANNOTATE | GroundingDINO | Named-class absence: declared-family-prefix lookup groundingdino returns an EMPTY complete result set from the authoritative index and the corpus detection chain is UltralyticsDetectorProvider+SAMLoader+Impact SEGS (GroundingDINO nowhere in the graph). Expected-no-candidate contract retained with refusal kind narrowed to the typed terminal requires_custom_nodes. |\n| 42 | image-llama-cpp-instruct-image-preview-and-save-5b54bf | no-change | - | Both targets are NAMED inputs on node 3 llama_cpp_parameters: temperature (already 0.8) and max_tokens (1024 -> 512) are direct widget edits. The llama.cpp pack is intentionally outside the authoritative index (empty exact lookup recorded); the graph inputs themselves are the authorable surface. |\n| 43 | image-llava-image-captioning-and-keyword-extraction-d38dc8 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 44 | image-qwen-image-inpainting-with-controlnet-09fc64 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only; research requested in-query. Descriptor stays unchanged. |\n| 45 | image-sd3-image-generation-with-controlnet-19d221 | no-change | - | ControlNet weight is authorable on AdvancedControlNetApply node 60 (strength widget; ControlNetLoader 61 supplies the control model), lowering it shifts influence toward the prompt conditioned through T5/CLIP encodes. The ACN pack is outside the authoritative index (empty lookup recorded); BasicScheduler 24 provides the indexed sampling anchor. |\n| 46 | image-sdxl-txt2img-cat-in-spacesuit | no-change | - | Material realism is authorable through the two standard levers: the positive CLIPTextEncodeSDXL prompt (node 16, editable text widget driving fabric/material description) and KSampler 36 cfg/denoise/steps (currently cfg=8 denoise=1), all indexed classes with exact schema evidence. |\n| 47 | image-style-transfer-using-ip-adapter | no-change | - | Style transfer strength is authorable at the adapter itself: node 12 StyleModelApply exposes the authoritative strength widget with the marble-statue reference already loaded (LoadImage 16), so raising style weight directly strengthens the statue read. |\n| 48 | image-two-stage-qwen-image-generation | no-change | - | Refinement-stage distortion is authorable at the upscale/refine boundary: node 53 LatentUpscaleBy carries the authoritative upscale_by FLOAT (currently 1.5) and method widget feeding refiner SamplerCustom 51 over SplitSigmas 47's low-noise segment - lowering the factor or re-balancing the sigma split are direct edits on indexed classes. |\n| 49 | image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5 | no-change | - | Text-to-video -> image-to-video is authorable by re-sourcing the first frame: WAN branch already carries LoadImage-capable encode plumbing - VAEEncode 25 (authoritative pixels/vae inputs) with the Wan VAE loader 105 can drive latents from a single input image in place of EmptySD3LatentImage 5, leaving the Chroma/LUT/film-grain finishing chain intact. |\n| 50 | multi-3d-gaussian-splatting-from-video-with-hunyuan-432652 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n"
+  "dispatch_table": "| # | scenario_id | decision | offending_phrase | determination |\n|---|---|---|---|---|\n| 1 | audio-tts-narration-using-indextts-2 | no-change | - | Emotion delivery is authorable: node 125 IndexTTSEmotionOptionsNode exposes eight named FLOAT sliders (including Sad, Disgusted, and Calm) and emits the authoritative emotion_control output into the UnifiedTTSTextNode chain, alongside QwenEmotionNode 124 expressive-prompt conditioning; adjusting those sliders/prompt is exactly the 'more engaging narration' request. |\n| 2 | image-image-editing-with-qwen-image | no-change | - | Lighting/integration tuning is authorable through named KSampler inputs (cfg/denoise/steps, node 135 currently cfg=1 denoise=1) plus the TextEncodeQwenImageEditPlus edit prompts (nodes 133/134); all are standard editable surfaces. |\n| 3 | live-graph-explanation-smoke | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: classification.kind=health_control; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 4 | multi-video-based-character-replacement-using | no-change | - | Selection scope is authorable: the SAM-ultra prompt (text grounding of what to select) and GrowMaskWithBlur expand/blur parameters directly control person-vs-background selection; both classes resolve with exact schema evidence. |\n| 5 | speed-distillation-research | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: assessment.require_executed_research=true (health_control). Descriptor stays unchanged. |\n| 6 | 3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2 | no-change | - | The SDXL-direct-inpaint restructuring is authorable on the existing graph: masked-area sampling runs through easy kSamplerInpainting (node 186) with KSamplerSelect 193 and easy controlnetLoader++ 189 for post-hoc ControlNet guidance, and mask treatment is parameterized on GrowMaskWithBlur 94 - all resolvable classes with exact schema evidence. |\n| 7 | 3d-3d-model-generation-and-preview-workflow-cc0df7 | no-change | - | Branch enable/bypass is authorable through node mode toggles (always/bypass/never on the Rodin API nodes and their Preview3D viewers): Detail branch 29 + Preview3D 61 active, Regular 28 + its Preview3D bypassable; both classes carry exact index schema evidence. |\n| 8 | 3d-3d-model-generation-and-retargeting-workflow-f65774 | no-change | - | The rewritten texture-quality request is authorable: TripoTextureNode node 26 currently renders texture_quality='standard' (raw widget row) and the authoritative schema declares the texture_quality COMBO with options standard\\|detailed - raising it to 'detailed' is a direct widget edit (PBR stays enabled). |\n| 9 | 3d-3d-model-generation-and-rigging-from-image-352066 | ANNOTATE | Correct the joint orientation | Structural-feature absence: the frozen authoritative schema gives TripoRigNode only original_model_task_id and TripoRetargetNode only original_model_task_id+animation - joint_orientation is absent from every surface of both rig-chain classes (verified below), and knee orientation is decided inside the Tripo cloud task. Declared expected-no-candidate contract (clarify terminal, typed joint_orientation checks); a generic no_changes label is never accepted as evidence. |\n| 10 | 3d-3d-model-generation-and-rigging-workflow-90a1d5 | no-change | - | The rewritten geometry-quality request is authorable: TripoTextToModelNode node 3 exposes the authoritative geometry_quality COMBO (standard\\|detailed) among its optional widgets; setting 'detailed' while leaving face_limit/quad untouched is a direct widget edit. |\n| 11 | 3d-3d-model-load-edit-and-export-workflow-d66a66 | no-change | - | Both halves are authorable: node 48 Tencent3DTextureEditNode carries the editable texture prompt widget, and node 38 SaveGLB (authoritative schema: mesh output union explicitly includes FILE_3D_GLB) guarantees GLB export with embedded textures. |\n| 12 | 3d-3d-shape-generation-and-export-workflow-8800a9 | no-change | - | The refinement-strength control exists in the graph itself: UltraShapeRefine node 2 carries the strength widget currently at 0.5 (the R2-aligned descriptor value), so lowering/holding it is authorable as a direct widget edit. The Ultra pack is intentionally NOT in the authoritative index (recorded empty exact lookup); Preview3D 6 provides the indexed export-chain anchor. |\n| 13 | 3d-converts-image-to-3d-model | no-change | - | Sharper surface detail is authorable on the Rodin generation node itself: node 28 Rodin3D_Regular currently requests Polygon_count '200K-Triangle' (value replays against the schema COMBO family) with Material_Type 'PBR'; raising polygon budget/detail is the graph-native lever, previewed through indexed Preview3D. |\n| 14 | 3d-generates-a-3d-mesh-from | no-change | - | Floating-bits cleanup is authorable via the marching-cubes threshold: node 62 VoxelToMeshBasic exposes the authoritative FLOAT 'threshold' (currently ~0.6) controlling iso-surface cutoff, and node 67 SaveGLB keeps the export intact. |\n| 15 | audio-acestep-audio-generation-and-processing-workfl-1b1360 | ANNOTATE | spectral-gating noise reduction | Structural-feature absence: no authorable member of the retained audio chain exposes spectral gating. The frozen schema gives KSampler ten denoise/schedule inputs, VAEEncodeAudio only audio/vae and VAEDecodeAudio only samples/vae - spectral_gate is verified absent from each - and the pack presets (FrequencyFilterPreset remove_rumble/remove_hiss, itself outside the authoritative index) are frequency filtering, not spectral gating. Converted to an expected-no-candidate contract (clarify terminal, typed spectral_gating checks); task_type corrected from text_to_image to other. |\n| 16 | audio-acestep-audio-generation-with-detail-daemon-f0859f | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 17 | audio-acestep-audio-generation-with-ksampler-e8c20a | no-change | - | Directly authorable: node 3 KSampler carries named steps=50 and scheduler='simple'; the authoritative scheduler COMBO includes karras, so steps=30 + scheduler=karras is a plain two-widget edit. |\n| 18 | audio-acestep-audio-generation-workflow-2a31ec | no-change | - | Checkpoint choice is authorable on the indexed generator node: AceStepSFTGenerate node 3 selects the AceStep SFT model (currently acestep-v15.safetensors; the muted UNETLoader 8 confirms the safetensors-swap pattern), so pointing it at acestep-sft-v2.safetensors is a widget edit. Its retained authoritative index entry and SaveAudio 4 ground the output chain. |\n| 19 | audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676 | no-change | - | The decode-then-combine restructure is authorable by rewiring existing nodes: separate-decode branches already exist (active VAEDecodeAudio 115; muted decode/combine/separation stages 152/153/146 with independent SaveAudio sinks like 154/167/187), so moving AudioCombine after decoding is pure re-plumbing of indexed classes. |\n| 20 | audio-audio-processing-with-chatterbox-tts-and-vc-b55994 | ALIGN | WAV | ALIGN MP3-to-FLAC: the original WAV request was disproved - exact lookup SaveAudioWAV and prefix lookup saveaudio record the COMPLETE saver inventory {SaveAudio('Save Audio (FLAC)'), SaveAudioMP3('Save Audio (MP3)'), SaveAudioOpus} with NO WAV saver. Graph node 428 SaveAudioMP3 renders the shared AUDIO stream (quality=320k); index evidence proves SaveAudio display_name 'Save Audio (FLAC)' takes the identical required AUDIO input, so retargeting node 428's AUDIO wire to SaveAudio is authorable. Descriptor rewritten accordingly. |\n| 21 | audio-audio-processing-with-voice-tts-and-noise-remo-b80848 | no-change | - | Buzz cleanup is authorable through the installed denoise stage: UVR5_Node 16 (MDX-net vocal/instrumental separation with adjustable settings) sits on the TTS output chain ahead of SaveAudio 3, so enabling/tuning it targets the robotic residue directly. The UVR pack is outside the authoritative index (empty exact lookup recorded); SaveAudio provides the indexed chain anchor. |\n| 22 | audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf | ANNOTATE | AudioLDM2 | Named-class absence covering the single named alternative: exact lookup AudioLDM2 and declared-family-prefix lookup audioldm2 over the authoritative index both return an EMPTY complete result set, and no such class exists in the corpus graph; the retained MelBandRoFormer nodes are already muted (mode=4) and their pack cache is a non-authoritative stub. Converted to an expected-no-candidate contract (requires_custom_nodes terminal); task_type corrected to other (materialized outputs are MP3 saves/audio previews only). |\n| 23 | audio-transcribes-audio-appends-text-regenerates | no-change | - | Transcription quality is authorable on the whisper stage itself: node 71 'Apply Whisper' carries the model-size widget currently at 'tiny' - selecting a larger whisper variant inside the same installed-pack COMBO is the direct fix, with append/regenerate plumbing (Text Concatenate 77, voicecraft_process 49) untouched. The Whisper pack is outside the authoritative index (empty exact lookup recorded). |\n| 24 | hotshot-16-frames-agent-edit | ANNOTATE | Hotshot | Named-class absence: declared-family-prefix lookup hotshot returns an EMPTY complete result set from the authoritative index (the ComfyUI-Hotshot@stub cache is excluded from index resolution), and the fixture graph is plain SDXL img2img (KSampler steps=20, no frame-count widget, no video output). Existing expected-no-candidate contract retained with narrowed typed terminal requires_custom_nodes. |\n| 25 | image-animatediff-image-to-video-with-latent-composi-17dc9b | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n| 26 | image-animatediff-video-from-images-with | no-change | - | Input-following strength is authorable two ways: lineart ControlNet strength on node 72 (currently 0.6, authoritative FLOAT strength) raises pose adherence, and the AnimateDiff motion-module length/context on loader 73 (currently 16 frames) governs temporal behavior. The ADE pack is outside the authoritative index (loader lookup recorded empty); ControlNetApplyAdvanced provides the indexed anchor. |\n| 27 | image-animatediff-video-generation-with-vae-d20410 | no-change | - | Frame count lives on the motion-module loader: node 8 AnimateDiffLoaderV1 carries the frame-length widget (currently 16), so 8-frame quick renders are a one-widget edit downstream of KSampler 7. The ADE pack is outside the authoritative index (empty lookup recorded); KSampler provides the indexed sampler anchor. |\n| 28 | image-auraflow-image-generation-with-qwen-clip-9a3109 | no-change | - | Directly authorable: node 69 KSampler carries named steps (currently 25) targeting 30; the workflow's own note (node 72) recommends 30-50 steps, confirming the range. |\n| 29 | image-background-removal-and-grid-composition-54a681 | no-change | - | Tile resolution is authorable at the four resize stages: nodes 14-17 ImageResizeKJv2 expose named width/height (currently 1024) feeding ImageGridComposite2x2 6, so resizing each tile to 512x512 before compositing is four named-input edits on an indexed class. |\n| 30 | image-dual-checkpoint-xl-image-generation-with-refin-c9df19 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 31 | image-face-detection-and-cropping-workflow-949658 | ANNOTATE | MTCNN or RetinaFace | Named-class absence covering BOTH retained alternatives: exact and declared-family-prefix lookups for MTCNN and RetinaFace each return an EMPTY complete result set from the authoritative index; neither class exists in the corpus graph, whose detection surface is UltralyticsDetectorProvider(bbox/face_yolov8m.pt)->BboxDetectorSEGS. Converted to an expected-no-candidate contract (requires_custom_nodes terminal) declaring both absent classes. |\n| 32 | image-flux-image-inpainting-and-compositing-with-con-00444a | no-change | - | The branch merge is authorable with existing nodes: muted ControlNetApplyAdvanced stages (87/90 with Canny/Depth preprocessors 88/82) can be enabled and re-conditioned onto the whole-image path, FluxGuidance 106 tunes base generation, and Cut/Paste-By-Mask (29/27) already implement region compositing - all indexed classes with exact schema evidence. |\n| 33 | image-gemini-prompt-splitter-and-text-display-workfl-caae97 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 34 | image-generates-a-2x2-seed-variation | no-change | - | Row arrangement is authorable by rewiring composition: the loop already produces four seeded variants (for-loop 42/44 with SimpleMath+ 59 seed stepping and ImageBatchSplitter 58), and replacing grid compositing (ImageGridComposite2x2 55) with chained ImageBatch concatenation yields a single horizontal row using indexed classes. |\n| 35 | image-image-comparison-and-enhancement-with-florence-007018 | no-change | - | Per-filter contribution is authorable: each enhancement stage (saturation 232, invert 233, high-pass 253, sharpen 256, normal-map 251) blends through ImageBlend nodes whose authoritative blend_factor FLOAT (node 250 currently 1.0) becomes the independent per-filter slider the query asks for. |\n| 36 | image-image-processing-with-sharpening-film-grain-an-9aa0f1 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only. Descriptor stays unchanged. |\n| 37 | image-image-to-image-with-controlnet-and-dwpreproces-49d057 | no-change | - | Directly authorable: node 20 ControlNetApply exposes the authoritative FLOAT strength widget; setting 0.8 softens pose guidance exactly as requested (DWPreprocessor 25 pose path untouched). |\n| 38 | image-image-to-image-with-ipadapter-and-controlnet-1999a9 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 39 | image-image-to-image-with-stable-zero123-and-backgro-def5b5 | no-change | - | Directly authorable: node 7 BasicScheduler carries named steps=8; the authoritative INT steps input takes 4 directly (SamplerCustom 6 consumes its sigmas chain unchanged). |\n| 40 | image-inpainting-with-differential-diffusion-and-rea-1d414c | no-change | - | Both levers exist as named inputs: node 56 ImagePadForOutpaint exposes top/left/right/bottom padding (currently left=200,right=200,top=104 -> reducible toward 32) plus feathering (mask-softening, currently 40 -> 16-style blur control), and node 69 DifferentialDiffusion keeps the seamless-blend sampling path; all indexed classes. |\n| 41 | image-kolors-image-generation-with-segs-detailer-and-d813fe | ANNOTATE | GroundingDINO | Named-class absence: declared-family-prefix lookup groundingdino returns an EMPTY complete result set from the authoritative index and the corpus detection chain is UltralyticsDetectorProvider+SAMLoader+Impact SEGS (GroundingDINO nowhere in the graph). Expected-no-candidate contract retained with refusal kind narrowed to the typed terminal requires_custom_nodes. |\n| 42 | image-llama-cpp-instruct-image-preview-and-save-5b54bf | no-change | - | Both targets are NAMED inputs on node 3 llama_cpp_parameters: temperature (already 0.8) and max_tokens (1024 -> 512) are direct widget edits. The llama.cpp pack is intentionally outside the authoritative index (empty exact lookup recorded); the graph inputs themselves are the authorable surface. |\n| 43 | image-llava-image-captioning-and-keyword-extraction-d38dc8 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; classification.kind=semantic_product. Descriptor stays unchanged. |\n| 44 | image-qwen-image-inpainting-with-controlnet-09fc64 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric; interaction_mode=answer_only; research requested in-query. Descriptor stays unchanged. |\n| 45 | image-sd3-image-generation-with-controlnet-19d221 | no-change | - | ControlNet weight is authorable on AdvancedControlNetApply node 60 (strength widget; ControlNetLoader 61 supplies the control model), lowering it shifts influence toward the prompt conditioned through T5/CLIP encodes. The ACN pack is outside the authoritative index (empty lookup recorded); BasicScheduler 24 provides the indexed sampling anchor. |\n| 46 | image-sdxl-txt2img-cat-in-spacesuit | no-change | - | Material realism is authorable through the two standard levers: the positive CLIPTextEncodeSDXL prompt (node 16, editable text widget driving fabric/material description) and KSampler 36 cfg/denoise/steps (currently cfg=8 denoise=1), all indexed classes with exact schema evidence. |\n| 47 | image-style-transfer-using-ip-adapter | no-change | - | Style transfer strength is authorable at the adapter itself: node 12 StyleModelApply exposes the authoritative strength widget with the marble-statue reference already loaded (LoadImage 16), so raising style weight directly strengthens the statue read. |\n| 48 | image-two-stage-qwen-image-generation | no-change | - | Refinement-stage distortion is authorable at the upscale/refine boundary: node 53 LatentUpscaleBy carries the authoritative upscale_by FLOAT (currently 1.5) and method widget feeding refiner SamplerCustom 51 over SplitSigmas 47's low-noise segment - lowering the factor or re-balancing the sigma split are direct edits on indexed classes. |\n| 49 | image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5 | no-change | - | Text-to-video -> image-to-video is authorable by re-sourcing the first frame: WAN branch already carries LoadImage-capable encode plumbing - VAEEncode 25 (authoritative pixels/vae inputs) with the Wan VAE loader 105 can drive latents from a single input image in place of EmptySD3LatentImage 5, leaving the Chroma/LUT/film-grain finishing chain intact. |\n| 50 | multi-3d-gaussian-splatting-from-video-with-hunyuan-432652 | no-change | - | Explicit typed NON-EDIT lane - no authorability claim is invented: top-level answer_rubric (judge=semantic_answer); classification.kind=semantic_product. Descriptor stays unchanged. |\n"
 }
