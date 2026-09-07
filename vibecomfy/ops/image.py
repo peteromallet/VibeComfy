@@ -4,6 +4,7 @@ from typing import Any
 
 from vibecomfy.artifacts import Image
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.ops._common import bind_run_inputs, first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
 from vibecomfy.origin import stamp_workflow_origin
@@ -55,13 +56,14 @@ def _t2i(
     )
     candidate = workflow.copy()
     stamp_workflow_origin(candidate, "op", "ops/image.py:t2i")
-    for patch in result.explicit_patches:
-        patch.apply(candidate)
-    approved_bundle = load_bundle(candidate)
-    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
-    raise RuntimeError(
-        "image.t2i stopped: approved-record runtime transport is not available; "
-        "use the T14 runtime boundary before executing this workflow"
+    set_prompt_preserving_registration(candidate, prompt, result.explicit_patches)
+    bind_run_inputs(candidate, run_inputs)
+    output = first_output(candidate, "SaveImage")
+    return Image(
+        workflow=candidate,
+        node_id=output.node_id,
+        output_slot=0,
+        metadata={"template_id": result.template_id, "model": model},
     )
 
 

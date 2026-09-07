@@ -6,8 +6,10 @@ from typing import Any, Union
 
 from vibecomfy.artifacts import Artifact, Image, Video
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.ops._common import bind_run_inputs, first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
+from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.router import pick
 
 I2VImage = Union[Image, str, Path, bytes]
@@ -61,13 +63,15 @@ def _t2v(
         defaults={"fps": 16},
     )
     candidate = workflow.copy()
-    for patch in result.explicit_patches:
-        patch.apply(candidate)
-    approved_bundle = load_bundle(candidate)
-    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
-    raise RuntimeError(
-        "video.t2v stopped: approved-record runtime transport is not available; "
-        "use the T14 runtime boundary before executing this workflow"
+    stamp_workflow_origin(candidate, "op", "ops/video.py:t2v")
+    set_prompt_preserving_registration(candidate, prompt, result.explicit_patches)
+    bind_run_inputs(candidate, run_inputs)
+    output = first_output(candidate, "SaveVideo")
+    return Video(
+        workflow=candidate,
+        node_id=output.node_id,
+        output_slot=0,
+        metadata={"template_id": result.template_id, "model": model},
     )
 
 
@@ -117,13 +121,15 @@ def _i2v(
         defaults={"fps": 16},
     )
     candidate = workflow.copy()
-    for patch in result.explicit_patches:
-        patch.apply(candidate)
-    approved_bundle = load_bundle(candidate)
-    _approved_record = approved_bundle.compile(run_inputs=run_inputs)
-    raise RuntimeError(
-        "video.i2v stopped: approved-record runtime transport is not available; "
-        "use the T14 runtime boundary before executing this workflow"
+    stamp_workflow_origin(candidate, "op", "ops/video.py:i2v")
+    set_prompt_preserving_registration(candidate, prompt, result.explicit_patches)
+    bind_run_inputs(candidate, run_inputs)
+    output = first_output(candidate, "SaveVideo")
+    return Video(
+        workflow=candidate,
+        node_id=output.node_id,
+        output_slot=0,
+        metadata={"template_id": result.template_id, "model": model},
     )
 
 

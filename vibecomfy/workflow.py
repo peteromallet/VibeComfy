@@ -1960,15 +1960,26 @@ def _bind_public_input_values(
 ) -> None:
     """Apply declared runtime values/defaults to the detached execution view."""
     public_input_targets = public_input_targets or {}
+    bound: dict[tuple[str, str, str], Any] = {}
+    bound_explicit: set[tuple[str, str, str]] = set()
     for public_input in workflow.inputs.values():
         value = public_input.value if public_input.value is not None else public_input.default
         if value is None and public_input.required:
             raise WorkflowCompileError("public_input_required", f"required public input {public_input.name!r} has no runtime value or default", next_action="Supply the required public input before compiling.")
         resolved_target = public_input_targets.get((str(public_input.node_id), str(public_input.field)))
-        node = nodes.get(resolved_target[0]) if resolved_target is not None else nodes.get(str(public_input.node_id))
+        node_id = resolved_target[0] if resolved_target is not None else str(public_input.node_id)
+        target_field = resolved_target[1] if resolved_target is not None else public_input.field
+        key = (node_id, str(target_field), "field")
+        explicit = public_input.value is not None and public_input.value != public_input.default
+        if key in bound_explicit and not explicit:
+            continue
+        bound[key] = (node_id, target_field, value)
+        if explicit:
+            bound_explicit.add(key)
+    for node_id, target_field, value in bound.values():
+        node = nodes.get(node_id)
         if node is None:
             continue
-        target_field = resolved_target[1] if resolved_target is not None else public_input.field
         if target_field in node.widgets:
             node.widgets[target_field] = copy.deepcopy(value)
         else:
