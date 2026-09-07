@@ -670,6 +670,9 @@ def test_image_op_approves_copy_then_fails_without_artifact(monkeypatch: pytest.
         inputs = {"prompt": object()}
         touched = False
 
+        def __init__(self):
+            self.metadata = {}
+
         def copy(self):
             return type(self)()
 
@@ -697,6 +700,7 @@ def test_image_op_approves_copy_then_fails_without_artifact(monkeypatch: pytest.
         image._t2i("prompt")
     assert approved.compiles[0]["run_inputs"] == {"prompt": "prompt"}
     assert original.workflow.touched is False
+    assert original.workflow.metadata == {}
 
 
 def test_image_op_rejects_non_public_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -724,6 +728,7 @@ def test_ops_bind_model_when_public_input_is_declared(
     class Workflow:
         def __init__(self):
             self.inputs = {"prompt": object(), "model": object()}
+            self.metadata = {}
             if operation == "i2v":
                 self.inputs["image"] = object()
 
@@ -763,6 +768,7 @@ def test_ops_leave_routing_model_out_when_not_public(
     class Workflow:
         def __init__(self):
             self.inputs = {"prompt": object()}
+            self.metadata = {}
             if operation == "i2v":
                 self.inputs["image"] = object()
 
