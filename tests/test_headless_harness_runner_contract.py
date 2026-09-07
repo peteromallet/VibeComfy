@@ -65,6 +65,9 @@ def _write_scenario(scenarios_dir: Path, scenario: dict[str, Any]) -> Path:
     scenarios_dir.mkdir(parents=True, exist_ok=True)
     path = scenarios_dir / f"{scenario['id']}.json"
     path.write_text(json.dumps(scenario), encoding="utf-8")
+    from tests.live_agentic_harness.scenario_manifest import write_manifest
+
+    write_manifest(scenarios_dir)
     return path
 
 
@@ -79,7 +82,7 @@ def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatched readiness/executor seams applied.
     """
 
-    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+    def fake_subprocess_run(cmd: list[str], **kwargs: Any) -> tuple[int, str, str]:
         from tests.live_agentic_harness.runner import run_single
 
         scenario_path = cmd[cmd.index("--single") + 1]
@@ -91,10 +94,10 @@ def _patch_runner_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
             else None
         )
         run_single(scenario_path, tag, output_base, out_file)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return 0, "", ""
 
     monkeypatch.setattr(
-        "tests.live_agentic_harness.runner.subprocess.run",
+        "tests.live_agentic_harness.runner._run_scenario_subprocess",
         fake_subprocess_run,
     )
 
@@ -450,8 +453,11 @@ def test_speed_distillation_scenario_records_live_research_evidence(
     assert classification["implement"] is False
     assert "distilled" in " ".join(classification["search_directions"]).lower()
     assert "lightning" in " ".join(classification["search_directions"]).lower()
-    assert "distilled" in research["summary"].lower()
-    assert "speed" in research["summary"].lower()
+    assert "distilled" in research["conclusion"].lower()
+    assert "speed" in research["conclusion"].lower()
+    assert research["citations"] == ["harness:evidence:1"]
+    assert research["ledger"]["entries"][0]["conclusion"] == research["conclusion"]
+    assert research["ledger"]["entries"][0]["evidence_ids"] == research["citations"]
     assert response["ok"] is True
     assert "distilled" in response["reply"].lower()
     assert flow_metadata["flow_kind"] == "live_agentic_headless"
@@ -514,7 +520,10 @@ def test_live_graph_explanation_scenario_uses_headless_inspect_respond_path(
     assert response["outcome"]["kind"] == "noop"
     assert "clarification_required" not in response
     assert "No clarification is needed" in response["reply"]
-    assert request["graph"]["3"]["class_type"] == "KSampler"
+    assert {str(node["id"]): node["type"] for node in request["graph"]["nodes"]} == {
+        node_id: node["class_type"]
+        for node_id, node in _GRAPH_EXPLANATION_SCENARIO["graph"].items()
+    }
     assert flow_metadata["flow_kind"] == "live_agentic_headless"
     assert flow_metadata["entrypoint"] == "live_agentic_harness"
     assert flow_metadata["frontend"] == "not_used"

@@ -435,6 +435,12 @@ def test_contributor_key_env_name_is_not_referenced_from_browser_sources() -> No
     allowed_paths = {
         Path(".env.example"),
         Path("vibecomfy/comfy_nodes/agent/hivemind_feedback.py"),
+        # Exact backend CLI consumers and their credential-configuration tests.
+        # Browser sources and every other repository path remain covered.
+        Path("scripts/upload_external_workflows_to_hivemind.py"),
+        Path("scripts/upload_ready_templates_to_hivemind.py"),
+        Path("tests/test_upload_external_workflows_to_hivemind.py"),
+        Path("tests/test_upload_ready_templates_to_hivemind.py"),
     }
     searched_suffixes = {
         ".html",
