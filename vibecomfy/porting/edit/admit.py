@@ -859,6 +859,13 @@ def _catalog_with_known_working_nodes(
     must therefore be able to resolve a node added earlier in that batch, but
     only when its class schema was already frozen at ingress. This local view
     leaves the retained snapshot and its digest untouched.
+
+    The skip set is the frozen node-class map itself — the authoritative
+    baseline identity set — not workflow-object membership. The layout leg of
+    a composite semantic+layout turn admits against a pair whose retained
+    workflow is already the functional (post-batch) graph, so a genuinely new
+    identity would otherwise look pre-existing and stay unresolvable. A
+    working node whose class is not frozen-known is still never overlaid.
     """
     if catalog is None or workflow is None:
         return catalog
@@ -874,13 +881,14 @@ def _catalog_with_known_working_nodes(
         # ``pair.workflow`` is intentionally optional when callers supply a
         # schema snapshot plus an explicit working workflow, so do not require
         # a retained baseline IR merely to recognize same-batch additions.
+        # ``baseline_workflow`` is kept for signature compatibility; membership
+        # in a workflow object must not shadow the frozen map. Every stable
+        # identity of a pre-existing node is already a key of that map (the
+        # ingress indexer records id, uid, and vibecomfy_uid), so skipping on
+        # map membership preserves the no-shadowing guard while still
+        # resolving identities the working graph created after ingress.
+        del baseline_workflow  # authority is the frozen map, not object membership
         baseline_identities: set[str] = {str(identity) for identity in node_classes}
-        if baseline_workflow is not None:
-            for node_id, node in (getattr(baseline_workflow, "nodes", {}) or {}).items():
-                baseline_identities.add(str(node_id))
-                uid = str(getattr(node, "uid", "") or "")
-                if uid:
-                    baseline_identities.add(uid)
         nodes = getattr(workflow, "nodes", {}) or {}
         for node_id, node in nodes.items():
             class_type = str(getattr(node, "class_type", "") or "")

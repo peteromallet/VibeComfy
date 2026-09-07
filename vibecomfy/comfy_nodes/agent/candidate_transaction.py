@@ -881,6 +881,17 @@ def build_candidate_transaction(
         {"contract_version": "baseline_snapshot_v1", "ref": restoration_ref}
     )
     delta_ops = list(derived_envelope.get("ops", []))
+    # A layout receipt with a non-empty semantic delta is a composite
+    # semantic+layout turn (candidate-mode auto-reorganise): the candidate
+    # structurally changes the graph, so it is structural family. The layout
+    # leg stays proven by the receipt's layout_structural_noop replay plus
+    # layout_verification. Pure-layout turns (empty delta) remain layout
+    # family with the layout_operation bound.
+    if family == "layout" and delta_ops:
+        family = "structural"
+        projection = "structural_v1"
+        precondition = projection_reference_v1(submit_graph, projection)
+        postcondition = projection_reference_v1(candidate_graph, projection)
     operation: dict[str, Any] = {
         "delta_contract": "delta_v1",
         "wire_version": "2.0.0",
