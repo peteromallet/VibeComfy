@@ -1373,6 +1373,36 @@ def test_class_entry_snapshot_is_coherent_nested_concurrent_and_resets(
     assert consume._CLASS_ENTRY_SNAPSHOT.get() is None
 
 
+def test_widget_order_snapshot_preserves_generation_and_scalar_freshness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    cache_root = _build_temp_cache(tmp_path)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.object_info_widget_order("PrimitiveString") == ["value"]
+    with consume.class_entry_snapshot(["PrimitiveString"]):
+        active_root = consume._reader_state["active"]
+        index = json.loads((active_root / "index.json").read_text())
+        pack = active_root / index["PrimitiveString"]
+        before = pack.stat()
+        original = pack.read_text()
+        updated = original.replace('"value"', '"other"')
+        assert original != updated
+        assert len(updated.encode()) == before.st_size
+        pack.write_text(updated)
+        os.utime(pack, ns=(before.st_atime_ns, before.st_mtime_ns))
+        assert consume.object_info_widget_order("PrimitiveString") == ["value"]
+        with pytest.raises(ObjectInfoCacheCorruptError, match="not captured"):
+            consume.object_info_widget_order("SomeUnknownClass")
+    # A changed committed generation must fail its content witness after
+    # the operation ends; it cannot reuse the old snapshot or trust mtime.
+    with pytest.raises(ObjectInfoCacheCorruptError, match="hash check"):
+        consume.object_info_widget_order("PrimitiveString")
+
+
 # ---------------------------------------------------------------------------
 # effective_widget_names_for_class (widget_schema tiered lookup)
 # ---------------------------------------------------------------------------

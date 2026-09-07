@@ -1107,7 +1107,7 @@ def test_pinned_semantic_single_broadcast_consumer_expands_to_lowered_fanout() -
 def test_pinned_semantic_real_nested_subgraph_fixture_emits_definition() -> None:
     """Exercise an actual nested definition through the UI emitter."""
     wf, raw_ui = _semantic_pin_workflow()
-    wf.metadata["definitions"] = {
+    wf.definitions = {
         "subgraphs": [
             {
                 "id": "outer-subgraph",

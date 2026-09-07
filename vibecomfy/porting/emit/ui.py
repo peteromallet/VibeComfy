@@ -51,6 +51,7 @@ inputs get NO input-slot entry — they live in ``widgets_values``.
 """
 
 from __future__ import annotations
+import functools
 import hashlib
 import json
 import os
@@ -3203,6 +3204,26 @@ def derive_widget_shape_evidence(
     )
 
 
+def _with_emit_object_info_snapshot(func):
+    """Keep cached class evidence coherent for one UI serialization."""
+    @functools.wraps(func)
+    def wrapped(wf: Any, *args: Any, **kwargs: Any):
+        from vibecomfy.porting.object_info.consume import class_entry_snapshot
+
+        classes = {str(node.class_type) for node in wf.nodes.values()}
+        definitions = getattr(wf, "definitions", None)
+        if definitions:
+            classes.update(
+                str(node["class_type"])
+                for node in wf._semantic_definition_nodes(definitions)
+            )
+        with class_entry_snapshot(classes):
+            return func(wf, *args, **kwargs)
+
+    return wrapped
+
+
+@_with_emit_object_info_snapshot
 def emit_ui_json(
     wf: Any,
     *,

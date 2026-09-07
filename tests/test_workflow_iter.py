@@ -11,7 +11,8 @@ def test_multi_output_node_builder_iterates_in_declared_schema_order() -> None:
     handles = list(builder)
 
     assert [handle.output_slot for handle in handles] == [0, 1, 2]
-    assert [handle.name for handle in handles] == ["POSITIVE", "NEGATIVE", "LATENT"]
+    # Retained native names own the slots; metadata cannot rename them.
+    assert [handle.name for handle in handles] == ["positive", "negative", "latent"]
     assert [str(handle) for handle in handles] == [
         f"{builder.id}.0",
         f"{builder.id}.1",
@@ -21,7 +22,7 @@ def test_multi_output_node_builder_iterates_in_declared_schema_order() -> None:
 
 def test_single_output_node_builder_iterates_one_handle() -> None:
     wf = VibeWorkflow("iter", WorkflowSource("iter"))
-    builder = wf.node("LoadImage")
+    builder = wf.node("VAEDecode")
     builder.node.metadata["output_names"] = ["IMAGE"]
 
     handles = list(builder)

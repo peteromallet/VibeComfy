@@ -721,7 +721,11 @@ def object_info_widget_order(class_type: str) -> list[str | None]:
     This is a raw object_info fallback — callers should prefer the curated
     ``WIDGET_SCHEMA`` table and only use this when no curated entry exists.
     """
-    entry = _resolve_class_type(class_type)
+    entry = (
+        get_class(class_type)
+        if _CLASS_ENTRY_SNAPSHOT.get() is not None
+        else _resolve_class_type(class_type)
+    )
     if entry is None:
         return []
     return reconciled_object_info_widget_order(entry)

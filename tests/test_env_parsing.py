@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-import importlib
+import subprocess
+import sys
 from fractions import Fraction
 
 import pytest
 
 from vibecomfy.errors import RuntimeConfigurationError
-from vibecomfy.comfy_nodes.agent import provider as agent_provider
-from vibecomfy.comfy_nodes.agent import runtime as agent_runtime
-from vibecomfy.porting.emit import ui as emit_ui_module
 from vibecomfy.porting.emit.ui import _chunked_emit_settings, _positive_int_value
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import _duration_seconds, _wait_for_server_history
@@ -105,7 +103,11 @@ def test_malformed_chunked_env_does_not_break_module_import(
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "oops")
 
-    importlib.reload(emit_ui_module)
+    result = subprocess.run(
+        [sys.executable, "-c", "import vibecomfy.porting.emit.ui"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_runtime_duration_defaults_and_accepts_valid_values() -> None:
@@ -169,10 +171,16 @@ def test_agent_runtime_import_and_discovery_ignore_malformed_threshold(
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_CHUNKED_EMIT_THRESHOLD", "oops")
 
-    imported = importlib.reload(agent_runtime)
-    monkeypatch.setenv("VIBECOMFY_ARNOLD_RUNTIME_MODULE", imported.__name__)
-
-    assert agent_provider._load_arnold_runtime() is imported
+    monkeypatch.setenv(
+        "VIBECOMFY_ARNOLD_RUNTIME_MODULE", "vibecomfy.comfy_nodes.agent.runtime"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from vibecomfy.comfy_nodes.agent import runtime, provider; "
+         "assert provider._load_arnold_runtime() is runtime"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(
