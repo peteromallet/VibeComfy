@@ -16,6 +16,7 @@ from vibecomfy.registry.ready_template import bind_output
 from vibecomfy.runtime.session import RunResult, _run_metadata
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import load_bundle
+from vibecomfy.schema import get_authoring_schema_provider
 
 
 def _read_json(capsys: pytest.CaptureFixture[str]) -> object:
@@ -161,6 +162,22 @@ def test_acceptance_inspect_contract_and_doctor_surfaces_align_for_z_image(
         raise AssertionError("schema-only acceptance commands must not boot ComfyUI")
 
     monkeypatch.setattr("vibecomfy.runtime.server._spawn_comfy_server", fail_managed_server)
+
+    # Keep this schema-only acceptance proof offline and source-faithful: the
+    # pinned Z-Image catalog has exactly these three model entries.
+    model_entries = {
+        ("qwen_3_4b.safetensors", "text_encoders"),
+        ("ae.safetensors", "vae"),
+        ("z_image_bf16.safetensors", "diffusion_models"),
+    }
+    monkeypatch.setattr(
+        "vibecomfy.fetch.is_present",
+        lambda ref, root=None: (ref.get("name"), ref.get("subdir")) in model_entries,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.inspect.get_schema_provider",
+        lambda _kind: get_authoring_schema_provider(on_demand_schemas=False),
+    )
 
     assert _cmd_inspect(argparse.Namespace(workflow="image/z_image", json=True)) == 0
     inspect_payload = _read_json(capsys)

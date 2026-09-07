@@ -64,6 +64,7 @@ def build() -> VibeWorkflow:
     unetloader = UNETLoader(
         _id='3',
         unet_name=UNET_NAME,
+        weight_dtype='default',
         _uid='n3',
         _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
@@ -73,6 +74,7 @@ def build() -> VibeWorkflow:
         _id='4',
         width=1024,
         height=1024,
+        batch_size=1,
         _uid='n4',
         _native_ports={'native_input_names': ['width', 'height', 'batch_size'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
@@ -105,6 +107,8 @@ def build() -> VibeWorkflow:
         steps=25,
         cfg=GUIDE_STRENGTH,
         sampler_name='res_multistep',
+        scheduler='simple',
+        denoise=1,
         _uid='n8',
         _native_ports={'native_input_names': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False, False, False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
@@ -165,9 +169,9 @@ def build() -> VibeWorkflow:
     wf.nodes['2'].native_input_optional = [False]
     wf.nodes['2'].native_input_asset_kinds = None
     wf.nodes['2'].native_output_slots = None
-    wf.nodes['3'].inputs = {'unet_name': 'z_image_bf16.safetensors'}
+    wf.nodes['3'].inputs = {'unet_name': 'z_image_bf16.safetensors', 'weight_dtype': 'default'}
     wf.nodes['3'].widgets = {}
-    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name']}
+    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name', 'weight_dtype']}
     wf.nodes['3'].native_input_names = ['unet_name', 'weight_dtype']
     wf.nodes['3'].native_output_names = ['MODEL']
     wf.nodes['3'].native_input_types = ['CHOICE', 'CHOICE']
@@ -175,9 +179,9 @@ def build() -> VibeWorkflow:
     wf.nodes['3'].native_input_optional = [False, False]
     wf.nodes['3'].native_input_asset_kinds = None
     wf.nodes['3'].native_output_slots = None
-    wf.nodes['4'].inputs = {'height': 1024, 'width': 1024}
+    wf.nodes['4'].inputs = {'batch_size': 1, 'height': 1024, 'width': 1024}
     wf.nodes['4'].widgets = {}
-    wf.nodes['4'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['height', 'width']}
+    wf.nodes['4'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['batch_size', 'height', 'width']}
     wf.nodes['4'].native_input_names = ['width', 'height', 'batch_size']
     wf.nodes['4'].native_output_names = ['LATENT']
     wf.nodes['4'].native_input_types = ['INT', 'INT', 'INT']
@@ -215,9 +219,9 @@ def build() -> VibeWorkflow:
     wf.nodes['7'].native_input_optional = [False, False]
     wf.nodes['7'].native_input_asset_kinds = None
     wf.nodes['7'].native_output_slots = None
-    wf.nodes['8'].inputs = {'cfg': 4, 'sampler_name': 'res_multistep', 'seed': 770044821593082, 'steps': 25}
+    wf.nodes['8'].inputs = {'cfg': 4, 'denoise': 1, 'sampler_name': 'res_multistep', 'scheduler': 'simple', 'seed': 770044821593082, 'steps': 25}
     wf.nodes['8'].widgets = {}
-    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['cfg', 'latent_image', 'model', 'negative', 'positive', 'sampler_name', 'seed', 'steps']}
+    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['cfg', 'denoise', 'latent_image', 'model', 'negative', 'positive', 'sampler_name', 'scheduler', 'seed', 'steps']}
     wf.nodes['8'].native_input_names = ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive']
     wf.nodes['8'].native_output_names = ['LATENT']
     wf.nodes['8'].native_input_types = ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING']

@@ -15,12 +15,14 @@
   "3": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "z_image_bf16.safetensors"
+      "unet_name": "z_image_bf16.safetensors",
+      "weight_dtype": "default"
     }
   },
   "4": {
     "class_type": "EmptySD3LatentImage",
     "inputs": {
+      "batch_size": 1,
       "height": 1024,
       "width": 1024
     }
@@ -59,7 +61,9 @@
     "class_type": "KSampler",
     "inputs": {
       "cfg": 4,
+      "denoise": 1,
       "sampler_name": "res_multistep",
+      "scheduler": "simple",
       "seed": 770044821593082,
       "steps": 25,
       "latent_image": [
