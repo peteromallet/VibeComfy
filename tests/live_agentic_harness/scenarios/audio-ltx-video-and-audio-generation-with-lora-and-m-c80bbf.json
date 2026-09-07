@@ -1,7 +1,7 @@
 {
   "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
   "query": "Replace the MelBand RoFormer audio sampler with AudioLDM2 for audio generation, integrating it with the LTX video generation pipeline and LoRA, so that audio and video remain synchronized.",
-  "workflow_path": "external_workflows/corpus/c80bbf22890fc8df.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/c80bbf22890fc8df.json",
   "network": true,
   "timeout": 380,
   "apply": false,

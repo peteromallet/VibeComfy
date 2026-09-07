@@ -1,7 +1,7 @@
 {
   "id": "image-inpainting-with-differential-diffusion-and-rea-1d414c",
   "query": "The inpainted area isn't blending seamlessly; increase the mask blur to 16 and reduce the padding to 32 pixels.",
-  "workflow_path": "external_workflows/corpus/1d414c3424d15ae2.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1d414c3424d15ae2.json",
   "network": true,
   "timeout": 160,
   "apply": true,

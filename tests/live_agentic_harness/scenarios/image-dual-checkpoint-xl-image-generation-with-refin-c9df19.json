@@ -1,7 +1,7 @@
 {
   "id": "image-dual-checkpoint-xl-image-generation-with-refin-c9df19",
   "query": "I'm running this dual-checkpoint XL pipeline with juggernautXL as the base and sd_xl_refiner as the refiner. Are there any newer, better refiner models I should consider, and what are the tradeoffs between using a dedicated refiner vs. a single high-quality XL checkpoint that handles fine details natively? I'm particularly interested in how the LoRA timing (before or after the refiner) affects flexibility.",
-  "workflow_path": "external_workflows/corpus/c9df19048aae0738.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/c9df19048aae0738.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/c9df19048aae0738.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/c9df19048aae0738.json",
     "required_node_evidence": [
       "CheckpointLoaderSimple",
       "KSamplerAdvanced",

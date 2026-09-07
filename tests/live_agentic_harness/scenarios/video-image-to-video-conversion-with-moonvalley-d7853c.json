@@ -1,7 +1,7 @@
 {
   "id": "video-image-to-video-conversion-with-moonvalley-d7853c",
   "query": "Reduce the Moonvalley image-to-video generation steps from 100 to 80 for a faster preview. Keep prompt adherence at 7, and leave the prompt, resolution, image input, and SaveVideo connection unchanged.",
-  "workflow_path": "external_workflows/corpus/d7853cd7421f9ebc.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d7853cd7421f9ebc.json",
   "network": true,
   "timeout": 280,
   "apply": true,

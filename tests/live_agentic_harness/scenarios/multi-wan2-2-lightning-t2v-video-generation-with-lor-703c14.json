@@ -1,7 +1,7 @@
 {
   "id": "multi-wan2-2-lightning-t2v-video-generation-with-lor-703c14",
   "query": "Explain how the Wan2.2 Lightning model and LoRA adapters work together in this workflow. What is the purpose of having two LoRA strength settings?",
-  "workflow_path": "external_workflows/corpus/703c14838d75fc16.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/703c14838d75fc16.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -35,7 +35,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/703c14838d75fc16.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/703c14838d75fc16.json",
     "required_node_evidence": [
       "DiffusionModelLoaderKJ",
       "LoraLoaderModelOnly",

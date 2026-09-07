@@ -1,7 +1,7 @@
 {
   "id": "video-inpaint-and-video-composition-with-spline-path-0c2716",
   "query": "What role does the spline editor play in this inpainting-and-compositing workflow? Explain how the path controls the inpainting mask over time and how the final video frames are assembled from the processed results.",
-  "workflow_path": "external_workflows/corpus/0c27166fc31b7ead.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/0c27166fc31b7ead.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/0c27166fc31b7ead.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/0c27166fc31b7ead.json",
     "required_node_evidence": [
       "SplineEditor",
       "CutAndDragOnPath",

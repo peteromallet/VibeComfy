@@ -1,7 +1,7 @@
 {
   "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
   "query": "The output video has a persistent tiling grid pattern visible in uniform areas like sky or walls, as if the IPAdapter style is being applied in blocks rather than smoothly. Which node and setting is the likely culprit?",
-  "workflow_path": "external_workflows/corpus/4eebf3dc07942c52.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/4eebf3dc07942c52.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/4eebf3dc07942c52.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/4eebf3dc07942c52.json",
     "required_node_evidence": [
       "IPAdapterTiled",
       "IPAdapterUnifiedLoader",

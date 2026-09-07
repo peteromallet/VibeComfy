@@ -1,7 +1,7 @@
 {
   "id": "video-wanvideo-text-to-video-generation-71f825",
   "query": "How does the WanVideo text-to-video pipeline turn a prompt into a video clip? Walk me through the flow from the T5 and CLIP encoders through sampling to the final output, and explain how the model learns to generate motion across frames.",
-  "workflow_path": "external_workflows/corpus/71f825e4550c95b7.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/71f825e4550c95b7.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/71f825e4550c95b7.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/71f825e4550c95b7.json",
     "required_node_evidence": [
       "LoadWanVideoT5TextEncoder",
       "LoadWanVideoClipTextEncoder",

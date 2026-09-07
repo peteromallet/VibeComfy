@@ -1,7 +1,7 @@
 {
   "id": "video-wan2-2-text-to-video-with-dual-unet-and-model-03fced",
   "query": "Change the number of sampling steps for both UNETs to 25 each.",
-  "workflow_path": "external_workflows/corpus/03fcedf997c13003.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/03fcedf997c13003.json",
   "network": true,
   "timeout": 280,
   "apply": true,

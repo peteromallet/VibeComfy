@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from .source_layouts import resolve_corpus_record_path
+
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_SCENARIOS_DIR = Path(__file__).with_name("scenarios")
@@ -54,6 +56,15 @@ def _effective_repo(scenarios_dir: Path, repo: Path) -> Path:
     return repo
 
 
+def _resolve_workflow_path(locator: str | Path, *, repo: Path) -> Path:
+    """Resolve corpus locators through the tracked fixture resolver."""
+    resolved = resolve_corpus_record_path(locator, root=repo)
+    if resolved is not None:
+        return resolved
+    path = Path(str(locator))
+    return path if path.is_absolute() else repo / path
+
+
 def build_manifest(
     scenarios_dir: Path = DEFAULT_SCENARIOS_DIR,
     *,
@@ -80,9 +91,7 @@ def build_manifest(
         workflow_path = scenario.get("workflow_path")
         source_workflow: dict[str, str] | None = None
         if workflow_path:
-            source_path = Path(str(workflow_path))
-            if not source_path.is_absolute():
-                source_path = repo / source_path
+            source_path = _resolve_workflow_path(str(workflow_path), repo=repo)
             if not source_path.is_file():
                 raise ScenarioManifestError(
                     f"scenario {scenario_id!r} workflow_path does not resolve: {workflow_path}"
@@ -213,10 +222,8 @@ def discover_manifest_scenarios(
         if workflow_path:
             if not isinstance(source, Mapping):
                 raise ScenarioManifestError(f"source workflow metadata missing for {scenario_id}")
-            source_path = repo / str(source.get("path") or "")
-            expected_source_path = Path(str(workflow_path))
-            if not expected_source_path.is_absolute():
-                expected_source_path = repo / expected_source_path
+            source_path = _resolve_workflow_path(str(source.get("path") or ""), repo=repo)
+            expected_source_path = _resolve_workflow_path(str(workflow_path), repo=repo)
             if source_path.resolve() != expected_source_path.resolve():
                 raise ScenarioManifestError(f"source workflow path mismatch for {scenario_id}")
             if not source_path.is_file():

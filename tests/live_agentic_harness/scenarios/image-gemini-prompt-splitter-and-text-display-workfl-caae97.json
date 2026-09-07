@@ -1,7 +1,7 @@
 {
   "id": "image-gemini-prompt-splitter-and-text-display-workfl-caae97",
   "query": "This workflow uses Gemini to process and split prompts. I'd like to compare Gemini to Claude for generating complex, multi-part image prompts. What are the trade-offs in terms of output quality, prompt structure, rate limits, and cost? Just research, don't modify the workflow.",
-  "workflow_path": "external_workflows/corpus/caae974fd091bde7.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/caae974fd091bde7.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -35,7 +35,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/caae974fd091bde7.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/caae974fd091bde7.json",
     "required_node_evidence": [
       "GeminiNode",
       "VRGDG_PromptSplitter_General",

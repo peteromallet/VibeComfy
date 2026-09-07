@@ -1,7 +1,7 @@
 {
   "id": "video-video-loading-and-saving-workflow-1c7ad8",
   "query": "This workflow loads a video and an image, applies boolean logic, and saves three separate video outputs. Explain what each boolean operation is doing and how the three resulting videos differ from one another.",
-  "workflow_path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1c7ad8a2a8c0224b.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/1c7ad8a2a8c0224b.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1c7ad8a2a8c0224b.json",
     "required_node_evidence": [
       "LoadVideo",
       "LoadImage",

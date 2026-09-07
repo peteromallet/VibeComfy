@@ -1,7 +1,7 @@
 {
   "id": "image-face-detection-and-cropping-workflow-949658",
   "query": "Replace the YOLOv8 face detection with a different face detection model like MTCNN or RetinaFace, and update the cropping logic accordingly.",
-  "workflow_path": "external_workflows/corpus/949658825bc5999a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/949658825bc5999a.json",
   "network": true,
   "timeout": 260,
   "apply": false,

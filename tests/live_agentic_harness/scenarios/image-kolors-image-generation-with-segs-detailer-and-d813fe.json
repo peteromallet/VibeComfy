@@ -1,7 +1,7 @@
 {
   "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
   "query": "Replace the Ultralytics detector with GroundingDINO for mask generation, and adjust the pipeline so that SAM segmentation still receives valid SEGS input from the new detector.",
-  "workflow_path": "external_workflows/corpus/d813fedaabea87b7.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d813fedaabea87b7.json",
   "network": true,
   "timeout": 260,
   "apply": false,

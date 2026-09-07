@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -118,39 +119,57 @@ def _ui_graph_from_corpus_record(corpus: Mapping[str, Any]) -> dict[str, Any] | 
     }
 
 
+@lru_cache(maxsize=4)
+def _tracked_corpus_index(root_key: str) -> dict[str, str]:
+    provenance_path = Path(root_key) / "tests" / "fixtures" / "live_agentic_corpus" / "PROVENANCE.json"
+    try:
+        payload = load_json(provenance_path)
+    except (OSError, ValueError):
+        return {}
+    entries = payload.get("files")
+    if not isinstance(entries, list):
+        return {}
+    index: dict[str, str] = {}
+    for entry in entries:
+        fixture = entry.get("fixture") if isinstance(entry, Mapping) else None
+        if not isinstance(fixture, str) or not fixture:
+            continue
+        filename = Path(fixture).name
+        if filename in index and index[filename] != fixture:
+            return {}
+        index[filename] = fixture
+    return index
+
+
 def resolve_corpus_record_path(workflow_path: str | Path, *, root: Path | None = None) -> Path | None:
+    """Resolve corpus locators to the exact tracked fixture from provenance."""
     root = root or repo_root()
     path = Path(workflow_path)
     if not path.is_absolute():
         path = root / path
     try:
-        rel = path.resolve().relative_to(root.resolve())
+        rel = path.absolute().relative_to(root.absolute())
     except ValueError:
         return None
 
     parts = rel.parts
-    name = path.name
-    tracked_corpus = root / "tests" / "fixtures" / "live_agentic_corpus" / "corpus" / name
-    tracked_flat = root / "tests" / "fixtures" / "live_agentic_corpus" / name
-    if len(parts) >= 3 and parts[0] == "external_workflows" and parts[1] == "corpus":
-        if tracked_corpus.is_file():
-            return tracked_corpus
-        if tracked_flat.is_file():
-            return tracked_flat
-        return path if path.is_file() else None
-    if (
-        len(parts) >= 3
-        and parts[0] == "tests"
-        and parts[1] == "fixtures"
-        and parts[2] == "live_agentic_corpus"
-    ):
-        if path.is_file():
-            return path
-        if tracked_corpus.is_file():
-            return tracked_corpus
-        candidate = root / "external_workflows" / "corpus" / name
-        return candidate if candidate.is_file() else None
-    return None
+    is_corpus = len(parts) >= 3 and parts[:2] == ("external_workflows", "corpus")
+    is_tracked = (
+        len(parts) >= 4
+        and parts[:3] == ("tests", "fixtures", "live_agentic_corpus")
+    )
+    if not (is_corpus or is_tracked):
+        return None
+
+    fixture_rel = _tracked_corpus_index(str(root.absolute())).get(path.name)
+    if fixture_rel is None:
+        return None
+    fixture_path = root / fixture_rel
+    try:
+        fixture_path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return None
+    return fixture_path if fixture_path.is_file() else None
 
 
 def resolve_source_ui_path(workflow_path: str | Path, *, root: Path | None = None) -> Path | None:

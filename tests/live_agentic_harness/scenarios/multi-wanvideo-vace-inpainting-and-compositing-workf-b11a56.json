@@ -1,7 +1,7 @@
 {
   "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
   "query": "Restructure the video inpainting pipeline so that SAM2 segmentation is applied to each frame before Florence2 runs object detection, then use those segmentation masks to constrain the inpainting pass. Reverse the current order where detection happens first.",
-  "workflow_path": "external_workflows/corpus/b11a56667cbc389b.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b11a56667cbc389b.json",
   "network": true,
   "timeout": 420,
   "apply": true,

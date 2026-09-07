@@ -1,7 +1,7 @@
 {
   "id": "image-flux-image-inpainting-and-compositing-with-con-00444a",
   "query": "Restructure the pipeline to first generate a base image with Flux, then use the inpainted region as a condition for ControlNet-driven style transfer to the entire image, effectively merging the two branches.",
-  "workflow_path": "external_workflows/corpus/00444a9409f56c07.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/00444a9409f56c07.json",
   "network": true,
   "timeout": 260,
   "apply": true,

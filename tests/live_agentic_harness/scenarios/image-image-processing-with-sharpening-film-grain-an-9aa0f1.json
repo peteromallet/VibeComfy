@@ -1,7 +1,7 @@
 {
   "id": "image-image-processing-with-sharpening-film-grain-an-9aa0f1",
   "query": "What alternative sharpening methods could replace the high pass filter in this workflow, and what are the tradeoffs in terms of edge halos vs. natural detail enhancement?",
-  "workflow_path": "external_workflows/corpus/9aa0f1cd11147fe4.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/9aa0f1cd11147fe4.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/9aa0f1cd11147fe4.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/9aa0f1cd11147fe4.json",
     "required_node_evidence": [
       "Image High Pass Filter",
       "VividSharpenV2",

@@ -1,7 +1,7 @@
 {
   "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
   "query": "Swap the Wan2.2 model for a Stable Video Diffusion (SVD) based animation model. Also, remove the SAM2 segmentation branch and replace it with a simple foreground mask derived from the pose keypoints, keeping the relighting LoRA stage.",
-  "workflow_path": "external_workflows/corpus/1cc45704dcffe34a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1cc45704dcffe34a.json",
   "network": true,
   "timeout": 420,
   "apply": false,

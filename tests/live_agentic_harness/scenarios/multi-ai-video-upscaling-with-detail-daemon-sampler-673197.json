@@ -1,7 +1,7 @@
 {
   "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
   "query": "I'm using the Detail Daemon Sampler with beta scheduling to upscale a low-res video. The output has strong color shifting compared to the input, and details look smeared rather than enhanced. I've tried different SeedVR2 checkpoints but the issue persists. Where should I look?",
-  "workflow_path": "external_workflows/corpus/673197a9269d00f8.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/673197a9269d00f8.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/673197a9269d00f8.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/673197a9269d00f8.json",
     "required_node_evidence": [
       "SeedVR2VideoUpscaler",
       "DetailDaemonSamplerNode",

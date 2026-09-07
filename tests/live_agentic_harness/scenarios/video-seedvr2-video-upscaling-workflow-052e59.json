@@ -1,7 +1,7 @@
 {
   "id": "video-seedvr2-video-upscaling-workflow-052e59",
   "query": "Walk me through what each major stage does: how the video frames are loaded, what the VAE and DiT models contribute, and how the final upscaled video is assembled. I want to understand the full pipeline.",
-  "workflow_path": "external_workflows/corpus/052e59d2d54625ac.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/052e59d2d54625ac.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -35,7 +35,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/052e59d2d54625ac.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/052e59d2d54625ac.json",
     "required_node_evidence": [
       "LoadVideo",
       "GetVideoComponents",

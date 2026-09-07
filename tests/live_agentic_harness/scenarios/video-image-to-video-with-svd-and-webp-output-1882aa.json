@@ -1,7 +1,7 @@
 {
   "id": "video-image-to-video-with-svd-and-webp-output-1882aa",
   "query": "Walk me through this workflow: how does it turn a static image into a moving video and save it as WebP? I'm especially curious how the Stable Video Diffusion conditioning and linear CFG guidance are set up.",
-  "workflow_path": "external_workflows/corpus/1882aa21429372a8.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1882aa21429372a8.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/1882aa21429372a8.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1882aa21429372a8.json",
     "required_node_evidence": [
       "LoadImage",
       "ImageOnlyCheckpointLoader",

@@ -1,7 +1,7 @@
 {
   "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",
   "query": "I'm trying to understand how this AnimateDiff video-to-video workflow keeps motion coherent across frames. Walk me through the pipeline end-to-end, focusing on where the ControlNets, LoRAs, and KSampler interact to preserve temporal consistency.",
-  "workflow_path": "external_workflows/corpus/3c978e6c11a8a768.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/3c978e6c11a8a768.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/3c978e6c11a8a768.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/3c978e6c11a8a768.json",
     "required_node_evidence": [
       "VHS_LoadVideo",
       "VAEEncode",

@@ -1,7 +1,7 @@
 {
   "id": "audio-acestep-audio-generation-and-processing-workfl-1b1360",
   "query": "Integrate a spectral-gating noise reduction pass before the audio separation step, then route the cleaned audio into both the vocal removal and the separation branches.",
-  "workflow_path": "external_workflows/corpus/1b136036c776018a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1b136036c776018a.json",
   "network": true,
   "timeout": 380,
   "apply": false,

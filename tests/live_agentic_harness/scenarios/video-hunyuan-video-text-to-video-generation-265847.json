@@ -1,7 +1,7 @@
 {
   "id": "video-hunyuan-video-text-to-video-generation-265847",
   "query": "The generated animated WEBP has severe flickering between frames, especially in high-motion areas, but the first frame looks fine. What in the workflow could be causing this temporal inconsistency?",
-  "workflow_path": "external_workflows/corpus/26584720cc4075d1.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/26584720cc4075d1.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/26584720cc4075d1.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/26584720cc4075d1.json",
     "required_node_evidence": [
       "EmptyHunyuanLatentVideo",
       "BasicScheduler",

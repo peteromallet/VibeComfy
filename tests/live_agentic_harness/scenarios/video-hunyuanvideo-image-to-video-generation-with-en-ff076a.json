@@ -1,7 +1,7 @@
 {
   "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
   "query": "The generated video doesn't resemble my input image at all \u2014 the first frame is completely different, and the video looks like random noise. I suspect the image encoding or conditioning is broken.",
-  "workflow_path": "external_workflows/corpus/ff076a0bcc687c3e.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ff076a0bcc687c3e.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/ff076a0bcc687c3e.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ff076a0bcc687c3e.json",
     "required_node_evidence": [
       "LoadImageFromUrl",
       "ImageResizeKJ",

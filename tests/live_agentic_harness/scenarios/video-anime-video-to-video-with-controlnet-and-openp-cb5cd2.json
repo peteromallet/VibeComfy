@@ -1,7 +1,7 @@
 {
   "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
   "query": "The generated anime video doesn't follow the poses closely enough. Can you increase the ControlNet conditioning strength?",
-  "workflow_path": "external_workflows/corpus/cb5cd22138e4cd57.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/cb5cd22138e4cd57.json",
   "network": true,
   "timeout": 280,
   "apply": true,

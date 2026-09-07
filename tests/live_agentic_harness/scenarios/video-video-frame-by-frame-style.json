@@ -1,7 +1,7 @@
 {
   "id": "video-video-frame-by-frame-style",
   "query": "The output video is completely static \u2014 there's no motion at all.",
-  "workflow_path": "tests/fixtures/live_agentic_corpus/b6ae778fc2b1cd3d.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b6ae778fc2b1cd3d.json",
   "apply": true,
   "network": true,
   "timeout": 300,

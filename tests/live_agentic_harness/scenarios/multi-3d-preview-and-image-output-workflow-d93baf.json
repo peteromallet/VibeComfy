@@ -1,7 +1,7 @@
 {
   "id": "multi-3d-preview-and-image-output-workflow-d93baf",
   "query": "Change the SaveGLB filename prefix from '3d/ComfyUI' to '3d/moge-top-down'. Keep the mesh input and both normal-map preview branches unchanged.",
-  "workflow_path": "external_workflows/corpus/d93baf73c8a43f57.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d93baf73c8a43f57.json",
   "network": true,
   "timeout": 320,
   "apply": true,

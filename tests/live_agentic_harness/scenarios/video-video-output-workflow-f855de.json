@@ -1,7 +1,7 @@
 {
   "id": "video-video-output-workflow-f855de",
   "query": "The final output video is unacceptably blurry and shows heavy banding in dark areas, even though no explicit blur or compression step is visible in the node graph. I need you to inspect the custom nodes and connections to identify what's causing this loss of detail.",
-  "workflow_path": "external_workflows/corpus/f855deb7cdef4ace.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/f855deb7cdef4ace.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -33,7 +33,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/f855deb7cdef4ace.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/f855deb7cdef4ace.json",
     "required_node_evidence": [
       "SaveVideo",
       "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf",

@@ -1,7 +1,7 @@
 {
   "id": "image-image-comparison-and-enhancement-with-florence-007018",
   "query": "Restructure the blending logic so that instead of a single composite, the user can adjust the contribution of each filter (saturation, invert, high-pass, sharpen, normal map) independently using float sliders, and have these weights control the final blended image.",
-  "workflow_path": "external_workflows/corpus/0070184c5f1c8ca2.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/0070184c5f1c8ca2.json",
   "network": true,
   "timeout": 260,
   "apply": true,

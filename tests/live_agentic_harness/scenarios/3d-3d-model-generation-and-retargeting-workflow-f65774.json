@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-model-generation-and-retargeting-workflow-f65774",
   "query": "Raise the Tripo texture node's texture quality from 'standard' to 'detailed' and keep its PBR texturing enabled, so the rigged model's materials come through with finer detail in the final 3D preview.",
-  "workflow_path": "external_workflows/corpus/f657743bc2a3db17.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/f657743bc2a3db17.json",
   "network": true,
   "timeout": 420,
   "apply": true,

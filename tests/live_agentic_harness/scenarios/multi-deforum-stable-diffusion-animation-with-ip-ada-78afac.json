@@ -1,7 +1,7 @@
 {
   "id": "multi-deforum-stable-diffusion-animation-with-ip-ada-78afac",
   "query": "Replace the IP\u2011Adapter conditioning with a ControlNet depth estimator, keeping the same Deforum animation schedule. Use the ControlNet output to drive the conditioning blend instead of the IP\u2011Adapter\u2019s image prompt.",
-  "workflow_path": "external_workflows/corpus/78afac42baf0a381.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/78afac42baf0a381.json",
   "network": true,
   "timeout": 420,
   "apply": true,

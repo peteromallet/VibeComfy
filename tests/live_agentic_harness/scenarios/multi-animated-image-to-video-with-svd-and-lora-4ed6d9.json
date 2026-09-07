@@ -1,7 +1,7 @@
 {
   "id": "multi-animated-image-to-video-with-svd-and-lora-4ed6d9",
   "query": "Walk me through the entire pipeline of this workflow from loading the input image to generating the WEBP video. I want to understand why there are two KSampler stages and how the SVD model conditions the generated frames. Also explain how the LoRA augmentation fits in.",
-  "workflow_path": "external_workflows/corpus/4ed6d962d58657c4.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/4ed6d962d58657c4.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/4ed6d962d58657c4.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/4ed6d962d58657c4.json",
     "required_node_evidence": [
       "ImageOnlyCheckpointLoader",
       "SVD_img2vid_Conditioning",

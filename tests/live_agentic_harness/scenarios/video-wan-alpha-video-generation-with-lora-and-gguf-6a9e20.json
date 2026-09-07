@@ -1,7 +1,7 @@
 {
   "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
   "query": "Lower the LoRA model strength to 0.5 to reduce the intensity of the stylization effect",
-  "workflow_path": "external_workflows/corpus/6a9e200909ff7692.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/6a9e200909ff7692.json",
   "network": true,
   "timeout": 280,
   "apply": true,

@@ -1,7 +1,7 @@
 {
   "id": "multi-3d-gaussian-splatting-from-video-with-hunyuan-432652",
   "query": "The 3D reconstruction has noticeable geometry flickering across frames, likely from inconsistent depth maps. Can you investigate this video-to-3D Gaussian Splatting pipeline and suggest alternative depth estimation approaches or stabilization techniques that could reduce temporal jitter in the output point cloud?",
-  "workflow_path": "external_workflows/corpus/432652b04ff0738b.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/432652b04ff0738b.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/432652b04ff0738b.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/432652b04ff0738b.json",
     "required_node_evidence": [
       "PreprocessImagesForHWM",
       "HWMInference",

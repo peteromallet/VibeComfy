@@ -1,7 +1,7 @@
 {
   "id": "video-video-inpainting-with-spline-based-cut-and-dra-485ff2",
   "query": "Set the INPAINT_InpaintWithModel seed to 42 and keep seed control fixed. Do not alter the spline, cut-and-drag, or video-combine stages.",
-  "workflow_path": "external_workflows/corpus/485ff2fa6dcc1917.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/485ff2fa6dcc1917.json",
   "network": true,
   "timeout": 280,
   "apply": true,

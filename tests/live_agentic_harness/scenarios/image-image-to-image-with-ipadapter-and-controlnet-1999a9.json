@@ -1,7 +1,7 @@
 {
   "id": "image-image-to-image-with-ipadapter-and-controlnet-1999a9",
   "query": "How can I balance the influence between the IPAdapter style reference and the Canny edge ControlNet strength to preserve more of the original image structure while still applying the desired style? What parameters control this interplay?",
-  "workflow_path": "external_workflows/corpus/1999a9d36cb0a7f4.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1999a9d36cb0a7f4.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/1999a9d36cb0a7f4.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1999a9d36cb0a7f4.json",
     "required_node_evidence": [
       "IPAdapterApply",
       "Canny",

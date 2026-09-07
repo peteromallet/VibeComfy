@@ -1,7 +1,7 @@
 {
   "id": "multi-image-to-video-with-llm",
   "query": "The prompt it generates doesn't capture what's actually in the image.",
-  "workflow_path": "tests/fixtures/live_agentic_corpus/0099685f34b68456.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/0099685f34b68456.json",
   "apply": true,
   "network": true,
   "timeout": 300,

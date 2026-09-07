@@ -1,7 +1,7 @@
 {
   "id": "image-animatediff-video-generation-with-vae-d20410",
   "query": "Reduce the number of frames from 16 to 8 for quicker test renders.",
-  "workflow_path": "external_workflows/corpus/d20410227419c47a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d20410227419c47a.json",
   "network": true,
   "timeout": 160,
   "apply": true,

@@ -1,7 +1,7 @@
 {
   "id": "audio-acestep-audio-generation-with-detail-daemon-f0859f",
   "query": "The DetailDaemon sampler is used for enhancing audio detail. How does it work compared to standard audio diffusion samplers, and what settings would you recommend for generating a cinematic soundscape?",
-  "workflow_path": "external_workflows/corpus/f0859f5d99dc9bdf.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/f0859f5d99dc9bdf.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/f0859f5d99dc9bdf.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/f0859f5d99dc9bdf.json",
     "required_node_evidence": [
       "DetailDaemonSamplerNode",
       "KSampler",

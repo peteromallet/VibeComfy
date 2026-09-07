@@ -1,7 +1,7 @@
 {
   "id": "image-auraflow-image-generation-with-qwen-clip-9a3109",
   "query": "Increase the number of inference steps from 20 to 30 to get more detailed images.",
-  "workflow_path": "external_workflows/corpus/9a3109dc72a4bd11.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/9a3109dc72a4bd11.json",
   "network": true,
   "timeout": 160,
   "apply": true,
