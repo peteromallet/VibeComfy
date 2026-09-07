@@ -32,11 +32,6 @@
       }
     ]
   },
-  "desired": {
-    "outcome": "The agent inspects the AceStep audio chain (KSampler denoise controls, VAEEncodeAudio/VAEDecodeAudio, AudioFilter/FrequencyFilterPreset), determines that no node or widget exposes spectral-gating noise reduction, and truthfully reports that no candidate change exists; the graph stays unchanged.",
-    "quality": "The refusal names the real audio-chain nodes, gives the typed structural absence reason (no spectral-gate member in graph or schema; available presets cover only remove_rumble/remove_hiss filtering), proposes no fabricated edit, and leaves existing nodes intact.",
-    "alternatives_ok": true
-  },
   "_tags": {
     "modality": "audio",
     "query_type": "big_adjustment",

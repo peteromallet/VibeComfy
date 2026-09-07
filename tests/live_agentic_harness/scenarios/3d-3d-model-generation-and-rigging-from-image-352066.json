@@ -27,11 +27,6 @@
       }
     ]
   },
-  "desired": {
-    "outcome": "The agent inspects the rig chain (TripoImageToModelNode -> TripoRigNode -> TripoRetargetNode -> Preview3D), determines that no node or widget controls knee/joint orientation, and truthfully reports that no candidate change exists; the graph stays unchanged.",
-    "quality": "The refusal names the real rig-chain nodes and gives the grounded reason that joint orientation is not authorable in this cloud-rig workflow; no fabricated edit is submitted and existing nodes remain intact.",
-    "alternatives_ok": true
-  },
   "_tags": {
     "modality": "3d",
     "query_type": "edit",
