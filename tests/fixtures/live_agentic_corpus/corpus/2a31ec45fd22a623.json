@@ -1,0 +1,1180 @@
+{
+  "edges": [
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "4"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "reference_audio",
+      "to_node": "3"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "lora",
+      "to_node": "3"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "caption",
+      "to_node": "3"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "lyrics",
+      "to_node": "3"
+    }
+  ],
+  "groups": [],
+  "id": "41b6bdd46263938b",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "8",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "acestep-v15.safetensors"
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "2": {
+        "class_type": "LoadAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "reference_audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio",
+            "'ErnieLiveOnTheMoon.wav'"
+          ],
+          [
+            "unused_widget_1",
+            "None"
+          ],
+          [
+            "unused_widget_2",
+            "None"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "AceStepSFTGenerate",
+        "incoming_edge_sig": [
+          [
+            "caption",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "lora",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "lyrics",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "reference_audio",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'acestep-v15.safetensors'"
+          ],
+          [
+            "widget_1",
+            "'qwen_1.7b_ace15.safetensors'"
+          ],
+          [
+            "widget_10",
+            "8"
+          ],
+          [
+            "widget_11",
+            "'euler'"
+          ],
+          [
+            "widget_12",
+            "'sgm_uniform'"
+          ],
+          [
+            "widget_13",
+            "1"
+          ],
+          [
+            "widget_14",
+            "'apg'"
+          ],
+          [
+            "widget_15",
+            "170"
+          ],
+          [
+            "widget_16",
+            "78"
+          ],
+          [
+            "widget_17",
+            "'auto'"
+          ],
+          [
+            "widget_18",
+            "'en'"
+          ],
+          [
+            "widget_19",
+            "'auto'"
+          ],
+          [
+            "widget_2",
+            "'qwen_0.6b_ace15.safetensors'"
+          ],
+          [
+            "widget_20",
+            "1"
+          ],
+          [
+            "widget_21",
+            "False"
+          ],
+          [
+            "widget_22",
+            "0"
+          ],
+          [
+            "widget_23",
+            "True"
+          ],
+          [
+            "widget_24",
+            "2.5"
+          ],
+          [
+            "widget_25",
+            "0.85"
+          ],
+          [
+            "widget_26",
+            "0.9"
+          ],
+          [
+            "widget_27",
+            "0"
+          ],
+          [
+            "widget_28",
+            "0"
+          ],
+          [
+            "widget_29",
+            "''"
+          ],
+          [
+            "widget_3",
+            "'ace_1.5_vae.safetensors'"
+          ],
+          [
+            "widget_30",
+            "0"
+          ],
+          [
+            "widget_31",
+            "1"
+          ],
+          [
+            "widget_32",
+            "False"
+          ],
+          [
+            "widget_33",
+            "0"
+          ],
+          [
+            "widget_34",
+            "0.3"
+          ],
+          [
+            "widget_35",
+            "2.5"
+          ],
+          [
+            "widget_36",
+            "0.5"
+          ],
+          [
+            "widget_37",
+            "0"
+          ],
+          [
+            "widget_38",
+            "3"
+          ],
+          [
+            "widget_39",
+            "-1"
+          ],
+          [
+            "widget_4",
+            "''"
+          ],
+          [
+            "widget_40",
+            "-1"
+          ],
+          [
+            "widget_41",
+            "0"
+          ],
+          [
+            "widget_42",
+            "0"
+          ],
+          [
+            "widget_43",
+            "0"
+          ],
+          [
+            "widget_44",
+            "1"
+          ],
+          [
+            "widget_45",
+            "3"
+          ],
+          [
+            "widget_46",
+            "''"
+          ],
+          [
+            "widget_5",
+            "'[Instrumental]'"
+          ],
+          [
+            "widget_6",
+            "False"
+          ],
+          [
+            "widget_7",
+            "0"
+          ],
+          [
+            "widget_8",
+            "'fixed'"
+          ],
+          [
+            "widget_9",
+            "100"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/ComfyUI'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "AceStepSFTLoraLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "lora"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'1980sFlux.safetensors'"
+          ],
+          [
+            "widget_1",
+            "1"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "PrimitiveStringMultiline",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "caption"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "'Acoustic Guitar, Warm, Soft, Clean, Fingerstyle, Chord Melody, Intimate, Slow, 75 BPM, Key C Major, Chords C Am F G7 Em Dm, Simple Melody, No Vocals, No Drums, 8 Bars'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "PrimitiveStringMultiline",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "lyrics"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "\"Well, I'd like to visit the moon\\nOn a rocketship high in the air\\nYes, I'd like to visit the moon\\nBut I don't think I'd like to live there\\nThough I'd like to look down at the Earth from above\\nI would miss all the places and people I love\\nSo although I might like it for one afternoon\\nI don't wanna live on the moon\\nI'd like to travel under the sea\\nI could meet all the fish everywhere\\nYes, I'd travel under the sea\\nBut I don't think I'd like to live there\\nI might stay for a day there if I had my wish\\nBut there's not much to do\\nWhen your friends are all fish\\nAnd an oyster and clam aren't real family\\nSo I don't want to live in the sea\\nI'd like to visit the jungle\\nHear the lions roar\\nGo back in time and meet a dinosaur\\nThere's so many strange places I'd like to be\\nBut none of them permanently\\nSo, if I should visit the moon\\nWell, I'll dance on a moonbeam and then\\nI will make a wish on a star\\nAnd I'll wish I was home once again\\nThough I'd like to look down at the Earth from above\\nI would miss all the places and people I love\\nSo although I may go, I'll be coming home soon\\n'Cause I don't want to live on the moon\\nNo, I don't\\nWant to live\\nOn the moon\""
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'acestep-v15.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "2a31ec45fd22a62321e98b6c5722d26201b17246bb679ae77548148eb7615e3e",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "content_preview": "Ace Step SFT nodes",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1486352304104935459",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1486352304104935459:Ace_Step_15_SFT.json:41b6bdd46263938b",
+      "filename": "Ace_Step_15_SFT.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:55+00:00",
+      "message_id": 1486352304104935459,
+      "node_class_multiset": {
+        "AceStepSFTGenerate": 1,
+        "AceStepSFTLoraLoader": 1,
+        "LoadAudio": 1,
+        "PrimitiveStringMultiline": 2,
+        "SaveAudio": 1,
+        "UNETLoader": 1
+      },
+      "node_count": 7,
+      "origin_date": "2026-03-25T13:13:24.389000+00:00",
+      "originator_global_name": "TimHannan",
+      "originator_id": "391075181642252289",
+      "originator_type": "discord_message_author",
+      "originator_username": "timhannan",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "41b6bdd46263938b8738a9e83e300c742798b3341783469749ed518d976f958a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1486352303723249724/Ace_Step_15_SFT.json?ex=69c530f4&is=69c3df74&hm=f4293628865183920b9f1b5484e019f3b823cc7fbb46a5badadc685f8fb0e43c&",
+      "source_workflow_sha256": "03e2403d42b43f4248bed00566c6c2524347fc7db5b702e1fdc54f59b0d3fbb3",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "053bef8ba1298ef18e0c54a8c44dc5c33569309bacf4178fd77247f784afa504",
+      "complexity": 2,
+      "description": "Loads audio and a UNET model, applies AceStep SFT generation with optional LoRA loading, and saves the output audio.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio-generation",
+        "acestep",
+        "sft",
+        "lora",
+        "unet",
+        "audio-processing"
+      ],
+      "task_type": "other",
+      "title": "AceStep Audio Generation Workflow"
+    }
+  },
+  "nodes": {
+    "2": {
+      "class_type": "LoadAudio",
+      "id": "2",
+      "inputs": {
+        "audio": "ErnieLiveOnTheMoon.wav",
+        "unused_widget_1": null,
+        "unused_widget_2": null
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                2
+              ],
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            -2636.901511640891,
+            668.6391248801052
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudio",
+            "cnr_id": "comfy-core",
+            "ver": "0.7.0",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            282.798828125,
+            136
+          ],
+          "type": "LoadAudio",
+          "widgets_values": [
+            "ErnieLiveOnTheMoon.wav",
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ErnieLiveOnTheMoon.wav",
+          null,
+          null
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "AceStepSFTGenerate",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": null,
+              "name": "source_audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": 2,
+              "name": "reference_audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": 5,
+              "name": "lora",
+              "shape": 7,
+              "type": "ACESTEP_LORA"
+            },
+            {
+              "link": null,
+              "name": "style_tags",
+              "shape": 7,
+              "type": "STRING"
+            },
+            {
+              "link": null,
+              "name": "style_bpm",
+              "shape": 7,
+              "type": "INT"
+            },
+            {
+              "link": null,
+              "name": "style_keyscale",
+              "shape": 7,
+              "type": "STRING"
+            },
+            {
+              "link": 4,
+              "name": "caption",
+              "type": "STRING",
+              "widget": {
+                "name": "caption"
+              }
+            },
+            {
+              "link": 3,
+              "name": "lyrics",
+              "type": "STRING",
+              "widget": {
+                "name": "lyrics"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "name": "latent",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -2297.4644711711803,
+            694.8558071757172
+          ],
+          "properties": {
+            "Node name for S&R": "AceStepSFTGenerate",
+            "aux_id": "jeankassio/ComfyUI-AceStep_SFT",
+            "ver": "2abb9df8e4be10f1e9ff3c8d15a8b9f260aa56f3",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            400,
+            1352
+          ],
+          "type": "AceStepSFTGenerate",
+          "widgets_values": [
+            "acestep-v15.safetensors",
+            "qwen_1.7b_ace15.safetensors",
+            "qwen_0.6b_ace15.safetensors",
+            "ace_1.5_vae.safetensors",
+            "",
+            "[Instrumental]",
+            false,
+            0,
+            "fixed",
+            100,
+            8,
+            "euler",
+            "sgm_uniform",
+            1,
+            "apg",
+            170,
+            78,
+            "auto",
+            "en",
+            "auto",
+            1,
+            false,
+            0,
+            true,
+            2.5,
+            0.85,
+            0.9,
+            0,
+            0,
+            "",
+            0,
+            1,
+            false,
+            0,
+            0.3,
+            2.5,
+            0.5,
+            0,
+            3,
+            -1,
+            -1,
+            0,
+            0,
+            0,
+            1,
+            3,
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 47,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "acestep-v15.safetensors",
+          "qwen_1.7b_ace15.safetensors",
+          "qwen_0.6b_ace15.safetensors",
+          "ace_1.5_vae.safetensors",
+          "",
+          "[Instrumental]",
+          false,
+          0,
+          "fixed",
+          100,
+          8,
+          "euler",
+          "sgm_uniform",
+          1,
+          "apg",
+          170,
+          78,
+          "auto",
+          "en",
+          "auto",
+          1,
+          false,
+          0,
+          true,
+          2.5,
+          0.85,
+          0.9,
+          0,
+          0,
+          "",
+          0,
+          1,
+          false,
+          0,
+          0.3,
+          2.5,
+          0.5,
+          0,
+          3,
+          -1,
+          -1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          ""
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": "acestep-v15.safetensors",
+        "widget_1": "qwen_1.7b_ace15.safetensors",
+        "widget_10": 8,
+        "widget_11": "euler",
+        "widget_12": "sgm_uniform",
+        "widget_13": 1,
+        "widget_14": "apg",
+        "widget_15": 170,
+        "widget_16": 78,
+        "widget_17": "auto",
+        "widget_18": "en",
+        "widget_19": "auto",
+        "widget_2": "qwen_0.6b_ace15.safetensors",
+        "widget_20": 1,
+        "widget_21": false,
+        "widget_22": 0,
+        "widget_23": true,
+        "widget_24": 2.5,
+        "widget_25": 0.85,
+        "widget_26": 0.9,
+        "widget_27": 0,
+        "widget_28": 0,
+        "widget_29": "",
+        "widget_3": "ace_1.5_vae.safetensors",
+        "widget_30": 0,
+        "widget_31": 1,
+        "widget_32": false,
+        "widget_33": 0,
+        "widget_34": 0.3,
+        "widget_35": 2.5,
+        "widget_36": 0.5,
+        "widget_37": 0,
+        "widget_38": 3,
+        "widget_39": -1,
+        "widget_4": "",
+        "widget_40": -1,
+        "widget_41": 0,
+        "widget_42": 0,
+        "widget_43": 0,
+        "widget_44": 1,
+        "widget_45": 3,
+        "widget_46": "",
+        "widget_5": "[Instrumental]",
+        "widget_6": false,
+        "widget_7": 0,
+        "widget_8": "fixed",
+        "widget_9": 100
+      }
+    },
+    "4": {
+      "class_type": "SaveAudio",
+      "id": "4",
+      "inputs": {
+        "filename_prefix": "audio/ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            -1739.325119308504,
+            692.7860062688036
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "ver": "0.7.0",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            112
+          ],
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/ComfyUI"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "AceStepSFTLoraLoader",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": null,
+              "name": "lora",
+              "shape": 7,
+              "type": "ACESTEP_LORA"
+            }
+          ],
+          "mode": 4,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "lora",
+              "type": "ACESTEP_LORA"
+            }
+          ],
+          "pos": [
+            -2658.9787058167663,
+            934.2553886262365
+          ],
+          "properties": {
+            "Node name for S&R": "AceStepSFTLoraLoader",
+            "aux_id": "jeankassio/ComfyUI-AceStep_SFT",
+            "ver": "2abb9df8e4be10f1e9ff3c8d15a8b9f260aa56f3",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            291.5044921875,
+            106
+          ],
+          "type": "AceStepSFTLoraLoader",
+          "widgets_values": [
+            "1980sFlux.safetensors",
+            1,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "1980sFlux.safetensors",
+          1,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {
+        "widget_0": "1980sFlux.safetensors",
+        "widget_1": 1,
+        "widget_2": 1
+      }
+    },
+    "6": {
+      "class_type": "PrimitiveStringMultiline",
+      "id": "6",
+      "inputs": {
+        "value": "Acoustic Guitar, Warm, Soft, Clean, Fingerstyle, Chord Melody, Intimate, Slow, 75 BPM, Key C Major, Chords C Am F G7 Em Dm, Simple Melody, No Vocals, No Drums, 8 Bars"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                4
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -2768.674799907544,
+            1121.9116149172282
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveStringMultiline",
+            "cnr_id": "comfy-core",
+            "ver": "0.7.0",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "PrimitiveStringMultiline",
+          "widgets_values": [
+            "Acoustic Guitar, Warm, Soft, Clean, Fingerstyle, Chord Melody, Intimate, Slow, 75 BPM, Key C Major, Chords C Am F G7 Em Dm, Simple Melody, No Vocals, No Drums, 8 Bars"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Acoustic Guitar, Warm, Soft, Clean, Fingerstyle, Chord Melody, Intimate, Slow, 75 BPM, Key C Major, Chords C Am F G7 Em Dm, Simple Melody, No Vocals, No Drums, 8 Bars"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "PrimitiveStringMultiline",
+      "id": "7",
+      "inputs": {
+        "value": "Well, I'd like to visit the moon\nOn a rocketship high in the air\nYes, I'd like to visit the moon\nBut I don't think I'd like to live there\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I might like it for one afternoon\nI don't wanna live on the moon\nI'd like to travel under the sea\nI could meet all the fish everywhere\nYes, I'd travel under the sea\nBut I don't think I'd like to live there\nI might stay for a day there if I had my wish\nBut there's not much to do\nWhen your friends are all fish\nAnd an oyster and clam aren't real family\nSo I don't want to live in the sea\nI'd like to visit the jungle\nHear the lions roar\nGo back in time and meet a dinosaur\nThere's so many strange places I'd like to be\nBut none of them permanently\nSo, if I should visit the moon\nWell, I'll dance on a moonbeam and then\nI will make a wish on a star\nAnd I'll wish I was home once again\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I may go, I'll be coming home soon\n'Cause I don't want to live on the moon\nNo, I don't\nWant to live\nOn the moon"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                3
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -2955.6345826498555,
+            1484.8027458864665
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveStringMultiline",
+            "cnr_id": "comfy-core",
+            "ver": "0.7.0",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "PrimitiveStringMultiline",
+          "widgets_values": [
+            "Well, I'd like to visit the moon\nOn a rocketship high in the air\nYes, I'd like to visit the moon\nBut I don't think I'd like to live there\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I might like it for one afternoon\nI don't wanna live on the moon\nI'd like to travel under the sea\nI could meet all the fish everywhere\nYes, I'd travel under the sea\nBut I don't think I'd like to live there\nI might stay for a day there if I had my wish\nBut there's not much to do\nWhen your friends are all fish\nAnd an oyster and clam aren't real family\nSo I don't want to live in the sea\nI'd like to visit the jungle\nHear the lions roar\nGo back in time and meet a dinosaur\nThere's so many strange places I'd like to be\nBut none of them permanently\nSo, if I should visit the moon\nWell, I'll dance on a moonbeam and then\nI will make a wish on a star\nAnd I'll wish I was home once again\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I may go, I'll be coming home soon\n'Cause I don't want to live on the moon\nNo, I don't\nWant to live\nOn the moon"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Well, I'd like to visit the moon\nOn a rocketship high in the air\nYes, I'd like to visit the moon\nBut I don't think I'd like to live there\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I might like it for one afternoon\nI don't wanna live on the moon\nI'd like to travel under the sea\nI could meet all the fish everywhere\nYes, I'd travel under the sea\nBut I don't think I'd like to live there\nI might stay for a day there if I had my wish\nBut there's not much to do\nWhen your friends are all fish\nAnd an oyster and clam aren't real family\nSo I don't want to live in the sea\nI'd like to visit the jungle\nHear the lions roar\nGo back in time and meet a dinosaur\nThere's so many strange places I'd like to be\nBut none of them permanently\nSo, if I should visit the moon\nWell, I'll dance on a moonbeam and then\nI will make a wish on a star\nAnd I'll wish I was home once again\nThough I'd like to look down at the Earth from above\nI would miss all the places and people I love\nSo although I may go, I'll be coming home soon\n'Cause I don't want to live on the moon\nNo, I don't\nWant to live\nOn the moon"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "UNETLoader",
+      "id": "8",
+      "inputs": {
+        "unet_name": "acestep-v15.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [],
+          "mode": 4,
+          "order": 4,
+          "outputs": [
+            {
+              "links": null,
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -2688.3891979739647,
+            507.93537027195714
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.7.0",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "acestep-v15.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "acestep-v15.safetensors",
+          "default"
+        ]
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "4",
+      "output_type": "SaveAudio"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "acestep-v15.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "41b6bdd46263938b",
+    "path": "external_workflows/.shadow/source/41b6bdd46263938b-Ace_Step_15_SFT.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "2a31ec45fd22a62321e98b6c5722d26201b17246bb679ae77548148eb7615e3e",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "content_preview": "Ace Step SFT nodes",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1486352304104935459",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1486352304104935459:Ace_Step_15_SFT.json:41b6bdd46263938b",
+      "filename": "Ace_Step_15_SFT.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:55+00:00",
+      "message_id": 1486352304104935459,
+      "node_class_multiset": {
+        "AceStepSFTGenerate": 1,
+        "AceStepSFTLoraLoader": 1,
+        "LoadAudio": 1,
+        "PrimitiveStringMultiline": 2,
+        "SaveAudio": 1,
+        "UNETLoader": 1
+      },
+      "node_count": 7,
+      "origin_date": "2026-03-25T13:13:24.389000+00:00",
+      "originator_global_name": "TimHannan",
+      "originator_id": "391075181642252289",
+      "originator_type": "discord_message_author",
+      "originator_username": "timhannan",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "41b6bdd46263938b8738a9e83e300c742798b3341783469749ed518d976f958a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1486352303723249724/Ace_Step_15_SFT.json?ex=69c530f4&is=69c3df74&hm=f4293628865183920b9f1b5484e019f3b823cc7fbb46a5badadc685f8fb0e43c&",
+      "source_workflow_sha256": "03e2403d42b43f4248bed00566c6c2524347fc7db5b702e1fdc54f59b0d3fbb3",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

@@ -1,0 +1,275 @@
+{
+  "102": {
+    "class_type": "LTXVLoader",
+    "inputs": {
+      "widget_0": "ltx-video-2b-v0.9.safetensors"
+    }
+  },
+  "103": {
+    "class_type": "LTXVModelConfigurator",
+    "inputs": {
+      "conditioning": [
+        "129",
+        0
+      ],
+      "frames_number": [
+        "154",
+        0
+      ],
+      "height": [
+        "115",
+        1
+      ],
+      "model": [
+        "102",
+        0
+      ],
+      "vae": [
+        "102",
+        1
+      ],
+      "widget_0": "Custom",
+      "widget_1": 768,
+      "widget_2": 512,
+      "widget_3": 89,
+      "widget_4": 25,
+      "widget_5": 1,
+      "widget_6": true,
+      "width": [
+        "115",
+        2
+      ]
+    }
+  },
+  "106": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ComfyUI_00146_.png"
+    }
+  },
+  "109": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "t5\\t5xxl_fp16.safetensors",
+      "type": "ltxv"
+    }
+  },
+  "110": {
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "inputs": {
+      "widget_0": "MiaoshouAI/Florence-2-base-PromptGen-v2.0",
+      "widget_1": "fp16",
+      "widget_2": "sdpa"
+    }
+  },
+  "111": {
+    "class_type": "Florence2Run",
+    "inputs": {
+      "florence2_model": [
+        "110",
+        0
+      ],
+      "image": [
+        "129",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "more_detailed_caption",
+      "widget_2": true,
+      "widget_3": false,
+      "widget_4": 512,
+      "widget_5": 3,
+      "widget_6": true,
+      "widget_7": "",
+      "widget_8": 285091998991982,
+      "widget_9": "fixed"
+    }
+  },
+  "112": {
+    "class_type": "Display Any (rgthree)",
+    "inputs": {
+      "source": [
+        "111",
+        2
+      ],
+      "widget_0": ""
+    }
+  },
+  "113": {
+    "class_type": "LTXVScheduler",
+    "inputs": {
+      "base_shift": 0.95,
+      "latent": [
+        "103",
+        1
+      ],
+      "max_shift": 2.05,
+      "steps": 16,
+      "stretch": true,
+      "terminal": 0.1
+    }
+  },
+  "115": {
+    "class_type": "ImpactImageInfo",
+    "inputs": {
+      "value": [
+        "129",
+        0
+      ]
+    }
+  },
+  "117": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "109",
+        0
+      ],
+      "text": [
+        "111",
+        2
+      ]
+    }
+  },
+  "120": {
+    "class_type": "DF_Text_Box",
+    "inputs": {
+      "widget_0": "low quality, worst quality, deformed, distorted, disfigured, motion smear, motion artifacts, fused fingers, bad anatomy, weird hand, ugly"
+    }
+  },
+  "129": {
+    "class_type": "ImageResizeKJ",
+    "inputs": {
+      "crop": "disabled",
+      "divisible_by": 0,
+      "height": "nearest-exact",
+      "image": [
+        "106",
+        0
+      ],
+      "keep_proportion": 2,
+      "upscale_method": false,
+      "width": 512
+    }
+  },
+  "14": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "148": {
+    "class_type": "DF_Text_Box",
+    "inputs": {
+      "widget_0": "a cute golden retriever puppy playing a grand piano"
+    }
+  },
+  "154": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 91
+    }
+  },
+  "157": {
+    "class_type": "DF_Float",
+    "inputs": {
+      "widget_0": 4
+    }
+  },
+  "36": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "42",
+        0
+      ],
+      "latent_image": [
+        "103",
+        1
+      ],
+      "noise": [
+        "37",
+        0
+      ],
+      "sampler": [
+        "14",
+        0
+      ],
+      "sigmas": [
+        "113",
+        0
+      ]
+    }
+  },
+  "37": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 690684571013546
+    }
+  },
+  "42": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": [
+        "157",
+        0
+      ],
+      "model": [
+        "103",
+        0
+      ],
+      "negative": [
+        "88",
+        0
+      ],
+      "positive": [
+        "117",
+        0
+      ]
+    }
+  },
+  "60": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "LTXVideo",
+      "format": "video/h264-mp4",
+      "frame_rate": 25,
+      "images": [
+        "8",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "36",
+        0
+      ],
+      "vae": [
+        "102",
+        1
+      ]
+    }
+  },
+  "88": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "109",
+        0
+      ],
+      "text": [
+        "120",
+        0
+      ]
+    }
+  }
+}

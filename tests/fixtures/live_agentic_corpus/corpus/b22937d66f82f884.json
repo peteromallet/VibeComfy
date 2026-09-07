@@ -1,0 +1,903 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "9"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "10"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "10"
+    },
+    {
+      "from_node": "1",
+      "from_output": "1",
+      "to_input": "images",
+      "to_node": "25"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "1"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "8"
+    }
+  ],
+  "groups": [],
+  "id": "75bba5320e73221d",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "NovaSR",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "audio"
+            ]
+          ],
+          [
+            "0",
+            [
+              "9",
+              "audio"
+            ]
+          ],
+          [
+            "1",
+            [
+              "25",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'NovaSR_v1.safetensors'"
+          ],
+          [
+            "widget_1",
+            "True"
+          ],
+          [
+            "widget_2",
+            "True"
+          ],
+          [
+            "widget_3",
+            "True"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "MelBandRoFormerSampler",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "2",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "11": {
+        "class_type": "MelBandRoFormerModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "model",
+            "'MelBandRoformer_fp32.safetensors'"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "LoadAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio",
+            "'Snoop_Frogg1.wav'"
+          ],
+          [
+            "unused_widget_1",
+            "None"
+          ],
+          [
+            "unused_widget_2",
+            "None"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "1",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'# NovaSR - Quick Setup Guide\\n\\n## \ud83d\udcc1 Model Folder Structure\\n\\nCreate this folder in your ComfyUI installation:\\n\\n```\\nComfyUI/\\n\u2514\u2500\u2500 models/\\n    \u2514\u2500\u2500 NovaSR/\\n        \u251c\u2500\u2500 pytorch_model.bin\\n        \u2514\u2500\u2500 NovaSR.safetensors\\n```\\n\\n## \ud83d\udce5 Download Models\\n\\n| Model | Download Link | Format | Size |\\n|-------|---------------|---------|-------|\\n| PyTorch | [pytorch_model.bin](https://huggingface.co/drbaph/NovaSR/resolve/main/pytorch_model.bin) | .bin | 53.2 KB |\\n| SafeTensors | [NovaSR.safetensors](https://huggingface.co/drbaph/NovaSR/resolve/main/NovaSR.safetensors) | .safetensors | 48 KB |\\n\\n**[\u2192 View all models on HuggingFace](https://huggingface.co/drbaph/NovaSR/tree/main)**\\n\\n**Note:** Both formats contain the same model. Choose the one you prefer. SafeTensors is more secure and widely recommended.\\n\\n\\n## \u2699\ufe0f Node Parameters\\n\\n| Parameter | Value | Description |\\n|-----------|--------|-------------|\\n| Audio | *(input)* | Connect Load Audio node output |\\n| Model | `NovaSR.safetensors` | Model file to use |\\n| Unload Model | `False` | Keep model in VRAM for faster repeats |\\n| Show Spectrogram | `True` | Generate before/after comparison image |\\n\\n\\n## \ud83d\udcdd Tips\\n\\n1. **Mono Output:** NovaSR is mono-only. Use a mono-to-stereo node after if you need stereo\\n2. **Any Input:** Works with any sample rate - automatically resampled to 16kHz\\n3. **Stereo Handling:** Stereo inputs are automatically mixed to mono (average of channels)\\n4. **Batch Processing:** Model stays loaded for fast consecutive processing (unless \"Unload Model\" is checked)\\n5. **Real-time Use:** So fast it can enhance audio in real-time during recording or playback\\n\\n## \ud83d\udd17 Links\\n\\n- [GitHub Repository](https://github.com/Saganaki22/ComfyUI-NovaSR)\\n- [Models on HuggingFace](https://huggingface.co/drbaph/NovaSR)\\n- [Original NovaSR Repo](https://github.com/ysharma3501/NovaSR)\\n- [Original Paper](https://github.com/ysharma3501/NovaSR)\\n\\n**NovaSR provides comparable quality at 1/1000th the size and 6000x faster than AudioSR!**\\n'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "SaveAudioMP3",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/kermit'"
+          ],
+          [
+            "quality",
+            "'V0'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "PreviewAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b22937d66f82f8846d77c66b7b0bd75b51e71491d023a680a0a053f3ae83a176",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1462783028798689290",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1462783028798689290:Voice-separate-and-boost.json:75bba5320e73221d",
+      "filename": "Voice-separate-and-boost.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:50+00:00",
+      "message_id": 1462783028798689290,
+      "node_class_multiset": {
+        "LoadAudio": 1,
+        "MarkdownNote": 1,
+        "MelBandRoFormerModelLoader": 1,
+        "MelBandRoFormerSampler": 1,
+        "NovaSR": 1,
+        "PreviewAudio": 1,
+        "PreviewImage": 1,
+        "SaveAudioMP3": 1
+      },
+      "node_count": 8,
+      "origin_date": "2026-01-19T12:17:31.260000+00:00",
+      "originator_global_name": "David Snow",
+      "originator_id": "1004684178555682906",
+      "originator_type": "discord_message_author",
+      "originator_username": "davidsnow1",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "75bba5320e73221d0572287645e5bd4fe1630b0132eac16c6ee24757b70c9d42",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1462783028374933709/Voice-separate-and-boost.json?ex=69701b1b&is=696ec99b&hm=a44edb3d7a76406cb248991478f20850742d1ac25a6159e7a0e29e2626eb142c&",
+      "source_workflow_sha256": "b9090ce7b2880c83840337cda72f34f969ce509ad5b11cfa39e2dede1d17aafa",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "eab41ecd7cdf77dce6af43269ac83af07d04f4be7188f9b83b04ddb4716b80fb",
+      "complexity": 3,
+      "description": "Loads audio, processes it through a MelBandRoFormer sampler and model, then saves the output as an MP3 and previews an image.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "audio-processing",
+        "mel-band-roformer",
+        "audio-to-image",
+        "preview-image",
+        "save-audio-mp3"
+      ],
+      "task_type": "other",
+      "title": "Audio-to-Image Mel Band RoFormer Workflow"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "NovaSR",
+      "id": "1",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": 15,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                11,
+                12
+              ],
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": [
+                29
+              ],
+              "name": "spectrogram",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3054.198525701424,
+            -1943.4406009747238
+          ],
+          "properties": {
+            "Node name for S&R": "NovaSR",
+            "aux_id": "ysharma3501/NovaSR",
+            "cnr_id": "comfyui-novasr",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "e8d68dd26a740a57fab4dafafd3e26c18ec3f148"
+          },
+          "size": [
+            276.4896310852182,
+            150
+          ],
+          "type": "NovaSR",
+          "widgets_values": [
+            "NovaSR_v1.safetensors",
+            true,
+            true,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "NovaSR_v1.safetensors",
+          true,
+          true,
+          true
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_0": "NovaSR_v1.safetensors",
+        "widget_1": true,
+        "widget_2": true,
+        "widget_3": true
+      }
+    },
+    "10": {
+      "class_type": "MelBandRoFormerSampler",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 13,
+              "name": "model",
+              "type": "MELROFORMERMODEL"
+            },
+            {
+              "link": 14,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                15
+              ],
+              "name": "vocals",
+              "type": "AUDIO"
+            },
+            {
+              "links": [],
+              "name": "instruments",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            2756.6539459900036,
+            -1867.7004805006934
+          ],
+          "properties": {
+            "Node name for S&R": "MelBandRoFormerSampler",
+            "cnr_id": "comfyui-melbandroformer",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "1.0.1"
+          },
+          "size": [
+            231.2720703125,
+            46
+          ],
+          "type": "MelBandRoFormerSampler",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "MelBandRoFormerModelLoader",
+      "id": "11",
+      "inputs": {
+        "model": "MelBandRoformer_fp32.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "model",
+              "type": "MELROFORMERMODEL"
+            }
+          ],
+          "pos": [
+            2358.1895460426113,
+            -1917.2861595205302
+          ],
+          "properties": {
+            "Node name for S&R": "MelBandRoFormerModelLoader",
+            "cnr_id": "comfyui-melbandroformer",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "1.0.1"
+          },
+          "size": [
+            328.1861328125,
+            58
+          ],
+          "type": "MelBandRoFormerModelLoader",
+          "widgets_values": [
+            "MelBandRoformer_fp32.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "MelBandRoformer_fp32.safetensors"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "LoadAudio",
+      "id": "2",
+      "inputs": {
+        "audio": "Snoop_Frogg1.wav",
+        "unused_widget_1": null,
+        "unused_widget_2": null
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            2367.452012221782,
+            -1796.9154669183959
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.8.0"
+          },
+          "size": [
+            323.70224884226354,
+            165.43292819726935
+          ],
+          "type": "LoadAudio",
+          "widgets_values": [
+            "Snoop_Frogg1.wav",
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Snoop_Frogg1.wav",
+          null,
+          null
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "PreviewImage",
+      "id": "25",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 29,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [],
+          "pos": [
+            3435.264554358304,
+            -1866.7902016578719
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.9.2"
+          },
+          "size": [
+            746.1078200287093,
+            410.78201640013526
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "25",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "MarkdownNote",
+      "id": "5",
+      "inputs": {
+        "unused_widget_0": "# NovaSR - Quick Setup Guide\n\n## \ud83d\udcc1 Model Folder Structure\n\nCreate this folder in your ComfyUI installation:\n\n```\nComfyUI/\n\u2514\u2500\u2500 models/\n    \u2514\u2500\u2500 NovaSR/\n        \u251c\u2500\u2500 pytorch_model.bin\n        \u2514\u2500\u2500 NovaSR.safetensors\n```\n\n## \ud83d\udce5 Download Models\n\n| Model | Download Link | Format | Size |\n|-------|---------------|---------|-------|\n| PyTorch | [pytorch_model.bin](https://huggingface.co/drbaph/NovaSR/resolve/main/pytorch_model.bin) | .bin | 53.2 KB |\n| SafeTensors | [NovaSR.safetensors](https://huggingface.co/drbaph/NovaSR/resolve/main/NovaSR.safetensors) | .safetensors | 48 KB |\n\n**[\u2192 View all models on HuggingFace](https://huggingface.co/drbaph/NovaSR/tree/main)**\n\n**Note:** Both formats contain the same model. Choose the one you prefer. SafeTensors is more secure and widely recommended.\n\n\n## \u2699\ufe0f Node Parameters\n\n| Parameter | Value | Description |\n|-----------|--------|-------------|\n| Audio | *(input)* | Connect Load Audio node output |\n| Model | `NovaSR.safetensors` | Model file to use |\n| Unload Model | `False` | Keep model in VRAM for faster repeats |\n| Show Spectrogram | `True` | Generate before/after comparison image |\n\n\n## \ud83d\udcdd Tips\n\n1. **Mono Output:** NovaSR is mono-only. Use a mono-to-stereo node after if you need stereo\n2. **Any Input:** Works with any sample rate - automatically resampled to 16kHz\n3. **Stereo Handling:** Stereo inputs are automatically mixed to mono (average of channels)\n4. **Batch Processing:** Model stays loaded for fast consecutive processing (unless \"Unload Model\" is checked)\n5. **Real-time Use:** So fast it can enhance audio in real-time during recording or playback\n\n## \ud83d\udd17 Links\n\n- [GitHub Repository](https://github.com/Saganaki22/ComfyUI-NovaSR)\n- [Models on HuggingFace](https://huggingface.co/drbaph/NovaSR)\n- [Original NovaSR Repo](https://github.com/ysharma3501/NovaSR)\n- [Original Paper](https://github.com/ysharma3501/NovaSR)\n\n**NovaSR provides comparable quality at 1/1000th the size and 6000x faster than AudioSR!**\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "rgba(24,24,27,.9)",
+          "color": "#c09430",
+          "flags": {},
+          "id": 5,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            427.9328248831315,
+            -1975.1671105587307
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            405.66747670225004,
+            853.0415148063491
+          ],
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "# NovaSR - Quick Setup Guide\n\n## \ud83d\udcc1 Model Folder Structure\n\nCreate this folder in your ComfyUI installation:\n\n```\nComfyUI/\n\u2514\u2500\u2500 models/\n    \u2514\u2500\u2500 NovaSR/\n        \u251c\u2500\u2500 pytorch_model.bin\n        \u2514\u2500\u2500 NovaSR.safetensors\n```\n\n## \ud83d\udce5 Download Models\n\n| Model | Download Link | Format | Size |\n|-------|---------------|---------|-------|\n| PyTorch | [pytorch_model.bin](https://huggingface.co/drbaph/NovaSR/resolve/main/pytorch_model.bin) | .bin | 53.2 KB |\n| SafeTensors | [NovaSR.safetensors](https://huggingface.co/drbaph/NovaSR/resolve/main/NovaSR.safetensors) | .safetensors | 48 KB |\n\n**[\u2192 View all models on HuggingFace](https://huggingface.co/drbaph/NovaSR/tree/main)**\n\n**Note:** Both formats contain the same model. Choose the one you prefer. SafeTensors is more secure and widely recommended.\n\n\n## \u2699\ufe0f Node Parameters\n\n| Parameter | Value | Description |\n|-----------|--------|-------------|\n| Audio | *(input)* | Connect Load Audio node output |\n| Model | `NovaSR.safetensors` | Model file to use |\n| Unload Model | `False` | Keep model in VRAM for faster repeats |\n| Show Spectrogram | `True` | Generate before/after comparison image |\n\n\n## \ud83d\udcdd Tips\n\n1. **Mono Output:** NovaSR is mono-only. Use a mono-to-stereo node after if you need stereo\n2. **Any Input:** Works with any sample rate - automatically resampled to 16kHz\n3. **Stereo Handling:** Stereo inputs are automatically mixed to mono (average of channels)\n4. **Batch Processing:** Model stays loaded for fast consecutive processing (unless \"Unload Model\" is checked)\n5. **Real-time Use:** So fast it can enhance audio in real-time during recording or playback\n\n## \ud83d\udd17 Links\n\n- [GitHub Repository](https://github.com/Saganaki22/ComfyUI-NovaSR)\n- [Models on HuggingFace](https://huggingface.co/drbaph/NovaSR)\n- [Original NovaSR Repo](https://github.com/ysharma3501/NovaSR)\n- [Original Paper](https://github.com/ysharma3501/NovaSR)\n\n**NovaSR provides comparable quality at 1/1000th the size and 6000x faster than AudioSR!**\n"
+          ]
+        },
+        "bgcolor": "rgba(24,24,27,.9)",
+        "color": "#c09430",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "# NovaSR - Quick Setup Guide\n\n## \ud83d\udcc1 Model Folder Structure\n\nCreate this folder in your ComfyUI installation:\n\n```\nComfyUI/\n\u2514\u2500\u2500 models/\n    \u2514\u2500\u2500 NovaSR/\n        \u251c\u2500\u2500 pytorch_model.bin\n        \u2514\u2500\u2500 NovaSR.safetensors\n```\n\n## \ud83d\udce5 Download Models\n\n| Model | Download Link | Format | Size |\n|-------|---------------|---------|-------|\n| PyTorch | [pytorch_model.bin](https://huggingface.co/drbaph/NovaSR/resolve/main/pytorch_model.bin) | .bin | 53.2 KB |\n| SafeTensors | [NovaSR.safetensors](https://huggingface.co/drbaph/NovaSR/resolve/main/NovaSR.safetensors) | .safetensors | 48 KB |\n\n**[\u2192 View all models on HuggingFace](https://huggingface.co/drbaph/NovaSR/tree/main)**\n\n**Note:** Both formats contain the same model. Choose the one you prefer. SafeTensors is more secure and widely recommended.\n\n\n## \u2699\ufe0f Node Parameters\n\n| Parameter | Value | Description |\n|-----------|--------|-------------|\n| Audio | *(input)* | Connect Load Audio node output |\n| Model | `NovaSR.safetensors` | Model file to use |\n| Unload Model | `False` | Keep model in VRAM for faster repeats |\n| Show Spectrogram | `True` | Generate before/after comparison image |\n\n\n## \ud83d\udcdd Tips\n\n1. **Mono Output:** NovaSR is mono-only. Use a mono-to-stereo node after if you need stereo\n2. **Any Input:** Works with any sample rate - automatically resampled to 16kHz\n3. **Stereo Handling:** Stereo inputs are automatically mixed to mono (average of channels)\n4. **Batch Processing:** Model stays loaded for fast consecutive processing (unless \"Unload Model\" is checked)\n5. **Real-time Use:** So fast it can enhance audio in real-time during recording or playback\n\n## \ud83d\udd17 Links\n\n- [GitHub Repository](https://github.com/Saganaki22/ComfyUI-NovaSR)\n- [Models on HuggingFace](https://huggingface.co/drbaph/NovaSR)\n- [Original NovaSR Repo](https://github.com/ysharma3501/NovaSR)\n- [Original Paper](https://github.com/ysharma3501/NovaSR)\n\n**NovaSR provides comparable quality at 1/1000th the size and 6000x faster than AudioSR!**\n"
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "SaveAudioMP3",
+      "id": "8",
+      "inputs": {
+        "filename_prefix": "audio/kermit",
+        "quality": "V0"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            3442.398537185895,
+            -1399.5458672147033
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudioMP3",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.8.0"
+          },
+          "size": [
+            726.8363946249829,
+            217.97056797299183
+          ],
+          "type": "SaveAudioMP3",
+          "widgets_values": [
+            "audio/kermit",
+            "V0"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/kermit",
+          "V0"
+        ]
+      },
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "PreviewAudio",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 12,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            3431.9511390405937,
+            -2107.652076398473
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.9.2"
+          },
+          "size": [
+            766.4601741943716,
+            185.4645740749686
+          ],
+          "type": "PreviewAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "8",
+      "output_type": "SaveAudioMP3"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "25",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "75bba5320e73221d",
+    "path": "external_workflows/.shadow/source/75bba5320e73221d-Voice-separate-and-boost.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b22937d66f82f8846d77c66b7b0bd75b51e71491d023a680a0a053f3ae83a176",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1462783028798689290",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1462783028798689290:Voice-separate-and-boost.json:75bba5320e73221d",
+      "filename": "Voice-separate-and-boost.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:50+00:00",
+      "message_id": 1462783028798689290,
+      "node_class_multiset": {
+        "LoadAudio": 1,
+        "MarkdownNote": 1,
+        "MelBandRoFormerModelLoader": 1,
+        "MelBandRoFormerSampler": 1,
+        "NovaSR": 1,
+        "PreviewAudio": 1,
+        "PreviewImage": 1,
+        "SaveAudioMP3": 1
+      },
+      "node_count": 8,
+      "origin_date": "2026-01-19T12:17:31.260000+00:00",
+      "originator_global_name": "David Snow",
+      "originator_id": "1004684178555682906",
+      "originator_type": "discord_message_author",
+      "originator_username": "davidsnow1",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "75bba5320e73221d0572287645e5bd4fe1630b0132eac16c6ee24757b70c9d42",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1462783028374933709/Voice-separate-and-boost.json?ex=69701b1b&is=696ec99b&hm=a44edb3d7a76406cb248991478f20850742d1ac25a6159e7a0e29e2626eb142c&",
+      "source_workflow_sha256": "b9090ce7b2880c83840337cda72f34f969ce509ad5b11cfa39e2dede1d17aafa",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

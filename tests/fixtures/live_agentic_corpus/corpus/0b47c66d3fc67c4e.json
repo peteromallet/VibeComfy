@@ -1,0 +1,999 @@
+{
+  "edges": [
+    {
+      "from_node": "414",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "416"
+    },
+    {
+      "from_node": "416",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "417"
+    },
+    {
+      "from_node": "417",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "418"
+    },
+    {
+      "from_node": "412",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "414"
+    },
+    {
+      "from_node": "418",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "419"
+    },
+    {
+      "from_node": "419",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "420"
+    }
+  ],
+  "groups": [],
+  "id": "c57c7ed6e0e9327f",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "412",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors"
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "412": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "414",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "414": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "412",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "416",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'_WAN/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "416": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "414",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "417",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'_WAN/DetailEnhancerV1.safetensors'"
+          ],
+          [
+            "strength_model",
+            "0.2"
+          ]
+        ]
+      },
+      "417": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "416",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "418",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'_WAN/Wan14B_RealismBoost.safetensors'"
+          ],
+          [
+            "strength_model",
+            "0.2"
+          ]
+        ]
+      },
+      "418": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "417",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "419",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'_WAN/Wan21_T2V_14B_MoviiGen_lora_rank32_fp16.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "419": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "418",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "420",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'_WAN/_FUN/Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "420": {
+        "class_type": "ModelSave",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "419",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'%date:yyyy-MM-dd%/diffusion_models/Merge_WAN_2-1_14b_t2v_wLightXv2r64'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "0b47c66d3fc67c4ee43ecfa43a6ee130563e4afb5172418882a2d8dd92e575b5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "content_preview": "was super easy and fast actually! just run this with you stacks. use the saved safetensor as your main without any loras then. This really nice option for getting me past the OOMs on my lower end system noted up there. Not sure how to conve",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1395845285300797481",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1395845285300797481:WAN_Model_Merger_1.json:c57c7ed6e0e9327f",
+      "filename": "WAN_Model_Merger_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:27+00:00",
+      "message_id": 1395845285300797481,
+      "node_class_multiset": {
+        "LoraLoaderModelOnly": 5,
+        "ModelSave": 1,
+        "UNETLoader": 1
+      },
+      "node_count": 7,
+      "origin_date": "2025-07-18T19:10:49.567000+00:00",
+      "originator_global_name": "The Shadow (NYC)",
+      "originator_id": "1035550271838887996",
+      "originator_type": "discord_message_author",
+      "originator_username": "the_shadow_nyc",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c57c7ed6e0e9327f27e5eedd2a5c0e40d9e72bc34c6cabd5a4cae4d634b4bbdc",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1395845285103534080/WAN_Model_Merger_1.json?ex=687bedb9&is=687a9c39&hm=0374110ef33f6dec62c1b131aea315316b75a70ee8b5a03e764733da76219435&",
+      "source_workflow_sha256": "1f98d4559baf567f88d1e609d160f99fb1054a91f8faea447f8f400141d0b02e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "94528e4c41793ea0e46ffa72adff33b34d84cc21df01b331f3e949ee87bfe7f0",
+      "complexity": 2,
+      "description": "Loads a WanVideo base model with multiple LoRA adapters for enhanced video generation, then saves the combined model.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "wanvideo",
+        "lora",
+        "model-merging",
+        "video-generation",
+        "model-saving"
+      ],
+      "task_type": "other",
+      "title": "WanVideo LoRA Stacking Workflow"
+    }
+  },
+  "nodes": {
+    "412": {
+      "class_type": "UNETLoader",
+      "id": "412",
+      "inputs": {
+        "unet_name": "WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 412,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "unet_name",
+              "name": "unet_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "unet_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "weight_dtype",
+              "name": "weight_dtype",
+              "type": "COMBO",
+              "widget": {
+                "name": "weight_dtype"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                244
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            220,
+            -800
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            517.6270751953125,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
+            "default"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
+          "default"
+        ]
+      },
+      "uid": "412",
+      "widgets": {}
+    },
+    "414": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "414",
+      "inputs": {
+        "lora_name": "_WAN/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 414,
+          "inputs": [
+            {
+              "link": 244,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                245
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            260,
+            -660
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            468.3480224609375,
+            84.46395111083984
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "_WAN/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+            1
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "_WAN/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+          1
+        ]
+      },
+      "uid": "414",
+      "widgets": {}
+    },
+    "416": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "416",
+      "inputs": {
+        "lora_name": "_WAN/DetailEnhancerV1.safetensors",
+        "strength_model": 0.2
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 416,
+          "inputs": [
+            {
+              "link": 245,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                240
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            264.09423828125,
+            -518.9510498046875
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            468.3480224609375,
+            84.46395111083984
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "_WAN/DetailEnhancerV1.safetensors",
+            0.2
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "_WAN/DetailEnhancerV1.safetensors",
+          0.2
+        ]
+      },
+      "uid": "416",
+      "widgets": {}
+    },
+    "417": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "417",
+      "inputs": {
+        "lora_name": "_WAN/Wan14B_RealismBoost.safetensors",
+        "strength_model": 0.2
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 417,
+          "inputs": [
+            {
+              "link": 240,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                241
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            259.2384033203125,
+            -387.0574035644531
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            468.3480224609375,
+            84.46395111083984
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "_WAN/Wan14B_RealismBoost.safetensors",
+            0.2
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "_WAN/Wan14B_RealismBoost.safetensors",
+          0.2
+        ]
+      },
+      "uid": "417",
+      "widgets": {}
+    },
+    "418": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "418",
+      "inputs": {
+        "lora_name": "_WAN/Wan21_T2V_14B_MoviiGen_lora_rank32_fp16.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 418,
+          "inputs": [
+            {
+              "link": 241,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                242
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            254.31053161621094,
+            -240.4524383544922
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            468.3480224609375,
+            84.46395111083984
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "_WAN/Wan21_T2V_14B_MoviiGen_lora_rank32_fp16.safetensors",
+            1
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "_WAN/Wan21_T2V_14B_MoviiGen_lora_rank32_fp16.safetensors",
+          1
+        ]
+      },
+      "uid": "418",
+      "widgets": {}
+    },
+    "419": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "419",
+      "inputs": {
+        "lora_name": "_WAN/_FUN/Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 419,
+          "inputs": [
+            {
+              "link": 242,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                243
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            246.44618225097656,
+            -100.2311019897461
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            468.3480224609375,
+            84.46395111083984
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "_WAN/_FUN/Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors",
+            1
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "_WAN/_FUN/Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors",
+          1
+        ]
+      },
+      "uid": "419",
+      "widgets": {}
+    },
+    "420": {
+      "class_type": "ModelSave",
+      "id": "420",
+      "inputs": {
+        "filename_prefix": "%date:yyyy-MM-dd%/diffusion_models/Merge_WAN_2-1_14b_t2v_wLightXv2r64"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 420,
+          "inputs": [
+            {
+              "link": 243,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            251.70724487304688,
+            57.945777893066406
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSave",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.44",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            440.0126037597656,
+            58
+          ],
+          "type": "ModelSave",
+          "widgets_values": [
+            "%date:yyyy-MM-dd%/diffusion_models/Merge_WAN_2-1_14b_t2v_wLightXv2r64"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "%date:yyyy-MM-dd%/diffusion_models/Merge_WAN_2-1_14b_t2v_wLightXv2r64"
+        ]
+      },
+      "uid": "420",
+      "widgets": {}
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "WanVideo/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors",
+      "_WAN/DetailEnhancerV1.safetensors",
+      "_WAN/Wan14B_RealismBoost.safetensors",
+      "_WAN/Wan21_T2V_14B_MoviiGen_lora_rank32_fp16.safetensors",
+      "_WAN/_FUN/Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors",
+      "_WAN/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "c57c7ed6e0e9327f",
+    "path": "external_workflows/.shadow/source/c57c7ed6e0e9327f-WAN_Model_Merger_1.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "0b47c66d3fc67c4ee43ecfa43a6ee130563e4afb5172418882a2d8dd92e575b5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "content_preview": "was super easy and fast actually! just run this with you stacks. use the saved safetensor as your main without any loras then. This really nice option for getting me past the OOMs on my lower end system noted up there. Not sure how to conve",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1395845285300797481",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1395845285300797481:WAN_Model_Merger_1.json:c57c7ed6e0e9327f",
+      "filename": "WAN_Model_Merger_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:27+00:00",
+      "message_id": 1395845285300797481,
+      "node_class_multiset": {
+        "LoraLoaderModelOnly": 5,
+        "ModelSave": 1,
+        "UNETLoader": 1
+      },
+      "node_count": 7,
+      "origin_date": "2025-07-18T19:10:49.567000+00:00",
+      "originator_global_name": "The Shadow (NYC)",
+      "originator_id": "1035550271838887996",
+      "originator_type": "discord_message_author",
+      "originator_username": "the_shadow_nyc",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c57c7ed6e0e9327f27e5eedd2a5c0e40d9e72bc34c6cabd5a4cae4d634b4bbdc",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1395845285103534080/WAN_Model_Merger_1.json?ex=687bedb9&is=687a9c39&hm=0374110ef33f6dec62c1b131aea315316b75a70ee8b5a03e764733da76219435&",
+      "source_workflow_sha256": "1f98d4559baf567f88d1e609d160f99fb1054a91f8faea447f8f400141d0b02e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

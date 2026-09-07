@@ -1,0 +1,2137 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "6"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "context_options",
+      "to_node": "6"
+    },
+    {
+      "from_node": "1",
+      "from_output": "2",
+      "to_input": "_un15",
+      "to_node": "14"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "10"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "10"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "batch_size",
+      "to_node": "16"
+    },
+    {
+      "from_node": "1",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "8"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "15"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "2"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "2"
+    },
+    {
+      "from_node": "19",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "2"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "2"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "image_load_cap",
+      "to_node": "21"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "start_index",
+      "to_node": "21"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "25"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "19"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "19"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "19"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "19"
+    },
+    {
+      "from_node": "1",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    }
+  ],
+  "groups": [],
+  "id": "0d844b1d74effeb7",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "1",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "XL\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "8",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "2",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 335296435821887
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "2",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 24
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "8",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "14",
+              "_un15"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'XL\\\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "2",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "14",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "14": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un15",
+            [
+              "1",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "15": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio_file",
+            "''"
+          ],
+          [
+            "crf",
+            "20"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'image/gif'"
+          ],
+          [
+            "frame_rate",
+            "12"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "save_image",
+            "True"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00052.gif', 'subfolder': '', 'type': 'output', 'format': 'image/gif'}}"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [
+          [
+            "batch_size",
+            [
+              "22",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "1024"
+          ],
+          [
+            "widget_2",
+            "8"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "ControlNetApplyAdvanced",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "20",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "21",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "8",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "7",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "2",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "16",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "19",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "seed",
+            "335296435821887"
+          ],
+          [
+            "steps",
+            "24"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "ControlNetLoaderAdvanced",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'XL\\\\controlnet-sd-xl-1.0-softedge-dexined.safetensors'"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "LoadImagesFromDirectory",
+        "incoming_edge_sig": [
+          [
+            "image_load_cap",
+            [
+              "22",
+              "0"
+            ]
+          ],
+          [
+            "start_index",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "25",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'C:\\\\Program Files\\\\StabilityMatrix-win-x64\\\\Data\\\\Data\\\\Projects\\\\Alphas\\\\Stars'"
+          ],
+          [
+            "widget_1",
+            "8"
+          ],
+          [
+            "widget_2",
+            "0"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "16",
+              "batch_size"
+            ]
+          ],
+          [
+            "0",
+            [
+              "21",
+              "image_load_cap"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "8"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "start_index"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "0"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "6": {
+        "class_type": "ADE_AnimateDiffLoaderWithContext",
+        "incoming_edge_sig": [
+          [
+            "context_options",
+            [
+              "9",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'animatediffMotion_sdxlV10Beta.ckpt'"
+          ],
+          [
+            "widget_1",
+            "'sqrt_linear (AnimateDiff)'"
+          ],
+          [
+            "widget_2",
+            "1"
+          ],
+          [
+            "widget_3",
+            "True"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "1",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'Smiling sun'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "1",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "ADE_AnimateDiffUniformContextOptions",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "context_options"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "16"
+          ],
+          [
+            "widget_1",
+            "1"
+          ],
+          [
+            "widget_2",
+            "4"
+          ],
+          [
+            "widget_3",
+            "'uniform'"
+          ],
+          [
+            "widget_4",
+            "False"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "a7e2af6f0472627b7992004120158c5f8a2112bcfc607c1880f3b5007e3cb508",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1142935168584265779,
+      "channel_name": "animatediff",
+      "discord_message_url": "https://discord.com/channels/@me/1142935168584265779/1185765905007902810",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1185765905007902810:AD01_1.json:0d844b1d74effeb7",
+      "filename": "AD01_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1185765905007902810,
+      "node_class_multiset": {
+        "ADE_AnimateDiffLoaderWithContext": 1,
+        "ADE_AnimateDiffUniformContextOptions": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApplyAdvanced": 1,
+        "ControlNetLoaderAdvanced": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "LoadImagesFromDirectory": 1,
+        "PreviewImage": 1,
+        "PrimitiveNode": 2,
+        "Reroute": 1,
+        "VAEDecode": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 16,
+      "origin_date": "2023-12-17T02:10:22.219000+00:00",
+      "originator_global_name": "decambra89",
+      "originator_id": "207734410752032770",
+      "originator_type": "discord_message_author",
+      "originator_username": "decambra89",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "0d844b1d74effeb7deb44dd244a577d278439984c13f01a5df207e8e120e3141",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1142935168584265779/1185765904705916979/AD01_1.json?ex=68351f0e&is=6833cd8e&hm=e6ca016590d2d4df908b9caf29643e18ed7e334118d4c89f2611cc22e0cfd3ac&",
+      "source_workflow_sha256": "cd7298f49e870fdd8b4a537ec1e77c22e4a80ff69fea88773ba61023bff4890e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "0fa40cd108fe3f3df6b8ae6a670e88d00e660e7be0b517b614dace9612075866",
+      "complexity": 3,
+      "description": "Generates animated videos using AnimateDiff with ControlNet guidance, loading a checkpoint and images from a directory to produce video output.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "animatediff",
+        "controlnet",
+        "video-generation",
+        "image-to-video",
+        "text-to-video"
+      ],
+      "task_type": "controlnet",
+      "title": "AnimateDiff Video Generation with ControlNet"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "1",
+      "inputs": {
+        "ckpt_name": "XL\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                7,
+                8
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                15
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            0,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 500,
+            "1": 100
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "XL\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "XL\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "10": {
+      "class_type": "VAEDecode",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 12,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 14,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1400,
+            -70
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "10",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "Reroute",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 15,
+              "name": "",
+              "slot_index": 0,
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            1300,
+            -50
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "VHS_VideoCombine",
+      "id": "15",
+      "inputs": {
+        "audio_file": "",
+        "crf": 20,
+        "filename_prefix": "AnimateDiff",
+        "format": "image/gif",
+        "frame_rate": 12,
+        "loop_count": 0,
+        "pingpong": false,
+        "save_image": true,
+        "save_metadata": true,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00052.gif",
+            "format": "image/gif",
+            "subfolder": "",
+            "type": "output"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "inputs": [
+            {
+              "link": 16,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [],
+          "pos": [
+            1640,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            320,
+            540
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "audio_file": "",
+            "crf": 20,
+            "filename_prefix": "AnimateDiff",
+            "format": "image/gif",
+            "frame_rate": 12,
+            "loop_count": 0,
+            "pingpong": false,
+            "save_image": true,
+            "save_metadata": true,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00052.gif",
+                "format": "image/gif",
+                "subfolder": "",
+                "type": "output"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "audio_file": "",
+          "crf": 20,
+          "filename_prefix": "AnimateDiff",
+          "format": "image/gif",
+          "frame_rate": 12,
+          "loop_count": 0,
+          "pingpong": false,
+          "save_image": true,
+          "save_metadata": true,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00052.gif",
+              "format": "image/gif",
+              "subfolder": "",
+              "type": "output"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "15",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "EmptyLatentImage",
+      "id": "16",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 27,
+              "name": "batch_size",
+              "slot_index": 0,
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                17
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            0,
+            180
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 320,
+            "1": 110
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            1024,
+            1024,
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          8
+        ]
+      },
+      "uid": "16",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 1024,
+        "widget_2": 8
+      }
+    },
+    "19": {
+      "class_type": "ControlNetApplyAdvanced",
+      "id": "19",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 19,
+              "name": "positive",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 22,
+              "name": "negative",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 23,
+              "name": "control_net",
+              "slot_index": 2,
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 24,
+              "name": "image",
+              "slot_index": 3,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                20
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                21
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            520,
+            -300
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetApplyAdvanced"
+          },
+          "size": {
+            "0": 300,
+            "1": 170
+          },
+          "type": "ControlNetApplyAdvanced",
+          "widgets_values": [
+            1,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          0,
+          1
+        ]
+      },
+      "uid": "19",
+      "widgets": {
+        "widget_0": 1,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "2": {
+      "class_type": "KSampler",
+      "id": "2",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "seed": 335296435821887,
+        "steps": 24,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 6,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 20,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 21,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 17,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1300,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 320,
+            "1": 270
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            335296435821887,
+            "randomize",
+            24,
+            8,
+            "euler",
+            "normal",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          335296435821887,
+          "randomize",
+          24,
+          8,
+          "euler",
+          "normal",
+          1
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "ControlNetLoaderAdvanced",
+      "id": "20",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [
+            {
+              "link": null,
+              "name": "timestep_keyframe",
+              "type": "TIMESTEP_KEYFRAME"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            520,
+            -80
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoaderAdvanced"
+          },
+          "size": {
+            "0": 470,
+            "1": 60
+          },
+          "type": "ControlNetLoaderAdvanced",
+          "widgets_values": [
+            "XL\\controlnet-sd-xl-1.0-softedge-dexined.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "XL\\controlnet-sd-xl-1.0-softedge-dexined.safetensors"
+        ]
+      },
+      "uid": "20",
+      "widgets": {
+        "widget_0": "XL\\controlnet-sd-xl-1.0-softedge-dexined.safetensors"
+      }
+    },
+    "21": {
+      "class_type": "LoadImagesFromDirectory",
+      "id": "21",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "inputs": [
+            {
+              "link": 25,
+              "name": "image_load_cap",
+              "slot_index": 0,
+              "type": "INT",
+              "widget": {
+                "name": "image_load_cap"
+              }
+            },
+            {
+              "link": 26,
+              "name": "start_index",
+              "slot_index": 1,
+              "type": "INT",
+              "widget": {
+                "name": "start_index"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                24,
+                28
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            },
+            {
+              "links": null,
+              "name": "INT",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            180,
+            -120
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImagesFromDirectory"
+          },
+          "size": {
+            "0": 320,
+            "1": 100
+          },
+          "title": "Load Images \ud83d\udec2\ud83c\udd50\ud83c\udd52\ud83c\udd5d",
+          "type": "LoadImagesFromDirectory",
+          "widgets_values": [
+            "C:\\Program Files\\StabilityMatrix-win-x64\\Data\\Data\\Projects\\Alphas\\Stars",
+            8,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "C:\\Program Files\\StabilityMatrix-win-x64\\Data\\Data\\Projects\\Alphas\\Stars",
+          8,
+          0
+        ]
+      },
+      "uid": "21",
+      "widgets": {
+        "widget_0": "C:\\Program Files\\StabilityMatrix-win-x64\\Data\\Data\\Projects\\Alphas\\Stars",
+        "widget_1": 8,
+        "widget_2": 0
+      }
+    },
+    "22": {
+      "class_type": "PrimitiveNode",
+      "id": "22",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 8
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                25,
+                27
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "image_load_cap"
+              }
+            }
+          ],
+          "pos": [
+            -50,
+            -230
+          ],
+          "properties": {
+            "Run widget replace on values": false
+          },
+          "size": {
+            "0": 210,
+            "1": 80
+          },
+          "title": "Batch Size",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            8,
+            "fixed"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8,
+          "fixed"
+        ]
+      },
+      "uid": "22",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "PrimitiveNode",
+      "id": "23",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                26
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "start_index"
+              }
+            }
+          ],
+          "pos": [
+            -50,
+            -100
+          ],
+          "properties": {
+            "Run widget replace on values": false
+          },
+          "size": {
+            "0": 210,
+            "1": 80
+          },
+          "title": "Skip Frames",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            0,
+            "fixed"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          "fixed"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "PreviewImage",
+      "id": "25",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 28,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "pos": [
+            520,
+            -620
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            210,
+            250
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "25",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "ADE_AnimateDiffLoaderWithContext",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 11,
+              "name": "context_options",
+              "slot_index": 1,
+              "type": "CONTEXT_OPTIONS"
+            },
+            {
+              "link": null,
+              "name": "motion_lora",
+              "type": "MOTION_LORA"
+            },
+            {
+              "link": null,
+              "name": "motion_model_settings",
+              "type": "MOTION_MODEL_SETTINGS"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            940,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffLoaderWithContext"
+          },
+          "size": {
+            "0": 340,
+            "1": 190
+          },
+          "type": "ADE_AnimateDiffLoaderWithContext",
+          "widgets_values": [
+            "animatediffMotion_sdxlV10Beta.ckpt",
+            "sqrt_linear (AnimateDiff)",
+            1,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "animatediffMotion_sdxlV10Beta.ckpt",
+          "sqrt_linear (AnimateDiff)",
+          1,
+          true
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": "animatediffMotion_sdxlV10Beta.ckpt",
+        "widget_1": "sqrt_linear (AnimateDiff)",
+        "widget_2": 1,
+        "widget_3": true
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "Smiling sun"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                19
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            520,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "title": "POSITIVE",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "Smiling sun"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Smiling sun"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "CLIPTextEncode",
+      "id": "8",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                22
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            520,
+            280
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "title": "NEGATIVE",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "ADE_AnimateDiffUniformContextOptions",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                11
+              ],
+              "name": "CONTEXT_OPTIONS",
+              "shape": 3,
+              "type": "CONTEXT_OPTIONS"
+            }
+          ],
+          "pos": [
+            940,
+            270
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffUniformContextOptions"
+          },
+          "size": {
+            "0": 340,
+            "1": 154
+          },
+          "type": "ADE_AnimateDiffUniformContextOptions",
+          "widgets_values": [
+            16,
+            1,
+            4,
+            "uniform",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          16,
+          1,
+          4,
+          "uniform",
+          false
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": 16,
+        "widget_1": 1,
+        "widget_2": 4,
+        "widget_3": "uniform",
+        "widget_4": false
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "15",
+      "output_type": "VHS_VideoCombine"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "25",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "XL\\dynavisionXLAllInOneStylized_release0557Bakedvae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "0d844b1d74effeb7",
+    "path": "external_workflows/.shadow/source/0d844b1d74effeb7-AD01_1.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "a7e2af6f0472627b7992004120158c5f8a2112bcfc607c1880f3b5007e3cb508",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1142935168584265779,
+      "channel_name": "animatediff",
+      "discord_message_url": "https://discord.com/channels/@me/1142935168584265779/1185765905007902810",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1185765905007902810:AD01_1.json:0d844b1d74effeb7",
+      "filename": "AD01_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1185765905007902810,
+      "node_class_multiset": {
+        "ADE_AnimateDiffLoaderWithContext": 1,
+        "ADE_AnimateDiffUniformContextOptions": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApplyAdvanced": 1,
+        "ControlNetLoaderAdvanced": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "LoadImagesFromDirectory": 1,
+        "PreviewImage": 1,
+        "PrimitiveNode": 2,
+        "Reroute": 1,
+        "VAEDecode": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 16,
+      "origin_date": "2023-12-17T02:10:22.219000+00:00",
+      "originator_global_name": "decambra89",
+      "originator_id": "207734410752032770",
+      "originator_type": "discord_message_author",
+      "originator_username": "decambra89",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "0d844b1d74effeb7deb44dd244a577d278439984c13f01a5df207e8e120e3141",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1142935168584265779/1185765904705916979/AD01_1.json?ex=68351f0e&is=6833cd8e&hm=e6ca016590d2d4df908b9caf29643e18ed7e334118d4c89f2611cc22e0cfd3ac&",
+      "source_workflow_sha256": "cd7298f49e870fdd8b4a537ec1e77c22e4a80ff69fea88773ba61023bff4890e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

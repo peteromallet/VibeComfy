@@ -1,0 +1,1547 @@
+{
+  "edges": [
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "13"
+    },
+    {
+      "from_node": "8",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "13"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "15"
+    },
+    {
+      "from_node": "11",
+      "from_output": "2",
+      "to_input": "image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "11"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "14"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "6"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "sampler",
+      "to_node": "6"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "sigmas",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "6"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "7"
+    },
+    {
+      "from_node": "8",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "3"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "init_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "8",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "3"
+    }
+  ],
+  "groups": [],
+  "id": "3638683b85dc305c",
+  "inputs": {
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 8
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "ImageScale",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "11",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "init_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop",
+            "'disabled'"
+          ],
+          [
+            "height",
+            "512"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "512"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "Image Remove Background Rembg (mtb)",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "2",
+            [
+              "10",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "False"
+          ],
+          [
+            "widget_1",
+            "240"
+          ],
+          [
+            "widget_2",
+            "10"
+          ],
+          [
+            "widget_3",
+            "10"
+          ],
+          [
+            "widget_4",
+            "False"
+          ],
+          [
+            "widget_5",
+            "'#000000'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "KSamplerSelect",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "sampler"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'euler'"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "8",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "14": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "15": {
+        "class_type": "ModelSamplingDiscrete",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'lcm'"
+          ],
+          [
+            "widget_1",
+            "False"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "StableZero123_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "8",
+              "1"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "8",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "6",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "256"
+          ],
+          [
+            "widget_1",
+            "256"
+          ],
+          [
+            "widget_2",
+            "1"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "0"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "SamplerCustom",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "3",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "3",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "sampler",
+            [
+              "12",
+              "0"
+            ]
+          ],
+          [
+            "sigmas",
+            [
+              "7",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "13",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "153343112540535"
+          ],
+          [
+            "widget_2",
+            "'fixed'"
+          ],
+          [
+            "widget_3",
+            "1.8"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "BasicScheduler",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "sigmas"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "steps",
+            "8"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "ImageOnlyCheckpointLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "clip_vision"
+            ]
+          ],
+          [
+            "2",
+            [
+              "13",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "3",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'StableZero\\\\stable_zero123.ckpt'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'133249665935571542_0.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "def5b5d3b3b372dd9bcdfc3406ced1bfc7ba5ffe7570ea9c406a078ea93e40b5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "simple workflow",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1186276894228877385",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1186276894228877385:StableZero123_Exemple.json:3638683b85dc305c",
+      "filename": "StableZero123_Exemple.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1186276894228877385,
+      "node_class_multiset": {
+        "BasicScheduler": 1,
+        "Image Remove Background Rembg (mtb)": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "ImageScale": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "ModelSamplingDiscrete": 1,
+        "PreviewImage": 1,
+        "SamplerCustom": 1,
+        "StableZero123_Conditioning": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 11,
+      "origin_date": "2023-12-18T12:00:51.543000+00:00",
+      "originator_global_name": "Fictiverse",
+      "originator_id": "968570531047690270",
+      "originator_type": "discord_message_author",
+      "originator_username": "fictiverse",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "3638683b85dc305c29468b8122f1d15aa1fbdca84ef37f6ee3023a259762cbae",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1186276894228873318/StableZero123_Exemple.json?ex=683457f3&is=68330673&hm=4bf1cc2e706c553e0e51129c27552f6b3aab7c98b60e610c0faf7c6ae8056573&",
+      "source_workflow_sha256": "259952e3c3045542b832ba4f9274f67797c3a436b332d3ff25239472b5eda9c5",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "1e9ceb576dfa27b75cbbc02947f496c8b26ae716195be31a615999b55cf941ee",
+      "complexity": 2,
+      "description": "Loads an image, removes its background, scales it, and uses Stable Zero123 conditioning with a sampler to generate a new image, which is then decoded and previewed.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "image-to-image",
+        "background-removal",
+        "stable-zero123",
+        "image-scaling",
+        "sampling",
+        "preview"
+      ],
+      "task_type": "image_to_image",
+      "title": "Image-to-Image with Stable Zero123 and Background Removal"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "ImageScale",
+      "id": "10",
+      "inputs": {
+        "crop": "disabled",
+        "height": 512,
+        "upscale_method": "nearest-exact",
+        "width": 512
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 22,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            310,
+            460
+          ],
+          "properties": {
+            "Node name for S&R": "ImageScale"
+          },
+          "size": {
+            "0": 315,
+            "1": 130
+          },
+          "type": "ImageScale",
+          "widgets_values": [
+            "nearest-exact",
+            512,
+            512,
+            "disabled"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "nearest-exact",
+          512,
+          512,
+          "disabled"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "Image Remove Background Rembg (mtb)",
+      "id": "11",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [],
+              "name": "Image (rgba)",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "Mask",
+              "shape": 3,
+              "type": "MASK"
+            },
+            {
+              "links": [
+                22
+              ],
+              "name": "Image",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            0,
+            420
+          ],
+          "properties": {
+            "Node name for S&R": "Image Remove Background Rembg (mtb)"
+          },
+          "size": {
+            "0": 294,
+            "1": 230
+          },
+          "type": "Image Remove Background Rembg (mtb)",
+          "widgets_values": [
+            false,
+            240,
+            10,
+            10,
+            false,
+            "#000000"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false,
+          240,
+          10,
+          10,
+          false,
+          "#000000"
+        ]
+      },
+      "uid": "11",
+      "widgets": {
+        "widget_0": false,
+        "widget_1": 240,
+        "widget_2": 10,
+        "widget_3": 10,
+        "widget_4": false,
+        "widget_5": "#000000"
+      }
+    },
+    "12": {
+      "class_type": "KSamplerSelect",
+      "id": "12",
+      "inputs": {
+        "sampler_name": "euler"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 12,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                18
+              ],
+              "name": "SAMPLER",
+              "shape": 3,
+              "type": "SAMPLER"
+            }
+          ],
+          "pos": [
+            742,
+            218
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerSelect"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "euler"
+        ]
+      },
+      "uid": "12",
+      "widgets": {}
+    },
+    "13": {
+      "class_type": "VAEDecode",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 13,
+          "inputs": [
+            {
+              "link": 19,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 20,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                21
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1530,
+            300
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "13",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "PreviewImage",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 21,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            1760,
+            300
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            362.4392716064458,
+            363.2414133300782
+          ],
+          "type": "PreviewImage"
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "ModelSamplingDiscrete",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 15,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            750,
+            90
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingDiscrete"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "ModelSamplingDiscrete",
+          "widgets_values": [
+            "lcm",
+            false
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "lcm",
+          false
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "lcm",
+        "widget_1": false
+      }
+    },
+    "3": {
+      "class_type": "StableZero123_Conditioning",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 10,
+              "name": "clip_vision",
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 13,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 16,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                7
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                17
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            740,
+            440
+          ],
+          "properties": {
+            "Node name for S&R": "StableZero123_Conditioning"
+          },
+          "size": {
+            "0": 315,
+            "1": 194
+          },
+          "type": "StableZero123_Conditioning",
+          "widgets_values": [
+            256,
+            256,
+            1,
+            0,
+            0
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          256,
+          256,
+          1,
+          0,
+          0
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": 256,
+        "widget_1": 256,
+        "widget_2": 1,
+        "widget_3": 0,
+        "widget_4": 0
+      }
+    },
+    "6": {
+      "class_type": "SamplerCustom",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 23,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 6,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 7,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 18,
+              "name": "sampler",
+              "slot_index": 3,
+              "type": "SAMPLER"
+            },
+            {
+              "link": 3,
+              "name": "sigmas",
+              "slot_index": 4,
+              "type": "SIGMAS"
+            },
+            {
+              "link": 17,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                19
+              ],
+              "name": "output",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            },
+            {
+              "links": null,
+              "name": "denoised_output",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1130,
+            240
+          ],
+          "properties": {
+            "Node name for S&R": "SamplerCustom"
+          },
+          "size": {
+            "0": 355.20001220703125,
+            "1": 230
+          },
+          "type": "SamplerCustom",
+          "widgets_values": [
+            true,
+            153343112540535,
+            "fixed",
+            1.8
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          153343112540535,
+          "fixed",
+          1.8
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": 153343112540535,
+        "widget_2": "fixed",
+        "widget_3": 1.8
+      }
+    },
+    "7": {
+      "class_type": "BasicScheduler",
+      "id": "7",
+      "inputs": {
+        "scheduler": "normal",
+        "steps": 8
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                3
+              ],
+              "name": "SIGMAS",
+              "shape": 3,
+              "type": "SIGMAS"
+            }
+          ],
+          "pos": [
+            740,
+            312
+          ],
+          "properties": {
+            "Node name for S&R": "BasicScheduler"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "BasicScheduler",
+          "widgets_values": [
+            "normal",
+            8
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "normal",
+          8
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 8,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                8,
+                24
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                10
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP_VISION"
+            },
+            {
+              "links": [
+                16,
+                20
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            310,
+            280
+          ],
+          "properties": {
+            "Node name for S&R": "ImageOnlyCheckpointLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "ImageOnlyCheckpointLoader",
+          "widgets_values": [
+            "StableZero\\stable_zero123.ckpt"
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "StableZero\\stable_zero123.ckpt"
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": "StableZero\\stable_zero123.ckpt"
+      }
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "id": "9",
+      "inputs": {
+        "image": "133249665935571542_0.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 9,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -330,
+            410
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            315,
+            313.9999694824219
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "133249665935571542_0.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "133249665935571542_0.png",
+          "image"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "14",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "3638683b85dc305c",
+    "path": "external_workflows/.shadow/source/3638683b85dc305c-StableZero123_Exemple.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "def5b5d3b3b372dd9bcdfc3406ced1bfc7ba5ffe7570ea9c406a078ea93e40b5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "simple workflow",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1186276894228877385",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1186276894228877385:StableZero123_Exemple.json:3638683b85dc305c",
+      "filename": "StableZero123_Exemple.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1186276894228877385,
+      "node_class_multiset": {
+        "BasicScheduler": 1,
+        "Image Remove Background Rembg (mtb)": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "ImageScale": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "ModelSamplingDiscrete": 1,
+        "PreviewImage": 1,
+        "SamplerCustom": 1,
+        "StableZero123_Conditioning": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 11,
+      "origin_date": "2023-12-18T12:00:51.543000+00:00",
+      "originator_global_name": "Fictiverse",
+      "originator_id": "968570531047690270",
+      "originator_type": "discord_message_author",
+      "originator_username": "fictiverse",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "3638683b85dc305c29468b8122f1d15aa1fbdca84ef37f6ee3023a259762cbae",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1186276894228873318/StableZero123_Exemple.json?ex=683457f3&is=68330673&hm=4bf1cc2e706c553e0e51129c27552f6b3aab7c98b60e610c0faf7c6ae8056573&",
+      "source_workflow_sha256": "259952e3c3045542b832ba4f9274f67797c3a436b332d3ff25239472b5eda9c5",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

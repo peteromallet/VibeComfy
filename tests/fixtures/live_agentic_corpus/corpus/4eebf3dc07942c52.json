@@ -1,0 +1,5675 @@
+{
+  "edges": [
+    {
+      "from_node": "3",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "2"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "4"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "4"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "4"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "4"
+    },
+    {
+      "from_node": "256",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "239"
+    },
+    {
+      "from_node": "247",
+      "from_output": "0",
+      "to_input": "motion_model",
+      "to_node": "246"
+    },
+    {
+      "from_node": "248",
+      "from_output": "0",
+      "to_input": "motion_lora",
+      "to_node": "246"
+    },
+    {
+      "from_node": "259",
+      "from_output": "0",
+      "to_input": "scale_multival",
+      "to_node": "246"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "5"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "5"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "5"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "5"
+    },
+    {
+      "from_node": "3",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "1"
+    },
+    {
+      "from_node": "260",
+      "from_output": "0",
+      "to_input": "prev_motion_lora",
+      "to_node": "248"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "249"
+    },
+    {
+      "from_node": "246",
+      "from_output": "0",
+      "to_input": "m_models",
+      "to_node": "249"
+    },
+    {
+      "from_node": "253",
+      "from_output": "0",
+      "to_input": "context_options",
+      "to_node": "249"
+    },
+    {
+      "from_node": "254",
+      "from_output": "0",
+      "to_input": "sample_settings",
+      "to_node": "249"
+    },
+    {
+      "from_node": "238",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "261"
+    },
+    {
+      "from_node": "3",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "261"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "256"
+    },
+    {
+      "from_node": "249",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "252"
+    },
+    {
+      "from_node": "264",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "8"
+    },
+    {
+      "from_node": "264",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "9"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "266"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "267"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "268"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "6"
+    },
+    {
+      "from_node": "5",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "6"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "6"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "6"
+    },
+    {
+      "from_node": "264",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "265",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "238"
+    },
+    {
+      "from_node": "269",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "238"
+    },
+    {
+      "from_node": "269",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "238"
+    },
+    {
+      "from_node": "241",
+      "from_output": "0",
+      "to_input": "sampler",
+      "to_node": "238"
+    },
+    {
+      "from_node": "239",
+      "from_output": "0",
+      "to_input": "sigmas",
+      "to_node": "238"
+    },
+    {
+      "from_node": "237",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "238"
+    },
+    {
+      "from_node": "245",
+      "from_output": "0",
+      "to_input": "noise_seed",
+      "to_node": "238"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "269"
+    },
+    {
+      "from_node": "6",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "269"
+    },
+    {
+      "from_node": "272",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "269"
+    },
+    {
+      "from_node": "264",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "269"
+    },
+    {
+      "from_node": "273",
+      "from_output": "6",
+      "to_input": "batch_size",
+      "to_node": "237"
+    },
+    {
+      "from_node": "273",
+      "from_output": "8",
+      "to_input": "width",
+      "to_node": "237"
+    },
+    {
+      "from_node": "273",
+      "from_output": "9",
+      "to_input": "height",
+      "to_node": "237"
+    },
+    {
+      "from_node": "63",
+      "from_output": "3",
+      "to_input": "video_info",
+      "to_node": "273"
+    },
+    {
+      "from_node": "252",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "265"
+    },
+    {
+      "from_node": "252",
+      "from_output": "1",
+      "to_input": "ipadapter",
+      "to_node": "265"
+    },
+    {
+      "from_node": "250",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "265"
+    },
+    {
+      "from_node": "274",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "257"
+    },
+    {
+      "from_node": "261",
+      "from_output": "0",
+      "to_input": "frames",
+      "to_node": "274"
+    },
+    {
+      "from_node": "63",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "264"
+    }
+  ],
+  "groups": [],
+  "id": "b578441e2c9fcb40",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "Best\\zavychromaxl_v80.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "2",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "239",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 8
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'astronaut stranded in space with asdteroid shapes floating by, 2000s vintage RAW photo, photorealistic, film grain, candid camera, color graded cinematic, eye catchlights, atmospheric lighting, macro shot, skin pores, imperfections, natural, shallow dof'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "AIO_Preprocessor",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "264",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "268",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "6",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'LineArtPreprocessor'"
+          ],
+          [
+            "widget_1",
+            "512"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "237": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [
+          [
+            "batch_size",
+            [
+              "273",
+              "6"
+            ]
+          ],
+          [
+            "height",
+            [
+              "273",
+              "9"
+            ]
+          ],
+          [
+            "width",
+            [
+              "273",
+              "8"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "640"
+          ],
+          [
+            "widget_1",
+            "1536"
+          ],
+          [
+            "widget_2",
+            "64"
+          ]
+        ]
+      },
+      "238": {
+        "class_type": "SamplerCustom",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "237",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "265",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "269",
+              "1"
+            ]
+          ],
+          [
+            "noise_seed",
+            [
+              "245",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "269",
+              "0"
+            ]
+          ],
+          [
+            "sampler",
+            [
+              "241",
+              "0"
+            ]
+          ],
+          [
+            "sigmas",
+            [
+              "239",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "261",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "678885436886037"
+          ],
+          [
+            "widget_2",
+            "'randomize'"
+          ],
+          [
+            "widget_3",
+            "1.5"
+          ]
+        ]
+      },
+      "239": {
+        "class_type": "BasicScheduler",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "256",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "sigmas"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "scheduler",
+            "'sgm_uniform'"
+          ],
+          [
+            "steps",
+            "8"
+          ]
+        ]
+      },
+      "241": {
+        "class_type": "KSamplerSelect",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "sampler"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'euler'"
+          ]
+        ]
+      },
+      "245": {
+        "class_type": "Seed (rgthree)",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "noise_seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "707856263068493"
+          ],
+          [
+            "widget_1",
+            "None"
+          ],
+          [
+            "widget_2",
+            "None"
+          ],
+          [
+            "widget_3",
+            "None"
+          ]
+        ]
+      },
+      "246": {
+        "class_type": "ADE_ApplyAnimateDiffModel",
+        "incoming_edge_sig": [
+          [
+            "motion_lora",
+            [
+              "248",
+              "0"
+            ]
+          ],
+          [
+            "motion_model",
+            [
+              "247",
+              "0"
+            ]
+          ],
+          [
+            "scale_multival",
+            [
+              "259",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "249",
+              "m_models"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0"
+          ],
+          [
+            "widget_1",
+            "1"
+          ]
+        ]
+      },
+      "247": {
+        "class_type": "ADE_LoadAnimateDiffModel",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "246",
+              "motion_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'hsxl_temporal_layers.f16.safetensors'"
+          ]
+        ]
+      },
+      "248": {
+        "class_type": "ADE_AnimateDiffLoRALoader",
+        "incoming_edge_sig": [
+          [
+            "prev_motion_lora",
+            [
+              "260",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "246",
+              "motion_lora"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16\\\\600_20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16_r64_temporal_unet.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.6"
+          ]
+        ]
+      },
+      "249": {
+        "class_type": "ADE_UseEvolvedSampling",
+        "incoming_edge_sig": [
+          [
+            "context_options",
+            [
+              "253",
+              "0"
+            ]
+          ],
+          [
+            "m_models",
+            [
+              "246",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "sample_settings",
+            [
+              "254",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "252",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'linear (HotshotXL/default)'"
+          ]
+        ]
+      },
+      "250": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "265",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'f6a14fda1155875b3871588e9ce4ec34d9b7721c_low.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "252": {
+        "class_type": "IPAdapterUnifiedLoader",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "249",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "265",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "265",
+              "ipadapter"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'PLUS (high strength)'"
+          ]
+        ]
+      },
+      "253": {
+        "class_type": "ADE_StandardUniformContextOptions",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "249",
+              "context_options"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "8"
+          ],
+          [
+            "widget_1",
+            "1"
+          ],
+          [
+            "widget_2",
+            "4"
+          ],
+          [
+            "widget_3",
+            "'pyramid'"
+          ],
+          [
+            "widget_4",
+            "False"
+          ],
+          [
+            "widget_5",
+            "0"
+          ],
+          [
+            "widget_6",
+            "1"
+          ]
+        ]
+      },
+      "254": {
+        "class_type": "ADE_AnimateDiffSamplingSettings",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "249",
+              "sample_settings"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "seed_override",
+            "0"
+          ],
+          [
+            "widget_2",
+            "'comfy'"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "0"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "256": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "239",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'sdxl_lightning_8step_lora.safetensors'"
+          ],
+          [
+            "strength_model",
+            "0.8"
+          ]
+        ]
+      },
+      "257": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "274",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "12"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "30"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00001.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 30}}"
+          ]
+        ]
+      },
+      "259": {
+        "class_type": "ADE_MultivalDynamic",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "246",
+              "scale_multival"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1.25"
+          ]
+        ]
+      },
+      "260": {
+        "class_type": "ADE_AnimateDiffLoRALoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "248",
+              "prev_motion_lora"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'2024-06-15\\\\02-37-14\\\\20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16\\\\800_20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16_r56_temporal_unet.safetensors'"
+          ],
+          [
+            "widget_1",
+            "1"
+          ]
+        ]
+      },
+      "261": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "238",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "3",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "274",
+              "frames"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "264": {
+        "class_type": "ImageResize+",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "63",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "269",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "9",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "640"
+          ],
+          [
+            "widget_1",
+            "1536"
+          ],
+          [
+            "widget_2",
+            "'lanczos'"
+          ],
+          [
+            "widget_3",
+            "'keep proportion'"
+          ],
+          [
+            "widget_4",
+            "'always'"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "265": {
+        "class_type": "IPAdapterTiled",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "250",
+              "0"
+            ]
+          ],
+          [
+            "ipadapter",
+            [
+              "252",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "252",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1.2"
+          ],
+          [
+            "widget_1",
+            "'ease in-out'"
+          ],
+          [
+            "widget_2",
+            "'concat'"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "1"
+          ],
+          [
+            "widget_5",
+            "0"
+          ],
+          [
+            "widget_6",
+            "'V only'"
+          ]
+        ]
+      },
+      "266": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "19"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "30"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00002.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 30}}"
+          ]
+        ]
+      },
+      "267": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "19"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "30"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00003.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 30}}"
+          ]
+        ]
+      },
+      "268": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "19"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "30"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00004.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 30}}"
+          ]
+        ]
+      },
+      "269": {
+        "class_type": "ACN_AdvancedControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "272",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "264",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "6",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "238",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "238",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.5"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "272": {
+        "class_type": "ControlNetLoaderAdvanced",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "269",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'control_v1p_sdxl_qrcode_monster.safetensors'"
+          ]
+        ]
+      },
+      "273": {
+        "class_type": "VHS_VideoInfo",
+        "incoming_edge_sig": [
+          [
+            "video_info",
+            [
+              "63",
+              "3"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "6",
+            [
+              "237",
+              "batch_size"
+            ]
+          ],
+          [
+            "8",
+            [
+              "237",
+              "width"
+            ]
+          ],
+          [
+            "9",
+            [
+              "237",
+              "height"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "274": {
+        "class_type": "FILM VFI",
+        "incoming_edge_sig": [
+          [
+            "frames",
+            [
+              "261",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "257",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'film_net_fp32.pt'"
+          ],
+          [
+            "widget_1",
+            "10"
+          ],
+          [
+            "widget_2",
+            "2"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "249",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "256",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "1",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "2",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "261",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'Best\\\\zavychromaxl_v80.safetensors'"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "ACN_AdvancedControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "2",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.5"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "ACN_AdvancedControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "9",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "4",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.75"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "ACN_AdvancedControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "5",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "5",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "269",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "269",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.45"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "63": {
+        "class_type": "VHS_LoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "264",
+              "image"
+            ]
+          ],
+          [
+            "3",
+            [
+              "273",
+              "video_info"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "choose video to upload",
+            "'image'"
+          ],
+          [
+            "custom_height",
+            "512"
+          ],
+          [
+            "custom_width",
+            "512"
+          ],
+          [
+            "force_rate",
+            "0"
+          ],
+          [
+            "force_size",
+            "'Disabled'"
+          ],
+          [
+            "frame_load_cap",
+            "0"
+          ],
+          [
+            "select_every_nth",
+            "2"
+          ],
+          [
+            "skip_first_frames",
+            "0"
+          ],
+          [
+            "video",
+            "'Main_wshapes.mp4'"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'frame_load_cap': 0, 'skip_first_frames': 0, 'force_rate': 0, 'filename': 'Main_wshapes.mp4', 'type': 'input', 'format': 'video/mp4', 'select_every_nth': 2}}"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "ControlNetLoaderAdvanced",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "control_net"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5",
+              "control_net"
+            ]
+          ],
+          [
+            "0",
+            [
+              "6",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'xinsir\\\\xinsir_controlnet-union-sdxl-1.0.safetensors'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "AIO_Preprocessor",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "264",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "266",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "4",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'DSINE-NormalMapPreprocessor'"
+          ],
+          [
+            "widget_1",
+            "512"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "AIO_Preprocessor",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "264",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "267",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'DepthAnythingV2Preprocessor'"
+          ],
+          [
+            "widget_1",
+            "512"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "4eebf3dc07942c522257483ef5c32ef754e0760ad8b8628731f10a65aac64d85",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1259565881298653365",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1259565881298653365:union_CN_test.json:b578441e2c9fcb40",
+      "filename": "union_CN_test.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:00+00:00",
+      "message_id": 1259565881298653365,
+      "node_class_multiset": {
+        "ACN_AdvancedControlNetApply": 4,
+        "ADE_AnimateDiffLoRALoader": 2,
+        "ADE_AnimateDiffSamplingSettings": 1,
+        "ADE_ApplyAnimateDiffModel": 1,
+        "ADE_LoadAnimateDiffModel": 1,
+        "ADE_MultivalDynamic": 1,
+        "ADE_StandardUniformContextOptions": 1,
+        "ADE_UseEvolvedSampling": 1,
+        "AIO_Preprocessor": 3,
+        "BasicScheduler": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetLoaderAdvanced": 2,
+        "EmptyLatentImage": 1,
+        "FILM VFI": 1,
+        "IPAdapterTiled": 1,
+        "IPAdapterUnifiedLoader": 1,
+        "ImageResize+": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "LoraLoaderModelOnly": 1,
+        "SamplerCustom": 1,
+        "Seed (rgthree)": 1,
+        "VAEDecode": 1,
+        "VHS_LoadVideo": 1,
+        "VHS_VideoCombine": 4,
+        "VHS_VideoInfo": 1
+      },
+      "node_count": 38,
+      "origin_date": "2024-07-07T17:45:07.704000+00:00",
+      "originator_global_name": "LarpsAI",
+      "originator_id": "217213209831145474",
+      "originator_type": "discord_message_author",
+      "originator_username": "dre108",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b578441e2c9fcb405c13b28415e7720a1aef70cb38c28ba59009759d69de719c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1259565881025892363/union_CN_test.json?ex=6979a263&is=697850e3&hm=a48486b73f417224eb83753f8a8a0b8933145df8c70d125fc7ae05715be911c8&",
+      "source_workflow_sha256": "9068bee75d97f0f11ebece5dde23e4bd2858077cc1995314a1e58498582f19ff",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "082ae19480c3c8c90175d611b247f697ff11ea21d49e186bda370181a090311f",
+      "complexity": 4,
+      "description": "This workflow generates animated videos using AnimateDiff, enhanced with IPAdapter tiled processing and multiple ControlNet inputs. It loads a checkpoint and SDXL lightning LoRA, processes video input, and outputs combined video results.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": true,
+        "has_lora": true,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "animatediff",
+        "video-generation",
+        "ipadapter",
+        "controlnet",
+        "sdxl-lightning",
+        "lora",
+        "video-combine",
+        "frame-interpolation"
+      ],
+      "task_type": "controlnet",
+      "title": "AnimateDiff Video with IPAdapter and ControlNet"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "CLIPTextEncode",
+      "id": "1",
+      "inputs": {
+        "text": "astronaut stranded in space with asdteroid shapes floating by, 2000s vintage RAW photo, photorealistic, film grain, candid camera, color graded cinematic, eye catchlights, atmospheric lighting, macro shot, skin pores, imperfections, natural, shallow dof"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": 79,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                9
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -2010,
+            710
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "astronaut stranded in space with asdteroid shapes floating by, 2000s vintage RAW photo, photorealistic, film grain, candid camera, color graded cinematic, eye catchlights, atmospheric lighting, macro shot, skin pores, imperfections, natural, shallow dof"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "astronaut stranded in space with asdteroid shapes floating by, 2000s vintage RAW photo, photorealistic, film grain, candid camera, color graded cinematic, eye catchlights, atmospheric lighting, macro shot, skin pores, imperfections, natural, shallow dof"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "10": {
+      "class_type": "AIO_Preprocessor",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 258,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                14,
+                269
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -525,
+            1073
+          ],
+          "properties": {
+            "Node name for S&R": "AIO_Preprocessor"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "AIO_Preprocessor",
+          "widgets_values": [
+            "LineArtPreprocessor",
+            512
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "LineArtPreprocessor",
+          512
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": "LineArtPreprocessor",
+        "widget_1": 512
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "id": "2",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 80,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                8
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -2010,
+            970
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "237": {
+      "class_type": "EmptyLatentImage",
+      "id": "237",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 237,
+          "inputs": [
+            {
+              "link": 282,
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            },
+            {
+              "link": 278,
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 280,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                231
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -3009,
+            1394
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": [
+            320,
+            110
+          ],
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            640,
+            1536,
+            64
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          640,
+          1536,
+          64
+        ]
+      },
+      "uid": "237",
+      "widgets": {
+        "widget_0": 640,
+        "widget_1": 1536,
+        "widget_2": 64
+      }
+    },
+    "238": {
+      "class_type": "SamplerCustom",
+      "id": "238",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 238,
+          "inputs": [
+            {
+              "link": 260,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 273,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 274,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 229,
+              "name": "sampler",
+              "slot_index": 3,
+              "type": "SAMPLER"
+            },
+            {
+              "link": 230,
+              "name": "sigmas",
+              "slot_index": 4,
+              "type": "SIGMAS"
+            },
+            {
+              "link": 231,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 232,
+              "name": "noise_seed",
+              "type": "INT",
+              "widget": {
+                "name": "noise_seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 34,
+          "outputs": [
+            {
+              "links": [
+                253
+              ],
+              "name": "output",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            },
+            {
+              "links": null,
+              "name": "denoised_output",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            690,
+            1620
+          ],
+          "properties": {
+            "Node name for S&R": "SamplerCustom"
+          },
+          "size": [
+            393.6982675781255,
+            595.5713085937505
+          ],
+          "type": "SamplerCustom",
+          "widgets_values": [
+            true,
+            678885436886037,
+            "randomize",
+            1.5
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          678885436886037,
+          "randomize",
+          1.5
+        ]
+      },
+      "uid": "238",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": 678885436886037,
+        "widget_2": "randomize",
+        "widget_3": 1.5
+      }
+    },
+    "239": {
+      "class_type": "BasicScheduler",
+      "id": "239",
+      "inputs": {
+        "denoise": 1,
+        "scheduler": "sgm_uniform",
+        "steps": 8
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 239,
+          "inputs": [
+            {
+              "link": 233,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                230
+              ],
+              "name": "SIGMAS",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "SIGMAS"
+            }
+          ],
+          "pos": [
+            710,
+            1360
+          ],
+          "properties": {
+            "Node name for S&R": "BasicScheduler"
+          },
+          "size": {
+            "0": 320,
+            "1": 110
+          },
+          "type": "BasicScheduler",
+          "widgets_values": [
+            "sgm_uniform",
+            8,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sgm_uniform",
+          8,
+          1
+        ]
+      },
+      "uid": "239",
+      "widgets": {}
+    },
+    "241": {
+      "class_type": "KSamplerSelect",
+      "id": "241",
+      "inputs": {
+        "sampler_name": "euler"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 241,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                229
+              ],
+              "name": "SAMPLER",
+              "shape": 3,
+              "type": "SAMPLER"
+            }
+          ],
+          "pos": [
+            720,
+            1510
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerSelect"
+          },
+          "size": {
+            "0": 320,
+            "1": 60
+          },
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "euler"
+        ]
+      },
+      "uid": "241",
+      "widgets": {}
+    },
+    "245": {
+      "class_type": "Seed (rgthree)",
+      "id": "245",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 245,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "dir": 4,
+              "links": [
+                232
+              ],
+              "name": "SEED",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "INT"
+            }
+          ],
+          "pos": {
+            "0": -2945,
+            "1": 1562,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0
+          },
+          "properties": {},
+          "size": {
+            "0": 210,
+            "1": 130
+          },
+          "type": "Seed (rgthree)",
+          "widgets_values": [
+            707856263068493,
+            null,
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          707856263068493,
+          null,
+          null,
+          null
+        ]
+      },
+      "uid": "245",
+      "widgets": {
+        "widget_0": 707856263068493,
+        "widget_1": null,
+        "widget_2": null,
+        "widget_3": null
+      }
+    },
+    "246": {
+      "class_type": "ADE_ApplyAnimateDiffModel",
+      "id": "246",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 246,
+          "inputs": [
+            {
+              "link": 235,
+              "name": "motion_model",
+              "slot_index": 0,
+              "type": "MOTION_MODEL_ADE"
+            },
+            {
+              "link": 236,
+              "name": "motion_lora",
+              "slot_index": 1,
+              "type": "MOTION_LORA"
+            },
+            {
+              "link": 237,
+              "name": "scale_multival",
+              "slot_index": 2,
+              "type": "MULTIVAL"
+            },
+            {
+              "link": null,
+              "name": "effect_multival",
+              "type": "MULTIVAL"
+            },
+            {
+              "link": null,
+              "name": "ad_keyframes",
+              "type": "AD_KEYFRAMES"
+            },
+            {
+              "link": null,
+              "name": "prev_m_models",
+              "type": "M_MODELS"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                239
+              ],
+              "name": "M_MODELS",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "M_MODELS"
+            }
+          ],
+          "pos": [
+            -1960,
+            1630
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_ApplyAnimateDiffModel"
+          },
+          "size": {
+            "0": 320,
+            "1": 182
+          },
+          "type": "ADE_ApplyAnimateDiffModel",
+          "widgets_values": [
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          1
+        ]
+      },
+      "uid": "246",
+      "widgets": {
+        "widget_0": 0,
+        "widget_1": 1
+      }
+    },
+    "247": {
+      "class_type": "ADE_LoadAnimateDiffModel",
+      "id": "247",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 247,
+          "inputs": [
+            {
+              "link": null,
+              "name": "ad_settings",
+              "type": "AD_SETTINGS"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                235
+              ],
+              "name": "MOTION_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MOTION_MODEL_ADE"
+            }
+          ],
+          "pos": [
+            -1970,
+            1520
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_LoadAnimateDiffModel"
+          },
+          "size": {
+            "0": 320,
+            "1": 60
+          },
+          "type": "ADE_LoadAnimateDiffModel",
+          "widgets_values": [
+            "hsxl_temporal_layers.f16.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "hsxl_temporal_layers.f16.safetensors"
+        ]
+      },
+      "uid": "247",
+      "widgets": {
+        "widget_0": "hsxl_temporal_layers.f16.safetensors"
+      }
+    },
+    "248": {
+      "class_type": "ADE_AnimateDiffLoRALoader",
+      "id": "248",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 248,
+          "inputs": [
+            {
+              "link": 238,
+              "name": "prev_motion_lora",
+              "type": "MOTION_LORA"
+            }
+          ],
+          "mode": 4,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                236
+              ],
+              "name": "MOTION_LORA",
+              "shape": 3,
+              "type": "MOTION_LORA"
+            }
+          ],
+          "pos": [
+            -1980,
+            1390
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffLoRALoader"
+          },
+          "size": {
+            "0": 360,
+            "1": 82
+          },
+          "type": "ADE_AnimateDiffLoRALoader",
+          "widgets_values": [
+            "20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16\\600_20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16_r64_temporal_unet.safetensors",
+            0.6
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16\\600_20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16_r64_temporal_unet.safetensors",
+          0.6
+        ]
+      },
+      "uid": "248",
+      "widgets": {
+        "widget_0": "20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16\\600_20240322_4941259_walking-frontview-3vid_mv2_r64_w576_h384_fr16_r64_temporal_unet.safetensors",
+        "widget_1": 0.6
+      }
+    },
+    "249": {
+      "class_type": "ADE_UseEvolvedSampling",
+      "id": "249",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 249,
+          "inputs": [
+            {
+              "link": 252,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 239,
+              "name": "m_models",
+              "slot_index": 1,
+              "type": "M_MODELS"
+            },
+            {
+              "link": 240,
+              "name": "context_options",
+              "slot_index": 2,
+              "type": "CONTEXT_OPTIONS"
+            },
+            {
+              "link": 241,
+              "name": "sample_settings",
+              "slot_index": 3,
+              "type": "SAMPLE_SETTINGS"
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [
+            {
+              "links": [
+                245
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -1960,
+            1860
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_UseEvolvedSampling"
+          },
+          "size": {
+            "0": 320,
+            "1": 120
+          },
+          "type": "ADE_UseEvolvedSampling",
+          "widgets_values": [
+            "linear (HotshotXL/default)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "linear (HotshotXL/default)"
+        ]
+      },
+      "uid": "249",
+      "widgets": {
+        "widget_0": "linear (HotshotXL/default)"
+      }
+    },
+    "250": {
+      "class_type": "LoadImage",
+      "id": "250",
+      "inputs": {
+        "image": "f6a14fda1155875b3871588e9ce4ec34d9b7721c_low.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 250,
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                264
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -629,
+            2265
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 320,
+            "1": 314
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "f6a14fda1155875b3871588e9ce4ec34d9b7721c_low.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "f6a14fda1155875b3871588e9ce4ec34d9b7721c_low.png",
+          "image"
+        ]
+      },
+      "uid": "250",
+      "widgets": {}
+    },
+    "252": {
+      "class_type": "IPAdapterUnifiedLoader",
+      "id": "252",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 252,
+          "inputs": [
+            {
+              "link": 245,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "ipadapter",
+              "type": "IPADAPTER"
+            }
+          ],
+          "mode": 0,
+          "order": 29,
+          "outputs": [
+            {
+              "links": [
+                261
+              ],
+              "name": "model",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                262
+              ],
+              "name": "ipadapter",
+              "shape": 3,
+              "type": "IPADAPTER"
+            }
+          ],
+          "pos": [
+            -1450,
+            2340
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterUnifiedLoader"
+          },
+          "size": {
+            "0": 320,
+            "1": 80
+          },
+          "type": "IPAdapterUnifiedLoader",
+          "widgets_values": [
+            "PLUS (high strength)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "PLUS (high strength)"
+        ]
+      },
+      "uid": "252",
+      "widgets": {
+        "widget_0": "PLUS (high strength)"
+      }
+    },
+    "253": {
+      "class_type": "ADE_StandardUniformContextOptions",
+      "id": "253",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 253,
+          "inputs": [
+            {
+              "link": null,
+              "name": "prev_context",
+              "type": "CONTEXT_OPTIONS"
+            },
+            {
+              "link": null,
+              "name": "view_opts",
+              "type": "VIEW_OPTS"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                240
+              ],
+              "name": "CONTEXT_OPTS",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONTEXT_OPTIONS"
+            }
+          ],
+          "pos": [
+            -2340,
+            1900
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_StandardUniformContextOptions"
+          },
+          "size": {
+            "0": 330,
+            "1": 222
+          },
+          "type": "ADE_StandardUniformContextOptions",
+          "widgets_values": [
+            8,
+            1,
+            4,
+            "pyramid",
+            false,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8,
+          1,
+          4,
+          "pyramid",
+          false,
+          0,
+          1
+        ]
+      },
+      "uid": "253",
+      "widgets": {
+        "widget_0": 8,
+        "widget_1": 1,
+        "widget_2": 4,
+        "widget_3": "pyramid",
+        "widget_4": false,
+        "widget_5": 0,
+        "widget_6": 1
+      }
+    },
+    "254": {
+      "class_type": "ADE_AnimateDiffSamplingSettings",
+      "id": "254",
+      "inputs": {
+        "seed_override": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 254,
+          "inputs": [
+            {
+              "link": null,
+              "name": "noise_layers",
+              "type": "NOISE_LAYERS"
+            },
+            {
+              "link": null,
+              "name": "iteration_opts",
+              "type": "ITERATION_OPTS"
+            },
+            {
+              "link": null,
+              "name": "custom_cfg",
+              "type": "CUSTOM_CFG"
+            },
+            {
+              "link": null,
+              "name": "sigma_schedule",
+              "type": "SIGMA_SCHEDULE"
+            },
+            {
+              "link": null,
+              "name": "seed_override",
+              "type": "INT",
+              "widget": {
+                "name": "seed_override"
+              }
+            },
+            {
+              "link": null,
+              "name": "seed_override",
+              "type": "INT",
+              "widget": {
+                "name": "seed_override"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                241
+              ],
+              "name": "settings",
+              "shape": 3,
+              "type": "SAMPLE_SETTINGS"
+            }
+          ],
+          "pos": [
+            -1960,
+            2030
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffSamplingSettings"
+          },
+          "size": [
+            320,
+            240
+          ],
+          "type": "ADE_AnimateDiffSamplingSettings",
+          "widgets_values": [
+            0,
+            "FreeNoise",
+            "comfy",
+            0,
+            0,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          "FreeNoise",
+          "comfy",
+          0,
+          0,
+          false
+        ]
+      },
+      "uid": "254",
+      "widgets": {
+        "widget_2": "comfy",
+        "widget_3": 0,
+        "widget_4": 0,
+        "widget_5": false
+      }
+    },
+    "256": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "256",
+      "inputs": {
+        "lora_name": "sdxl_lightning_8step_lora.safetensors",
+        "strength_model": 0.8
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 256,
+          "inputs": [
+            {
+              "link": 249,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                233
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -2580,
+            440
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly"
+          },
+          "size": {
+            "0": 320,
+            "1": 82
+          },
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "sdxl_lightning_8step_lora.safetensors",
+            0.8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sdxl_lightning_8step_lora.safetensors",
+          0.8
+        ]
+      },
+      "uid": "256",
+      "widgets": {}
+    },
+    "257": {
+      "class_type": "VHS_VideoCombine",
+      "id": "257",
+      "inputs": {
+        "crf": 12,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "frame_rate": 30,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00001.mp4",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "subfolder": "",
+            "type": "temp"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 257,
+          "inputs": [
+            {
+              "link": 284,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "type": "VHS_AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 37,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "shape": 3,
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            1615,
+            602
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            824.5537597656257,
+            2254.9290234375017
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 12,
+            "filename_prefix": "AnimateDiff",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00001.mp4",
+                "format": "video/h264-mp4",
+                "frame_rate": 30,
+                "subfolder": "",
+                "type": "temp"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 12,
+          "filename_prefix": "AnimateDiff",
+          "format": "video/h264-mp4",
+          "frame_rate": 30,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00001.mp4",
+              "format": "video/h264-mp4",
+              "frame_rate": 30,
+              "subfolder": "",
+              "type": "temp"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "257",
+      "widgets": {}
+    },
+    "259": {
+      "class_type": "ADE_MultivalDynamic",
+      "id": "259",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 259,
+          "inputs": [
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                237
+              ],
+              "name": "MULTIVAL",
+              "shape": 3,
+              "type": "MULTIVAL"
+            }
+          ],
+          "pos": [
+            -2320,
+            1660
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_MultivalDynamic"
+          },
+          "size": {
+            "0": 320,
+            "1": 60
+          },
+          "type": "ADE_MultivalDynamic",
+          "widgets_values": [
+            1.25
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1.25
+        ]
+      },
+      "uid": "259",
+      "widgets": {
+        "widget_0": 1.25
+      }
+    },
+    "260": {
+      "class_type": "ADE_AnimateDiffLoRALoader",
+      "id": "260",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 260,
+          "inputs": [
+            {
+              "link": null,
+              "name": "prev_motion_lora",
+              "type": "MOTION_LORA"
+            }
+          ],
+          "mode": 4,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                238
+              ],
+              "name": "MOTION_LORA",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MOTION_LORA"
+            }
+          ],
+          "pos": [
+            -1990,
+            1250
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffLoRALoader"
+          },
+          "size": {
+            "0": 360,
+            "1": 82
+          },
+          "type": "ADE_AnimateDiffLoRALoader",
+          "widgets_values": [
+            "2024-06-15\\02-37-14\\20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16\\800_20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16_r56_temporal_unet.safetensors",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "2024-06-15\\02-37-14\\20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16\\800_20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16_r56_temporal_unet.safetensors",
+          1
+        ]
+      },
+      "uid": "260",
+      "widgets": {
+        "widget_0": "2024-06-15\\02-37-14\\20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16\\800_20240615_3730960_flying_backwards-3vid_mv2_0.00031_56_w768_h512_fr16_r56_temporal_unet.safetensors",
+        "widget_1": 1
+      }
+    },
+    "261": {
+      "class_type": "VAEDecode",
+      "id": "261",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 261,
+          "inputs": [
+            {
+              "link": 253,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 255,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 35,
+          "outputs": [
+            {
+              "links": [
+                283
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            810,
+            1240
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "261",
+      "widgets": {}
+    },
+    "264": {
+      "class_type": "ImageResize+",
+      "id": "264",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 264,
+          "inputs": [
+            {
+              "link": 259,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                256,
+                257,
+                258,
+                285
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "width",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "height",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -2624,
+            947
+          ],
+          "properties": {
+            "Node name for S&R": "ImageResize+"
+          },
+          "size": {
+            "0": 315,
+            "1": 218
+          },
+          "type": "ImageResize+",
+          "widgets_values": [
+            640,
+            1536,
+            "lanczos",
+            "keep proportion",
+            "always",
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          640,
+          1536,
+          "lanczos",
+          "keep proportion",
+          "always",
+          0
+        ]
+      },
+      "uid": "264",
+      "widgets": {
+        "widget_0": 640,
+        "widget_1": 1536,
+        "widget_2": "lanczos",
+        "widget_3": "keep proportion",
+        "widget_4": "always",
+        "widget_5": 0
+      }
+    },
+    "265": {
+      "class_type": "IPAdapterTiled",
+      "id": "265",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 265,
+          "inputs": [
+            {
+              "link": 261,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 262,
+              "name": "ipadapter",
+              "type": "IPADAPTER"
+            },
+            {
+              "link": 264,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "image_negative",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "attn_mask",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            }
+          ],
+          "mode": 0,
+          "order": 31,
+          "outputs": [
+            {
+              "links": [
+                260
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": null,
+              "name": "tiles",
+              "shape": 3,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "masks",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1040,
+            2260
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterTiled"
+          },
+          "size": {
+            "0": 315,
+            "1": 302
+          },
+          "type": "IPAdapterTiled",
+          "widgets_values": [
+            1.2,
+            "ease in-out",
+            "concat",
+            0,
+            1,
+            0,
+            "V only"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1.2,
+          "ease in-out",
+          "concat",
+          0,
+          1,
+          0,
+          "V only"
+        ]
+      },
+      "uid": "265",
+      "widgets": {
+        "widget_0": 1.2,
+        "widget_1": "ease in-out",
+        "widget_2": "concat",
+        "widget_3": 0,
+        "widget_4": 1,
+        "widget_5": 0,
+        "widget_6": "V only"
+      }
+    },
+    "266": {
+      "class_type": "VHS_VideoCombine",
+      "id": "266",
+      "inputs": {
+        "crf": 19,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "frame_rate": 30,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00002.mp4",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "subfolder": "",
+            "type": "temp"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 266,
+          "inputs": [
+            {
+              "link": 267,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 26,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "shape": 3,
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            -1397,
+            1216
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            877.125
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 19,
+            "filename_prefix": "AnimateDiff",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00002.mp4",
+                "format": "video/h264-mp4",
+                "frame_rate": 30,
+                "subfolder": "",
+                "type": "temp"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 19,
+          "filename_prefix": "AnimateDiff",
+          "format": "video/h264-mp4",
+          "frame_rate": 30,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00002.mp4",
+              "format": "video/h264-mp4",
+              "frame_rate": 30,
+              "subfolder": "",
+              "type": "temp"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "266",
+      "widgets": {}
+    },
+    "267": {
+      "class_type": "VHS_VideoCombine",
+      "id": "267",
+      "inputs": {
+        "crf": 19,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "frame_rate": 30,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00003.mp4",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "subfolder": "",
+            "type": "temp"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 267,
+          "inputs": [
+            {
+              "link": 268,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "shape": 3,
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            -955,
+            1207
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            849.46875
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 19,
+            "filename_prefix": "AnimateDiff",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00003.mp4",
+                "format": "video/h264-mp4",
+                "frame_rate": 30,
+                "subfolder": "",
+                "type": "temp"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 19,
+          "filename_prefix": "AnimateDiff",
+          "format": "video/h264-mp4",
+          "frame_rate": 30,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00003.mp4",
+              "format": "video/h264-mp4",
+              "frame_rate": 30,
+              "subfolder": "",
+              "type": "temp"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "267",
+      "widgets": {}
+    },
+    "268": {
+      "class_type": "VHS_VideoCombine",
+      "id": "268",
+      "inputs": {
+        "crf": 19,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "frame_rate": 30,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00004.mp4",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "subfolder": "",
+            "type": "temp"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 268,
+          "inputs": [
+            {
+              "link": 269,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "shape": 3,
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            -527,
+            1204
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            849.46875
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 19,
+            "filename_prefix": "AnimateDiff",
+            "format": "video/h264-mp4",
+            "frame_rate": 30,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00004.mp4",
+                "format": "video/h264-mp4",
+                "frame_rate": 30,
+                "subfolder": "",
+                "type": "temp"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 19,
+          "filename_prefix": "AnimateDiff",
+          "format": "video/h264-mp4",
+          "frame_rate": 30,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00004.mp4",
+              "format": "video/h264-mp4",
+              "frame_rate": 30,
+              "subfolder": "",
+              "type": "temp"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "268",
+      "widgets": {}
+    },
+    "269": {
+      "class_type": "ACN_AdvancedControlNetApply",
+      "id": "269",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 269,
+          "inputs": [
+            {
+              "link": 271,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 272,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 270,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 285,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "timestep_kf",
+              "type": "TIMESTEP_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "latent_kf_override",
+              "type": "LATENT_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "weights_override",
+              "type": "CONTROL_NET_WEIGHTS"
+            },
+            {
+              "link": null,
+              "name": "model_optional",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "vae_optional",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 33,
+          "outputs": [
+            {
+              "links": [
+                273
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                274
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "model_opt",
+              "shape": 3,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -83,
+            707
+          ],
+          "properties": {
+            "Node name for S&R": "ACN_AdvancedControlNetApply"
+          },
+          "size": {
+            "0": 355.20001220703125,
+            "1": 286
+          },
+          "type": "ACN_AdvancedControlNetApply",
+          "widgets_values": [
+            0.5,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          0,
+          1
+        ]
+      },
+      "uid": "269",
+      "widgets": {
+        "widget_0": 0.5,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "272": {
+      "class_type": "ControlNetLoaderAdvanced",
+      "id": "272",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 272,
+          "inputs": [
+            {
+              "link": null,
+              "name": "timestep_keyframe",
+              "type": "TIMESTEP_KEYFRAME"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                270
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            -84,
+            532
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoaderAdvanced"
+          },
+          "size": {
+            "0": 367.79998779296875,
+            "1": 58
+          },
+          "type": "ControlNetLoaderAdvanced",
+          "widgets_values": [
+            "control_v1p_sdxl_qrcode_monster.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "control_v1p_sdxl_qrcode_monster.safetensors"
+        ]
+      },
+      "uid": "272",
+      "widgets": {
+        "widget_0": "control_v1p_sdxl_qrcode_monster.safetensors"
+      }
+    },
+    "273": {
+      "class_type": "VHS_VideoInfo",
+      "id": "273",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 273,
+          "inputs": [
+            {
+              "link": 275,
+              "name": "video_info",
+              "type": "VHS_VIDEOINFO"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": null,
+              "name": "source_fps\ud83d\udfe8",
+              "shape": 3,
+              "type": "FLOAT"
+            },
+            {
+              "links": null,
+              "name": "source_frame_count\ud83d\udfe8",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "source_duration\ud83d\udfe8",
+              "shape": 3,
+              "type": "FLOAT"
+            },
+            {
+              "links": null,
+              "name": "source_width\ud83d\udfe8",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "source_height\ud83d\udfe8",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "loaded_fps\ud83d\udfe6",
+              "shape": 3,
+              "type": "FLOAT"
+            },
+            {
+              "links": [
+                282
+              ],
+              "name": "loaded_frame_count\ud83d\udfe6",
+              "shape": 3,
+              "slot_index": 6,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "loaded_duration\ud83d\udfe6",
+              "shape": 3,
+              "type": "FLOAT"
+            },
+            {
+              "links": [
+                278
+              ],
+              "name": "loaded_width\ud83d\udfe6",
+              "shape": 3,
+              "slot_index": 8,
+              "type": "INT"
+            },
+            {
+              "links": [
+                280
+              ],
+              "name": "loaded_height\ud83d\udfe6",
+              "shape": 3,
+              "slot_index": 9,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -2653,
+            680
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoInfo"
+          },
+          "size": {
+            "0": 393,
+            "1": 206
+          },
+          "type": "VHS_VideoInfo",
+          "widgets_values": {}
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 0,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {}
+      },
+      "uid": "273",
+      "widgets": {}
+    },
+    "274": {
+      "class_type": "FILM VFI",
+      "id": "274",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 274,
+          "inputs": [
+            {
+              "link": 283,
+              "name": "frames",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "optional_interpolation_states",
+              "type": "INTERPOLATION_STATES"
+            }
+          ],
+          "mode": 0,
+          "order": 36,
+          "outputs": [
+            {
+              "links": [
+                284
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1074,
+            889
+          ],
+          "properties": {
+            "Node name for S&R": "FILM VFI"
+          },
+          "size": {
+            "0": 443.4000244140625,
+            "1": 126
+          },
+          "type": "FILM VFI",
+          "widgets_values": [
+            "film_net_fp32.pt",
+            10,
+            2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "film_net_fp32.pt",
+          10,
+          2
+        ]
+      },
+      "uid": "274",
+      "widgets": {
+        "widget_0": "film_net_fp32.pt",
+        "widget_1": 10,
+        "widget_2": 2
+      }
+    },
+    "3": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "3",
+      "inputs": {
+        "ckpt_name": "Best\\zavychromaxl_v80.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                249,
+                252
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                79,
+                80
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                255
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -3030,
+            420
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "Best\\zavychromaxl_v80.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Best\\zavychromaxl_v80.safetensors"
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "4": {
+      "class_type": "ACN_AdvancedControlNetApply",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 8,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 1,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 12,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "timestep_kf",
+              "type": "TIMESTEP_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "latent_kf_override",
+              "type": "LATENT_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "weights_override",
+              "type": "CONTROL_NET_WEIGHTS"
+            },
+            {
+              "link": null,
+              "name": "model_optional",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "vae_optional",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                10
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "model_opt",
+              "shape": 3,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -1410,
+            710
+          ],
+          "properties": {
+            "Node name for S&R": "ACN_AdvancedControlNetApply"
+          },
+          "size": {
+            "0": 355.20001220703125,
+            "1": 286
+          },
+          "type": "ACN_AdvancedControlNetApply",
+          "widgets_values": [
+            0.5,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          0,
+          1
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": 0.5,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "5": {
+      "class_type": "ACN_AdvancedControlNetApply",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 10,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 2,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 13,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "timestep_kf",
+              "type": "TIMESTEP_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "latent_kf_override",
+              "type": "LATENT_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "weights_override",
+              "type": "CONTROL_NET_WEIGHTS"
+            },
+            {
+              "link": null,
+              "name": "model_optional",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "vae_optional",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                11
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "model_opt",
+              "shape": 3,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -980,
+            710
+          ],
+          "properties": {
+            "Node name for S&R": "ACN_AdvancedControlNetApply"
+          },
+          "size": {
+            "0": 355.20001220703125,
+            "1": 286
+          },
+          "type": "ACN_AdvancedControlNetApply",
+          "widgets_values": [
+            0.75,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.75,
+          0,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {
+        "widget_0": 0.75,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "6": {
+      "class_type": "ACN_AdvancedControlNetApply",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 6,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 11,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 3,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 14,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "timestep_kf",
+              "type": "TIMESTEP_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "latent_kf_override",
+              "type": "LATENT_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "weights_override",
+              "type": "CONTROL_NET_WEIGHTS"
+            },
+            {
+              "link": null,
+              "name": "model_optional",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "vae_optional",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 32,
+          "outputs": [
+            {
+              "links": [
+                271
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                272
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "model_opt",
+              "shape": 3,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -550,
+            710
+          ],
+          "properties": {
+            "Node name for S&R": "ACN_AdvancedControlNetApply"
+          },
+          "size": {
+            "0": 355.20001220703125,
+            "1": 286
+          },
+          "type": "ACN_AdvancedControlNetApply",
+          "widgets_values": [
+            0.45,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.45,
+          0,
+          1
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": 0.45,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "63": {
+      "class_type": "VHS_LoadVideo",
+      "id": "63",
+      "inputs": {
+        "choose video to upload": "image",
+        "custom_height": 512,
+        "custom_width": 512,
+        "force_rate": 0,
+        "force_size": "Disabled",
+        "frame_load_cap": 0,
+        "select_every_nth": 2,
+        "skip_first_frames": 0,
+        "video": "Main_wshapes.mp4",
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "Main_wshapes.mp4",
+            "force_rate": 0,
+            "format": "video/mp4",
+            "frame_load_cap": 0,
+            "select_every_nth": 2,
+            "skip_first_frames": 0,
+            "type": "input"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 63,
+          "inputs": [
+            {
+              "link": null,
+              "name": "meta_batch",
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                259
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "name": "frame_count",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "audio",
+              "shape": 3,
+              "type": "AUDIO"
+            },
+            {
+              "links": [
+                275
+              ],
+              "name": "video_info",
+              "shape": 3,
+              "slot_index": 3,
+              "type": "VHS_VIDEOINFO"
+            }
+          ],
+          "pos": [
+            -2970,
+            660
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_LoadVideo"
+          },
+          "size": [
+            235.1999969482422,
+            658.3553434150164
+          ],
+          "type": "VHS_LoadVideo",
+          "widgets_values": {
+            "choose video to upload": "image",
+            "custom_height": 512,
+            "custom_width": 512,
+            "force_rate": 0,
+            "force_size": "Disabled",
+            "frame_load_cap": 0,
+            "select_every_nth": 2,
+            "skip_first_frames": 0,
+            "video": "Main_wshapes.mp4",
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "Main_wshapes.mp4",
+                "force_rate": 0,
+                "format": "video/mp4",
+                "frame_load_cap": 0,
+                "select_every_nth": 2,
+                "skip_first_frames": 0,
+                "type": "input"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "choose video to upload": "image",
+          "custom_height": 512,
+          "custom_width": 512,
+          "force_rate": 0,
+          "force_size": "Disabled",
+          "frame_load_cap": 0,
+          "select_every_nth": 2,
+          "skip_first_frames": 0,
+          "video": "Main_wshapes.mp4",
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "Main_wshapes.mp4",
+              "force_rate": 0,
+              "format": "video/mp4",
+              "frame_load_cap": 0,
+              "select_every_nth": 2,
+              "skip_first_frames": 0,
+              "type": "input"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "63",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "ControlNetLoaderAdvanced",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": null,
+              "name": "timestep_keyframe",
+              "type": "TIMESTEP_KEYFRAME"
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1,
+                2,
+                3
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            -990,
+            510
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoaderAdvanced"
+          },
+          "size": {
+            "0": 367.79998779296875,
+            "1": 58
+          },
+          "type": "ControlNetLoaderAdvanced",
+          "widgets_values": [
+            "xinsir\\xinsir_controlnet-union-sdxl-1.0.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "xinsir\\xinsir_controlnet-union-sdxl-1.0.safetensors"
+        ]
+      },
+      "uid": "7",
+      "widgets": {
+        "widget_0": "xinsir\\xinsir_controlnet-union-sdxl-1.0.safetensors"
+      }
+    },
+    "8": {
+      "class_type": "AIO_Preprocessor",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 256,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                12,
+                267
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -1390,
+            1070
+          ],
+          "properties": {
+            "Node name for S&R": "AIO_Preprocessor"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "AIO_Preprocessor",
+          "widgets_values": [
+            "DSINE-NormalMapPreprocessor",
+            512
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "DSINE-NormalMapPreprocessor",
+          512
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": "DSINE-NormalMapPreprocessor",
+        "widget_1": 512
+      }
+    },
+    "9": {
+      "class_type": "AIO_Preprocessor",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 257,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                13,
+                268
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -960,
+            1070
+          ],
+          "properties": {
+            "Node name for S&R": "AIO_Preprocessor"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "AIO_Preprocessor",
+          "widgets_values": [
+            "DepthAnythingV2Preprocessor",
+            512
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "DepthAnythingV2Preprocessor",
+          512
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": "DepthAnythingV2Preprocessor",
+        "widget_1": 512
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "257",
+      "output_type": "VHS_VideoCombine"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "266",
+      "output_type": "VHS_VideoCombine"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "267",
+      "output_type": "VHS_VideoCombine"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "268",
+      "output_type": "VHS_VideoCombine"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "Best\\zavychromaxl_v80.safetensors",
+      "sdxl_lightning_8step_lora.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "b578441e2c9fcb40",
+    "path": "external_workflows/.shadow/source/b578441e2c9fcb40-union_CN_test.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "4eebf3dc07942c522257483ef5c32ef754e0760ad8b8628731f10a65aac64d85",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1259565881298653365",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1259565881298653365:union_CN_test.json:b578441e2c9fcb40",
+      "filename": "union_CN_test.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:00+00:00",
+      "message_id": 1259565881298653365,
+      "node_class_multiset": {
+        "ACN_AdvancedControlNetApply": 4,
+        "ADE_AnimateDiffLoRALoader": 2,
+        "ADE_AnimateDiffSamplingSettings": 1,
+        "ADE_ApplyAnimateDiffModel": 1,
+        "ADE_LoadAnimateDiffModel": 1,
+        "ADE_MultivalDynamic": 1,
+        "ADE_StandardUniformContextOptions": 1,
+        "ADE_UseEvolvedSampling": 1,
+        "AIO_Preprocessor": 3,
+        "BasicScheduler": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetLoaderAdvanced": 2,
+        "EmptyLatentImage": 1,
+        "FILM VFI": 1,
+        "IPAdapterTiled": 1,
+        "IPAdapterUnifiedLoader": 1,
+        "ImageResize+": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "LoraLoaderModelOnly": 1,
+        "SamplerCustom": 1,
+        "Seed (rgthree)": 1,
+        "VAEDecode": 1,
+        "VHS_LoadVideo": 1,
+        "VHS_VideoCombine": 4,
+        "VHS_VideoInfo": 1
+      },
+      "node_count": 38,
+      "origin_date": "2024-07-07T17:45:07.704000+00:00",
+      "originator_global_name": "LarpsAI",
+      "originator_id": "217213209831145474",
+      "originator_type": "discord_message_author",
+      "originator_username": "dre108",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b578441e2c9fcb405c13b28415e7720a1aef70cb38c28ba59009759d69de719c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1259565881025892363/union_CN_test.json?ex=6979a263&is=697850e3&hm=a48486b73f417224eb83753f8a8a0b8933145df8c70d125fc7ae05715be911c8&",
+      "source_workflow_sha256": "9068bee75d97f0f11ebece5dde23e4bd2858077cc1995314a1e58498582f19ff",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

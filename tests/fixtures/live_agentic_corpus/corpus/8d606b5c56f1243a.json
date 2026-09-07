@@ -1,0 +1,716 @@
+{
+  "181": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 616711321812437
+    }
+  },
+  "182": {
+    "class_type": "Mute / Bypass Repeater (rgthree)",
+    "inputs": {}
+  },
+  "184": {
+    "class_type": "LatentUpscaleBy",
+    "inputs": {
+      "samples": [
+        "190",
+        0
+      ],
+      "widget_0": "nearest-exact",
+      "widget_1": 1
+    }
+  },
+  "187": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "208",
+        0
+      ],
+      "latent_image": [
+        "184",
+        0
+      ],
+      "noise": [
+        "181",
+        0
+      ],
+      "sampler": [
+        "194",
+        0
+      ],
+      "sigmas": [
+        "204",
+        0
+      ]
+    }
+  },
+  "188": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "199",
+        1
+      ],
+      "text": [
+        "209",
+        1
+      ]
+    }
+  },
+  "189": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "199",
+        1
+      ],
+      "text": [
+        "209",
+        0
+      ]
+    }
+  },
+  "190": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "height": [
+        "196",
+        1
+      ],
+      "widget_0": 768,
+      "widget_1": 512,
+      "widget_2": 1,
+      "width": [
+        "196",
+        0
+      ]
+    }
+  },
+  "194": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "196": {
+    "class_type": "SDXLResolutionPresets",
+    "inputs": {
+      "widget_0": "Photo (832x1216)"
+    }
+  },
+  "197": {
+    "class_type": "Fast Bypasser (rgthree)",
+    "inputs": {
+      "Mute / Bypass Repeater (rgthree)": [
+        "182",
+        0
+      ]
+    }
+  },
+  "198": {
+    "class_type": "Fast Groups Bypasser (rgthree)",
+    "inputs": {}
+  },
+  "199": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "clip": [
+        "207",
+        1
+      ],
+      "model": [
+        "207",
+        0
+      ],
+      "widget_0": "hand 5.5.safetensors",
+      "widget_1": 1,
+      "widget_2": 1
+    }
+  },
+  "201": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "202",
+        0
+      ],
+      "vae": [
+        "207",
+        2
+      ]
+    }
+  },
+  "202": {
+    "class_type": "UnloadModel",
+    "inputs": {
+      "model": [
+        "207",
+        0
+      ],
+      "value": [
+        "187",
+        1
+      ]
+    }
+  },
+  "203": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "210",
+        0
+      ]
+    }
+  },
+  "204": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "denoise": 1,
+      "model": [
+        "199",
+        0
+      ],
+      "scheduler": "normal",
+      "steps": 8
+    }
+  },
+  "207": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "realismByStableYogi_ponyV3HYPER.safetensors"
+    }
+  },
+  "208": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "199",
+        0
+      ],
+      "negative": [
+        "188",
+        0
+      ],
+      "positive": [
+        "189",
+        0
+      ]
+    }
+  },
+  "209": {
+    "class_type": "SDXLPromptStyler",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": "watermark,text,",
+      "widget_2": "base",
+      "widget_3": true,
+      "widget_4": true,
+      "widget_5": true
+    }
+  },
+  "210": {
+    "class_type": "Preview Chooser",
+    "inputs": {
+      "images": [
+        "201",
+        0
+      ],
+      "latents": [
+        "202",
+        0
+      ],
+      "widget_0": "Always pause",
+      "widget_1": 1,
+      "widget_2": "",
+      "widget_3": ""
+    }
+  },
+  "211": {
+    "class_type": "CM_IntToFloat",
+    "inputs": {
+      "a": [
+        "212",
+        0
+      ],
+      "widget_0": 0
+    }
+  },
+  "212": {
+    "class_type": "VHS_GetImageCount",
+    "inputs": {
+      "images": [
+        "247",
+        0
+      ]
+    }
+  },
+  "213": {
+    "class_type": "JWFloatDiv",
+    "inputs": {
+      "a": [
+        "211",
+        0
+      ],
+      "b": [
+        "218",
+        0
+      ],
+      "widget_0": 0,
+      "widget_1": 0
+    }
+  },
+  "214": {
+    "class_type": "MMAudioFeatureUtilsLoader",
+    "inputs": {
+      "widget_0": "mmaudio_vae_44k_fp16.safetensors",
+      "widget_1": "mmaudio_synchformer_fp16.safetensors",
+      "widget_2": "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+      "widget_3": "44k",
+      "widget_4": "fp16"
+    }
+  },
+  "215": {
+    "class_type": "MMAudioModelLoader",
+    "inputs": {
+      "widget_0": "mmaudio_large_44k_v2_fp16.safetensors",
+      "widget_1": "fp16"
+    }
+  },
+  "216": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un492": [
+        "247",
+        0
+      ]
+    }
+  },
+  "217": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un493": [
+        "244",
+        0
+      ]
+    }
+  },
+  "218": {
+    "class_type": "Float",
+    "inputs": {
+      "widget_0": "25"
+    }
+  },
+  "219": {
+    "class_type": "PreviewAudio",
+    "inputs": {
+      "audio": [
+        "222",
+        0
+      ]
+    }
+  },
+  "220": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "audio": [
+        "222",
+        0
+      ],
+      "crf": 19,
+      "filename_prefix": "MMaudio",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "218",
+        0
+      ],
+      "images": [
+        "216",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "221": {
+    "class_type": "UnloadAllModels",
+    "inputs": {
+      "value": [
+        "220",
+        0
+      ]
+    }
+  },
+  "222": {
+    "class_type": "MMAudioSampler",
+    "inputs": {
+      "duration": [
+        "213",
+        0
+      ],
+      "feature_utils": [
+        "214",
+        0
+      ],
+      "images": [
+        "216",
+        0
+      ],
+      "mmaudio_model": [
+        "215",
+        0
+      ],
+      "prompt": [
+        "217",
+        0
+      ],
+      "widget_0": 3,
+      "widget_1": 25,
+      "widget_2": 4.5,
+      "widget_3": 832298042261965,
+      "widget_4": "randomize",
+      "widget_5": "a woman slurping and smacking her lips while while eating something delicious, mumbling with a full mouth,  background office setting",
+      "widget_6": "low quality, static",
+      "widget_7": false,
+      "widget_8": true
+    }
+  },
+  "223": {
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "inputs": {
+      "widget_0": "microsoft/Florence-2-base",
+      "widget_1": "fp16",
+      "widget_2": "sdpa"
+    }
+  },
+  "224": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "240",
+        2
+      ],
+      "widget_0": "",
+      "widget_1": "image",
+      "widget_2": "video"
+    }
+  },
+  "225": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "224",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "photo",
+      "widget_2": "video"
+    }
+  },
+  "226": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "225",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "painting",
+      "widget_2": "video"
+    }
+  },
+  "227": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "denoise": 1,
+      "model": [
+        "246",
+        0
+      ],
+      "scheduler": "normal",
+      "steps": 25
+    }
+  },
+  "228": {
+    "class_type": "LTXVShiftSigmas",
+    "inputs": {
+      "sigma_shift": [
+        "246",
+        2
+      ],
+      "sigmas": [
+        "227",
+        0
+      ],
+      "widget_0": 1.820833333,
+      "widget_1": true,
+      "widget_2": 0.1
+    }
+  },
+  "234": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    }
+  },
+  "235": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "226",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "illustration",
+      "widget_2": "video"
+    }
+  },
+  "238": {
+    "class_type": "ImageResizeKJ",
+    "inputs": {
+      "crop": "disabled",
+      "divisible_by": 0,
+      "height": "bilinear",
+      "image": [
+        "210",
+        0
+      ],
+      "keep_proportion": 32,
+      "upscale_method": true,
+      "width": 800
+    }
+  },
+  "239": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "LTXVideo",
+      "format": "video/h264-mp4",
+      "frame_rate": 24,
+      "images": [
+        "247",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": false,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "240": {
+    "class_type": "Florence2Run",
+    "inputs": {
+      "florence2_model": [
+        "223",
+        0
+      ],
+      "image": [
+        "210",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "more_detailed_caption",
+      "widget_2": true,
+      "widget_3": false,
+      "widget_4": 256,
+      "widget_5": 3,
+      "widget_6": true,
+      "widget_7": "",
+      "widget_8": 285091998991985,
+      "widget_9": "fixed"
+    }
+  },
+  "241": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 84943196829803
+    }
+  },
+  "242": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "guider": [
+        "251",
+        0
+      ],
+      "latent_image": [
+        "246",
+        1
+      ],
+      "noise": [
+        "241",
+        0
+      ],
+      "sampler": [
+        "234",
+        0
+      ],
+      "sigmas": [
+        "228",
+        0
+      ]
+    }
+  },
+  "243": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "254",
+        0
+      ],
+      "text": "worst quality, inconsistent motion, blurry, jittery, distorted, watermarks,texts,"
+    }
+  },
+  "244": {
+    "class_type": "StringFunction|pysssss",
+    "inputs": {
+      "text_a": [
+        "235",
+        0
+      ],
+      "widget_0": "append",
+      "widget_1": "no",
+      "widget_2": "",
+      "widget_3": "",
+      "widget_4": "The scene is captured in real-life footage."
+    }
+  },
+  "245": {
+    "class_type": "LTXVApplySTG",
+    "inputs": {
+      "model": [
+        "249",
+        0
+      ],
+      "widget_0": "attention",
+      "widget_1": "14"
+    }
+  },
+  "246": {
+    "class_type": "LTXVModelConfigurator",
+    "inputs": {
+      "conditioning": [
+        "238",
+        0
+      ],
+      "height": [
+        "238",
+        2
+      ],
+      "model": [
+        "245",
+        0
+      ],
+      "vae": [
+        "249",
+        1
+      ],
+      "widget_0": "Custom",
+      "widget_1": 768,
+      "widget_2": 512,
+      "widget_3": 105,
+      "widget_4": 25,
+      "widget_5": 1,
+      "widget_6": true,
+      "widget_7": 29,
+      "width": [
+        "238",
+        1
+      ]
+    }
+  },
+  "247": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "248",
+        0
+      ],
+      "vae": [
+        "249",
+        1
+      ]
+    }
+  },
+  "248": {
+    "class_type": "UnloadModel",
+    "inputs": {
+      "model": [
+        "249",
+        0
+      ],
+      "value": [
+        "242",
+        1
+      ]
+    }
+  },
+  "249": {
+    "class_type": "LTXVLoader",
+    "inputs": {
+      "widget_0": "ltx-video-2b-v0.9.1.safetensors",
+      "widget_1": "bfloat16"
+    }
+  },
+  "250": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "254",
+        0
+      ],
+      "text": [
+        "244",
+        0
+      ]
+    }
+  },
+  "251": {
+    "class_type": "STGGuider",
+    "inputs": {
+      "model": [
+        "246",
+        0
+      ],
+      "negative": [
+        "243",
+        0
+      ],
+      "positive": [
+        "252",
+        0
+      ],
+      "widget_0": 3,
+      "widget_1": 1,
+      "widget_2": 0.75
+    }
+  },
+  "252": {
+    "class_type": "UnloadModel",
+    "inputs": {
+      "model": [
+        "254",
+        0
+      ],
+      "value": [
+        "250",
+        0
+      ]
+    }
+  },
+  "254": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "t5xxl_fp8_e4m3fn.safetensors",
+      "type": "ltxv"
+    }
+  }
+}

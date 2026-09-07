@@ -1,0 +1,1788 @@
+{
+  "edges": [
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "1"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "2"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "3"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "5"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "9"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "9"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "7"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "8"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "_un13",
+      "to_node": "11"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "4"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "10"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "10"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "image_a",
+      "to_node": "14"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "image_b",
+      "to_node": "14"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "13"
+    }
+  ],
+  "groups": [],
+  "id": "e11fa7dbae478f10",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "Image High Pass Filter",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "image2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "5"
+          ],
+          [
+            "widget_1",
+            "2.5"
+          ],
+          [
+            "widget_2",
+            "'false'"
+          ],
+          [
+            "widget_3",
+            "'true'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "ImageBlend",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "11",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "blend_factor",
+            "0.5"
+          ],
+          [
+            "blend_mode",
+            "'overlay'"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un13",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "10",
+              "image1"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "12": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "_un13"
+            ]
+          ],
+          [
+            "0",
+            [
+              "14",
+              "image_a"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'WanImage_00610_.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "14": {
+        "class_type": "Image Comparer (rgthree)",
+        "incoming_edge_sig": [
+          [
+            "image_a",
+            [
+              "12",
+              "0"
+            ]
+          ],
+          [
+            "image_b",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "[{'name': 'A', 'selected': True, 'url': '/api/view?filename=rgthree.compare._temp_julsf_00003_.png&type=temp&subfolder=&rand=0.912049597665061'}, {'name': 'B', 'selected': True, 'url': '/api/view?filename=rgthree.compare._temp_julsf_00004_.png&type=temp&subfolder=&rand=0.6682306023550633'}]"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "3": {
+        "class_type": "VividSharpenV2",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "5",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "image1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "5"
+          ],
+          [
+            "widget_1",
+            "2.5"
+          ],
+          [
+            "widget_2",
+            "'gaussian'"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "1"
+          ],
+          [
+            "widget_5",
+            "1"
+          ],
+          [
+            "widget_6",
+            "1"
+          ],
+          [
+            "widget_7",
+            "1"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "BetterFilmGrain",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "13",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "14",
+              "image_b"
+            ]
+          ],
+          [
+            "0",
+            [
+              "2",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.25"
+          ],
+          [
+            "widget_1",
+            "0.1"
+          ],
+          [
+            "widget_2",
+            "0.7"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "1053224761442285"
+          ],
+          [
+            "widget_5",
+            "'fixed'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "ImageInvert",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "6": {
+        "class_type": "ImageDesaturate+",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "7",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ],
+          [
+            "widget_1",
+            "'luminance (Rec.709)'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "NormalMapSimple",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.3"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "Image Filter Adjustments",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.2"
+          ],
+          [
+            "widget_1",
+            "1.2"
+          ],
+          [
+            "widget_2",
+            "1"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "0"
+          ],
+          [
+            "widget_5",
+            "0"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "'false'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "ImageBlend",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "image2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "blend_factor",
+            "1"
+          ],
+          [
+            "blend_mode",
+            "'overlay'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "9aa0f1cd11147fe4fca331df52586256fe7dcc517ef402505557416fe2a643bd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "<@1421176673197359267> Here you go. This is a trick I learned from <@454824938529095680>. It's designed it sit between image passes to enhance the image before being passed onto the next sampler for upscale. looks horrible on its own, but r",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1462322922646409298",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1462322922646409298:Was-image-enhance.json:e11fa7dbae478f10",
+      "filename": "Was-image-enhance.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:49+00:00",
+      "message_id": 1462322922646409298,
+      "node_class_multiset": {
+        "BetterFilmGrain": 1,
+        "Image Comparer (rgthree)": 1,
+        "Image Filter Adjustments": 1,
+        "Image High Pass Filter": 1,
+        "ImageBlend": 2,
+        "ImageDesaturate+": 1,
+        "ImageInvert": 1,
+        "LoadImage": 1,
+        "NormalMapSimple": 1,
+        "PreviewImage": 2,
+        "Reroute": 1,
+        "VividSharpenV2": 1
+      },
+      "node_count": 14,
+      "origin_date": "2026-01-18T05:49:13.405000+00:00",
+      "originator_global_name": "David Snow",
+      "originator_id": "1004684178555682906",
+      "originator_type": "discord_message_author",
+      "originator_username": "davidsnow1",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "e11fa7dbae478f1081e3522cffb79a2041d4c4a3ca145659f43a4bb9975834e3",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1462322922415849553/Was-image-enhance.json?ex=696e6e99&is=696d1d19&hm=533242cfcb0eb41a2ffdc8aca924e4b456be5ac0ffc6c97b013218f5587011f7&",
+      "source_workflow_sha256": "57200f94aa8b32bb2b9031caee48e2ef9b2eeb48193f497d0a060edfa23d7c20",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "7c2483bf86904c3b7394e5858a5a4460bc4af011e32a5ec93e146cc49359eaf3",
+      "complexity": 3,
+      "description": "Applies high pass filter, sharpening, film grain, desaturation, inversion, and normal map generation to an input image, with blending and comparison previews.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "image-processing",
+        "sharpening",
+        "film-grain",
+        "normal-map",
+        "desaturation",
+        "image-blend",
+        "preview"
+      ],
+      "task_type": "compositing",
+      "title": "Image Processing with Sharpening, Film Grain, and Normal Map"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "Image High Pass Filter",
+      "id": "1",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                10
+              ],
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1920.4692266237812,
+            -737.8661214568758
+          ],
+          "properties": {
+            "Node name for S&R": "Image High Pass Filter",
+            "cnr_id": "was-ns",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "3.0.1"
+          },
+          "size": [
+            297.2798828125,
+            130
+          ],
+          "title": "Image High Pass Filter (Original Image)",
+          "type": "Image High Pass Filter",
+          "widgets_values": [
+            5,
+            2.5,
+            "false",
+            "true"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          5,
+          2.5,
+          "false",
+          "true"
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_0": 5,
+        "widget_1": 2.5,
+        "widget_2": "false",
+        "widget_3": "true"
+      }
+    },
+    "10": {
+      "class_type": "ImageBlend",
+      "id": "10",
+      "inputs": {
+        "blend_factor": 0.5,
+        "blend_mode": "overlay"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "image1",
+              "type": "IMAGE"
+            },
+            {
+              "link": 12,
+              "name": "image2",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                4
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2230.469226623781,
+            -1247.8661214568751
+          ],
+          "properties": {
+            "Node name for S&R": "ImageBlend",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.3.76"
+          },
+          "size": [
+            246.89789972401468,
+            104.1669411886777
+          ],
+          "type": "ImageBlend",
+          "widgets_values": [
+            0.5,
+            "overlay"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          "overlay"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "Reroute",
+      "id": "11",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 13,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                1,
+                8,
+                11
+              ],
+              "name": "",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1779.4956196060007,
+            -1440.48801243036
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "11",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "LoadImage",
+      "id": "12",
+      "inputs": {
+        "image": "WanImage_00610_.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                13,
+                16
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            1422.136271253515,
+            -1380.1056555675516
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.9.2"
+          },
+          "size": [
+            282.798828125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "WanImage_00610_.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "WanImage_00610_.png",
+          "image"
+        ]
+      },
+      "uid": "12",
+      "widgets": {}
+    },
+    "13": {
+      "class_type": "PreviewImage",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [],
+          "pos": [
+            2753.9562344196574,
+            -1466.0085931487426
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.9.2"
+          },
+          "size": [
+            436.38741051747866,
+            258
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "13",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "Image Comparer (rgthree)",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "dir": 3,
+              "link": 16,
+              "name": "image_a",
+              "type": "IMAGE"
+            },
+            {
+              "dir": 3,
+              "link": 15,
+              "name": "image_b",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [],
+          "pos": [
+            2745.616197133977,
+            -1145.8510913938119
+          ],
+          "properties": {
+            "cnr_id": "rgthree-comfy",
+            "comparer_mode": "Slide",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "widget_ue_connectable": {}
+            },
+            "ver": "8ff50e4521881eca1fe26aec9615fc9362474931"
+          },
+          "size": [
+            478.7677505823498,
+            344.5337662073497
+          ],
+          "type": "Image Comparer (rgthree)",
+          "widgets_values": [
+            [
+              {
+                "name": "A",
+                "selected": true,
+                "url": "/api/view?filename=rgthree.compare._temp_julsf_00003_.png&type=temp&subfolder=&rand=0.912049597665061"
+              },
+              {
+                "name": "B",
+                "selected": true,
+                "url": "/api/view?filename=rgthree.compare._temp_julsf_00004_.png&type=temp&subfolder=&rand=0.6682306023550633"
+              }
+            ]
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          [
+            {
+              "name": "A",
+              "selected": true,
+              "url": "/api/view?filename=rgthree.compare._temp_julsf_00003_.png&type=temp&subfolder=&rand=0.912049597665061"
+            },
+            {
+              "name": "B",
+              "selected": true,
+              "url": "/api/view?filename=rgthree.compare._temp_julsf_00004_.png&type=temp&subfolder=&rand=0.6682306023550633"
+            }
+          ]
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_julsf_00003_.png&type=temp&subfolder=&rand=0.912049597665061"
+          },
+          {
+            "name": "B",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_julsf_00004_.png&type=temp&subfolder=&rand=0.6682306023550633"
+          }
+        ]
+      }
+    },
+    "2": {
+      "class_type": "PreviewImage",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 2,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [],
+          "pos": [
+            2240.469226623781,
+            -857.8661214568758
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.3.76"
+          },
+          "size": [
+            258.0020487678735,
+            258
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "VividSharpenV2",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                9
+              ],
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1920.4692266237812,
+            -1017.8661214568756
+          ],
+          "properties": {
+            "Node name for S&R": "VividSharpenV2",
+            "cnr_id": "was-extras",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "00c07f41c76b2fb36ee9b53bb6bca441fadf7451"
+          },
+          "size": [
+            270,
+            226
+          ],
+          "type": "VividSharpenV2",
+          "widgets_values": [
+            5,
+            2.5,
+            "gaussian",
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 8,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          5,
+          2.5,
+          "gaussian",
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": 5,
+        "widget_1": 2.5,
+        "widget_2": "gaussian",
+        "widget_3": 1,
+        "widget_4": 1,
+        "widget_5": 1,
+        "widget_6": 1,
+        "widget_7": 1
+      }
+    },
+    "4": {
+      "class_type": "BetterFilmGrain",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 4,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                2,
+                14,
+                15
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2233.4241464265233,
+            -1087.8661214568751
+          ],
+          "properties": {
+            "Node name for S&R": "BetterFilmGrain",
+            "cnr_id": "ComfyUI-Image-Filters",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "22abe487f179f5af0a7a148932c7e6ad31c5b931"
+          },
+          "size": [
+            252.12802637211735,
+            178
+          ],
+          "type": "BetterFilmGrain",
+          "widgets_values": [
+            0.25,
+            0.1,
+            0.7,
+            0,
+            1053224761442285,
+            "fixed"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.25,
+          0.1,
+          0.7,
+          0,
+          1053224761442285,
+          "fixed"
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": 0.25,
+        "widget_1": 0.1,
+        "widget_2": 0.7,
+        "widget_3": 0,
+        "widget_4": 1053224761442285,
+        "widget_5": "fixed"
+      }
+    },
+    "5": {
+      "class_type": "ImageInvert",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                3
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1930.4692266237812,
+            -1097.8661214568751
+          ],
+          "properties": {
+            "Node name for S&R": "ImageInvert",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.3.76"
+          },
+          "size": [
+            260.3260726906642,
+            26.055418658389613
+          ],
+          "type": "ImageInvert"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "ImageDesaturate+",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 6,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1920.4692266237812,
+            -1227.8661214568751
+          ],
+          "properties": {
+            "Node name for S&R": "ImageDesaturate+",
+            "cnr_id": "comfyui_essentials",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "1.1.0"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "ImageDesaturate+",
+          "widgets_values": [
+            1,
+            "luminance (Rec.709)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          "luminance (Rec.709)"
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": 1,
+        "widget_1": "luminance (Rec.709)"
+      }
+    },
+    "7": {
+      "class_type": "NormalMapSimple",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1921.2832541176497,
+            -1345.4240389752697
+          ],
+          "properties": {
+            "Node name for S&R": "NormalMapSimple",
+            "cnr_id": "ComfyUI-Image-Filters",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "e9f09012b6c06ac79b2bfee4dc01340b995a2e1d"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "NormalMapSimple",
+          "widgets_values": [
+            0.3
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.3
+        ]
+      },
+      "uid": "7",
+      "widgets": {
+        "widget_0": 0.3
+      }
+    },
+    "8": {
+      "class_type": "Image Filter Adjustments",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 8,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1930.4692266237812,
+            -1393.2136265672443
+          ],
+          "properties": {
+            "Node name for S&R": "Image Filter Adjustments",
+            "cnr_id": "was-ns",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "3.0.1"
+          },
+          "size": [
+            270,
+            218.00000000000003
+          ],
+          "type": "Image Filter Adjustments",
+          "widgets_values": [
+            0.2,
+            1.2,
+            1,
+            1,
+            0,
+            0,
+            0,
+            "false"
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 8,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.2,
+          1.2,
+          1,
+          1,
+          0,
+          0,
+          0,
+          "false"
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": 0.2,
+        "widget_1": 1.2,
+        "widget_2": 1,
+        "widget_3": 1,
+        "widget_4": 0,
+        "widget_5": 0,
+        "widget_6": 0,
+        "widget_7": "false"
+      }
+    },
+    "9": {
+      "class_type": "ImageBlend",
+      "id": "9",
+      "inputs": {
+        "blend_factor": 1,
+        "blend_mode": "overlay"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "image1",
+              "type": "IMAGE"
+            },
+            {
+              "link": 10,
+              "name": "image2",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2220.469226623781,
+            -1407.8661214568751
+          ],
+          "properties": {
+            "Node name for S&R": "ImageBlend",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.3.76"
+          },
+          "size": [
+            263.4307981244824,
+            104.1669411886777
+          ],
+          "type": "ImageBlend",
+          "widgets_values": [
+            1,
+            "overlay"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          "overlay"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "2",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "13",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "e11fa7dbae478f10",
+    "path": "external_workflows/.shadow/source/e11fa7dbae478f10-Was-image-enhance.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "9aa0f1cd11147fe4fca331df52586256fe7dcc517ef402505557416fe2a643bd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "<@1421176673197359267> Here you go. This is a trick I learned from <@454824938529095680>. It's designed it sit between image passes to enhance the image before being passed onto the next sampler for upscale. looks horrible on its own, but r",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1462322922646409298",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1462322922646409298:Was-image-enhance.json:e11fa7dbae478f10",
+      "filename": "Was-image-enhance.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:49+00:00",
+      "message_id": 1462322922646409298,
+      "node_class_multiset": {
+        "BetterFilmGrain": 1,
+        "Image Comparer (rgthree)": 1,
+        "Image Filter Adjustments": 1,
+        "Image High Pass Filter": 1,
+        "ImageBlend": 2,
+        "ImageDesaturate+": 1,
+        "ImageInvert": 1,
+        "LoadImage": 1,
+        "NormalMapSimple": 1,
+        "PreviewImage": 2,
+        "Reroute": 1,
+        "VividSharpenV2": 1
+      },
+      "node_count": 14,
+      "origin_date": "2026-01-18T05:49:13.405000+00:00",
+      "originator_global_name": "David Snow",
+      "originator_id": "1004684178555682906",
+      "originator_type": "discord_message_author",
+      "originator_username": "davidsnow1",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "e11fa7dbae478f1081e3522cffb79a2041d4c4a3ca145659f43a4bb9975834e3",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1462322922415849553/Was-image-enhance.json?ex=696e6e99&is=696d1d19&hm=533242cfcb0eb41a2ffdc8aca924e4b456be5ac0ffc6c97b013218f5587011f7&",
+      "source_workflow_sha256": "57200f94aa8b32bb2b9031caee48e2ef9b2eeb48193f497d0a060edfa23d7c20",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

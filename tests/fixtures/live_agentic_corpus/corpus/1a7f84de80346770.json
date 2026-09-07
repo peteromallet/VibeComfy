@@ -1,0 +1,992 @@
+{
+  "edges": [
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "2"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "3"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "6"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "7"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "5"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "8"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "4"
+    }
+  ],
+  "groups": [],
+  "id": "303a039acce9af24",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'133249665935571542_0.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "Stablezero123",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'sudo-ai/zero123plus-v1.1'"
+          ],
+          [
+            "widget_1",
+            "'sudo-ai/zero123plus-pipeline'"
+          ],
+          [
+            "widget_2",
+            "75"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "SDZero ImageSplit",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "2"
+          ],
+          [
+            "widget_1",
+            "3"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "6": {
+        "class_type": "Image Remove Background Rembg (mtb)",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "False"
+          ],
+          [
+            "widget_1",
+            "240"
+          ],
+          [
+            "widget_2",
+            "10"
+          ],
+          [
+            "widget_3",
+            "10"
+          ],
+          [
+            "widget_4",
+            "False"
+          ],
+          [
+            "widget_5",
+            "'#000000'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "8": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio_file",
+            "''"
+          ],
+          [
+            "crf",
+            "20"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'image/gif'"
+          ],
+          [
+            "frame_rate",
+            "3"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "save_image",
+            "False"
+          ],
+          [
+            "save_metadata",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00002.gif', 'subfolder': '', 'type': 'temp', 'format': 'image/gif'}}"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1a7f84de80346770429631436ad30148aa259461ef2aeb6065396d8931c05896",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1186139956834471996",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1186139956834471996:StableZero123.json:303a039acce9af24",
+      "filename": "StableZero123.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1186139956834471996,
+      "node_class_multiset": {
+        "Image Remove Background Rembg (mtb)": 1,
+        "LoadImage": 1,
+        "PreviewImage": 3,
+        "SDZero ImageSplit": 1,
+        "Stablezero123": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 8,
+      "origin_date": "2023-12-18T02:56:43.124000+00:00",
+      "originator_global_name": "Fictiverse",
+      "originator_id": "968570531047690270",
+      "originator_type": "discord_message_author",
+      "originator_username": "fictiverse",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "303a039acce9af24032423eb2651dc004b9c96ecd8c5be443253b9731490b6e9",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1186139956532494356/StableZero123.json?ex=6834812b&is=68332fab&hm=43d90d2f04dea15fee37c99215c00b6f1284aae3d9d69802fa32b82ef9cf3128&",
+      "source_workflow_sha256": "d96c1dc65fa752d2c2c06663d7017c95460d1b1288a43953a375dc121fe6c7ec",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "a3dafaa74063e606116f32fecd40f359fb5dd031ba1edadd96449eb0984630f9",
+      "complexity": 2,
+      "description": "Loads an image, splits it for 3D generation using Stable Zero123, removes the background, and outputs previews and a video.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "image-to-3d",
+        "background-removal",
+        "stable-zero123",
+        "preview",
+        "video-generation"
+      ],
+      "task_type": "image_to_video",
+      "title": "Image to 3D Object Generation with Background Removal"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "LoadImage",
+      "id": "1",
+      "inputs": {
+        "image": "133249665935571542_0.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -81,
+            267
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 314.0000305175781
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "133249665935571542_0.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "133249665935571542_0.png",
+          "image"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "Stablezero123",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 10,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                2,
+                4
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            734,
+            269
+          ],
+          "properties": {
+            "Node name for S&R": "Stablezero123"
+          },
+          "size": {
+            "0": 315,
+            "1": 106
+          },
+          "type": "Stablezero123",
+          "widgets_values": [
+            "sudo-ai/zero123plus-v1.1",
+            "sudo-ai/zero123plus-pipeline",
+            75
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sudo-ai/zero123plus-v1.1",
+          "sudo-ai/zero123plus-pipeline",
+          75
+        ]
+      },
+      "uid": "2",
+      "widgets": {
+        "widget_0": "sudo-ai/zero123plus-v1.1",
+        "widget_1": "sudo-ai/zero123plus-pipeline",
+        "widget_2": 75
+      }
+    },
+    "3": {
+      "class_type": "SDZero ImageSplit",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 2,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                3,
+                9
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1126,
+            269
+          ],
+          "properties": {
+            "Node name for S&R": "SDZero ImageSplit"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "SDZero ImageSplit",
+          "widgets_values": [
+            2,
+            3
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          2,
+          3
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": 2,
+        "widget_1": 3
+      }
+    },
+    "4": {
+      "class_type": "PreviewImage",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "pos": [
+            1467,
+            267
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            210,
+            246
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "PreviewImage",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": 4,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "pos": [
+            1122,
+            404
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            210,
+            246
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "Image Remove Background Rembg (mtb)",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                10,
+                11
+              ],
+              "name": "Image (rgba)",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "Mask",
+              "shape": 3,
+              "type": "MASK"
+            },
+            {
+              "links": [],
+              "name": "Image",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            259,
+            267
+          ],
+          "properties": {
+            "Node name for S&R": "Image Remove Background Rembg (mtb)"
+          },
+          "size": {
+            "0": 294,
+            "1": 230
+          },
+          "type": "Image Remove Background Rembg (mtb)",
+          "widgets_values": [
+            false,
+            240,
+            10,
+            10,
+            false,
+            "#000000"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false,
+          240,
+          10,
+          10,
+          false,
+          "#000000"
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": false,
+        "widget_1": 240,
+        "widget_2": 10,
+        "widget_3": 10,
+        "widget_4": false,
+        "widget_5": "#000000"
+      }
+    },
+    "7": {
+      "class_type": "PreviewImage",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "pos": [
+            583,
+            448
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            210,
+            246
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VHS_VideoCombine",
+      "id": "8",
+      "inputs": {
+        "audio_file": "",
+        "crf": 20,
+        "filename_prefix": "AnimateDiff",
+        "format": "image/gif",
+        "frame_rate": 3,
+        "loop_count": 0,
+        "pingpong": false,
+        "save_image": false,
+        "save_metadata": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00002.gif",
+            "format": "image/gif",
+            "subfolder": "",
+            "type": "temp"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [],
+          "pos": [
+            1462,
+            558
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            539
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "audio_file": "",
+            "crf": 20,
+            "filename_prefix": "AnimateDiff",
+            "format": "image/gif",
+            "frame_rate": 3,
+            "loop_count": 0,
+            "pingpong": false,
+            "save_image": false,
+            "save_metadata": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00002.gif",
+                "format": "image/gif",
+                "subfolder": "",
+                "type": "temp"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "audio_file": "",
+          "crf": 20,
+          "filename_prefix": "AnimateDiff",
+          "format": "image/gif",
+          "frame_rate": 3,
+          "loop_count": 0,
+          "pingpong": false,
+          "save_image": false,
+          "save_metadata": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00002.gif",
+              "format": "image/gif",
+              "subfolder": "",
+              "type": "temp"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "4",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "5",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "7",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "8",
+      "output_type": "VHS_VideoCombine"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "303a039acce9af24",
+    "path": "external_workflows/.shadow/source/303a039acce9af24-StableZero123.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1a7f84de80346770429631436ad30148aa259461ef2aeb6065396d8931c05896",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1186139956834471996",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1186139956834471996:StableZero123.json:303a039acce9af24",
+      "filename": "StableZero123.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1186139956834471996,
+      "node_class_multiset": {
+        "Image Remove Background Rembg (mtb)": 1,
+        "LoadImage": 1,
+        "PreviewImage": 3,
+        "SDZero ImageSplit": 1,
+        "Stablezero123": 1,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 8,
+      "origin_date": "2023-12-18T02:56:43.124000+00:00",
+      "originator_global_name": "Fictiverse",
+      "originator_id": "968570531047690270",
+      "originator_type": "discord_message_author",
+      "originator_username": "fictiverse",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "303a039acce9af24032423eb2651dc004b9c96ecd8c5be443253b9731490b6e9",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1186139956532494356/StableZero123.json?ex=6834812b&is=68332fab&hm=43d90d2f04dea15fee37c99215c00b6f1284aae3d9d69802fa32b82ef9cf3128&",
+      "source_workflow_sha256": "d96c1dc65fa752d2c2c06663d7017c95460d1b1288a43953a375dc121fe6c7ec",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

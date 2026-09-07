@@ -1,0 +1,517 @@
+{
+  "edges": [
+    {
+      "from_node": "34",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "27"
+    },
+    {
+      "from_node": "29",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "34"
+    }
+  ],
+  "groups": [],
+  "id": "595e3299ded4b9f3",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "27": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "34",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "29": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "34",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'api_moonvalley_image_to_video_input_image.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "30": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Moonvalley Template Docs\\n\\n[Moonvalley video generation](https://docs.comfy.org/tutorials/partner-nodes/moonvalley/moonvalley-video-generation)\\n\\n## API Node Docs\\n[API Node](https://docs.comfy.org/tutorials/partner-nodes/overview)\\n## FAQ about login issues\\n\\nTo use the API, you must be in a secure network environment:\\n\\n- Allows access from `127.0.0.1` or `localhost`.\\n\\n- Use our API Node in website services starting with `https`\\n\\n- Ensure normal connectivity to our API services (VPN may be needed in some regions).\\n\\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\\n\\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key)'"
+          ]
+        ]
+      },
+      "34": {
+        "class_type": "MoonvalleyImg2VideoNode",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "29",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "27",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"A bedroom is transformed into a surreal underwater dreamscape, completely submerged in deep turquoise water where caustic light patterns ripple and dance across the walls, floor, and ceiling. In the center of this submerged room, a ballerina gracefully holds a pose en pointe, her form silhouetted against the ethereal blue glow. She moves with impossible slowness, transitioning between ballet positions as her sheer white dress billows around her in the gentle, silent currents. Tiny bubbles occasionally escape her lips, rising towards the undulating surface above, which serves as the room's only light source. The scene is both beautiful and unsettling, a silent performance in a liquid world where reality is suspended. Background: The ceiling is the agitated surface of the water, with ethereal beams of light filtering down and constantly shifting. A bed sits against the back wall, its form partially obscured by the moving shadows and light. Middleground: A silhouetted ballerina stands as the focal point, her arms outstretched in a graceful ballet pose. Her diaphanous dress flows weightlessly around her, moved by invisible underwater currents as she performs her silent dance. Foreground: The floor is covered in a moving tapestry of bright caustic reflections from the water's surface above. The ballerina's shadow and reflection are cast upon the floor, distorting and swaying with the light.\""
+          ],
+          [
+            "widget_1",
+            "'low-poly, flat shader, bad rigging, stiff animation, uncanny eyes, low-quality textures, looping glitch, cheap effect, overbloom, bloom spam, default lighting, game asset, stiff face, ugly specular, AI artifacts'"
+          ],
+          [
+            "widget_2",
+            "'16:9 (1920 x 1080)'"
+          ],
+          [
+            "widget_3",
+            "7"
+          ],
+          [
+            "widget_4",
+            "2328774152"
+          ],
+          [
+            "widget_5",
+            "'randomize'"
+          ],
+          [
+            "widget_6",
+            "100"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d7853cd7421f9ebcd05ccb32cdd122be7e475865f1dbf649706d2210cda024aa",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Remove Moonvalley templates (#834)\n\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>\nCo-authored-by: GitHub Action <action@github.com>",
+      "commit_sha": "f871f0ec0a60146ac6decd74e78ae553cc7b6cb3",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/f871f0ec0a60146ac6decd74e78ae553cc7b6cb3",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/api_moonvalley_image_to_video.json:api_moonvalley_image_to_video.json:595e3299ded4b9f3",
+      "filename": "api_moonvalley_image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "LoadImage": 1,
+        "MarkdownNote": 1,
+        "MoonvalleyImg2VideoNode": 1,
+        "SaveVideo": 1
+      },
+      "node_count": 4,
+      "origin_date": "2026-05-01T17:51:54Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/api_moonvalley_image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "595e3299ded4b9f31c203ba1f4116a4e6a581b6d0dd6549014864f7d175f4d15",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/api_moonvalley_image_to_video.json",
+      "source_workflow_sha256": "fc40ec10a39b6d8618b12ac4c1324c3fc3e4a44614a0e5222f185a3831c72e5a",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "6a86955faae8462a34c004877ceee2b49960e0d2883ce58b466811b918934bc4",
+      "complexity": 1,
+      "description": "Loads an image and generates a video using the Moonvalley Img2Video custom node, then saves the output video.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "image-to-video",
+        "moonvalley",
+        "video-generation",
+        "custom-node"
+      ],
+      "task_type": "other",
+      "title": "Image to Video Conversion with Moonvalley"
+    }
+  },
+  "nodes": {
+    "27": {
+      "class_type": "SaveVideo",
+      "id": "27",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 27,
+          "inputs": [
+            {
+              "link": 35,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [],
+          "pos": [
+            1190,
+            620
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo"
+          },
+          "size": [
+            531.188232421875,
+            398.43743896484375
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "27",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "LoadImage",
+      "id": "29",
+      "inputs": {
+        "image": "api_moonvalley_image_to_video_input_image.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 29,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                36
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            320,
+            620
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            430,
+            390
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "api_moonvalley_image_to_video_input_image.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "api_moonvalley_image_to_video_input_image.jpg",
+          "image"
+        ]
+      },
+      "uid": "29",
+      "widgets": {}
+    },
+    "30": {
+      "class_type": "MarkdownNote",
+      "id": "30",
+      "inputs": {
+        "unused_widget_0": "## Moonvalley Template Docs\n\n[Moonvalley video generation](https://docs.comfy.org/tutorials/partner-nodes/moonvalley/moonvalley-video-generation)\n\n## API Node Docs\n[API Node](https://docs.comfy.org/tutorials/partner-nodes/overview)\n## FAQ about login issues\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Ensure normal connectivity to our API services (VPN may be needed in some regions).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key)"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#322",
+          "flags": {},
+          "id": 30,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -90,
+            620
+          ],
+          "properties": {},
+          "size": [
+            390,
+            300
+          ],
+          "title": "About API Node",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Moonvalley Template Docs\n\n[Moonvalley video generation](https://docs.comfy.org/tutorials/partner-nodes/moonvalley/moonvalley-video-generation)\n\n## API Node Docs\n[API Node](https://docs.comfy.org/tutorials/partner-nodes/overview)\n## FAQ about login issues\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Ensure normal connectivity to our API services (VPN may be needed in some regions).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key)"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Moonvalley Template Docs\n\n[Moonvalley video generation](https://docs.comfy.org/tutorials/partner-nodes/moonvalley/moonvalley-video-generation)\n\n## API Node Docs\n[API Node](https://docs.comfy.org/tutorials/partner-nodes/overview)\n## FAQ about login issues\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Ensure normal connectivity to our API services (VPN may be needed in some regions).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key)"
+        ]
+      },
+      "uid": "30",
+      "widgets": {}
+    },
+    "34": {
+      "class_type": "MoonvalleyImg2VideoNode",
+      "id": "34",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 34,
+          "inputs": [
+            {
+              "link": 36,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                35
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            770,
+            620
+          ],
+          "properties": {
+            "Node name for S&R": "MoonvalleyImg2VideoNode"
+          },
+          "size": [
+            400,
+            360
+          ],
+          "type": "MoonvalleyImg2VideoNode",
+          "widgets_values": [
+            "A bedroom is transformed into a surreal underwater dreamscape, completely submerged in deep turquoise water where caustic light patterns ripple and dance across the walls, floor, and ceiling. In the center of this submerged room, a ballerina gracefully holds a pose en pointe, her form silhouetted against the ethereal blue glow. She moves with impossible slowness, transitioning between ballet positions as her sheer white dress billows around her in the gentle, silent currents. Tiny bubbles occasionally escape her lips, rising towards the undulating surface above, which serves as the room's only light source. The scene is both beautiful and unsettling, a silent performance in a liquid world where reality is suspended. Background: The ceiling is the agitated surface of the water, with ethereal beams of light filtering down and constantly shifting. A bed sits against the back wall, its form partially obscured by the moving shadows and light. Middleground: A silhouetted ballerina stands as the focal point, her arms outstretched in a graceful ballet pose. Her diaphanous dress flows weightlessly around her, moved by invisible underwater currents as she performs her silent dance. Foreground: The floor is covered in a moving tapestry of bright caustic reflections from the water's surface above. The ballerina's shadow and reflection are cast upon the floor, distorting and swaying with the light.",
+            "low-poly, flat shader, bad rigging, stiff animation, uncanny eyes, low-quality textures, looping glitch, cheap effect, overbloom, bloom spam, default lighting, game asset, stiff face, ugly specular, AI artifacts",
+            "16:9 (1920 x 1080)",
+            7,
+            2328774152,
+            "randomize",
+            100
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A bedroom is transformed into a surreal underwater dreamscape, completely submerged in deep turquoise water where caustic light patterns ripple and dance across the walls, floor, and ceiling. In the center of this submerged room, a ballerina gracefully holds a pose en pointe, her form silhouetted against the ethereal blue glow. She moves with impossible slowness, transitioning between ballet positions as her sheer white dress billows around her in the gentle, silent currents. Tiny bubbles occasionally escape her lips, rising towards the undulating surface above, which serves as the room's only light source. The scene is both beautiful and unsettling, a silent performance in a liquid world where reality is suspended. Background: The ceiling is the agitated surface of the water, with ethereal beams of light filtering down and constantly shifting. A bed sits against the back wall, its form partially obscured by the moving shadows and light. Middleground: A silhouetted ballerina stands as the focal point, her arms outstretched in a graceful ballet pose. Her diaphanous dress flows weightlessly around her, moved by invisible underwater currents as she performs her silent dance. Foreground: The floor is covered in a moving tapestry of bright caustic reflections from the water's surface above. The ballerina's shadow and reflection are cast upon the floor, distorting and swaying with the light.",
+          "low-poly, flat shader, bad rigging, stiff animation, uncanny eyes, low-quality textures, looping glitch, cheap effect, overbloom, bloom spam, default lighting, game asset, stiff face, ugly specular, AI artifacts",
+          "16:9 (1920 x 1080)",
+          7,
+          2328774152,
+          "randomize",
+          100
+        ]
+      },
+      "uid": "34",
+      "widgets": {
+        "widget_0": "A bedroom is transformed into a surreal underwater dreamscape, completely submerged in deep turquoise water where caustic light patterns ripple and dance across the walls, floor, and ceiling. In the center of this submerged room, a ballerina gracefully holds a pose en pointe, her form silhouetted against the ethereal blue glow. She moves with impossible slowness, transitioning between ballet positions as her sheer white dress billows around her in the gentle, silent currents. Tiny bubbles occasionally escape her lips, rising towards the undulating surface above, which serves as the room's only light source. The scene is both beautiful and unsettling, a silent performance in a liquid world where reality is suspended. Background: The ceiling is the agitated surface of the water, with ethereal beams of light filtering down and constantly shifting. A bed sits against the back wall, its form partially obscured by the moving shadows and light. Middleground: A silhouetted ballerina stands as the focal point, her arms outstretched in a graceful ballet pose. Her diaphanous dress flows weightlessly around her, moved by invisible underwater currents as she performs her silent dance. Foreground: The floor is covered in a moving tapestry of bright caustic reflections from the water's surface above. The ballerina's shadow and reflection are cast upon the floor, distorting and swaying with the light.",
+        "widget_1": "low-poly, flat shader, bad rigging, stiff animation, uncanny eyes, low-quality textures, looping glitch, cheap effect, overbloom, bloom spam, default lighting, game asset, stiff face, ugly specular, AI artifacts",
+        "widget_2": "16:9 (1920 x 1080)",
+        "widget_3": 7,
+        "widget_4": 2328774152,
+        "widget_5": "randomize",
+        "widget_6": 100
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "27",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "595e3299ded4b9f3",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/595e3299ded4b9f3-api_moonvalley_image_to_video.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d7853cd7421f9ebcd05ccb32cdd122be7e475865f1dbf649706d2210cda024aa",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Remove Moonvalley templates (#834)\n\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>\nCo-authored-by: GitHub Action <action@github.com>",
+      "commit_sha": "f871f0ec0a60146ac6decd74e78ae553cc7b6cb3",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/f871f0ec0a60146ac6decd74e78ae553cc7b6cb3",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/api_moonvalley_image_to_video.json:api_moonvalley_image_to_video.json:595e3299ded4b9f3",
+      "filename": "api_moonvalley_image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "LoadImage": 1,
+        "MarkdownNote": 1,
+        "MoonvalleyImg2VideoNode": 1,
+        "SaveVideo": 1
+      },
+      "node_count": 4,
+      "origin_date": "2026-05-01T17:51:54Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/api_moonvalley_image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "595e3299ded4b9f31c203ba1f4116a4e6a581b6d0dd6549014864f7d175f4d15",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/api_moonvalley_image_to_video.json",
+      "source_workflow_sha256": "fc40ec10a39b6d8618b12ac4c1324c3fc3e4a44614a0e5222f185a3831c72e5a",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

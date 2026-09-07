@@ -1,0 +1,116 @@
+{
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7.5,
+      "denoise": 1,
+      "latent_image": [
+        "66",
+        0
+      ],
+      "model": [
+        "70",
+        0
+      ],
+      "negative": [
+        "65",
+        1
+      ],
+      "positive": [
+        "65",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "seed": 374247208988006,
+      "steps": 20
+    }
+  },
+  "51": {
+    "class_type": "CLIPVisionEncode",
+    "inputs": {
+      "clip_vision": [
+        "54",
+        1
+      ],
+      "crop": "none",
+      "image": [
+        "56",
+        0
+      ]
+    }
+  },
+  "54": {
+    "class_type": "ImageOnlyCheckpointLoader",
+    "inputs": {
+      "widget_0": "hunyuan_3d_v2_mv.safetensors"
+    }
+  },
+  "56": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "flux_dev_example.png"
+    }
+  },
+  "61": {
+    "class_type": "VAEDecodeHunyuan3D",
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "54",
+        2
+      ],
+      "widget_0": 8000,
+      "widget_1": 256
+    }
+  },
+  "62": {
+    "class_type": "VoxelToMeshBasic",
+    "inputs": {
+      "voxel": [
+        "61",
+        0
+      ],
+      "widget_0": 0.6000000000000001
+    }
+  },
+  "65": {
+    "class_type": "Hunyuan3Dv2ConditioningMultiView",
+    "inputs": {
+      "front": [
+        "51",
+        0
+      ]
+    }
+  },
+  "66": {
+    "class_type": "EmptyLatentHunyuan3Dv2",
+    "inputs": {
+      "widget_0": 3072,
+      "widget_1": 1
+    }
+  },
+  "67": {
+    "class_type": "SaveGLB",
+    "inputs": {
+      "mesh": [
+        "62",
+        0
+      ],
+      "widget_0": "mesh/ComfyUI"
+    }
+  },
+  "70": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "54",
+        0
+      ],
+      "shift": 1.0000000000000002
+    }
+  }
+}

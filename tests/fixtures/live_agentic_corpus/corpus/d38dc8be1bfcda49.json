@@ -1,0 +1,1463 @@
+{
+  "edges": [
+    {
+      "from_node": "90",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "106"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "106"
+    },
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "106"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "109"
+    },
+    {
+      "from_node": "106",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "109"
+    },
+    {
+      "from_node": "112",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "135"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "134"
+    },
+    {
+      "from_node": "109",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "136"
+    },
+    {
+      "from_node": "106",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "145"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "137"
+    },
+    {
+      "from_node": "109",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "137"
+    },
+    {
+      "from_node": "104",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "103"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "112"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "112"
+    }
+  ],
+  "groups": [],
+  "id": "ff92bffc757dc7ed",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "103": {
+        "class_type": "LLava Loader Simple",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "104",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "106",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "109",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "112",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "137",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ggml-model-q4_k.gguf'"
+          ],
+          [
+            "widget_1",
+            "2048"
+          ],
+          [
+            "widget_2",
+            "70"
+          ],
+          [
+            "widget_3",
+            "4"
+          ]
+        ]
+      },
+      "104": {
+        "class_type": "LlavaClipLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "103",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mmproj-model-f16.gguf'"
+          ]
+        ]
+      },
+      "106": {
+        "class_type": "LLavaSamplerSimple",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "90",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ],
+          [
+            "prompt",
+            [
+              "108",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "109",
+              "prompt"
+            ]
+          ],
+          [
+            "0",
+            [
+              "145",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "0.15"
+          ]
+        ]
+      },
+      "108": {
+        "class_type": "SimpleText",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "106",
+              "prompt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'describe this image in great detail, describe everything in the image'"
+          ]
+        ]
+      },
+      "109": {
+        "class_type": "KeywordExtraction",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ],
+          [
+            "prompt",
+            [
+              "106",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "136",
+              "text"
+            ]
+          ],
+          [
+            "0",
+            [
+              "137",
+              "prompt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "0.8"
+          ]
+        ]
+      },
+      "112": {
+        "class_type": "Suggester",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ],
+          [
+            "prompt",
+            [
+              "137",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "135",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "0.2"
+          ],
+          [
+            "widget_2",
+            "True"
+          ]
+        ]
+      },
+      "134": {
+        "class_type": "JsonToText",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "137",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ]
+        ]
+      },
+      "135": {
+        "class_type": "JsonToText",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "112",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ]
+        ]
+      },
+      "136": {
+        "class_type": "JsonToText",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "109",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ]
+        ]
+      },
+      "137": {
+        "class_type": "LLavaPromptGenerator",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ],
+          [
+            "prompt",
+            [
+              "109",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "112",
+              "prompt"
+            ]
+          ],
+          [
+            "0",
+            [
+              "134",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "0.05"
+          ]
+        ]
+      },
+      "145": {
+        "class_type": "ViewText",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "106",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ]
+        ]
+      },
+      "90": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "106",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'spartan_warrior_by_rylyn84_dfo1esx-pre (1).jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d38dc8be1bfcda493558402fed20b03d5a9f0dd3148aeb91e2634fed001a5ed4",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1199844821578297395,
+      "channel_name": "language",
+      "content_preview": "check it out and adjust params if any issues.",
+      "discord_message_url": "https://discord.com/channels/@me/1199844821578297395/1206484292612522015",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1206484292612522015:LLAVA_prompt_maker-wf001.json:ff92bffc757dc7ed",
+      "filename": "LLAVA_prompt_maker-wf001.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:56+00:00",
+      "message_id": 1206484292612522015,
+      "node_class_multiset": {
+        "JsonToText": 3,
+        "KeywordExtraction": 1,
+        "LLava Loader Simple": 1,
+        "LLavaPromptGenerator": 1,
+        "LLavaSamplerSimple": 1,
+        "LlavaClipLoader": 1,
+        "LoadImage": 1,
+        "SimpleText": 1,
+        "Suggester": 1,
+        "ViewText": 1
+      },
+      "node_count": 12,
+      "origin_date": "2024-02-12T06:17:50.753000+00:00",
+      "originator_global_name": "jags",
+      "originator_id": "544126527852380190",
+      "originator_type": "discord_message_author",
+      "originator_username": "jags111",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ff92bffc757dc7edf9e770b6bf5e7be242709590d9697c76a2cfc3c379dbf42d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1199844821578297395/1206484292448817152/LLAVA_prompt_maker-wf001.json?ex=697a52ce&is=6979014e&hm=a6c6aa31ae4f57d3ad3ecee77e936de6c463b486871ae1222645fa2e03563f73&",
+      "source_workflow_sha256": "5d284b0bee23d9dc90bff0c582e96cb256c69f58ba40474f18b7c3de859112d6",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "7833e443bf3576c8daa3edd9e12c34903579494619a69b8879fb6ed1a615eb8c",
+      "complexity": 3,
+      "description": "Loads an image and uses LLaVA to generate a prompt, then extracts keywords and suggests related terms.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "llava",
+        "image-captioning",
+        "keyword-extraction",
+        "prompt-generation",
+        "suggestion"
+      ],
+      "task_type": "image_to_image",
+      "title": "LLaVA Image Captioning and Keyword Extraction"
+    }
+  },
+  "nodes": {
+    "103": {
+      "class_type": "LLava Loader Simple",
+      "id": "103",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 103,
+          "inputs": [
+            {
+              "link": 173,
+              "name": "clip",
+              "slot_index": 0,
+              "type": "CUSTOM"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                175,
+                185,
+                189,
+                226
+              ],
+              "name": "model",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CUSTOM"
+            }
+          ],
+          "pos": [
+            92,
+            481
+          ],
+          "properties": {
+            "Node name for S&R": "LLava Loader Simple"
+          },
+          "size": {
+            "0": 315,
+            "1": 130
+          },
+          "type": "LLava Loader Simple",
+          "widgets_values": [
+            "ggml-model-q4_k.gguf",
+            2048,
+            70,
+            4
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ggml-model-q4_k.gguf",
+          2048,
+          70,
+          4
+        ]
+      },
+      "uid": "103",
+      "widgets": {
+        "widget_0": "ggml-model-q4_k.gguf",
+        "widget_1": 2048,
+        "widget_2": 70,
+        "widget_3": 4
+      }
+    },
+    "104": {
+      "class_type": "LlavaClipLoader",
+      "id": "104",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 104,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                173
+              ],
+              "name": "clip",
+              "shape": 3,
+              "type": "CUSTOM"
+            }
+          ],
+          "pos": [
+            -269,
+            513
+          ],
+          "properties": {
+            "Node name for S&R": "LlavaClipLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "LlavaClipLoader",
+          "widgets_values": [
+            "mmproj-model-f16.gguf"
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mmproj-model-f16.gguf"
+        ]
+      },
+      "uid": "104",
+      "widgets": {
+        "widget_0": "mmproj-model-f16.gguf"
+      }
+    },
+    "106": {
+      "class_type": "LLavaSamplerSimple",
+      "id": "106",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 106,
+          "inputs": [
+            {
+              "link": 176,
+              "name": "image",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 175,
+              "name": "model",
+              "type": "CUSTOM"
+            },
+            {
+              "link": 178,
+              "name": "prompt",
+              "slot_index": 2,
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                179,
+                235
+              ],
+              "name": "STRING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -314,
+            771
+          ],
+          "properties": {
+            "Node name for S&R": "LLavaSamplerSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "LLavaSamplerSimple",
+          "widgets_values": [
+            "",
+            0.15
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          0.15
+        ]
+      },
+      "uid": "106",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 0.15
+      }
+    },
+    "108": {
+      "class_type": "SimpleText",
+      "id": "108",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 108,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                178
+              ],
+              "name": "STRING",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -695,
+            1059
+          ],
+          "properties": {
+            "Node name for S&R": "SimpleText"
+          },
+          "size": {
+            "0": 301.86761474609375,
+            "1": 176.1848907470703
+          },
+          "type": "SimpleText",
+          "widgets_values": [
+            "describe this image in great detail, describe everything in the image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "describe this image in great detail, describe everything in the image"
+        ]
+      },
+      "uid": "108",
+      "widgets": {
+        "widget_0": "describe this image in great detail, describe everything in the image"
+      }
+    },
+    "109": {
+      "class_type": "KeywordExtraction",
+      "id": "109",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 109,
+          "inputs": [
+            {
+              "link": 185,
+              "name": "model",
+              "slot_index": 0,
+              "type": "CUSTOM"
+            },
+            {
+              "link": 179,
+              "name": "prompt",
+              "slot_index": 1,
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                223,
+                225
+              ],
+              "name": "STRING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            77,
+            764
+          ],
+          "properties": {
+            "Node name for S&R": "KeywordExtraction"
+          },
+          "size": {
+            "0": 310.54718017578125,
+            "1": 98.95659637451172
+          },
+          "type": "KeywordExtraction",
+          "widgets_values": [
+            "",
+            0.8
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          0.8
+        ]
+      },
+      "uid": "109",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 0.8
+      }
+    },
+    "112": {
+      "class_type": "Suggester",
+      "id": "112",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 112,
+          "inputs": [
+            {
+              "link": 189,
+              "name": "model",
+              "slot_index": 0,
+              "type": "CUSTOM"
+            },
+            {
+              "link": 227,
+              "name": "prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                222
+              ],
+              "name": "STRING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            877,
+            766
+          ],
+          "properties": {
+            "Node name for S&R": "Suggester"
+          },
+          "size": {
+            "0": 315,
+            "1": 102
+          },
+          "type": "Suggester",
+          "widgets_values": [
+            "",
+            0.2,
+            true
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          0.2,
+          true
+        ]
+      },
+      "uid": "112",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 0.2,
+        "widget_2": true
+      }
+    },
+    "134": {
+      "class_type": "JsonToText",
+      "id": "134",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 134,
+          "inputs": [
+            {
+              "link": 228,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            417,
+            956
+          ],
+          "properties": {
+            "Node name for S&R": "JsonToText"
+          },
+          "size": {
+            "0": 430.380615234375,
+            "1": 280.4878845214844
+          },
+          "type": "JsonToText",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "134",
+      "widgets": {
+        "widget_0": ""
+      }
+    },
+    "135": {
+      "class_type": "JsonToText",
+      "id": "135",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 135,
+          "inputs": [
+            {
+              "link": 222,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            860,
+            953
+          ],
+          "properties": {
+            "Node name for S&R": "JsonToText"
+          },
+          "size": {
+            "0": 501.1465759277344,
+            "1": 288.81890869140625
+          },
+          "type": "JsonToText",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "135",
+      "widgets": {
+        "widget_0": ""
+      }
+    },
+    "136": {
+      "class_type": "JsonToText",
+      "id": "136",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 136,
+          "inputs": [
+            {
+              "link": 223,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            21,
+            957
+          ],
+          "properties": {
+            "Node name for S&R": "JsonToText"
+          },
+          "size": {
+            "0": 376.5025634765625,
+            "1": 279.15692138671875
+          },
+          "type": "JsonToText",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "136",
+      "widgets": {
+        "widget_0": ""
+      }
+    },
+    "137": {
+      "class_type": "LLavaPromptGenerator",
+      "id": "137",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 137,
+          "inputs": [
+            {
+              "link": 226,
+              "name": "model",
+              "type": "CUSTOM"
+            },
+            {
+              "link": 225,
+              "name": "prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                227,
+                228
+              ],
+              "name": "STRING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            477,
+            779
+          ],
+          "properties": {
+            "Node name for S&R": "LLavaPromptGenerator"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "LLavaPromptGenerator",
+          "widgets_values": [
+            "",
+            0.05
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          0.05
+        ]
+      },
+      "uid": "137",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 0.05
+      }
+    },
+    "145": {
+      "class_type": "ViewText",
+      "id": "145",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 145,
+          "inputs": [
+            {
+              "link": 235,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -340,
+            955
+          ],
+          "properties": {
+            "Node name for S&R": "ViewText"
+          },
+          "size": {
+            "0": 348.8505859375,
+            "1": 284.15692138671875
+          },
+          "type": "ViewText",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "145",
+      "widgets": {
+        "widget_0": ""
+      }
+    },
+    "90": {
+      "class_type": "LoadImage",
+      "id": "90",
+      "inputs": {
+        "image": "spartan_warrior_by_rylyn84_dfo1esx-pre (1).jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 90,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                176
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -702,
+            646
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 314.0000305175781
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "spartan_warrior_by_rylyn84_dfo1esx-pre (1).jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "spartan_warrior_by_rylyn84_dfo1esx-pre (1).jpg",
+          "image"
+        ]
+      },
+      "uid": "90",
+      "widgets": {}
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "ff92bffc757dc7ed",
+    "path": "external_workflows/.shadow/source/ff92bffc757dc7ed-LLAVA_prompt_maker-wf001.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d38dc8be1bfcda493558402fed20b03d5a9f0dd3148aeb91e2634fed001a5ed4",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1199844821578297395,
+      "channel_name": "language",
+      "content_preview": "check it out and adjust params if any issues.",
+      "discord_message_url": "https://discord.com/channels/@me/1199844821578297395/1206484292612522015",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1206484292612522015:LLAVA_prompt_maker-wf001.json:ff92bffc757dc7ed",
+      "filename": "LLAVA_prompt_maker-wf001.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:56+00:00",
+      "message_id": 1206484292612522015,
+      "node_class_multiset": {
+        "JsonToText": 3,
+        "KeywordExtraction": 1,
+        "LLava Loader Simple": 1,
+        "LLavaPromptGenerator": 1,
+        "LLavaSamplerSimple": 1,
+        "LlavaClipLoader": 1,
+        "LoadImage": 1,
+        "SimpleText": 1,
+        "Suggester": 1,
+        "ViewText": 1
+      },
+      "node_count": 12,
+      "origin_date": "2024-02-12T06:17:50.753000+00:00",
+      "originator_global_name": "jags",
+      "originator_id": "544126527852380190",
+      "originator_type": "discord_message_author",
+      "originator_username": "jags111",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ff92bffc757dc7edf9e770b6bf5e7be242709590d9697c76a2cfc3c379dbf42d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1199844821578297395/1206484292448817152/LLAVA_prompt_maker-wf001.json?ex=697a52ce&is=6979014e&hm=a6c6aa31ae4f57d3ad3ecee77e936de6c463b486871ae1222645fa2e03563f73&",
+      "source_workflow_sha256": "5d284b0bee23d9dc90bff0c582e96cb256c69f58ba40474f18b7c3de859112d6",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

@@ -1,0 +1,6476 @@
+{
+  "edges": [
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "13"
+    },
+    {
+      "from_node": "132",
+      "from_output": "0",
+      "to_input": "_un364",
+      "to_node": "138"
+    },
+    {
+      "from_node": "10",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "150"
+    },
+    {
+      "from_node": "78",
+      "from_output": "0",
+      "to_input": "tags",
+      "to_node": "150"
+    },
+    {
+      "from_node": "150",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "148"
+    },
+    {
+      "from_node": "194",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "196"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "116"
+    },
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "116"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "116"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "116"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "116"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "cfg",
+      "to_node": "116"
+    },
+    {
+      "from_node": "115",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "146"
+    },
+    {
+      "from_node": "209",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "207"
+    },
+    {
+      "from_node": "115",
+      "from_output": "0",
+      "to_input": "input_sound",
+      "to_node": "155"
+    },
+    {
+      "from_node": "146",
+      "from_output": "3",
+      "to_input": "audio",
+      "to_node": "167"
+    },
+    {
+      "from_node": "205",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "206"
+    },
+    {
+      "from_node": "208",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "212"
+    },
+    {
+      "from_node": "155",
+      "from_output": "1",
+      "to_input": "audio",
+      "to_node": "168"
+    },
+    {
+      "from_node": "214",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "169"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "19"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "132"
+    },
+    {
+      "from_node": "151",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "152"
+    },
+    {
+      "from_node": "10",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "152"
+    },
+    {
+      "from_node": "155",
+      "from_output": "1",
+      "to_input": "audio",
+      "to_node": "156"
+    },
+    {
+      "from_node": "10",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "156"
+    },
+    {
+      "from_node": "116",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "115"
+    },
+    {
+      "from_node": "10",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "115"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "151"
+    },
+    {
+      "from_node": "150",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "151"
+    },
+    {
+      "from_node": "148",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "151"
+    },
+    {
+      "from_node": "156",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "151"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "151"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "cfg",
+      "to_node": "151"
+    },
+    {
+      "from_node": "166",
+      "from_output": "0",
+      "to_input": "denoise",
+      "to_node": "151"
+    },
+    {
+      "from_node": "10",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "69"
+    },
+    {
+      "from_node": "78",
+      "from_output": "0",
+      "to_input": "tags",
+      "to_node": "69"
+    },
+    {
+      "from_node": "77",
+      "from_output": "0",
+      "to_input": "lyrics",
+      "to_node": "69"
+    },
+    {
+      "from_node": "10",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "209"
+    },
+    {
+      "from_node": "78",
+      "from_output": "0",
+      "to_input": "tags",
+      "to_node": "209"
+    },
+    {
+      "from_node": "77",
+      "from_output": "0",
+      "to_input": "lyrics",
+      "to_node": "209"
+    },
+    {
+      "from_node": "221",
+      "from_output": "0",
+      "to_input": "audio_1",
+      "to_node": "153"
+    },
+    {
+      "from_node": "208",
+      "from_output": "0",
+      "to_input": "audio_2",
+      "to_node": "153"
+    },
+    {
+      "from_node": "210",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "208"
+    },
+    {
+      "from_node": "10",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "208"
+    },
+    {
+      "from_node": "10",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "194"
+    },
+    {
+      "from_node": "78",
+      "from_output": "0",
+      "to_input": "tags",
+      "to_node": "194"
+    },
+    {
+      "from_node": "77",
+      "from_output": "0",
+      "to_input": "lyrics",
+      "to_node": "194"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "210"
+    },
+    {
+      "from_node": "209",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "210"
+    },
+    {
+      "from_node": "207",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "210"
+    },
+    {
+      "from_node": "195",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "210"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "210"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "cfg",
+      "to_node": "210"
+    },
+    {
+      "from_node": "217",
+      "from_output": "0",
+      "to_input": "denoise",
+      "to_node": "210"
+    },
+    {
+      "from_node": "205",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "197"
+    },
+    {
+      "from_node": "10",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "197"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "195"
+    },
+    {
+      "from_node": "194",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "195"
+    },
+    {
+      "from_node": "196",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "195"
+    },
+    {
+      "from_node": "197",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "195"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "195"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "cfg",
+      "to_node": "195"
+    },
+    {
+      "from_node": "146",
+      "from_output": "3",
+      "to_input": "audio",
+      "to_node": "205"
+    },
+    {
+      "from_node": "201",
+      "from_output": "0",
+      "to_input": "target_level",
+      "to_node": "205"
+    },
+    {
+      "from_node": "152",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "214"
+    },
+    {
+      "from_node": "213",
+      "from_output": "0",
+      "to_input": "filters",
+      "to_node": "214"
+    },
+    {
+      "from_node": "214",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "221"
+    },
+    {
+      "from_node": "219",
+      "from_output": "0",
+      "to_input": "target_level",
+      "to_node": "221"
+    },
+    {
+      "from_node": "153",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "222"
+    },
+    {
+      "from_node": "115",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "223"
+    }
+  ],
+  "groups": [],
+  "id": "822fb04ff37de763",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "10",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "ace_step_v1_3.5b.safetensors"
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "116",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 60
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "150",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "194",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "209",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "69",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "115",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "152",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "156",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "197",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "208",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'ace_step_v1_3.5b.safetensors'"
+          ]
+        ]
+      },
+      "115": {
+        "class_type": "VAEDecodeAudio",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "116",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "10",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "146",
+              "audio"
+            ]
+          ],
+          [
+            "0",
+            [
+              "155",
+              "input_sound"
+            ]
+          ],
+          [
+            "0",
+            [
+              "223",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "116": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "cfg",
+            [
+              "137",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "138",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "13",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "69",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "52",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "115",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'res_multistep'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "steps",
+            "60"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "69",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "132": {
+        "class_type": "Automatic CFG",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "138",
+              "_un364"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "boost",
+            "False"
+          ],
+          [
+            "hard_mode",
+            "True"
+          ]
+        ]
+      },
+      "137": {
+        "class_type": "FloatConstant",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "cfg"
+            ]
+          ],
+          [
+            "0",
+            [
+              "151",
+              "cfg"
+            ]
+          ],
+          [
+            "0",
+            [
+              "195",
+              "cfg"
+            ]
+          ],
+          [
+            "0",
+            [
+              "210",
+              "cfg"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "8"
+          ]
+        ]
+      },
+      "138": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un364",
+            [
+              "132",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "151",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "195",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "210",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "139": {
+        "class_type": "Fast Groups Bypasser (rgthree)",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "14": {
+        "class_type": "EmptyAceStepLatentAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "seconds",
+            "160"
+          ]
+        ]
+      },
+      "146": {
+        "class_type": "AudioSeparation",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "115",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "3",
+            [
+              "167",
+              "audio"
+            ]
+          ],
+          [
+            "3",
+            [
+              "205",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "chunk_fade_shape",
+            "'linear'"
+          ],
+          [
+            "chunk_length",
+            "10"
+          ],
+          [
+            "chunk_overlap",
+            "0.1"
+          ]
+        ]
+      },
+      "148": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "150",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "150": {
+        "class_type": "TextEncodeAceStepAudio",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "10",
+              "1"
+            ]
+          ],
+          [
+            "tags",
+            [
+              "78",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "148",
+              "conditioning"
+            ]
+          ],
+          [
+            "0",
+            [
+              "151",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lyrics",
+            "''"
+          ],
+          [
+            "lyrics_strength",
+            "'[inst]'"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "151": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "cfg",
+            [
+              "137",
+              "0"
+            ]
+          ],
+          [
+            "denoise",
+            [
+              "166",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "156",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "138",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "148",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "150",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "52",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "152",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'res_multistep'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "steps",
+            "60"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "152": {
+        "class_type": "VAEDecodeAudio",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "151",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "10",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "214",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "153": {
+        "class_type": "AudioCombine",
+        "incoming_edge_sig": [
+          [
+            "audio_1",
+            [
+              "221",
+              "0"
+            ]
+          ],
+          [
+            "audio_2",
+            [
+              "208",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "222",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "method",
+            "'add'"
+          ]
+        ]
+      },
+      "155": {
+        "class_type": "VocalAndSoundRemoverNode",
+        "incoming_edge_sig": [
+          [
+            "input_sound",
+            [
+              "115",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "156",
+              "audio"
+            ]
+          ],
+          [
+            "1",
+            [
+              "168",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "156": {
+        "class_type": "VAEEncodeAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "155",
+              "1"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "10",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "166": {
+        "class_type": "FloatConstant",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "denoise"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "0.35"
+          ]
+        ]
+      },
+      "167": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "146",
+              "3"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/vocal_isolated'"
+          ]
+        ]
+      },
+      "168": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "155",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/background_isolated'"
+          ]
+        ]
+      },
+      "169": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "214",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/background_upscaled'"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "132",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "3"
+          ]
+        ]
+      },
+      "194": {
+        "class_type": "TextEncodeAceStepAudio",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "10",
+              "1"
+            ]
+          ],
+          [
+            "lyrics",
+            [
+              "77",
+              "0"
+            ]
+          ],
+          [
+            "tags",
+            [
+              "78",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "195",
+              "positive"
+            ]
+          ],
+          [
+            "0",
+            [
+              "196",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lyrics_strength",
+            "''"
+          ],
+          [
+            "widget_1",
+            "'(lyrics)'"
+          ],
+          [
+            "widget_2",
+            "1.4"
+          ]
+        ]
+      },
+      "195": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "cfg",
+            [
+              "137",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "197",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "138",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "196",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "194",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "52",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "210",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "denoise",
+            "0.2"
+          ],
+          [
+            "sampler_name",
+            "'res_multistep'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "steps",
+            "1"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "196": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "194",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "195",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "197": {
+        "class_type": "VAEEncodeAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "205",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "10",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "195",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "201": {
+        "class_type": "FloatConstant",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "205",
+              "target_level"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "-29"
+          ]
+        ]
+      },
+      "205": {
+        "class_type": "AudioVolumeNormalization",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "146",
+              "3"
+            ]
+          ],
+          [
+            "target_level",
+            [
+              "201",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "197",
+              "audio"
+            ]
+          ],
+          [
+            "0",
+            [
+              "206",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "-50"
+          ]
+        ]
+      },
+      "206": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "205",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/vocal_processed'"
+          ]
+        ]
+      },
+      "207": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "209",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "210",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "208": {
+        "class_type": "VAEDecodeAudio",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "210",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "10",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "153",
+              "audio_2"
+            ]
+          ],
+          [
+            "0",
+            [
+              "212",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "209": {
+        "class_type": "TextEncodeAceStepAudio",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "10",
+              "1"
+            ]
+          ],
+          [
+            "lyrics",
+            [
+              "77",
+              "0"
+            ]
+          ],
+          [
+            "tags",
+            [
+              "78",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "207",
+              "conditioning"
+            ]
+          ],
+          [
+            "0",
+            [
+              "210",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lyrics_strength",
+            "''"
+          ],
+          [
+            "widget_1",
+            "'(lyrics)'"
+          ],
+          [
+            "widget_2",
+            "0.85"
+          ]
+        ]
+      },
+      "210": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "cfg",
+            [
+              "137",
+              "0"
+            ]
+          ],
+          [
+            "denoise",
+            [
+              "217",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "195",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "138",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "207",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "209",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "52",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "208",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'res_multistep'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "steps",
+            "2"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "212": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "208",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/vocal_upscaled'"
+          ]
+        ]
+      },
+      "213": {
+        "class_type": "FrequencyFilterPreset",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "214",
+              "filters"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "preset",
+            "'remove_rumble'"
+          ]
+        ]
+      },
+      "214": {
+        "class_type": "AudioFilter",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "152",
+              "0"
+            ]
+          ],
+          [
+            "filters",
+            [
+              "213",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "169",
+              "audio"
+            ]
+          ],
+          [
+            "0",
+            [
+              "221",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "216": {
+        "class_type": "FrequencyFilterPreset",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "preset",
+            "'remove_hiss'"
+          ]
+        ]
+      },
+      "217": {
+        "class_type": "FloatConstant",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "210",
+              "denoise"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "0.45"
+          ]
+        ]
+      },
+      "219": {
+        "class_type": "PrimitiveFloat",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "221",
+              "target_level"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "-20"
+          ]
+        ]
+      },
+      "221": {
+        "class_type": "AudioVolumeNormalization",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "214",
+              "0"
+            ]
+          ],
+          [
+            "target_level",
+            [
+              "219",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "153",
+              "audio_1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "-50"
+          ]
+        ]
+      },
+      "222": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "153",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/final'"
+          ]
+        ]
+      },
+      "223": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "115",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/draft'"
+          ]
+        ]
+      },
+      "52": {
+        "class_type": "Seed (rgthree)",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "151",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "195",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "210",
+              "seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "307654729160889"
+          ],
+          [
+            "widget_1",
+            "''"
+          ],
+          [
+            "widget_2",
+            "''"
+          ],
+          [
+            "widget_3",
+            "''"
+          ]
+        ]
+      },
+      "69": {
+        "class_type": "TextEncodeAceStepAudio",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "10",
+              "1"
+            ]
+          ],
+          [
+            "lyrics",
+            [
+              "77",
+              "0"
+            ]
+          ],
+          [
+            "tags",
+            [
+              "78",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "positive"
+            ]
+          ],
+          [
+            "0",
+            [
+              "13",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lyrics_strength",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ],
+          [
+            "widget_2",
+            "1.15"
+          ]
+        ]
+      },
+      "77": {
+        "class_type": "Text Multiline",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "194",
+              "lyrics"
+            ]
+          ],
+          [
+            "0",
+            [
+              "209",
+              "lyrics"
+            ]
+          ],
+          [
+            "0",
+            [
+              "69",
+              "lyrics"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "\"[solo]\\n\\n[verse]\\nMakin' lyrics, they're so fun\\nI didn't think about these a ton\\nI wrote these lyrics when I was high\\nbefore I sellout I'd rather die\\n\\n[chorus]\\nIt's best to put these lyrics\\ninto sections of four.\\nOr else you'll be in hysterics\\nand wondering if there's more\\n\\n[verse]\\nSo you see, my lyrics are awful\\nbut if you sing 'em it's not unlawful\\nbecause it's all open source,\\nyou can copy them without remorse!\\n\\n[chorus]\\nIt's best to put these lyrics\\ninto sections of four.\\nOr else you'll be in hysterics\\nand wondering if there's more\\n\\n[verse]\\nSo take these lyrics, and test away\\nhope your song comes out okay\\nIf it doesn't, I'm not at fault\\nLaunch you out of a catapult\\n\\n[chorus]\\nIt's best to put these lyrics\\ninto sections of four.\\nOr else you'll be in hysterics\\nand wondering if there's more\\n\\n[outro]\\nI hope the song came out fine.\\nWe'll make another one one more time\\nDon't worry, next one will be great\\nAnd if not, it's probably too late\""
+          ]
+        ]
+      },
+      "78": {
+        "class_type": "Text Multiline",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "150",
+              "tags"
+            ]
+          ],
+          [
+            "0",
+            [
+              "194",
+              "tags"
+            ]
+          ],
+          [
+            "0",
+            [
+              "209",
+              "tags"
+            ]
+          ],
+          [
+            "0",
+            [
+              "69",
+              "tags"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'honkytonk, blues, r&b, acoustic guitar, drums, 140 bpm, energetic, uplifting, male vocals'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1b136036c776018ab5b02f3859440717cefcb3c47c73ac1e8d77b4fdfd562fd7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "content_preview": "My attempt at vocals 'upsampling'. Behold, mad science! Sampler abuse! Be amazed and horrified!",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1371830853826642115",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1371830853826642115:vardogr_ACE_STEP_Upscaler.json:822fb04ff37de763",
+      "filename": "vardogr_ACE_STEP_Upscaler.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:16+00:00",
+      "message_id": 1371830853826642115,
+      "node_class_multiset": {
+        "AudioCombine": 1,
+        "AudioFilter": 1,
+        "AudioSeparation": 1,
+        "AudioVolumeNormalization": 2,
+        "Automatic CFG": 1,
+        "CheckpointLoaderSimple": 1,
+        "ConditioningZeroOut": 4,
+        "EmptyAceStepLatentAudio": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "FloatConstant": 4,
+        "FrequencyFilterPreset": 2,
+        "KSampler": 4,
+        "ModelSamplingSD3": 1,
+        "PrimitiveFloat": 1,
+        "Reroute": 1,
+        "SaveAudio": 7,
+        "Seed (rgthree)": 1,
+        "Text Multiline": 2,
+        "TextEncodeAceStepAudio": 4,
+        "VAEDecodeAudio": 3,
+        "VAEEncodeAudio": 2,
+        "VocalAndSoundRemoverNode": 1
+      },
+      "node_count": 46,
+      "origin_date": "2025-05-13T12:46:02.937000+00:00",
+      "originator_global_name": "Vardogr",
+      "originator_id": "267974636690472960",
+      "originator_type": "discord_message_author",
+      "originator_username": "vardogr9156",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "822fb04ff37de76335adf4661e4155c5a866dc1834abb6d71fc88f2d021b0934",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1371830852694311044/vardogr_ACE_STEP_Upscaler.json?ex=6824908a&is=68233f0a&hm=fe1fafd35d62f4073e4c1f85b750c185411e0f33edea8294fc8717af0d522383&",
+      "source_workflow_sha256": "580125cb70f1de4a86611b0b6c57dc686204f6a3a8ee5a46a6af2797a9fd18c9",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "3622b7114c7222698f77e042f7e947a46355215fc75cdebb3261b68f1aef16ac",
+      "complexity": 5,
+      "description": "This workflow generates and processes audio using AceStep models, including audio separation, vocal removal, filtering, and normalization, with multiple audio outputs saved.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio-generation",
+        "audio-processing",
+        "ace-step",
+        "vocal-removal",
+        "audio-filtering",
+        "audio-normalization",
+        "audio-separation",
+        "latent-audio"
+      ],
+      "task_type": "text_to_image",
+      "title": "AceStep Audio Generation and Processing Workflow"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "10",
+      "inputs": {
+        "ckpt_name": "ace_step_v1_3.5b.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "ckpt_name",
+              "name": "ckpt_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "ckpt_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                21
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                124,
+                376,
+                483,
+                540
+              ],
+              "localized_name": "CLIP",
+              "name": "CLIP",
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                289,
+                387,
+                396,
+                497,
+                539
+              ],
+              "localized_name": "VAE",
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -400,
+            -90
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            380,
+            98
+          ],
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "ace_step_v1_3.5b.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ace_step_v1_3.5b.safetensors"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "115": {
+      "class_type": "VAEDecodeAudio",
+      "id": "115",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 115,
+          "inputs": [
+            {
+              "link": 288,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 289,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [
+            {
+              "links": [
+                372,
+                392,
+                605
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1420,
+            660
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            151,
+            46
+          ],
+          "type": "VAEDecodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "115",
+      "widgets": {}
+    },
+    "116": {
+      "class_type": "KSampler",
+      "id": "116",
+      "inputs": {
+        "denoise": 1,
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "steps": 60,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 116,
+          "inputs": [
+            {
+              "link": 361,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 291,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 292,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 293,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 294,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 577,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [
+            {
+              "links": [
+                288
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1030,
+            660
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            235411295462312,
+            "fixed",
+            60,
+            8,
+            "res_multistep",
+            "simple",
+            1
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          235411295462312,
+          "fixed",
+          60,
+          8,
+          "res_multistep",
+          "simple",
+          1
+        ]
+      },
+      "uid": "116",
+      "widgets": {}
+    },
+    "13": {
+      "class_type": "ConditioningZeroOut",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "inputs": [
+            {
+              "link": 128,
+              "localized_name": "conditioning",
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                292
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            600,
+            980
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            197.66665649414062,
+            26
+          ],
+          "type": "ConditioningZeroOut",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "13",
+      "widgets": {}
+    },
+    "132": {
+      "class_type": "Automatic CFG",
+      "id": "132",
+      "inputs": {
+        "boost": false,
+        "hard_mode": true
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 132,
+          "inputs": [
+            {
+              "link": 355,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "hard_mode",
+              "name": "hard_mode",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "hard_mode"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "boost",
+              "name": "boost",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "boost"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                364
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -330,
+            430
+          ],
+          "properties": {
+            "Node name for S&R": "Automatic CFG",
+            "cnr_id": "comfyui-automaticcfg",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "1.0.0"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "Automatic CFG",
+          "widgets_values": [
+            true,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "uid": "132",
+      "widgets": {}
+    },
+    "137": {
+      "class_type": "FloatConstant",
+      "id": "137",
+      "inputs": {
+        "value": 8
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 137,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT",
+              "widget": {
+                "name": "value"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                577,
+                578,
+                579,
+                580
+              ],
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            -300,
+            290
+          ],
+          "properties": {
+            "Node name for S&R": "FloatConstant",
+            "cnr_id": "comfyui-kjnodes",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759"
+          },
+          "size": [
+            210,
+            80
+          ],
+          "title": "CFG",
+          "type": "FloatConstant",
+          "widgets_values": [
+            8
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8
+        ]
+      },
+      "uid": "137",
+      "widgets": {}
+    },
+    "138": {
+      "class_type": "Reroute",
+      "id": "138",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 138,
+          "inputs": [
+            {
+              "link": 364,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                361,
+                380,
+                485,
+                543
+              ],
+              "name": "",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -10,
+            910
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "138",
+      "widgets": {}
+    },
+    "139": {
+      "class_type": "Fast Groups Bypasser (rgthree)",
+      "id": "139",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 139,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": null,
+              "name": "OPT_CONNECTION",
+              "type": "*"
+            }
+          ],
+          "pos": [
+            -400,
+            -700
+          ],
+          "properties": {
+            "customSortAlphabet": "",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "matchColors": "",
+            "matchTitle": "",
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "showNav": true,
+            "sort": "position",
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "toggleRestriction": "default"
+          },
+          "size": [
+            370,
+            110
+          ],
+          "type": "Fast Groups Bypasser (rgthree)"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "139",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "EmptyAceStepLatentAudio",
+      "id": "14",
+      "inputs": {
+        "batch_size": 1,
+        "seconds": 160
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "seconds",
+              "name": "seconds",
+              "type": "FLOAT",
+              "widget": {
+                "name": "seconds"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "batch_size",
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                293
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            60,
+            -690
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyAceStepLatentAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "title": "Song Duration",
+          "type": "EmptyAceStepLatentAudio",
+          "widgets_values": [
+            160,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          160,
+          1
+        ]
+      },
+      "uid": "14",
+      "widgets": {}
+    },
+    "146": {
+      "class_type": "AudioSeparation",
+      "id": "146",
+      "inputs": {
+        "chunk_fade_shape": "linear",
+        "chunk_length": 10,
+        "chunk_overlap": 0.1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 146,
+          "inputs": [
+            {
+              "link": 372,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "chunk_fade_shape",
+              "name": "chunk_fade_shape",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "chunk_fade_shape"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "chunk_length",
+              "name": "chunk_length",
+              "shape": 7,
+              "type": "FLOAT",
+              "widget": {
+                "name": "chunk_length"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "chunk_overlap",
+              "name": "chunk_overlap",
+              "shape": 7,
+              "type": "FLOAT",
+              "widget": {
+                "name": "chunk_overlap"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 26,
+          "outputs": [
+            {
+              "links": null,
+              "localized_name": "Bass",
+              "name": "Bass",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "localized_name": "Drums",
+              "name": "Drums",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "localized_name": "Other",
+              "name": "Other",
+              "type": "AUDIO"
+            },
+            {
+              "links": [
+                535,
+                563
+              ],
+              "localized_name": "Vocals",
+              "name": "Vocals",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1840,
+            490
+          ],
+          "properties": {
+            "Node name for S&R": "AudioSeparation",
+            "cnr_id": "audio-separation-nodes-comfyui",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "1.4.0"
+          },
+          "size": [
+            270,
+            166
+          ],
+          "type": "AudioSeparation",
+          "widgets_values": [
+            "linear",
+            10,
+            0.1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "linear",
+          10,
+          0.1
+        ]
+      },
+      "uid": "146",
+      "widgets": {}
+    },
+    "148": {
+      "class_type": "ConditioningZeroOut",
+      "id": "148",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 148,
+          "inputs": [
+            {
+              "link": 374,
+              "localized_name": "conditioning",
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                382
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            600,
+            2410
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            197.66665649414062,
+            26
+          ],
+          "type": "ConditioningZeroOut",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "148",
+      "widgets": {}
+    },
+    "150": {
+      "class_type": "TextEncodeAceStepAudio",
+      "id": "150",
+      "inputs": {
+        "lyrics": "",
+        "lyrics_strength": "[inst]"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 150,
+          "inputs": [
+            {
+              "link": 376,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 582,
+              "localized_name": "tags",
+              "name": "tags",
+              "type": "STRING",
+              "widget": {
+                "name": "tags"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lyrics",
+              "name": "lyrics",
+              "type": "STRING",
+              "widget": {
+                "name": "lyrics"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lyrics_strength",
+              "name": "lyrics_strength",
+              "type": "FLOAT",
+              "widget": {
+                "name": "lyrics_strength"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                374,
+                381
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            460,
+            2130
+          ],
+          "properties": {
+            "Node name for S&R": "TextEncodeAceStepAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "TextEncodeAceStepAudio",
+          "widgets_values": [
+            "",
+            "[inst]",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "[inst]",
+          1
+        ]
+      },
+      "uid": "150",
+      "widgets": {
+        "widget_2": 1
+      }
+    },
+    "151": {
+      "class_type": "KSampler",
+      "id": "151",
+      "inputs": {
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "steps": 60,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 151,
+          "inputs": [
+            {
+              "link": 380,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 381,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 382,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 395,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 384,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 578,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": 421,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 35,
+          "outputs": [
+            {
+              "links": [
+                386
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1010,
+            2130
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            235411295462312,
+            "fixed",
+            60,
+            4,
+            "res_multistep",
+            "simple",
+            0
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          235411295462312,
+          "fixed",
+          60,
+          4,
+          "res_multistep",
+          "simple",
+          0
+        ]
+      },
+      "uid": "151",
+      "widgets": {}
+    },
+    "152": {
+      "class_type": "VAEDecodeAudio",
+      "id": "152",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 152,
+          "inputs": [
+            {
+              "link": 386,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 387,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 37,
+          "outputs": [
+            {
+              "links": [
+                555
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1440,
+            2140
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            151,
+            46
+          ],
+          "type": "VAEDecodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "152",
+      "widgets": {}
+    },
+    "153": {
+      "class_type": "AudioCombine",
+      "id": "153",
+      "inputs": {
+        "method": "add"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 153,
+          "inputs": [
+            {
+              "link": 602,
+              "localized_name": "audio_1",
+              "name": "audio_1",
+              "type": "AUDIO"
+            },
+            {
+              "link": 599,
+              "localized_name": "audio_2",
+              "name": "audio_2",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "method",
+              "name": "method",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "method"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 44,
+          "outputs": [
+            {
+              "links": [
+                604
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            2630,
+            2150
+          ],
+          "properties": {
+            "Node name for S&R": "AudioCombine",
+            "cnr_id": "audio-separation-nodes-comfyui",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "1.4.0"
+          },
+          "size": [
+            270,
+            78
+          ],
+          "type": "AudioCombine",
+          "widgets_values": [
+            "add"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "add"
+        ]
+      },
+      "uid": "153",
+      "widgets": {}
+    },
+    "155": {
+      "class_type": "VocalAndSoundRemoverNode",
+      "id": "155",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 155,
+          "inputs": [
+            {
+              "link": 392,
+              "localized_name": "input_sound",
+              "name": "input_sound",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "outputs": [
+            {
+              "links": [],
+              "localized_name": "Vocals",
+              "name": "Vocals",
+              "type": "AUDIO"
+            },
+            {
+              "links": [
+                425,
+                504
+              ],
+              "localized_name": "Background",
+              "name": "Background",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1850,
+            790
+          ],
+          "properties": {
+            "Node name for S&R": "VocalAndSoundRemoverNode",
+            "cnr_id": "ComfyUI-DeepExtract",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "9ad5b95b1452ca159b2690edbcd71335b2d8c8a9"
+          },
+          "size": [
+            211.3666534423828,
+            46
+          ],
+          "type": "VocalAndSoundRemoverNode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "155",
+      "widgets": {}
+    },
+    "156": {
+      "class_type": "VAEEncodeAudio",
+      "id": "156",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 156,
+          "inputs": [
+            {
+              "link": 504,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": 396,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 32,
+          "outputs": [
+            {
+              "links": [
+                395
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            2150,
+            810
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            150.23333740234375,
+            46
+          ],
+          "type": "VAEEncodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "156",
+      "widgets": {}
+    },
+    "166": {
+      "class_type": "FloatConstant",
+      "id": "166",
+      "inputs": {
+        "value": 0.35
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 166,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT",
+              "widget": {
+                "name": "value"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                421
+              ],
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            -110,
+            -400
+          ],
+          "properties": {
+            "Node name for S&R": "FloatConstant",
+            "cnr_id": "comfyui-kjnodes",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759"
+          },
+          "size": [
+            220,
+            60
+          ],
+          "title": "Background Upscale",
+          "type": "FloatConstant",
+          "widgets_values": [
+            0.35
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.35
+        ]
+      },
+      "uid": "166",
+      "widgets": {}
+    },
+    "167": {
+      "class_type": "SaveAudio",
+      "id": "167",
+      "inputs": {
+        "filename_prefix": "audio/vocal_isolated"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 167,
+          "inputs": [
+            {
+              "link": 535,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 29,
+          "outputs": [],
+          "pos": [
+            1780,
+            -630
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Vocals Isolated",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/vocal_isolated"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/vocal_isolated"
+        ]
+      },
+      "uid": "167",
+      "widgets": {}
+    },
+    "168": {
+      "class_type": "SaveAudio",
+      "id": "168",
+      "inputs": {
+        "filename_prefix": "audio/background_isolated"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 168,
+          "inputs": [
+            {
+              "link": 425,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 31,
+          "outputs": [],
+          "pos": [
+            1790,
+            -300
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Background Isolated",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/background_isolated"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/background_isolated"
+        ]
+      },
+      "uid": "168",
+      "widgets": {}
+    },
+    "169": {
+      "class_type": "SaveAudio",
+      "id": "169",
+      "inputs": {
+        "filename_prefix": "audio/background_upscaled"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 169,
+          "inputs": [
+            {
+              "link": 558,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 41,
+          "outputs": [],
+          "pos": [
+            2090,
+            -300
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Background Upscaled",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/background_upscaled"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/background_upscaled"
+        ]
+      },
+      "uid": "169",
+      "widgets": {}
+    },
+    "19": {
+      "class_type": "ModelSamplingSD3",
+      "id": "19",
+      "inputs": {
+        "shift": 3
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 21,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "shift",
+              "name": "shift",
+              "type": "FLOAT",
+              "widget": {
+                "name": "shift"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                355
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -340,
+            70
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            3
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          3
+        ]
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "194": {
+      "class_type": "TextEncodeAceStepAudio",
+      "id": "194",
+      "inputs": {
+        "lyrics_strength": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 194,
+          "inputs": [
+            {
+              "link": 483,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 583,
+              "localized_name": "tags",
+              "name": "tags",
+              "type": "STRING",
+              "widget": {
+                "name": "tags"
+              }
+            },
+            {
+              "link": 586,
+              "localized_name": "lyrics",
+              "name": "lyrics",
+              "type": "STRING",
+              "widget": {
+                "name": "lyrics"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lyrics_strength",
+              "name": "lyrics_strength",
+              "type": "FLOAT",
+              "widget": {
+                "name": "lyrics_strength"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                486,
+                492
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            430,
+            1230
+          ],
+          "properties": {
+            "Node name for S&R": "TextEncodeAceStepAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "TextEncodeAceStepAudio",
+          "widgets_values": [
+            "",
+            "(lyrics)",
+            1.4
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "(lyrics)",
+          1.4
+        ]
+      },
+      "uid": "194",
+      "widgets": {
+        "widget_1": "(lyrics)",
+        "widget_2": 1.4
+      }
+    },
+    "195": {
+      "class_type": "KSampler",
+      "id": "195",
+      "inputs": {
+        "denoise": 0.2,
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "steps": 1,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 195,
+          "inputs": [
+            {
+              "link": 485,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 486,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 487,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 498,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 489,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 579,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 36,
+          "outputs": [
+            {
+              "links": [
+                551
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1000,
+            1230
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            235411295462312,
+            "fixed",
+            1,
+            8,
+            "res_multistep",
+            "simple",
+            0.2
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          235411295462312,
+          "fixed",
+          1,
+          8,
+          "res_multistep",
+          "simple",
+          0.2
+        ]
+      },
+      "uid": "195",
+      "widgets": {}
+    },
+    "196": {
+      "class_type": "ConditioningZeroOut",
+      "id": "196",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 196,
+          "inputs": [
+            {
+              "link": 492,
+              "localized_name": "conditioning",
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                487
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            570,
+            1510
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            197.66665649414062,
+            26
+          ],
+          "type": "ConditioningZeroOut",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "196",
+      "widgets": {}
+    },
+    "197": {
+      "class_type": "VAEEncodeAudio",
+      "id": "197",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 197,
+          "inputs": [
+            {
+              "link": 531,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": 497,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 33,
+          "outputs": [
+            {
+              "links": [
+                498
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            2620,
+            550
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            150.23333740234375,
+            46
+          ],
+          "type": "VAEEncodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "197",
+      "widgets": {}
+    },
+    "201": {
+      "class_type": "FloatConstant",
+      "id": "201",
+      "inputs": {
+        "value": -29
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 201,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT",
+              "widget": {
+                "name": "value"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                598
+              ],
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            140,
+            -510
+          ],
+          "properties": {
+            "Node name for S&R": "FloatConstant",
+            "cnr_id": "comfyui-kjnodes",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759"
+          },
+          "size": [
+            221.3333282470703,
+            60
+          ],
+          "title": "Vocals Normalization",
+          "type": "FloatConstant",
+          "widgets_values": [
+            -29
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -29
+        ]
+      },
+      "uid": "201",
+      "widgets": {}
+    },
+    "205": {
+      "class_type": "AudioVolumeNormalization",
+      "id": "205",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 205,
+          "inputs": [
+            {
+              "link": 563,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": 598,
+              "localized_name": "target_level",
+              "name": "target_level",
+              "type": "FLOAT",
+              "widget": {
+                "name": "target_level"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                531,
+                534
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            2220,
+            550
+          ],
+          "properties": {
+            "Node name for S&R": "AudioVolumeNormalization",
+            "cnr_id": "comfyui_ryanontheinside",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "4690cd3e98a35fb64d37521ce91c9c0198f0bfc7"
+          },
+          "size": [
+            346.29998779296875,
+            58
+          ],
+          "type": "AudioVolumeNormalization",
+          "widgets_values": [
+            -50
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -50
+        ]
+      },
+      "uid": "205",
+      "widgets": {
+        "widget_0": -50
+      }
+    },
+    "206": {
+      "class_type": "SaveAudio",
+      "id": "206",
+      "inputs": {
+        "filename_prefix": "audio/vocal_processed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 206,
+          "inputs": [
+            {
+              "link": 534,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 34,
+          "outputs": [],
+          "pos": [
+            1780,
+            -470
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Vocals Processed",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/vocal_processed"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/vocal_processed"
+        ]
+      },
+      "uid": "206",
+      "widgets": {}
+    },
+    "207": {
+      "class_type": "ConditioningZeroOut",
+      "id": "207",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 207,
+          "inputs": [
+            {
+              "link": 537,
+              "localized_name": "conditioning",
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                545
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            570,
+            1960
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            197.66665649414062,
+            26
+          ],
+          "type": "ConditioningZeroOut",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "207",
+      "widgets": {}
+    },
+    "208": {
+      "class_type": "VAEDecodeAudio",
+      "id": "208",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 208,
+          "inputs": [
+            {
+              "link": 538,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 539,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 40,
+          "outputs": [
+            {
+              "links": [
+                553,
+                599
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1420,
+            1690
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            151,
+            46
+          ],
+          "type": "VAEDecodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "208",
+      "widgets": {}
+    },
+    "209": {
+      "class_type": "TextEncodeAceStepAudio",
+      "id": "209",
+      "inputs": {
+        "lyrics_strength": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 209,
+          "inputs": [
+            {
+              "link": 540,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 584,
+              "localized_name": "tags",
+              "name": "tags",
+              "type": "STRING",
+              "widget": {
+                "name": "tags"
+              }
+            },
+            {
+              "link": 587,
+              "localized_name": "lyrics",
+              "name": "lyrics",
+              "type": "STRING",
+              "widget": {
+                "name": "lyrics"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lyrics_strength",
+              "name": "lyrics_strength",
+              "type": "FLOAT",
+              "widget": {
+                "name": "lyrics_strength"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                537,
+                544
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            430,
+            1680
+          ],
+          "properties": {
+            "Node name for S&R": "TextEncodeAceStepAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "TextEncodeAceStepAudio",
+          "widgets_values": [
+            "",
+            "(lyrics)",
+            0.85
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "(lyrics)",
+          0.85
+        ]
+      },
+      "uid": "209",
+      "widgets": {
+        "widget_1": "(lyrics)",
+        "widget_2": 0.85
+      }
+    },
+    "210": {
+      "class_type": "KSampler",
+      "id": "210",
+      "inputs": {
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "steps": 2,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 210,
+          "inputs": [
+            {
+              "link": 543,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 544,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 545,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 551,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 547,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 580,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": 591,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 38,
+          "outputs": [
+            {
+              "links": [
+                538
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1000,
+            1690
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.32"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            235411295462312,
+            "fixed",
+            2,
+            8,
+            "res_multistep",
+            "simple",
+            0.35
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          235411295462312,
+          "fixed",
+          2,
+          8,
+          "res_multistep",
+          "simple",
+          0.35
+        ]
+      },
+      "uid": "210",
+      "widgets": {}
+    },
+    "212": {
+      "class_type": "SaveAudio",
+      "id": "212",
+      "inputs": {
+        "filename_prefix": "audio/vocal_upscaled"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 212,
+          "inputs": [
+            {
+              "link": 553,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 43,
+          "outputs": [],
+          "pos": [
+            2080,
+            -630
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Vocals Upscaled",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/vocal_upscaled"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/vocal_upscaled"
+        ]
+      },
+      "uid": "212",
+      "widgets": {}
+    },
+    "213": {
+      "class_type": "FrequencyFilterPreset",
+      "id": "213",
+      "inputs": {
+        "preset": "remove_rumble"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 213,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "previous_filter",
+              "name": "previous_filter",
+              "shape": 7,
+              "type": "FREQUENCY_FILTER"
+            },
+            {
+              "link": null,
+              "localized_name": "preset",
+              "name": "preset",
+              "type": "COMBO",
+              "widget": {
+                "name": "preset"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                561
+              ],
+              "localized_name": "FREQUENCY_FILTER",
+              "name": "FREQUENCY_FILTER",
+              "type": "FREQUENCY_FILTER"
+            }
+          ],
+          "pos": [
+            1620,
+            2220
+          ],
+          "properties": {
+            "Node name for S&R": "FrequencyFilterPreset",
+            "cnr_id": "comfyui_ryanontheinside",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "4690cd3e98a35fb64d37521ce91c9c0198f0bfc7"
+          },
+          "size": [
+            255.96665954589844,
+            60
+          ],
+          "type": "FrequencyFilterPreset",
+          "widgets_values": [
+            "remove_rumble"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "remove_rumble"
+        ]
+      },
+      "uid": "213",
+      "widgets": {}
+    },
+    "214": {
+      "class_type": "AudioFilter",
+      "id": "214",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 214,
+          "inputs": [
+            {
+              "link": 555,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": 561,
+              "localized_name": "filters",
+              "name": "filters",
+              "type": "FREQUENCY_FILTER"
+            }
+          ],
+          "mode": 0,
+          "order": 39,
+          "outputs": [
+            {
+              "links": [
+                558,
+                601
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1910,
+            2140
+          ],
+          "properties": {
+            "Node name for S&R": "AudioFilter",
+            "cnr_id": "comfyui_ryanontheinside",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "4690cd3e98a35fb64d37521ce91c9c0198f0bfc7"
+          },
+          "size": [
+            210,
+            60
+          ],
+          "type": "AudioFilter",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "214",
+      "widgets": {}
+    },
+    "216": {
+      "class_type": "FrequencyFilterPreset",
+      "id": "216",
+      "inputs": {
+        "preset": "remove_hiss"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 216,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "previous_filter",
+              "name": "previous_filter",
+              "shape": 7,
+              "type": "FREQUENCY_FILTER"
+            },
+            {
+              "link": null,
+              "localized_name": "preset",
+              "name": "preset",
+              "type": "COMBO",
+              "widget": {
+                "name": "preset"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [],
+              "localized_name": "FREQUENCY_FILTER",
+              "name": "FREQUENCY_FILTER",
+              "type": "FREQUENCY_FILTER"
+            }
+          ],
+          "pos": [
+            1620,
+            2340
+          ],
+          "properties": {
+            "Node name for S&R": "FrequencyFilterPreset",
+            "cnr_id": "comfyui_ryanontheinside",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "4690cd3e98a35fb64d37521ce91c9c0198f0bfc7"
+          },
+          "size": [
+            255.96665954589844,
+            60
+          ],
+          "type": "FrequencyFilterPreset",
+          "widgets_values": [
+            "remove_hiss"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "remove_hiss"
+        ]
+      },
+      "uid": "216",
+      "widgets": {}
+    },
+    "217": {
+      "class_type": "FloatConstant",
+      "id": "217",
+      "inputs": {
+        "value": 0.45
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 217,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT",
+              "widget": {
+                "name": "value"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                591
+              ],
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            140,
+            -400
+          ],
+          "properties": {
+            "Node name for S&R": "FloatConstant",
+            "cnr_id": "comfyui-kjnodes",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759"
+          },
+          "size": [
+            220,
+            60
+          ],
+          "title": "Vocals Upscale",
+          "type": "FloatConstant",
+          "widgets_values": [
+            0.45
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.45
+        ]
+      },
+      "uid": "217",
+      "widgets": {}
+    },
+    "219": {
+      "class_type": "PrimitiveFloat",
+      "id": "219",
+      "inputs": {
+        "value": -20
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 219,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "FLOAT",
+              "widget": {
+                "name": "value"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                603
+              ],
+              "localized_name": "FLOAT",
+              "name": "FLOAT",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            -110,
+            -510
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveFloat",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            220,
+            58
+          ],
+          "title": "Background Normalization",
+          "type": "PrimitiveFloat",
+          "widgets_values": [
+            -20
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -20
+        ]
+      },
+      "uid": "219",
+      "widgets": {}
+    },
+    "221": {
+      "class_type": "AudioVolumeNormalization",
+      "id": "221",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 221,
+          "inputs": [
+            {
+              "link": 601,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": 603,
+              "localized_name": "target_level",
+              "name": "target_level",
+              "type": "FLOAT",
+              "widget": {
+                "name": "target_level"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 42,
+          "outputs": [
+            {
+              "links": [
+                602
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            2200,
+            2240
+          ],
+          "properties": {
+            "Node name for S&R": "AudioVolumeNormalization",
+            "cnr_id": "comfyui_ryanontheinside",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "4690cd3e98a35fb64d37521ce91c9c0198f0bfc7"
+          },
+          "size": [
+            346.29998779296875,
+            58
+          ],
+          "type": "AudioVolumeNormalization",
+          "widgets_values": [
+            -50
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -50
+        ]
+      },
+      "uid": "221",
+      "widgets": {
+        "widget_0": -50
+      }
+    },
+    "222": {
+      "class_type": "SaveAudio",
+      "id": "222",
+      "inputs": {
+        "filename_prefix": "audio/final"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 222,
+          "inputs": [
+            {
+              "link": 604,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 45,
+          "outputs": [],
+          "pos": [
+            1400,
+            -610
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "title": "Upscaled Mixed Audio",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/final"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/final"
+        ]
+      },
+      "uid": "222",
+      "widgets": {}
+    },
+    "223": {
+      "class_type": "SaveAudio",
+      "id": "223",
+      "inputs": {
+        "filename_prefix": "audio/draft"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#593930",
+          "color": "#332922",
+          "flags": {},
+          "id": 223,
+          "inputs": [
+            {
+              "link": 605,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [],
+          "pos": [
+            910,
+            -610
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            350,
+            112
+          ],
+          "title": "Draft Audio",
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/draft"
+          ]
+        },
+        "bgcolor": "#593930",
+        "color": "#332922",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/draft"
+        ]
+      },
+      "uid": "223",
+      "widgets": {}
+    },
+    "52": {
+      "class_type": "Seed (rgthree)",
+      "id": "52",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 52,
+          "inputs": [],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "dir": 4,
+              "links": [
+                294,
+                384,
+                489,
+                547
+              ],
+              "name": "SEED",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -390,
+            -510
+          ],
+          "properties": {
+            "cnr_id": "rgthree-comfy",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "e73edeed1a1ca0e9b42469c52422b92571a191dc"
+          },
+          "size": [
+            240,
+            130
+          ],
+          "type": "Seed (rgthree)",
+          "widgets_values": [
+            307654729160889,
+            "",
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          307654729160889,
+          "",
+          "",
+          ""
+        ]
+      },
+      "uid": "52",
+      "widgets": {
+        "widget_0": 307654729160889,
+        "widget_1": "",
+        "widget_2": "",
+        "widget_3": ""
+      }
+    },
+    "69": {
+      "class_type": "TextEncodeAceStepAudio",
+      "id": "69",
+      "inputs": {
+        "lyrics_strength": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 69,
+          "inputs": [
+            {
+              "link": 124,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 581,
+              "localized_name": "tags",
+              "name": "tags",
+              "type": "STRING",
+              "widget": {
+                "name": "tags"
+              }
+            },
+            {
+              "link": 585,
+              "localized_name": "lyrics",
+              "name": "lyrics",
+              "type": "STRING",
+              "widget": {
+                "name": "lyrics"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lyrics_strength",
+              "name": "lyrics_strength",
+              "type": "FLOAT",
+              "widget": {
+                "name": "lyrics_strength"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                128,
+                291
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            430,
+            640
+          ],
+          "properties": {
+            "Node name for S&R": "TextEncodeAceStepAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.33"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "TextEncodeAceStepAudio",
+          "widgets_values": [
+            "",
+            "",
+            1.15
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "",
+          1.15
+        ]
+      },
+      "uid": "69",
+      "widgets": {
+        "widget_1": "",
+        "widget_2": 1.15
+      }
+    },
+    "77": {
+      "class_type": "Text Multiline",
+      "id": "77",
+      "inputs": {
+        "text": "[solo]\n\n[verse]\nMakin' lyrics, they're so fun\nI didn't think about these a ton\nI wrote these lyrics when I was high\nbefore I sellout I'd rather die\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo you see, my lyrics are awful\nbut if you sing 'em it's not unlawful\nbecause it's all open source,\nyou can copy them without remorse!\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo take these lyrics, and test away\nhope your song comes out okay\nIf it doesn't, I'm not at fault\nLaunch you out of a catapult\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[outro]\nI hope the song came out fine.\nWe'll make another one one more time\nDon't worry, next one will be great\nAnd if not, it's probably too late"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 77,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                585,
+                586,
+                587
+              ],
+              "localized_name": "STRING",
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            390,
+            -510
+          ],
+          "properties": {
+            "Node name for S&R": "Text Multiline",
+            "cnr_id": "pr-was-node-suite-comfyui-47064894",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "1cd8d304eda256c412b8589ce1f00be3c61cf9ec"
+          },
+          "size": [
+            400,
+            370
+          ],
+          "title": "Custom Lyrics",
+          "type": "Text Multiline",
+          "widgets_values": [
+            "[solo]\n\n[verse]\nMakin' lyrics, they're so fun\nI didn't think about these a ton\nI wrote these lyrics when I was high\nbefore I sellout I'd rather die\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo you see, my lyrics are awful\nbut if you sing 'em it's not unlawful\nbecause it's all open source,\nyou can copy them without remorse!\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo take these lyrics, and test away\nhope your song comes out okay\nIf it doesn't, I'm not at fault\nLaunch you out of a catapult\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[outro]\nI hope the song came out fine.\nWe'll make another one one more time\nDon't worry, next one will be great\nAnd if not, it's probably too late"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[solo]\n\n[verse]\nMakin' lyrics, they're so fun\nI didn't think about these a ton\nI wrote these lyrics when I was high\nbefore I sellout I'd rather die\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo you see, my lyrics are awful\nbut if you sing 'em it's not unlawful\nbecause it's all open source,\nyou can copy them without remorse!\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[verse]\nSo take these lyrics, and test away\nhope your song comes out okay\nIf it doesn't, I'm not at fault\nLaunch you out of a catapult\n\n[chorus]\nIt's best to put these lyrics\ninto sections of four.\nOr else you'll be in hysterics\nand wondering if there's more\n\n[outro]\nI hope the song came out fine.\nWe'll make another one one more time\nDon't worry, next one will be great\nAnd if not, it's probably too late"
+        ]
+      },
+      "uid": "77",
+      "widgets": {}
+    },
+    "78": {
+      "class_type": "Text Multiline",
+      "id": "78",
+      "inputs": {
+        "text": "honkytonk, blues, r&b, acoustic guitar, drums, 140 bpm, energetic, uplifting, male vocals"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 78,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                581,
+                582,
+                583,
+                584
+              ],
+              "localized_name": "STRING",
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            390,
+            -680
+          ],
+          "properties": {
+            "Node name for S&R": "Text Multiline",
+            "cnr_id": "pr-was-node-suite-comfyui-47064894",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "1cd8d304eda256c412b8589ce1f00be3c61cf9ec"
+          },
+          "size": [
+            400,
+            90
+          ],
+          "title": "Custom Music Tags",
+          "type": "Text Multiline",
+          "widgets_values": [
+            "honkytonk, blues, r&b, acoustic guitar, drums, 140 bpm, energetic, uplifting, male vocals"
+          ]
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "honkytonk, blues, r&b, acoustic guitar, drums, 140 bpm, energetic, uplifting, male vocals"
+        ]
+      },
+      "uid": "78",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "167",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "168",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "169",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "206",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "212",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "222",
+      "output_type": "SaveAudio"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "223",
+      "output_type": "SaveAudio"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "ace_step_v1_3.5b.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "822fb04ff37de763",
+    "path": "external_workflows/.shadow/source/822fb04ff37de763-vardogr_ACE_STEP_Upscaler.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1b136036c776018ab5b02f3859440717cefcb3c47c73ac1e8d77b4fdfd562fd7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "content_preview": "My attempt at vocals 'upsampling'. Behold, mad science! Sampler abuse! Be amazed and horrified!",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1371830853826642115",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1371830853826642115:vardogr_ACE_STEP_Upscaler.json:822fb04ff37de763",
+      "filename": "vardogr_ACE_STEP_Upscaler.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:16+00:00",
+      "message_id": 1371830853826642115,
+      "node_class_multiset": {
+        "AudioCombine": 1,
+        "AudioFilter": 1,
+        "AudioSeparation": 1,
+        "AudioVolumeNormalization": 2,
+        "Automatic CFG": 1,
+        "CheckpointLoaderSimple": 1,
+        "ConditioningZeroOut": 4,
+        "EmptyAceStepLatentAudio": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "FloatConstant": 4,
+        "FrequencyFilterPreset": 2,
+        "KSampler": 4,
+        "ModelSamplingSD3": 1,
+        "PrimitiveFloat": 1,
+        "Reroute": 1,
+        "SaveAudio": 7,
+        "Seed (rgthree)": 1,
+        "Text Multiline": 2,
+        "TextEncodeAceStepAudio": 4,
+        "VAEDecodeAudio": 3,
+        "VAEEncodeAudio": 2,
+        "VocalAndSoundRemoverNode": 1
+      },
+      "node_count": 46,
+      "origin_date": "2025-05-13T12:46:02.937000+00:00",
+      "originator_global_name": "Vardogr",
+      "originator_id": "267974636690472960",
+      "originator_type": "discord_message_author",
+      "originator_username": "vardogr9156",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "822fb04ff37de76335adf4661e4155c5a866dc1834abb6d71fc88f2d021b0934",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1371830852694311044/vardogr_ACE_STEP_Upscaler.json?ex=6824908a&is=68233f0a&hm=fe1fafd35d62f4073e4c1f85b750c185411e0f33edea8294fc8717af0d522383&",
+      "source_workflow_sha256": "580125cb70f1de4a86611b0b6c57dc686204f6a3a8ee5a46a6af2797a9fd18c9",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

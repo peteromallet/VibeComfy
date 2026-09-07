@@ -1,0 +1,1519 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "4"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "3"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "7"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "7"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "7"
+    },
+    {
+      "from_node": "8",
+      "from_output": "1",
+      "to_input": "latent_image",
+      "to_node": "7"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "7"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "8"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "latents",
+      "to_node": "8"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "10"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "10"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "12"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "26"
+    }
+  ],
+  "groups": [],
+  "id": "43caa18839ec7a2c",
+  "inputs": {
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "1girl, solo, cherry blossom, hanami, pink flower, white flower, spring season, wisteria, petals, flower, plum blossoms, outdoors, falling petals, black eyes, upper body, from side"
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "CheckpointLoaderSimpleWithNoiseSelect",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "4",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'cardosAnime_v20.safetensors'"
+          ],
+          [
+            "widget_1",
+            "'sqrt_linear (AnimateDiff)'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "26",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "12": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'AA_readme'"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'vae-ft-mse-840000-ema-pruned.safetensors'"
+          ]
+        ]
+      },
+      "26": {
+        "class_type": "ADE_AnimateDiffCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "8"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "'Enabled'"
+          ],
+          [
+            "widget_3",
+            "'AA_readme_gif'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'1girl, solo, cherry blossom, hanami, pink flower, white flower, spring season, wisteria, petals, flower, plum blossoms, outdoors, falling petals, black eyes, upper body, from side'"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "CLIPSetLastLayer",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "1",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "-2"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "888888889"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'(worst quality, low quality: 1.4)'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "8",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "8",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "5",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "AnimateDiffLoaderV1",
+        "incoming_edge_sig": [
+          [
+            "latents",
+            [
+              "9",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mm_sd_v14.ckpt'"
+          ],
+          [
+            "widget_1",
+            "False"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "latents"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "512"
+          ],
+          [
+            "widget_1",
+            "512"
+          ],
+          [
+            "widget_2",
+            "16"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d20410227419c47adec72190b8b21bab9ee24e2d294a55a37b98c2bea230b45f",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "absolutely",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1150442392558784523",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1150442392558784523:shu_workflow.json:43caa18839ec7a2c",
+      "filename": "shu_workflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:52+00:00",
+      "message_id": 1150442392558784523,
+      "node_class_multiset": {
+        "ADE_AnimateDiffCombine": 1,
+        "AnimateDiffLoaderV1": 1,
+        "CLIPSetLastLayer": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimpleWithNoiseSelect": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "PrimitiveNode": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 12,
+      "origin_date": "2023-09-10T14:47:20.572000+00:00",
+      "originator_global_name": "Shu",
+      "originator_id": "275723239752204298",
+      "originator_type": "discord_message_author",
+      "originator_username": "shu.ush",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "43caa18839ec7a2c8c74dab60c8c4000a26a17107d26190d74705f2da523ae41",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1150442391975764048/shu_workflow.json?ex=68347ef8&is=68332d78&hm=6a4a3668af71b0d4d0f35de30a03ca7f6cd2aa4128e1480649c715b296189db4&",
+      "source_workflow_sha256": "4109f6d09c0f46dcd34b450e93986db02d9b5e3712ebb44c1a4804a86ed0fbd0",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "47c712da69fa110d24f92499b12cb1c932bcfdf9a29a64dad1f004ca12be718d",
+      "complexity": 2,
+      "description": "Generates animated videos using AnimateDiff with a checkpoint loader, CLIP text encoding, and VAE decoding, saving the output as an image sequence.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "animate-diff",
+        "video-generation",
+        "vae",
+        "text-to-video",
+        "image-sequence"
+      ],
+      "task_type": "image_to_video",
+      "title": "AnimateDiff Video Generation with VAE"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "CheckpointLoaderSimpleWithNoiseSelect",
+      "id": "1",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 1,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                1
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": null,
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            64,
+            142
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimpleWithNoiseSelect"
+          },
+          "size": {
+            "0": 315,
+            "1": 122
+          },
+          "type": "CheckpointLoaderSimpleWithNoiseSelect",
+          "widgets_values": [
+            "cardosAnime_v20.safetensors",
+            "sqrt_linear (AnimateDiff)"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cardosAnime_v20.safetensors",
+          "sqrt_linear (AnimateDiff)"
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_0": "cardosAnime_v20.safetensors",
+        "widget_1": "sqrt_linear (AnimateDiff)"
+      }
+    },
+    "10": {
+      "class_type": "VAEDecode",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 10,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                14,
+                37
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1711,
+            -42
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "10",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "id": "12",
+      "inputs": {
+        "filename_prefix": "AA_readme"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            1710,
+            509
+          ],
+          "properties": {},
+          "size": {
+            "0": 315,
+            "1": 270
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "AA_readme"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "AA_readme"
+        ]
+      },
+      "uid": "12",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "VAELoader",
+      "id": "2",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                10
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            179,
+            326
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": {
+            "0": 385.8948669433594,
+            "1": 58
+          },
+          "type": "VAELoader",
+          "widgets_values": [
+            "vae-ft-mse-840000-ema-pruned.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vae-ft-mse-840000-ema-pruned.safetensors"
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "ADE_AnimateDiffCombine",
+      "id": "26",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 37,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "pos": [
+            1773,
+            100
+          ],
+          "properties": {
+            "Node name for S&R": "ADE_AnimateDiffCombine"
+          },
+          "size": {
+            "0": 315,
+            "1": 342
+          },
+          "type": "ADE_AnimateDiffCombine",
+          "widgets_values": [
+            8,
+            0,
+            "Enabled",
+            "AA_readme_gif"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8,
+          0,
+          "Enabled",
+          "AA_readme_gif"
+        ]
+      },
+      "uid": "26",
+      "widgets": {
+        "widget_0": 8,
+        "widget_1": 0,
+        "widget_2": "Enabled",
+        "widget_3": "AA_readme_gif"
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "id": "3",
+      "inputs": {
+        "text": "1girl, solo, cherry blossom, hanami, pink flower, white flower, spring season, wisteria, petals, flower, plum blossoms, outdoors, falling petals, black eyes, upper body, from side"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 2,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                4
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            884,
+            113
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 377.7811279296875,
+            "1": 124.52955627441406
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "1girl, solo, cherry blossom, hanami, pink flower, white flower, spring season, wisteria, petals, flower, plum blossoms, outdoors, falling petals, black eyes, upper body, from side"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "1girl, solo, cherry blossom, hanami, pink flower, white flower, spring season, wisteria, petals, flower, plum blossoms, outdoors, falling petals, black eyes, upper body, from side"
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "4": {
+      "class_type": "CLIPSetLastLayer",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                2,
+                3
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            431.14133986796236,
+            184.59417317288003
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPSetLastLayer"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "CLIPSetLastLayer",
+          "widgets_values": [
+            -2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -2
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": -2
+      }
+    },
+    "5": {
+      "class_type": "PrimitiveNode",
+      "id": "5",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 888888889
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 5,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "INT",
+              "slot_index": 0,
+              "type": "INT",
+              "widget": {
+                "config": [
+                  "INT",
+                  {
+                    "default": 0,
+                    "max": 18446744073709552000,
+                    "min": 0
+                  }
+                ],
+                "name": "seed"
+              }
+            }
+          ],
+          "pos": [
+            279,
+            431
+          ],
+          "properties": {},
+          "size": {
+            "0": 285.6000061035156,
+            "1": 82
+          },
+          "title": "Primitive (I'm using this as seed)",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            888888889,
+            "fixed"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          888888889,
+          "fixed"
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "(worst quality, low quality: 1.4)"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            874,
+            287
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 391.23883056640625,
+            "1": 78.14339447021484
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "(worst quality, low quality: 1.4)"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "(worst quality, low quality: 1.4)"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "KSampler",
+      "id": "7",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "steps": 20,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 12,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 4,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 5,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 11,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 6,
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "config": [
+                  "INT",
+                  {
+                    "default": 0,
+                    "max": 18446744073709552000,
+                    "min": 0
+                  }
+                ],
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                9
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1319,
+            -94
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            888888889,
+            "fixed",
+            20,
+            8,
+            "euler",
+            "normal",
+            1
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          888888889,
+          "fixed",
+          20,
+          8,
+          "euler",
+          "normal",
+          1
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "AnimateDiffLoaderV1",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 8,
+              "name": "latents",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                11
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            899,
+            -94
+          ],
+          "properties": {
+            "Node name for S&R": "AnimateDiffLoaderV1"
+          },
+          "size": {
+            "0": 315,
+            "1": 150
+          },
+          "type": "AnimateDiffLoaderV1",
+          "widgets_values": [
+            "mm_sd_v14.ckpt",
+            false
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mm_sd_v14.ckpt",
+          false
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": "mm_sd_v14.ckpt",
+        "widget_1": false
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                8
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            360,
+            -59
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 106
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            512,
+            512,
+            16
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          512,
+          512,
+          16
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": 512,
+        "widget_1": 512,
+        "widget_2": 16
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "12",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "43caa18839ec7a2c",
+    "path": "external_workflows/.shadow/source/43caa18839ec7a2c-shu_workflow.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d20410227419c47adec72190b8b21bab9ee24e2d294a55a37b98c2bea230b45f",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "absolutely",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1150442392558784523",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1150442392558784523:shu_workflow.json:43caa18839ec7a2c",
+      "filename": "shu_workflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:52+00:00",
+      "message_id": 1150442392558784523,
+      "node_class_multiset": {
+        "ADE_AnimateDiffCombine": 1,
+        "AnimateDiffLoaderV1": 1,
+        "CLIPSetLastLayer": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimpleWithNoiseSelect": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "PrimitiveNode": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 12,
+      "origin_date": "2023-09-10T14:47:20.572000+00:00",
+      "originator_global_name": "Shu",
+      "originator_id": "275723239752204298",
+      "originator_type": "discord_message_author",
+      "originator_username": "shu.ush",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "43caa18839ec7a2c8c74dab60c8c4000a26a17107d26190d74705f2da523ae41",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1150442391975764048/shu_workflow.json?ex=68347ef8&is=68332d78&hm=6a4a3668af71b0d4d0f35de30a03ca7f6cd2aa4128e1480649c715b296189db4&",
+      "source_workflow_sha256": "4109f6d09c0f46dcd34b450e93986db02d9b5e3712ebb44c1a4804a86ed0fbd0",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

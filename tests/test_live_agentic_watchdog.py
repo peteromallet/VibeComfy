@@ -218,6 +218,7 @@ def test_brief_round_1_has_no_prev_summary():
 def test_watchdog_skips_when_optional_megaplan_package_is_missing(
     monkeypatch, capsys
 ):
+    monkeypatch.setattr(w, "_ARNOLD_AGENT_IMPORT_ERROR", None)
     monkeypatch.setattr(w, "MEGAPLAN_WATCHDOG_AVAILABLE", False)
     assert w.main(["--smoke", "--dry-codex"]) == 0
     assert "SKIPPED" in capsys.readouterr().err

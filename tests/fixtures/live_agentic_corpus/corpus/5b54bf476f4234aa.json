@@ -1,0 +1,1190 @@
+{
+  "edges": [
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "7"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "filename_prefix",
+      "to_node": "7"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "source",
+      "to_node": "6"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "llama_model",
+      "to_node": "1"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "parameters",
+      "to_node": "1"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "1"
+    }
+  ],
+  "groups": [],
+  "id": "cc40eadd8f1d1249",
+  "inputs": {
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "1",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 436062026141242
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "llama_cpp_instruct_adv",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ],
+          [
+            "llama_model",
+            [
+              "2",
+              "0"
+            ]
+          ],
+          [
+            "parameters",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "source"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "filename_prefix"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "custom_prompt",
+            "''"
+          ],
+          [
+            "force_offload",
+            "'randomize'"
+          ],
+          [
+            "inference_mode",
+            "'one by one'"
+          ],
+          [
+            "max_frames",
+            "24"
+          ],
+          [
+            "max_size",
+            "256"
+          ],
+          [
+            "preset_prompt",
+            "'Normal - Describe'"
+          ],
+          [
+            "save_states",
+            "False"
+          ],
+          [
+            "seed",
+            "436062026141242"
+          ],
+          [
+            "system_prompt",
+            "'\u8bf7\u7528\u82f1\u6587\u63cf\u8ff0\u8fd9\u5f20\u56fe\u7247\u3002'"
+          ],
+          [
+            "widget_9",
+            "False"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "llama_cpp_model_loader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "llama_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "chat_handler",
+            "'Qwen3.5'"
+          ],
+          [
+            "image_max_tokens",
+            "0"
+          ],
+          [
+            "image_min_tokens",
+            "0"
+          ],
+          [
+            "mmproj",
+            "'Qwen3.5-9B-mmproj-F16.gguf'"
+          ],
+          [
+            "model",
+            "'Qwen3.5-9B-Q8_0.gguf'"
+          ],
+          [
+            "n_ctx",
+            "8192"
+          ],
+          [
+            "vram_limit",
+            "-1"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "llama_cpp_parameters",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "parameters"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "frequency_penalty",
+            "0"
+          ],
+          [
+            "max_tokens",
+            "1024"
+          ],
+          [
+            "min_p",
+            "0.05"
+          ],
+          [
+            "mirostat_eta",
+            "0.1"
+          ],
+          [
+            "mirostat_mode",
+            "0"
+          ],
+          [
+            "mirostat_tau",
+            "5"
+          ],
+          [
+            "presence_penalty",
+            "1"
+          ],
+          [
+            "repeat_penalty",
+            "1"
+          ],
+          [
+            "state_uid",
+            "-1"
+          ],
+          [
+            "temperature",
+            "0.8"
+          ],
+          [
+            "top_k",
+            "30"
+          ],
+          [
+            "top_p",
+            "0.9"
+          ],
+          [
+            "typical_p",
+            "1"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'1b89aa3b78f7f40348668b215f85acac643343d17b096b571f7b2e75135460b6.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "PreviewAny",
+        "incoming_edge_sig": [
+          [
+            "source",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "7": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "filename_prefix",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "5b54bf476f4234aa312430598bc6080b214834ac62f7fba469ade324cb4c9ef5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1478635217689378919,
+      "channel_name": "qwen",
+      "discord_message_url": "https://discord.com/channels/@me/1478635217689378919/1484299828451217428",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1484299828451217428:I2P.json:cc40eadd8f1d1249",
+      "filename": "I2P.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:54+00:00",
+      "message_id": 1484299828451217428,
+      "node_class_multiset": {
+        "LoadImage": 1,
+        "PreviewAny": 1,
+        "SaveImage": 1,
+        "llama_cpp_instruct_adv": 1,
+        "llama_cpp_model_loader": 1,
+        "llama_cpp_parameters": 1
+      },
+      "node_count": 6,
+      "origin_date": "2026-03-19T21:17:36.060000+00:00",
+      "originator_global_name": "Krikross",
+      "originator_id": "1105511109244485783",
+      "originator_type": "discord_message_author",
+      "originator_username": "gregorydavid.5484",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "cc40eadd8f1d1249153d256a214e8253d856dbf5a977aa0ca9e9193f266ab1b4",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1478635217689378919/1484299828069404672/I2P.json?ex=69bdb96f&is=69bc67ef&hm=2c4baf84f849e3d2437c4a946932618ff84f00f19970daebdcf950b293d9c765&",
+      "source_workflow_sha256": "d6c912ac05a1733a8249ba722465c4176c9f7b58d2986a679e0d18d23ed46e69",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "dc48fdcbe491a918e9fa73fe178ec48bc15174301582ab109057ad811c9b8083",
+      "complexity": 2,
+      "description": "Loads an image, processes it using LLaMA CPP instruct parameters, and saves the result.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "llama-cpp",
+        "instruct",
+        "image-processing",
+        "preview",
+        "save-image"
+      ],
+      "task_type": "other",
+      "title": "LLaMA CPP Instruct Image Preview and Save"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "llama_cpp_instruct_adv",
+      "id": "1",
+      "inputs": {
+        "custom_prompt": "",
+        "force_offload": "randomize",
+        "inference_mode": "one by one",
+        "max_frames": 24,
+        "max_size": 256,
+        "preset_prompt": "Normal - Describe",
+        "save_states": false,
+        "seed": 436062026141242,
+        "system_prompt": "\u8bf7\u7528\u82f1\u6587\u63cf\u8ff0\u8fd9\u5f20\u56fe\u7247\u3002"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "label": "llama_model",
+              "link": 1,
+              "name": "llama_model",
+              "type": "LLAMACPPMODEL"
+            },
+            {
+              "label": "parameters",
+              "link": 2,
+              "name": "parameters",
+              "shape": 7,
+              "type": "LLAMACPPARAMS"
+            },
+            {
+              "label": "images",
+              "link": 3,
+              "name": "images",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "label": "queue_handler",
+              "name": "queue_handler",
+              "shape": 7,
+              "type": "*"
+            },
+            {
+              "label": "preset_prompt",
+              "name": "preset_prompt",
+              "type": "COMBO",
+              "widget": {
+                "name": "preset_prompt"
+              }
+            },
+            {
+              "label": "custom_prompt",
+              "name": "custom_prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "custom_prompt"
+              }
+            },
+            {
+              "label": "system_prompt",
+              "name": "system_prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "system_prompt"
+              }
+            },
+            {
+              "label": "inference_mode",
+              "name": "inference_mode",
+              "type": "COMBO",
+              "widget": {
+                "name": "inference_mode"
+              }
+            },
+            {
+              "label": "max_frames",
+              "name": "max_frames",
+              "type": "INT",
+              "widget": {
+                "name": "max_frames"
+              }
+            },
+            {
+              "label": "max_size",
+              "name": "max_size",
+              "type": "INT",
+              "widget": {
+                "name": "max_size"
+              }
+            },
+            {
+              "label": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "label": "force_offload",
+              "name": "force_offload",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "force_offload"
+              }
+            },
+            {
+              "label": "save_states",
+              "name": "save_states",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "save_states"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "label": "output",
+              "links": [
+                5,
+                6
+              ],
+              "name": "output",
+              "type": "STRING"
+            },
+            {
+              "label": "output_list",
+              "name": "output_list",
+              "shape": 6,
+              "type": "STRING"
+            },
+            {
+              "label": "state_uid",
+              "name": "state_uid",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            906.62939453125,
+            256.4734802246094
+          ],
+          "properties": {
+            "Node name for S&R": "llama_cpp_instruct_adv",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            400,
+            394
+          ],
+          "type": "llama_cpp_instruct_adv",
+          "widgets_values": [
+            "Normal - Describe",
+            "",
+            "\u8bf7\u7528\u82f1\u6587\u63cf\u8ff0\u8fd9\u5f20\u56fe\u7247\u3002",
+            "one by one",
+            24,
+            256,
+            436062026141242,
+            "randomize",
+            false,
+            false
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Normal - Describe",
+          "",
+          "\u8bf7\u7528\u82f1\u6587\u63cf\u8ff0\u8fd9\u5f20\u56fe\u7247\u3002",
+          "one by one",
+          24,
+          256,
+          436062026141242,
+          "randomize",
+          false,
+          false
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_9": false
+      }
+    },
+    "2": {
+      "class_type": "llama_cpp_model_loader",
+      "id": "2",
+      "inputs": {
+        "chat_handler": "Qwen3.5",
+        "image_max_tokens": 0,
+        "image_min_tokens": 0,
+        "mmproj": "Qwen3.5-9B-mmproj-F16.gguf",
+        "model": "Qwen3.5-9B-Q8_0.gguf",
+        "n_ctx": 8192,
+        "vram_limit": -1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "label": "model",
+              "name": "model",
+              "type": "COMBO",
+              "widget": {
+                "name": "model"
+              }
+            },
+            {
+              "label": "mmproj",
+              "name": "mmproj",
+              "type": "COMBO",
+              "widget": {
+                "name": "mmproj"
+              }
+            },
+            {
+              "label": "chat_handler",
+              "name": "chat_handler",
+              "type": "COMBO",
+              "widget": {
+                "name": "chat_handler"
+              }
+            },
+            {
+              "label": "n_ctx",
+              "name": "n_ctx",
+              "type": "INT",
+              "widget": {
+                "name": "n_ctx"
+              }
+            },
+            {
+              "label": "vram_limit",
+              "name": "vram_limit",
+              "type": "INT",
+              "widget": {
+                "name": "vram_limit"
+              }
+            },
+            {
+              "label": "image_min_tokens",
+              "name": "image_min_tokens",
+              "type": "INT",
+              "widget": {
+                "name": "image_min_tokens"
+              }
+            },
+            {
+              "label": "image_max_tokens",
+              "name": "image_max_tokens",
+              "type": "INT",
+              "widget": {
+                "name": "image_max_tokens"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "label": "llama_model",
+              "links": [
+                1
+              ],
+              "name": "llama_model",
+              "type": "LLAMACPPMODEL"
+            }
+          ],
+          "pos": [
+            498.8475036621094,
+            265.0431213378906
+          ],
+          "properties": {
+            "Node name for S&R": "llama_cpp_model_loader",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            356.9138488769531,
+            202
+          ],
+          "type": "llama_cpp_model_loader",
+          "widgets_values": [
+            "Qwen3.5-9B-Q8_0.gguf",
+            "Qwen3.5-9B-mmproj-F16.gguf",
+            "Qwen3.5",
+            8192,
+            -1,
+            0,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Qwen3.5-9B-Q8_0.gguf",
+          "Qwen3.5-9B-mmproj-F16.gguf",
+          "Qwen3.5",
+          8192,
+          -1,
+          0,
+          0
+        ]
+      },
+      "uid": "2",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "llama_cpp_parameters",
+      "id": "3",
+      "inputs": {
+        "frequency_penalty": 0,
+        "max_tokens": 1024,
+        "min_p": 0.05,
+        "mirostat_eta": 0.1,
+        "mirostat_mode": 0,
+        "mirostat_tau": 5,
+        "presence_penalty": 1,
+        "repeat_penalty": 1,
+        "state_uid": -1,
+        "temperature": 0.8,
+        "top_k": 30,
+        "top_p": 0.9,
+        "typical_p": 1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "label": "max_tokens",
+              "name": "max_tokens",
+              "type": "INT",
+              "widget": {
+                "name": "max_tokens"
+              }
+            },
+            {
+              "label": "top_k",
+              "name": "top_k",
+              "type": "INT",
+              "widget": {
+                "name": "top_k"
+              }
+            },
+            {
+              "label": "top_p",
+              "name": "top_p",
+              "type": "FLOAT",
+              "widget": {
+                "name": "top_p"
+              }
+            },
+            {
+              "label": "min_p",
+              "name": "min_p",
+              "type": "FLOAT",
+              "widget": {
+                "name": "min_p"
+              }
+            },
+            {
+              "label": "typical_p",
+              "name": "typical_p",
+              "type": "FLOAT",
+              "widget": {
+                "name": "typical_p"
+              }
+            },
+            {
+              "label": "temperature",
+              "name": "temperature",
+              "type": "FLOAT",
+              "widget": {
+                "name": "temperature"
+              }
+            },
+            {
+              "label": "repeat_penalty",
+              "name": "repeat_penalty",
+              "type": "FLOAT",
+              "widget": {
+                "name": "repeat_penalty"
+              }
+            },
+            {
+              "label": "frequency_penalty",
+              "name": "frequency_penalty",
+              "type": "FLOAT",
+              "widget": {
+                "name": "frequency_penalty"
+              }
+            },
+            {
+              "label": "presence_penalty",
+              "name": "presence_penalty",
+              "type": "FLOAT",
+              "widget": {
+                "name": "presence_penalty"
+              }
+            },
+            {
+              "label": "mirostat_mode",
+              "name": "mirostat_mode",
+              "type": "INT",
+              "widget": {
+                "name": "mirostat_mode"
+              }
+            },
+            {
+              "label": "mirostat_eta",
+              "name": "mirostat_eta",
+              "type": "FLOAT",
+              "widget": {
+                "name": "mirostat_eta"
+              }
+            },
+            {
+              "label": "mirostat_tau",
+              "name": "mirostat_tau",
+              "type": "FLOAT",
+              "widget": {
+                "name": "mirostat_tau"
+              }
+            },
+            {
+              "label": "state_uid",
+              "name": "state_uid",
+              "type": "INT",
+              "widget": {
+                "name": "state_uid"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "label": "parameters",
+              "links": [
+                2
+              ],
+              "name": "parameters",
+              "type": "LLAMACPPARAMS"
+            }
+          ],
+          "pos": [
+            491.41973876953125,
+            517.5353393554688
+          ],
+          "properties": {
+            "Node name for S&R": "llama_cpp_parameters",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            368.0517578125,
+            346
+          ],
+          "type": "llama_cpp_parameters",
+          "widgets_values": [
+            1024,
+            30,
+            0.9,
+            0.05,
+            1,
+            0.8,
+            1,
+            0,
+            1,
+            0,
+            0.1,
+            5,
+            -1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 13,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          30,
+          0.9,
+          0.05,
+          1,
+          0.8,
+          1,
+          0,
+          1,
+          0,
+          0.1,
+          5,
+          -1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "4": {
+      "class_type": "LoadImage",
+      "id": "4",
+      "inputs": {
+        "image": "1b89aa3b78f7f40348668b215f85acac643343d17b096b571f7b2e75135460b6.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "label": "image",
+              "name": "image",
+              "type": "COMBO",
+              "widget": {
+                "name": "image"
+              }
+            },
+            {
+              "label": "upload",
+              "name": "upload",
+              "type": "IMAGEUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "label": "IMAGE",
+              "links": [
+                3,
+                7
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "label": "MASK",
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            100.24742126464844,
+            263.6710510253906
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            354.32269287109375,
+            600.697021484375
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "1b89aa3b78f7f40348668b215f85acac643343d17b096b571f7b2e75135460b6.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "1b89aa3b78f7f40348668b215f85acac643343d17b096b571f7b2e75135460b6.jpg",
+          "image"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "PreviewAny",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "label": "source",
+              "link": 5,
+              "name": "source",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            1363.339599609375,
+            249.78001403808594
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewAny",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            422.9677429199219,
+            610.8729858398438
+          ],
+          "type": "PreviewAny",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "label": "images",
+              "link": 7,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "label": "filename_prefix",
+              "link": 6,
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "label": "image_urls",
+              "name": "image_urls",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1426.4383544921875,
+            337.62744140625
+          ],
+          "properties": {
+            "Node name for S&R": "SaveImage",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "7",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "cc40eadd8f1d1249",
+    "path": "external_workflows/.shadow/source/cc40eadd8f1d1249-I2P.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "5b54bf476f4234aa312430598bc6080b214834ac62f7fba469ade324cb4c9ef5",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1478635217689378919,
+      "channel_name": "qwen",
+      "discord_message_url": "https://discord.com/channels/@me/1478635217689378919/1484299828451217428",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1484299828451217428:I2P.json:cc40eadd8f1d1249",
+      "filename": "I2P.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:54+00:00",
+      "message_id": 1484299828451217428,
+      "node_class_multiset": {
+        "LoadImage": 1,
+        "PreviewAny": 1,
+        "SaveImage": 1,
+        "llama_cpp_instruct_adv": 1,
+        "llama_cpp_model_loader": 1,
+        "llama_cpp_parameters": 1
+      },
+      "node_count": 6,
+      "origin_date": "2026-03-19T21:17:36.060000+00:00",
+      "originator_global_name": "Krikross",
+      "originator_id": "1105511109244485783",
+      "originator_type": "discord_message_author",
+      "originator_username": "gregorydavid.5484",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "cc40eadd8f1d1249153d256a214e8253d856dbf5a977aa0ca9e9193f266ab1b4",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1478635217689378919/1484299828069404672/I2P.json?ex=69bdb96f&is=69bc67ef&hm=2c4baf84f849e3d2437c4a946932618ff84f00f19970daebdcf950b293d9c765&",
+      "source_workflow_sha256": "d6c912ac05a1733a8249ba722465c4176c9f7b58d2986a679e0d18d23ed46e69",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

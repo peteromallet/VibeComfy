@@ -1,0 +1,1797 @@
+{
+  "edges": [
+    {
+      "from_node": "99",
+      "from_output": "0",
+      "to_input": "seconds",
+      "to_node": "98"
+    },
+    {
+      "from_node": "78",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "47",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "98",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "102",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "3"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "47"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "18"
+    },
+    {
+      "from_node": "106",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "18"
+    },
+    {
+      "from_node": "104",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "78"
+    },
+    {
+      "from_node": "18",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "107"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "94"
+    },
+    {
+      "from_node": "102",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "94"
+    },
+    {
+      "from_node": "99",
+      "from_output": "0",
+      "to_input": "duration",
+      "to_node": "94"
+    }
+  ],
+  "groups": [],
+  "id": "537c40314a945127",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "104",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "Skill_Destiny_ACE_1.5_XL_Merged.safetensors"
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 50
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "102": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "94",
+              "seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "78548954131"
+          ]
+        ]
+      },
+      "104": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "78",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'Skill_Destiny_ACE_1.5_XL_Merged.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "105": {
+        "class_type": "DualCLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "94",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name1",
+            "'qwen_0.6b_ace15.safetensors'"
+          ],
+          [
+            "clip_name2",
+            "'qwen_1.7b_ace15.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'ace'"
+          ]
+        ]
+      },
+      "106": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'ace_1.5_vae.safetensors'"
+          ]
+        ]
+      },
+      "107": {
+        "class_type": "SaveAudioMP3",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "18",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ACE/ACE'"
+          ],
+          [
+            "quality",
+            "'V0'"
+          ]
+        ]
+      },
+      "108": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Model Links (for Local Users)\\n\\n**diffusion_models**\\n\\n- [acestep_v1.5_turbo.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors)\\n\\n**text_encoders**\\n\\n- [qwen_0.6b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_0.6b_ace15.safetensors)\\n- [qwen_1.7b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_1.7b_ace15.safetensors)\\n\\n**vae**\\n\\n- [ace_1.5_vae.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/vae/ace_1.5_vae.safetensors)\\n\\n\\n## Model Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\\n\u2502   \u2502   \u2514\u2500\u2500 acestep_v1.5_turbo.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\\n\u2502   \u2502   \u251c\u2500\u2500 qwen_0.6b_ace15.safetensors\\n\u2502   \u2502   \u2514\u2500\u2500 qwen_1.7b_ace15.safetensors\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\\n\u2502       \u2514\u2500\u2500 ace_1.5_vae.safetensors\\n```\\n\\n## Report Issue\\n\\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/zh-CN/installation/update_comfyui)) and prepare required models. Desktop/Cloud will be updated after the stable release; nightly-supported models may not be included yet, please wait for the next stable release.\\n\\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\\n'"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "VAEDecodeAudio",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "106",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "107",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "98",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "78",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "47",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "94",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "102",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "2"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "steps",
+            "50"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "47": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "94",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "78": {
+        "class_type": "ModelSamplingAuraFlow",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "104",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "3"
+          ]
+        ]
+      },
+      "94": {
+        "class_type": "TextEncodeAceStepAudio1.5",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "105",
+              "0"
+            ]
+          ],
+          [
+            "duration",
+            [
+              "99",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "102",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "0",
+            [
+              "47",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "bpm",
+            "177.1"
+          ],
+          [
+            "cfg_scale",
+            "2"
+          ],
+          [
+            "generate_audio_codes",
+            "True"
+          ],
+          [
+            "keyscale",
+            "'E minor'"
+          ],
+          [
+            "language",
+            "'en'"
+          ],
+          [
+            "lyrics",
+            "''"
+          ],
+          [
+            "min_p",
+            "0.001"
+          ],
+          [
+            "tags",
+            "''"
+          ],
+          [
+            "temperature",
+            "0.85"
+          ],
+          [
+            "timesignature",
+            "'4'"
+          ],
+          [
+            "top_k",
+            "0"
+          ],
+          [
+            "top_p",
+            "0.9"
+          ],
+          [
+            "unused_widget_3",
+            "'fixed'"
+          ]
+        ]
+      },
+      "98": {
+        "class_type": "EmptyAceStep1.5LatentAudio",
+        "incoming_edge_sig": [
+          [
+            "seconds",
+            [
+              "99",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "177.1"
+          ],
+          [
+            "widget_1",
+            "1"
+          ]
+        ]
+      },
+      "99": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "94",
+              "duration"
+            ]
+          ],
+          [
+            "0",
+            [
+              "98",
+              "seconds"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "177.1"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "e8c20a18bba6455d88a143a28d34180be0a2f771b22da8a00881806b88dc65ee",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1492582346384343111",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1492582346384343111:Ace_Step_XL.json:537c40314a945127",
+      "filename": "Ace_Step_XL.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:56+00:00",
+      "message_id": 1492582346384343111,
+      "node_class_multiset": {
+        "ConditioningZeroOut": 1,
+        "DualCLIPLoader": 1,
+        "EmptyAceStep1.5LatentAudio": 1,
+        "KSampler": 1,
+        "MarkdownNote": 1,
+        "ModelSamplingAuraFlow": 1,
+        "PrimitiveNode": 2,
+        "SaveAudioMP3": 1,
+        "TextEncodeAceStepAudio1.5": 1,
+        "UNETLoader": 1,
+        "VAEDecodeAudio": 1,
+        "VAELoader": 1
+      },
+      "node_count": 13,
+      "origin_date": "2026-04-11T17:49:22.217000+00:00",
+      "originator_global_name": "Dodge Coin",
+      "originator_id": "322767946164338688",
+      "originator_type": "discord_message_author",
+      "originator_username": "eyaura",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "537c40314a94512792a4c43bb1191df40254f36f556607fb2b792ca0427ee0aa",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1492582346111848519/Ace_Step_XL.json?ex=69dbdb22&is=69da89a2&hm=f594cd96e3970dcf4bfa5d3ff7ccf689b214df922843c8b8082d737213325c09&",
+      "source_workflow_sha256": "6034fe1a257e67496014cb3db925b4cb8b8d8f5df26a2694864f43c201397089",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "7d35948220b7090daa4e29721625aee9bff2b3ba518431e6ed6c0397a986694c",
+      "complexity": 2,
+      "description": "Generates audio using AceStep models, a UNET loader, dual CLIP loader, and VAE decoder, outputting as MP3 via SaveAudioMP3.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio-generation",
+        "ace-step",
+        "ksampler",
+        "unet-loader",
+        "vae-decoder",
+        "mp3-output",
+        "custom-nodes"
+      ],
+      "task_type": "text_to_image",
+      "title": "AceStep Audio Generation with KSampler"
+    }
+  },
+  "nodes": {
+    "102": {
+      "class_type": "PrimitiveNode",
+      "id": "102",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 78548954131
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#198a8a",
+          "color": "#2d9e9e",
+          "flags": {},
+          "id": 102,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                257,
+                258
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "pos": [
+            -165,
+            -150
+          ],
+          "properties": {
+            "Run widget replace on values": false,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            375,
+            90
+          ],
+          "title": "seed",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            78548954131,
+            "fixed"
+          ]
+        },
+        "bgcolor": "#198a8a",
+        "color": "#2d9e9e",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          78548954131,
+          "fixed"
+        ]
+      },
+      "uid": "102",
+      "widgets": {}
+    },
+    "104": {
+      "class_type": "UNETLoader",
+      "id": "104",
+      "inputs": {
+        "unet_name": "Skill_Destiny_ACE_1.5_XL_Merged.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 104,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                260
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -165,
+            -780
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "diffusion_models",
+                "name": "acestep_v1.5_turbo.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors"
+              }
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            375,
+            90
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "Skill_Destiny_ACE_1.5_XL_Merged.safetensors",
+            "default"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Skill_Destiny_ACE_1.5_XL_Merged.safetensors",
+          "default"
+        ]
+      },
+      "uid": "104",
+      "widgets": {}
+    },
+    "105": {
+      "class_type": "DualCLIPLoader",
+      "id": "105",
+      "inputs": {
+        "clip_name1": "qwen_0.6b_ace15.safetensors",
+        "clip_name2": "qwen_1.7b_ace15.safetensors",
+        "device": "default",
+        "type": "ace"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 105,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                261
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            -165,
+            -645
+          ],
+          "properties": {
+            "Node name for S&R": "DualCLIPLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "qwen_0.6b_ace15.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_0.6b_ace15.safetensors"
+              },
+              {
+                "directory": "text_encoders",
+                "name": "qwen_1.7b_ace15.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_1.7b_ace15.safetensors"
+              }
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            375,
+            135
+          ],
+          "type": "DualCLIPLoader",
+          "widgets_values": [
+            "qwen_0.6b_ace15.safetensors",
+            "qwen_1.7b_ace15.safetensors",
+            "ace",
+            "default"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "qwen_0.6b_ace15.safetensors",
+          "qwen_1.7b_ace15.safetensors",
+          "ace",
+          "default"
+        ]
+      },
+      "uid": "105",
+      "widgets": {}
+    },
+    "106": {
+      "class_type": "VAELoader",
+      "id": "106",
+      "inputs": {
+        "vae_name": "ace_1.5_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 106,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                262
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -165,
+            -465
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "vae",
+                "name": "ace_1.5_vae.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/vae/ace_1.5_vae.safetensors"
+              }
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            375,
+            60
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "ace_1.5_vae.safetensors"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ace_1.5_vae.safetensors"
+        ]
+      },
+      "uid": "106",
+      "widgets": {}
+    },
+    "107": {
+      "class_type": "SaveAudioMP3",
+      "id": "107",
+      "inputs": {
+        "filename_prefix": "ACE/ACE",
+        "quality": "V0"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 107,
+          "inputs": [
+            {
+              "link": 263,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [],
+          "pos": [
+            1440,
+            -780
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudioMP3",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            405,
+            150
+          ],
+          "type": "SaveAudioMP3",
+          "widgets_values": [
+            "ACE/ACE",
+            "V0"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ACE/ACE",
+          "V0"
+        ]
+      },
+      "uid": "107",
+      "widgets": {}
+    },
+    "108": {
+      "class_type": "MarkdownNote",
+      "id": "108",
+      "inputs": {
+        "unused_widget_0": "## Model Links (for Local Users)\n\n**diffusion_models**\n\n- [acestep_v1.5_turbo.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors)\n\n**text_encoders**\n\n- [qwen_0.6b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_0.6b_ace15.safetensors)\n- [qwen_1.7b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_1.7b_ace15.safetensors)\n\n**vae**\n\n- [ace_1.5_vae.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/vae/ace_1.5_vae.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u2514\u2500\u2500 acestep_v1.5_turbo.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_0.6b_ace15.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_1.7b_ace15.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 ace_1.5_vae.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/zh-CN/installation/update_comfyui)) and prepare required models. Desktop/Cloud will be updated after the stable release; nightly-supported models may not be included yet, please wait for the next stable release.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 108,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -735,
+            -825
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            525,
+            540
+          ],
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Model Links (for Local Users)\n\n**diffusion_models**\n\n- [acestep_v1.5_turbo.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors)\n\n**text_encoders**\n\n- [qwen_0.6b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_0.6b_ace15.safetensors)\n- [qwen_1.7b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_1.7b_ace15.safetensors)\n\n**vae**\n\n- [ace_1.5_vae.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/vae/ace_1.5_vae.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u2514\u2500\u2500 acestep_v1.5_turbo.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_0.6b_ace15.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_1.7b_ace15.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 ace_1.5_vae.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/zh-CN/installation/update_comfyui)) and prepare required models. Desktop/Cloud will be updated after the stable release; nightly-supported models may not be included yet, please wait for the next stable release.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Model Links (for Local Users)\n\n**diffusion_models**\n\n- [acestep_v1.5_turbo.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors)\n\n**text_encoders**\n\n- [qwen_0.6b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_0.6b_ace15.safetensors)\n- [qwen_1.7b_ace15.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/text_encoders/qwen_1.7b_ace15.safetensors)\n\n**vae**\n\n- [ace_1.5_vae.safetensors](https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/vae/ace_1.5_vae.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u2514\u2500\u2500 acestep_v1.5_turbo.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_0.6b_ace15.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_1.7b_ace15.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 ace_1.5_vae.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/zh-CN/installation/update_comfyui)) and prepare required models. Desktop/Cloud will be updated after the stable release; nightly-supported models may not be included yet, please wait for the next stable release.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+        ]
+      },
+      "uid": "108",
+      "widgets": {}
+    },
+    "18": {
+      "class_type": "VAEDecodeAudio",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": true
+          },
+          "id": 18,
+          "inputs": [
+            {
+              "link": 256,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 262,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                263
+              ],
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1260,
+            -780
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            165,
+            60
+          ],
+          "type": "VAEDecodeAudio",
+          "widgets_values": []
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "18",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 2,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "steps": 50,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 175,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 254,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 119,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 249,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 258,
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                256
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            915,
+            -660
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "seed": true
+              }
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            330,
+            270
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            78548954131,
+            "fixed",
+            50,
+            2,
+            "euler",
+            "simple",
+            1
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          78548954131,
+          "fixed",
+          50,
+          2,
+          "euler",
+          "simple",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "47": {
+      "class_type": "ConditioningZeroOut",
+      "id": "47",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 47,
+          "inputs": [
+            {
+              "link": 255,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                119
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            660,
+            1185
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            210,
+            30
+          ],
+          "type": "ConditioningZeroOut",
+          "widgets_values": []
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "47",
+      "widgets": {}
+    },
+    "78": {
+      "class_type": "ModelSamplingAuraFlow",
+      "id": "78",
+      "inputs": {
+        "shift": 3
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {
+            "collapsed": true
+          },
+          "id": 78,
+          "inputs": [
+            {
+              "link": 260,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                175
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            915,
+            -780
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingAuraFlow",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            330,
+            60
+          ],
+          "type": "ModelSamplingAuraFlow",
+          "widgets_values": [
+            3
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          3
+        ]
+      },
+      "uid": "78",
+      "widgets": {}
+    },
+    "94": {
+      "class_type": "TextEncodeAceStepAudio1.5",
+      "id": "94",
+      "inputs": {
+        "bpm": 177.1,
+        "cfg_scale": 2,
+        "generate_audio_codes": true,
+        "keyscale": "E minor",
+        "language": "en",
+        "lyrics": "",
+        "min_p": 0.001,
+        "tags": "",
+        "temperature": 0.85,
+        "timesignature": "4",
+        "top_k": 0,
+        "top_p": 0.9,
+        "unused_widget_3": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 94,
+          "inputs": [
+            {
+              "link": 261,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 257,
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": 251,
+              "name": "duration",
+              "type": "FLOAT",
+              "widget": {
+                "name": "duration"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                254,
+                255
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            255,
+            -780
+          ],
+          "properties": {
+            "Node name for S&R": "TextEncodeAceStepAudio1.5",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "duration": true,
+                "seed": true
+              }
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            615,
+            1920
+          ],
+          "type": "TextEncodeAceStepAudio1.5",
+          "widgets_values": [
+            "",
+            "",
+            78548954131,
+            "fixed",
+            190,
+            177.1,
+            "4",
+            "en",
+            "E minor",
+            true,
+            2,
+            0.85,
+            0.9,
+            0,
+            0.001
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 15,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "",
+          78548954131,
+          "fixed",
+          190,
+          177.1,
+          "4",
+          "en",
+          "E minor",
+          true,
+          2,
+          0.85,
+          0.9,
+          0,
+          0.001
+        ]
+      },
+      "uid": "94",
+      "widgets": {}
+    },
+    "98": {
+      "class_type": "EmptyAceStep1.5LatentAudio",
+      "id": "98",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#198a8a",
+          "color": "#2d9e9e",
+          "flags": {},
+          "id": 98,
+          "inputs": [
+            {
+              "link": 250,
+              "name": "seconds",
+              "type": "FLOAT",
+              "widget": {
+                "name": "seconds"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                249
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -165,
+            -15
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyAceStep1.5LatentAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "seconds": true
+              }
+            },
+            "ver": "0.11.1"
+          },
+          "size": [
+            375,
+            105
+          ],
+          "type": "EmptyAceStep1.5LatentAudio",
+          "widgets_values": [
+            177.1,
+            1
+          ]
+        },
+        "bgcolor": "#198a8a",
+        "color": "#2d9e9e",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          177.1,
+          1
+        ]
+      },
+      "uid": "98",
+      "widgets": {
+        "widget_0": 177.1,
+        "widget_1": 1
+      }
+    },
+    "99": {
+      "class_type": "PrimitiveNode",
+      "id": "99",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 177.1
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#198a8a",
+          "color": "#2d9e9e",
+          "flags": {},
+          "id": 99,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                250,
+                251
+              ],
+              "name": "FLOAT",
+              "type": "FLOAT",
+              "widget": {
+                "name": "seconds"
+              }
+            }
+          ],
+          "pos": [
+            -165,
+            -300
+          ],
+          "properties": {
+            "Run widget replace on values": false,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            375,
+            105
+          ],
+          "title": "Song Duration",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            177.1,
+            "fixed"
+          ]
+        },
+        "bgcolor": "#198a8a",
+        "color": "#2d9e9e",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          177.1,
+          "fixed"
+        ]
+      },
+      "uid": "99",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "107",
+      "output_type": "SaveAudioMP3"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [
+      "EmptyAceStep1",
+      "TextEncodeAceStepAudio1"
+    ],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "Skill_Destiny_ACE_1.5_XL_Merged.safetensors",
+      "ace_1.5_vae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "537c40314a945127",
+    "path": "external_workflows/.shadow/source/537c40314a945127-Ace_Step_XL.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "e8c20a18bba6455d88a143a28d34180be0a2f771b22da8a00881806b88dc65ee",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1369470423699292170,
+      "channel_name": "ace-step",
+      "discord_message_url": "https://discord.com/channels/@me/1369470423699292170/1492582346384343111",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1492582346384343111:Ace_Step_XL.json:537c40314a945127",
+      "filename": "Ace_Step_XL.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:56+00:00",
+      "message_id": 1492582346384343111,
+      "node_class_multiset": {
+        "ConditioningZeroOut": 1,
+        "DualCLIPLoader": 1,
+        "EmptyAceStep1.5LatentAudio": 1,
+        "KSampler": 1,
+        "MarkdownNote": 1,
+        "ModelSamplingAuraFlow": 1,
+        "PrimitiveNode": 2,
+        "SaveAudioMP3": 1,
+        "TextEncodeAceStepAudio1.5": 1,
+        "UNETLoader": 1,
+        "VAEDecodeAudio": 1,
+        "VAELoader": 1
+      },
+      "node_count": 13,
+      "origin_date": "2026-04-11T17:49:22.217000+00:00",
+      "originator_global_name": "Dodge Coin",
+      "originator_id": "322767946164338688",
+      "originator_type": "discord_message_author",
+      "originator_username": "eyaura",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "537c40314a94512792a4c43bb1191df40254f36f556607fb2b792ca0427ee0aa",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1369470423699292170/1492582346111848519/Ace_Step_XL.json?ex=69dbdb22&is=69da89a2&hm=f594cd96e3970dcf4bfa5d3ff7ccf689b214df922843c8b8082d737213325c09&",
+      "source_workflow_sha256": "6034fe1a257e67496014cb3db925b4cb8b8d8f5df26a2694864f43c201397089",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

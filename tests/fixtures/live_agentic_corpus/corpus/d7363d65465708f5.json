@@ -1,0 +1,65 @@
+{
+  "397": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "pasted/image (24).png"
+    }
+  },
+  "528": {
+    "class_type": "ReActorFaceSwap",
+    "inputs": {
+      "source_image": [
+        "530",
+        0
+      ],
+      "widget_0": true,
+      "widget_1": "inswapper_128.onnx",
+      "widget_10": 1,
+      "widget_2": "retinaface_resnet50",
+      "widget_3": "none",
+      "widget_4": 1,
+      "widget_5": 0.5,
+      "widget_6": "no",
+      "widget_7": "no",
+      "widget_8": "0",
+      "widget_9": "0"
+    }
+  },
+  "529": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "530",
+        0
+      ]
+    }
+  },
+  "530": {
+    "class_type": "CropFace",
+    "inputs": {
+      "image": [
+        "397",
+        0
+      ],
+      "widget_0": "retinaface_resnet50"
+    }
+  },
+  "532": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 10,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "frame_rate": 8,
+      "images": [
+        "528",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": false
+    }
+  }
+}

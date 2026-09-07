@@ -1,0 +1,1779 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "2"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "16"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "16"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "27"
+    },
+    {
+      "from_node": "26",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "25"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "20"
+    },
+    {
+      "from_node": "28",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "20"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "20"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "10"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "10"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "5"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "5"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "5"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "5"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "3"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "30"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "4"
+    }
+  ],
+  "groups": [],
+  "id": "b425ceacb16f34c0",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "1",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "CGNGRADIENTPHOTO.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "A beautiful mixed woman, standing in a park, wearing A floor length dress flared at the bottom with a natural silhouette covered in red roses from the sleeves extending to one of the underbust forming an assymetric balance to the waist line .the fabric is a brocade colours purple with black embroidered detailing the neck line is also covered in roses to the chin. realistic, photorealistic, masterpiece, highly detailed, intricate details, quality, Realism, ((masterpiece , best quality))"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "5",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 115258172543183
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "5",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 33
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "2",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'CGNGRADIENTPHOTO.safetensors'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "VAEDecodeTiled",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "30",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "tile_size",
+            "512"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "17",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "17": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "16",
+              "pixels"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'IMG-20240224-WA0003.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "CLIPSetLastLayer",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "1",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "4",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "-2"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "ControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "control_net",
+            [
+              "28",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "DWPreprocessor",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "26",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "27",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "bbox_detector",
+            "'yolox_l.onnx'"
+          ],
+          [
+            "detect_body",
+            "'enable'"
+          ],
+          [
+            "detect_face",
+            "'enable'"
+          ],
+          [
+            "detect_hand",
+            "'enable'"
+          ],
+          [
+            "pose_estimator",
+            "'dw-ll_ucoco_384_bs5.torchscript.pt'"
+          ],
+          [
+            "resolution",
+            "512"
+          ]
+        ]
+      },
+      "26": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'ComfyUI_00007_ (4).png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "27": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "28": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'control_v11p_sd15_openpose_fp16.safetensors'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'A beautiful mixed woman, standing in a park, wearing A floor length dress flared at the bottom with a natural silhouette covered in red roses from the sleeves extending to one of the underbust forming an assymetric balance to the waist line .the fabric is a brocade colours purple with black embroidered detailing the neck line is also covered in roses to the chin. realistic, photorealistic, masterpiece, highly detailed, intricate details, quality, Realism, ((masterpiece , best quality))'"
+          ]
+        ]
+      },
+      "30": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "4": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'render, cartoon, cgi, render, illustration, painting, drawing, nsfw'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "16",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "4",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "7"
+          ],
+          [
+            "denoise",
+            "0.5"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_sde'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "115258172543183"
+          ],
+          [
+            "steps",
+            "33"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "vae"
+            ]
+          ],
+          [
+            "0",
+            [
+              "16",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'vae-ft-mse-840000-ema-pruned.safetensors'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "49d0579ed9932457d8f731714a9edcdceeba387ceefabb1e0426a1a8f7f7cc93",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "I'm doing an i2i with a dwpose controlnet for posture of the image generated from an image I uploaded, but the controlnet doesn't work and the generated image has the same posture as the image uploaded, pls what im i doing wrong, ive attach",
+      "discord_attachment_id": null,
+      "discovered_at": "2026-06-27T18:28:39+00:00",
+      "discovered_by": "scan_banodoco_discord_workflows",
+      "external_id": "banodoco-discord-archive:1213366990690058300:dressworkflow.json:b425ceacb16f34c0",
+      "filename": "dressworkflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-27T18:28:40+00:00",
+      "message_id": 1213366990690058300,
+      "node_class_multiset": {
+        "CLIPSetLastLayer": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApply": 1,
+        "ControlNetLoader": 1,
+        "DWPreprocessor": 1,
+        "KSampler": 1,
+        "LoadImage": 2,
+        "PreviewImage": 2,
+        "VAEDecodeTiled": 1,
+        "VAEEncode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 15,
+      "repo": null,
+      "repo_branch": null,
+      "repo_path": null,
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b425ceacb16f34c08eedc4c229d00dd5de84aba963df43df4efa5525e29f4fa7",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1213366990320832622/dressworkflow.json?ex=6979a791&is=69785611&hm=ca29684fa86dce10ecc1b5ff6d46febcad37dd48e6a5f438ecd8c5d82c057724&",
+      "source_workflow_sha256": "b9fa45a45ec047fd5b04da4d818ce1fd2b742b1c028e8c19be2971e351444055",
+      "thread_id": null,
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "5619fa8cdf9f34c7fae661f63c128d8b09672f7232b82534dc38bf00fa4871e2",
+      "complexity": 2,
+      "description": "Loads an image, applies ControlNet with DWPreprocessor for pose/edge guidance, then encodes, samples, and decodes to produce a new image. Outputs two preview images.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "controlnet",
+        "dwpreprocessor",
+        "image-to-image",
+        "sampling",
+        "vae",
+        "preview"
+      ],
+      "task_type": "controlnet",
+      "title": "Image-to-Image with ControlNet and DWPreprocessor"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "1",
+      "inputs": {
+        "ckpt_name": "CGNGRADIENTPHOTO.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                25
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                1
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "type": "CLIP"
+            },
+            {
+              "links": null,
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            100,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "CGNGRADIENTPHOTO.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "CGNGRADIENTPHOTO.safetensors"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "10": {
+      "class_type": "VAEDecodeTiled",
+      "id": "10",
+      "inputs": {
+        "tile_size": 512
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 12,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                50
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1828,
+            212
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeTiled"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "VAEDecodeTiled",
+          "widgets_values": [
+            512
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          512
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "VAEEncode",
+      "id": "16",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 28,
+              "name": "pixels",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 29,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                27
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            121,
+            405
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEEncode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "16",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "LoadImage",
+      "id": "17",
+      "inputs": {
+        "image": "IMG-20240224-WA0003.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                28
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            1425,
+            560
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 314
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "IMG-20240224-WA0003.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "IMG-20240224-WA0003.jpg",
+          "image"
+        ]
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "CLIPSetLastLayer",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                2,
+                3
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            515,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPSetLastLayer"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "CLIPSetLastLayer",
+          "widgets_values": [
+            -2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          -2
+        ]
+      },
+      "uid": "2",
+      "widgets": {
+        "widget_0": -2
+      }
+    },
+    "20": {
+      "class_type": "ControlNetApply",
+      "id": "20",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [
+            {
+              "link": 35,
+              "name": "conditioning",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 43,
+              "name": "control_net",
+              "slot_index": 1,
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 42,
+              "name": "image",
+              "slot_index": 2,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                34
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1600,
+            -214
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetApply"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 98
+          },
+          "type": "ControlNetApply",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "20",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "25": {
+      "class_type": "DWPreprocessor",
+      "id": "25",
+      "inputs": {
+        "bbox_detector": "yolox_l.onnx",
+        "detect_body": "enable",
+        "detect_face": "enable",
+        "detect_hand": "enable",
+        "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+        "resolution": 512
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 40,
+              "name": "image",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                41,
+                42
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "POSE_KEYPOINT",
+              "shape": 3,
+              "type": "POSE_KEYPOINT"
+            }
+          ],
+          "pos": [
+            1201,
+            -309
+          ],
+          "properties": {
+            "Node name for S&R": "DWPreprocessor"
+          },
+          "size": {
+            "0": 315,
+            "1": 198
+          },
+          "type": "DWPreprocessor",
+          "widgets_values": [
+            "enable",
+            "enable",
+            "enable",
+            512,
+            "yolox_l.onnx",
+            "dw-ll_ucoco_384_bs5.torchscript.pt"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          "enable",
+          "enable",
+          512,
+          "yolox_l.onnx",
+          "dw-ll_ucoco_384_bs5.torchscript.pt"
+        ]
+      },
+      "uid": "25",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "LoadImage",
+      "id": "26",
+      "inputs": {
+        "image": "ComfyUI_00007_ (4).png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            848,
+            -398
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 314
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "ComfyUI_00007_ (4).png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI_00007_ (4).png",
+          "image"
+        ]
+      },
+      "uid": "26",
+      "widgets": {}
+    },
+    "27": {
+      "class_type": "PreviewImage",
+      "id": "27",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 27,
+          "inputs": [
+            {
+              "link": 41,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            1476,
+            -622
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 246
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "27",
+      "widgets": {}
+    },
+    "28": {
+      "class_type": "ControlNetLoader",
+      "id": "28",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 28,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                43
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            1828,
+            -473
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "ControlNetLoader",
+          "widgets_values": [
+            "control_v11p_sd15_openpose_fp16.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "control_v11p_sd15_openpose_fp16.safetensors"
+        ]
+      },
+      "uid": "28",
+      "widgets": {
+        "widget_0": "control_v11p_sd15_openpose_fp16.safetensors"
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "id": "3",
+      "inputs": {
+        "text": "A beautiful mixed woman, standing in a park, wearing A floor length dress flared at the bottom with a natural silhouette covered in red roses from the sleeves extending to one of the underbust forming an assymetric balance to the waist line .the fabric is a brocade colours purple with black embroidered detailing the neck line is also covered in roses to the chin. realistic, photorealistic, masterpiece, highly detailed, intricate details, quality, Realism, ((masterpiece , best quality))"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 2,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                35
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            863,
+            -32
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "A beautiful mixed woman, standing in a park, wearing A floor length dress flared at the bottom with a natural silhouette covered in red roses from the sleeves extending to one of the underbust forming an assymetric balance to the waist line .the fabric is a brocade colours purple with black embroidered detailing the neck line is also covered in roses to the chin. realistic, photorealistic, masterpiece, highly detailed, intricate details, quality, Realism, ((masterpiece , best quality))"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A beautiful mixed woman, standing in a park, wearing A floor length dress flared at the bottom with a natural silhouette covered in red roses from the sleeves extending to one of the underbust forming an assymetric balance to the waist line .the fabric is a brocade colours purple with black embroidered detailing the neck line is also covered in roses to the chin. realistic, photorealistic, masterpiece, highly detailed, intricate details, quality, Realism, ((masterpiece , best quality))"
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "30": {
+      "class_type": "PreviewImage",
+      "id": "30",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 30,
+          "inputs": [
+            {
+              "link": 50,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "pos": [
+            1928,
+            563
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 246
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "30",
+      "widgets": {}
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "id": "4",
+      "inputs": {
+        "text": "render, cartoon, cgi, render, illustration, painting, drawing, nsfw"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            854,
+            220
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "render, cartoon, cgi, render, illustration, painting, drawing, nsfw"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "render, cartoon, cgi, render, illustration, painting, drawing, nsfw"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "KSampler",
+      "id": "5",
+      "inputs": {
+        "cfg": 7,
+        "denoise": 0.5,
+        "sampler_name": "dpmpp_sde",
+        "scheduler": "karras",
+        "seed": 115258172543183,
+        "steps": 33,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": 25,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 34,
+              "name": "positive",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 6,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 27,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                11
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1454,
+            120
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            115258172543183,
+            "randomize",
+            33,
+            7,
+            "dpmpp_sde",
+            "karras",
+            0.5
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          115258172543183,
+          "randomize",
+          33,
+          7,
+          "dpmpp_sde",
+          "karras",
+          0.5
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAELoader",
+      "id": "8",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                12,
+                29
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            69,
+            596
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VAELoader",
+          "widgets_values": [
+            "vae-ft-mse-840000-ema-pruned.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vae-ft-mse-840000-ema-pruned.safetensors"
+        ]
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "27",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "30",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "CGNGRADIENTPHOTO.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "b425ceacb16f34c0",
+    "path": "external_workflows/.shadow/discord_new_json/b425ceacb16f34c0-dressworkflow.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "49d0579ed9932457d8f731714a9edcdceeba387ceefabb1e0426a1a8f7f7cc93",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "I'm doing an i2i with a dwpose controlnet for posture of the image generated from an image I uploaded, but the controlnet doesn't work and the generated image has the same posture as the image uploaded, pls what im i doing wrong, ive attach",
+      "discord_attachment_id": null,
+      "discovered_at": "2026-06-27T18:28:39+00:00",
+      "discovered_by": "scan_banodoco_discord_workflows",
+      "external_id": "banodoco-discord-archive:1213366990690058300:dressworkflow.json:b425ceacb16f34c0",
+      "filename": "dressworkflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-27T18:28:40+00:00",
+      "message_id": 1213366990690058300,
+      "node_class_multiset": {
+        "CLIPSetLastLayer": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApply": 1,
+        "ControlNetLoader": 1,
+        "DWPreprocessor": 1,
+        "KSampler": 1,
+        "LoadImage": 2,
+        "PreviewImage": 2,
+        "VAEDecodeTiled": 1,
+        "VAEEncode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 15,
+      "repo": null,
+      "repo_branch": null,
+      "repo_path": null,
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b425ceacb16f34c08eedc4c229d00dd5de84aba963df43df4efa5525e29f4fa7",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1213366990320832622/dressworkflow.json?ex=6979a791&is=69785611&hm=ca29684fa86dce10ecc1b5ff6d46febcad37dd48e6a5f438ecd8c5d82c057724&",
+      "source_workflow_sha256": "b9fa45a45ec047fd5b04da4d818ce1fd2b742b1c028e8c19be2971e351444055",
+      "thread_id": null,
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

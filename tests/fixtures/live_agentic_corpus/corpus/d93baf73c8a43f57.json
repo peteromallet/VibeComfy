@@ -1,0 +1,987 @@
+{
+  "edges": [
+    {
+      "from_node": "67",
+      "from_output": "1",
+      "to_input": "images",
+      "to_node": "46"
+    },
+    {
+      "from_node": "67",
+      "from_output": "2",
+      "to_input": "images",
+      "to_node": "47"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "source_image",
+      "to_node": "67"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "mesh",
+      "to_node": "21"
+    }
+  ],
+  "groups": [],
+  "id": "c7395e4ceaf30c57",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "21": {
+        "class_type": "SaveGLB",
+        "incoming_edge_sig": [
+          [
+            "mesh",
+            [
+              "67",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3d/ComfyUI'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "46": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "67",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "47": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "67",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "50": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## moge_image_to_mesh\\n\\n**Single perspective photo -> textured GLB**\\n\\n`Load Image` -> `Geometry Estimation (MoGe)` -> `Save GLB`\\n\\n### Main flow\\n- Runs MoGe inference on one source image\\n- Converts the inferred geometry into a mesh\\n- Exposes OpenGL and DirectX normal previews\\n\\n### Inputs\\n| Control | Meaning |\\n|--------|--------|\\n| `source_image` | Input RGB image |\\n| `inference_resolution` | MoGe detail level `0-9`; higher is slower but keeps more detail |\\n| `inference_batch_size` | Passed to `MoGeInference` batch size; use `1` for a single still image |\\n| `mesh_frame_index` | Batch/frame index used when converting geometry to mesh; use `0` for one image |\\n| `mesh_decimation` | Mesh decimation step; `1` keeps the densest mesh |\\n| `mesh_gap_threshold` | Removes faces across large depth discontinuities; `0` disables the filter |\\n| `mesh_texture` | Bakes source image colors into the exported GLB |\\n| `moge_model` | Model checkpoint loaded by `LoadMoGeModel`; see `Model Link` |\\n| `auto_resize_input` | Enables pre-inference resize logic for large images |\\n\\n### Auto-resize logic\\nWhen `auto_resize_input` is enabled, the subgraph checks image width first:\\n- width `> 2048`: resize by longer edge to `2048` before inference\\n- width `<= 2048`: keep the original image\\n\\nWhen `auto_resize_input` is disabled, the original image always goes into inference.\\n\\n### Outputs\\n- `mesh`: mesh output for `Save GLB`\\n- `normal_opengl`: preview rendered through `MoGeRender`\\n- `normal_directx`: preview rendered through `MoGeRender`'"
+          ]
+        ]
+      },
+      "52": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "\"## MoGe \u2014 models & downloads\\n\\nResearch repo: [microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR'25, monocular geometry from a single image).\\n\\nComfyUI weights: [Comfy-Org/MoGe](https://huggingface.co/Comfy-Org/MoGe) \u2192 `models/geometry_estimation/`\\n\\n### Which checkpoint to use\\n\\n| File | Version | Use when |\\n|------|---------|----------|\\n| `moge_1_vitl_fp16` | **MoGe-1** | Point map + depth + mask; relative scale. Lighter baseline. |\\n| `moge_2_vitl_normal_fp16` | **MoGe-2** | **Recommended.** Metric-scale depth/points, sharper detail, **normal maps** (needed for normal previews & better mesh edges). |\\n\\nMoGe-2 adds metric scale and normals in one forward pass; MoGe-1 does not predict normals (normals in previews may be derived from points).\\n\\n### Downloads\\n- [moge_1_vitl_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_1_vitl_fp16.safetensors)\\n- [moge_2_vitl_normal_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors)\\n\\n\\n## Model Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 geometry_estimation/\\n\u2502       \u251c\u2500\u2500 moge_2_vitl_normal_fp16.safetensors\\n\u2502       \u2514\u2500\u2500 moge_1_vitl_fp16.safetensors\\n```\\n\\nGuide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\\n\\n### Issues\\nUpdate ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)), then install models.\\n- Runtime: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\\n- UI: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\\n\""
+          ]
+        ]
+      },
+      "67": {
+        "class_type": "936dfaf2-575a-48b5-9e0c-df391319d11f",
+        "incoming_edge_sig": [
+          [
+            "source_image",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "mesh"
+            ]
+          ],
+          [
+            "1",
+            [
+              "46",
+              "images"
+            ]
+          ],
+          [
+            "2",
+            [
+              "47",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "70": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "67",
+              "source_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'ComfyUI_00001_.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d93baf73c8a43f57ec89adc13784ef2c596860c94d16d0d5439dd82151798ac3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1510238802000609484",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1510238802000609484:3d_moge_perspective_to_mesh_1.json:c7395e4ceaf30c57",
+      "filename": "3d_moge_perspective_to_mesh_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:58+00:00",
+      "message_id": 1510238802000609484,
+      "node_class_multiset": {
+        "936dfaf2-575a-48b5-9e0c-df391319d11f": 1,
+        "LoadImage": 1,
+        "MarkdownNote": 2,
+        "Preview3D": 1,
+        "PreviewImage": 2,
+        "SaveGLB": 1
+      },
+      "node_count": 8,
+      "origin_date": "2026-05-30T11:09:49.277000+00:00",
+      "originator_global_name": "hicho",
+      "originator_id": "1279467736187146242",
+      "originator_type": "discord_message_author",
+      "originator_username": "hichoguy",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c7395e4ceaf30c57f9321df539af548bb81efa862eaaeef8fca8dae8a31ed1ba",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1510238801698488420/3d_moge_perspective_to_mesh_1.json?ex=6a1c16fd&is=6a1ac57d&hm=64eef7dd8604b4a5e7fd5b6ffc31934017f39a158ad702417470189a0dc5453b&",
+      "source_workflow_sha256": "95f94a246fb0c2d87af30592537d5db2b2def9d35526820a32944e15e35fe61f",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "1719695df08886bd60b078fc5a57c162fdcd7fe6630208967b531fcbd8f5ba83",
+      "complexity": 2,
+      "description": "A workflow that loads an image, generates a 3D preview, and saves a GLB file with two image preview outputs.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "3d",
+        "glb",
+        "image-loading",
+        "preview",
+        "save"
+      ],
+      "task_type": "other",
+      "title": "3D Preview and Image Output Workflow"
+    }
+  },
+  "nodes": {
+    "21": {
+      "class_type": "SaveGLB",
+      "id": "21",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "inputs": [
+            {
+              "link": 92,
+              "name": "mesh",
+              "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            -1891.1849394490798,
+            5054.079271096964
+          ],
+          "properties": {
+            "Camera Config": {
+              "cameraType": "perspective",
+              "fov": 35,
+              "state": {
+                "cameraType": "perspective",
+                "position": {
+                  "x": 6.786724982855805,
+                  "y": 1.9262054236803827,
+                  "z": 4.315390609507273
+                },
+                "target": {
+                  "x": 0.5610696024689849,
+                  "y": 1.8227901315768118,
+                  "z": -0.15103066686464472
+                },
+                "zoom": 1
+              }
+            },
+            "Light Config": {
+              "hdri": {
+                "enabled": false,
+                "hdriPath": "",
+                "intensity": 1,
+                "showAsBackground": false
+              },
+              "intensity": 2.4000000000000004
+            },
+            "Model Config": {
+              "gizmo": {
+                "enabled": false,
+                "mode": "translate",
+                "position": {
+                  "x": 0.3622254788581172,
+                  "y": 1.8487530247818735,
+                  "z": 3.580411492082191
+                },
+                "rotation": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "scale": {
+                  "x": 2.687608243041624,
+                  "y": 2.687608243041624,
+                  "z": 2.687608243041624
+                }
+              },
+              "materialMode": "original",
+              "showSkeleton": false,
+              "upDirection": "original"
+            },
+            "Node name for S&R": "SaveGLB",
+            "Scene Config": {
+              "backgroundColor": "#8e9ea9",
+              "backgroundImage": "",
+              "backgroundRenderMode": "tiled",
+              "showGrid": false
+            },
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.21.1"
+          },
+          "size": [
+            782.0843697681353,
+            601.1357657565522
+          ],
+          "type": "SaveGLB",
+          "widgets_values": [
+            "3d/ComfyUI",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3d/ComfyUI",
+          ""
+        ]
+      },
+      "uid": "21",
+      "widgets": {
+        "widget_0": "3d/ComfyUI",
+        "widget_1": ""
+      }
+    },
+    "46": {
+      "class_type": "PreviewImage",
+      "id": "46",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 46,
+          "inputs": [
+            {
+              "link": 88,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            -2950,
+            5000
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage (normal_opengl)",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.21.1"
+          },
+          "size": [
+            350,
+            490
+          ],
+          "title": "Preview Image (normal_opengl)",
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "46",
+      "widgets": {}
+    },
+    "47": {
+      "class_type": "PreviewImage",
+      "id": "47",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 47,
+          "inputs": [
+            {
+              "link": 89,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [],
+          "pos": [
+            -2570,
+            5000
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage (normal_directx)",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.21.1"
+          },
+          "size": [
+            350,
+            490
+          ],
+          "title": "Preview Image (normal_directx)",
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "47",
+      "widgets": {}
+    },
+    "50": {
+      "class_type": "MarkdownNote",
+      "id": "50",
+      "inputs": {
+        "unused_widget_0": "## moge_image_to_mesh\n\n**Single perspective photo -> textured GLB**\n\n`Load Image` -> `Geometry Estimation (MoGe)` -> `Save GLB`\n\n### Main flow\n- Runs MoGe inference on one source image\n- Converts the inferred geometry into a mesh\n- Exposes OpenGL and DirectX normal previews\n\n### Inputs\n| Control | Meaning |\n|--------|--------|\n| `source_image` | Input RGB image |\n| `inference_resolution` | MoGe detail level `0-9`; higher is slower but keeps more detail |\n| `inference_batch_size` | Passed to `MoGeInference` batch size; use `1` for a single still image |\n| `mesh_frame_index` | Batch/frame index used when converting geometry to mesh; use `0` for one image |\n| `mesh_decimation` | Mesh decimation step; `1` keeps the densest mesh |\n| `mesh_gap_threshold` | Removes faces across large depth discontinuities; `0` disables the filter |\n| `mesh_texture` | Bakes source image colors into the exported GLB |\n| `moge_model` | Model checkpoint loaded by `LoadMoGeModel`; see `Model Link` |\n| `auto_resize_input` | Enables pre-inference resize logic for large images |\n\n### Auto-resize logic\nWhen `auto_resize_input` is enabled, the subgraph checks image width first:\n- width `> 2048`: resize by longer edge to `2048` before inference\n- width `<= 2048`: keep the original image\n\nWhen `auto_resize_input` is disabled, the original image always goes into inference.\n\n### Outputs\n- `mesh`: mesh output for `Save GLB`\n- `normal_opengl`: preview rendered through `MoGeRender`\n- `normal_directx`: preview rendered through `MoGeRender`"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 50,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -4924.556865728413,
+            6028.071510079876
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            1304.0737923164697,
+            1580.2468797546599
+          ],
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## moge_image_to_mesh\n\n**Single perspective photo -> textured GLB**\n\n`Load Image` -> `Geometry Estimation (MoGe)` -> `Save GLB`\n\n### Main flow\n- Runs MoGe inference on one source image\n- Converts the inferred geometry into a mesh\n- Exposes OpenGL and DirectX normal previews\n\n### Inputs\n| Control | Meaning |\n|--------|--------|\n| `source_image` | Input RGB image |\n| `inference_resolution` | MoGe detail level `0-9`; higher is slower but keeps more detail |\n| `inference_batch_size` | Passed to `MoGeInference` batch size; use `1` for a single still image |\n| `mesh_frame_index` | Batch/frame index used when converting geometry to mesh; use `0` for one image |\n| `mesh_decimation` | Mesh decimation step; `1` keeps the densest mesh |\n| `mesh_gap_threshold` | Removes faces across large depth discontinuities; `0` disables the filter |\n| `mesh_texture` | Bakes source image colors into the exported GLB |\n| `moge_model` | Model checkpoint loaded by `LoadMoGeModel`; see `Model Link` |\n| `auto_resize_input` | Enables pre-inference resize logic for large images |\n\n### Auto-resize logic\nWhen `auto_resize_input` is enabled, the subgraph checks image width first:\n- width `> 2048`: resize by longer edge to `2048` before inference\n- width `<= 2048`: keep the original image\n\nWhen `auto_resize_input` is disabled, the original image always goes into inference.\n\n### Outputs\n- `mesh`: mesh output for `Save GLB`\n- `normal_opengl`: preview rendered through `MoGeRender`\n- `normal_directx`: preview rendered through `MoGeRender`"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## moge_image_to_mesh\n\n**Single perspective photo -> textured GLB**\n\n`Load Image` -> `Geometry Estimation (MoGe)` -> `Save GLB`\n\n### Main flow\n- Runs MoGe inference on one source image\n- Converts the inferred geometry into a mesh\n- Exposes OpenGL and DirectX normal previews\n\n### Inputs\n| Control | Meaning |\n|--------|--------|\n| `source_image` | Input RGB image |\n| `inference_resolution` | MoGe detail level `0-9`; higher is slower but keeps more detail |\n| `inference_batch_size` | Passed to `MoGeInference` batch size; use `1` for a single still image |\n| `mesh_frame_index` | Batch/frame index used when converting geometry to mesh; use `0` for one image |\n| `mesh_decimation` | Mesh decimation step; `1` keeps the densest mesh |\n| `mesh_gap_threshold` | Removes faces across large depth discontinuities; `0` disables the filter |\n| `mesh_texture` | Bakes source image colors into the exported GLB |\n| `moge_model` | Model checkpoint loaded by `LoadMoGeModel`; see `Model Link` |\n| `auto_resize_input` | Enables pre-inference resize logic for large images |\n\n### Auto-resize logic\nWhen `auto_resize_input` is enabled, the subgraph checks image width first:\n- width `> 2048`: resize by longer edge to `2048` before inference\n- width `<= 2048`: keep the original image\n\nWhen `auto_resize_input` is disabled, the original image always goes into inference.\n\n### Outputs\n- `mesh`: mesh output for `Save GLB`\n- `normal_opengl`: preview rendered through `MoGeRender`\n- `normal_directx`: preview rendered through `MoGeRender`"
+        ]
+      },
+      "uid": "50",
+      "widgets": {}
+    },
+    "52": {
+      "class_type": "MarkdownNote",
+      "id": "52",
+      "inputs": {
+        "unused_widget_0": "## MoGe \u2014 models & downloads\n\nResearch repo: [microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR'25, monocular geometry from a single image).\n\nComfyUI weights: [Comfy-Org/MoGe](https://huggingface.co/Comfy-Org/MoGe) \u2192 `models/geometry_estimation/`\n\n### Which checkpoint to use\n\n| File | Version | Use when |\n|------|---------|----------|\n| `moge_1_vitl_fp16` | **MoGe-1** | Point map + depth + mask; relative scale. Lighter baseline. |\n| `moge_2_vitl_normal_fp16` | **MoGe-2** | **Recommended.** Metric-scale depth/points, sharper detail, **normal maps** (needed for normal previews & better mesh edges). |\n\nMoGe-2 adds metric scale and normals in one forward pass; MoGe-1 does not predict normals (normals in previews may be derived from points).\n\n### Downloads\n- [moge_1_vitl_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_1_vitl_fp16.safetensors)\n- [moge_2_vitl_normal_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 geometry_estimation/\n\u2502       \u251c\u2500\u2500 moge_2_vitl_normal_fp16.safetensors\n\u2502       \u2514\u2500\u2500 moge_1_vitl_fp16.safetensors\n```\n\nGuide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n### Issues\nUpdate ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)), then install models.\n- Runtime: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 52,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            -5680,
+            5000
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            690,
+            1010
+          ],
+          "title": "Model Link",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## MoGe \u2014 models & downloads\n\nResearch repo: [microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR'25, monocular geometry from a single image).\n\nComfyUI weights: [Comfy-Org/MoGe](https://huggingface.co/Comfy-Org/MoGe) \u2192 `models/geometry_estimation/`\n\n### Which checkpoint to use\n\n| File | Version | Use when |\n|------|---------|----------|\n| `moge_1_vitl_fp16` | **MoGe-1** | Point map + depth + mask; relative scale. Lighter baseline. |\n| `moge_2_vitl_normal_fp16` | **MoGe-2** | **Recommended.** Metric-scale depth/points, sharper detail, **normal maps** (needed for normal previews & better mesh edges). |\n\nMoGe-2 adds metric scale and normals in one forward pass; MoGe-1 does not predict normals (normals in previews may be derived from points).\n\n### Downloads\n- [moge_1_vitl_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_1_vitl_fp16.safetensors)\n- [moge_2_vitl_normal_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 geometry_estimation/\n\u2502       \u251c\u2500\u2500 moge_2_vitl_normal_fp16.safetensors\n\u2502       \u2514\u2500\u2500 moge_1_vitl_fp16.safetensors\n```\n\nGuide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n### Issues\nUpdate ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)), then install models.\n- Runtime: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## MoGe \u2014 models & downloads\n\nResearch repo: [microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR'25, monocular geometry from a single image).\n\nComfyUI weights: [Comfy-Org/MoGe](https://huggingface.co/Comfy-Org/MoGe) \u2192 `models/geometry_estimation/`\n\n### Which checkpoint to use\n\n| File | Version | Use when |\n|------|---------|----------|\n| `moge_1_vitl_fp16` | **MoGe-1** | Point map + depth + mask; relative scale. Lighter baseline. |\n| `moge_2_vitl_normal_fp16` | **MoGe-2** | **Recommended.** Metric-scale depth/points, sharper detail, **normal maps** (needed for normal previews & better mesh edges). |\n\nMoGe-2 adds metric scale and normals in one forward pass; MoGe-1 does not predict normals (normals in previews may be derived from points).\n\n### Downloads\n- [moge_1_vitl_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_1_vitl_fp16.safetensors)\n- [moge_2_vitl_normal_fp16.safetensors](https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 geometry_estimation/\n\u2502       \u251c\u2500\u2500 moge_2_vitl_normal_fp16.safetensors\n\u2502       \u2514\u2500\u2500 moge_1_vitl_fp16.safetensors\n```\n\nGuide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n### Issues\nUpdate ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)), then install models.\n- Runtime: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n"
+        ]
+      },
+      "uid": "52",
+      "widgets": {}
+    },
+    "67": {
+      "class_type": "936dfaf2-575a-48b5-9e0c-df391319d11f",
+      "id": "67",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 67,
+          "inputs": [
+            {
+              "link": 84,
+              "name": "source_image",
+              "type": "IMAGE"
+            },
+            {
+              "label": "auto_resize_input",
+              "link": null,
+              "name": "switch",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "switch"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                92
+              ],
+              "name": "mesh",
+              "type": "MESH"
+            },
+            {
+              "links": [
+                88
+              ],
+              "name": "normal_opengl",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                89
+              ],
+              "name": "normal_directx",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -3950,
+            5000
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "proxyWidgets": [
+              [
+                "55",
+                "resolution_level"
+              ],
+              [
+                "55",
+                "batch_size"
+              ],
+              [
+                "54",
+                "batch_index"
+              ],
+              [
+                "54",
+                "decimation"
+              ],
+              [
+                "54",
+                "discontinuity_threshold"
+              ],
+              [
+                "54",
+                "texture"
+              ],
+              [
+                "58",
+                "model_name"
+              ],
+              [
+                "66",
+                "switch"
+              ]
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {
+                "switch": true
+              }
+            },
+            "ver": "0.21.1"
+          },
+          "size": [
+            430,
+            480
+          ],
+          "type": "936dfaf2-575a-48b5-9e0c-df391319d11f",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "67",
+      "widgets": {}
+    },
+    "70": {
+      "class_type": "Preview3D",
+      "id": "70",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 70,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": null,
+              "name": "bg_image",
+              "shape": 7,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [],
+          "pos": [
+            -3479.9232073015155,
+            5580.711876184896
+          ],
+          "properties": {
+            "Camera Config": {
+              "cameraType": "perspective",
+              "fov": 35
+            },
+            "Last Time Model File": "",
+            "Light Config": {
+              "hdri": {
+                "enabled": false,
+                "hdriPath": "",
+                "intensity": 1,
+                "showAsBackground": false
+              },
+              "intensity": 3
+            },
+            "Node name for S&R": "Preview3D",
+            "Scene Config": {
+              "backgroundColor": "#282828",
+              "backgroundImage": "",
+              "backgroundRenderMode": "tiled",
+              "showGrid": true
+            },
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.22.0"
+          },
+          "size": [
+            400,
+            550
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "70",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "id": "9",
+      "inputs": {
+        "image": "ComfyUI_00001_.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                84
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -4390,
+            5000
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.8",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.21.1"
+          },
+          "size": [
+            390,
+            440
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "ComfyUI_00001_.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI_00001_.png",
+          "image"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "46",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "47",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "c7395e4ceaf30c57",
+    "path": "external_workflows/.shadow/source/c7395e4ceaf30c57-3d_moge_perspective_to_mesh_1.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d93baf73c8a43f57ec89adc13784ef2c596860c94d16d0d5439dd82151798ac3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1510238802000609484",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1510238802000609484:3d_moge_perspective_to_mesh_1.json:c7395e4ceaf30c57",
+      "filename": "3d_moge_perspective_to_mesh_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:58+00:00",
+      "message_id": 1510238802000609484,
+      "node_class_multiset": {
+        "936dfaf2-575a-48b5-9e0c-df391319d11f": 1,
+        "LoadImage": 1,
+        "MarkdownNote": 2,
+        "Preview3D": 1,
+        "PreviewImage": 2,
+        "SaveGLB": 1
+      },
+      "node_count": 8,
+      "origin_date": "2026-05-30T11:09:49.277000+00:00",
+      "originator_global_name": "hicho",
+      "originator_id": "1279467736187146242",
+      "originator_type": "discord_message_author",
+      "originator_username": "hichoguy",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c7395e4ceaf30c57f9321df539af548bb81efa862eaaeef8fca8dae8a31ed1ba",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1510238801698488420/3d_moge_perspective_to_mesh_1.json?ex=6a1c16fd&is=6a1ac57d&hm=64eef7dd8604b4a5e7fd5b6ffc31934017f39a158ad702417470189a0dc5453b&",
+      "source_workflow_sha256": "95f94a246fb0c2d87af30592537d5db2b2def9d35526820a32944e15e35fe61f",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

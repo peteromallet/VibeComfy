@@ -1,0 +1,287 @@
+{
+  "1": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "device": "default",
+      "type": "qwen_image"
+    }
+  },
+  "10": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        0
+      ],
+      "text": [
+        "54",
+        0
+      ]
+    }
+  },
+  "14": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "test/test",
+      "images": [
+        "3",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "PathchSageAttentionKJ",
+    "inputs": {
+      "allow_compile": true,
+      "model": [
+        "19",
+        0
+      ],
+      "sage_attention": "sageattn_qk_int8_pv_fp8_cuda++"
+    }
+  },
+  "19": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "Real-Qwen-Image-V2-2512-Q8_0.gguf"
+    }
+  },
+  "2": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "batch_size": 1,
+      "height": 1024,
+      "width": 1024
+    }
+  },
+  "20": {
+    "class_type": "ResolutionMaster",
+    "inputs": {
+      "widget_0": "Manual",
+      "widget_1": "latent_4x8",
+      "widget_2": 1456,
+      "widget_3": 1120,
+      "widget_4": false,
+      "widget_5": "resolution",
+      "widget_6": 1.1276460248233233,
+      "widget_7": 1
+    }
+  },
+  "28": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "48",
+        1
+      ],
+      "vae": [
+        "6",
+        0
+      ]
+    }
+  },
+  "29": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "28",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "51",
+        0
+      ],
+      "vae": [
+        "6",
+        0
+      ]
+    }
+  },
+  "31": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "Qwen Edit\\Qwen-Image-2512-Lightning-8steps-V1.0-fp32.safetensors",
+      "model": [
+        "16",
+        0
+      ],
+      "strength_model": 1
+    }
+  },
+  "32": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "31",
+        0
+      ],
+      "shift": 3.1000000000000005
+    }
+  },
+  "41": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "10",
+        0
+      ]
+    }
+  },
+  "47": {
+    "class_type": "SplitSigmas",
+    "inputs": {
+      "sigmas": [
+        "60",
+        0
+      ],
+      "widget_0": 6
+    }
+  },
+  "48": {
+    "class_type": "SamplerCustom",
+    "inputs": {
+      "latent_image": [
+        "20",
+        4
+      ],
+      "model": [
+        "32",
+        0
+      ],
+      "negative": [
+        "41",
+        0
+      ],
+      "positive": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "49",
+        0
+      ],
+      "sigmas": [
+        "47",
+        0
+      ],
+      "widget_0": true,
+      "widget_1": 0,
+      "widget_2": "fixed",
+      "widget_3": 1
+    }
+  },
+  "49": {
+    "class_type": "ClownSampler_Beta",
+    "inputs": {
+      "widget_0": 0.6,
+      "widget_1": "exponential/res_2s",
+      "widget_2": 1,
+      "widget_3": "fixed",
+      "widget_4": true
+    }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        0
+      ],
+      "text": "This greyscale unfinished sketch has bad proportions, is featureless and disfigured. It is a blurry ugly mess and with excessive gaussian blur. It is riddled with watermarks and signatures. Everything is smudged with leaking colors and nonsensical orientation of objects. Messy and abstract image filled with artifacts disrupt the coherency of the overall composition. The image has extreme chromatic abberations and inconsistent lighting. Dull, monochrome colors and countless artistic errors. shallow depth of field, softly blurred, blurred background, out of focus, anatomically inaccurate, anatomical nonsense, multi, clone, copy, duplicate, extra fingers, bad composition, fake, ugly, bad art, bad anatomy, draft, anatomically inaccurate, anatomical nonsense, multiple images, watermark, border, body horror, deformed, disfigured, glitch, bad proportions"
+    }
+  },
+  "50": {
+    "class_type": "ClownSampler_Beta",
+    "inputs": {
+      "widget_0": 0.4,
+      "widget_1": "exponential/res_2s",
+      "widget_2": 0,
+      "widget_3": "fixed",
+      "widget_4": true
+    }
+  },
+  "51": {
+    "class_type": "SamplerCustom",
+    "inputs": {
+      "latent_image": [
+        "53",
+        0
+      ],
+      "model": [
+        "32",
+        0
+      ],
+      "negative": [
+        "41",
+        0
+      ],
+      "positive": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "50",
+        0
+      ],
+      "sigmas": [
+        "47",
+        1
+      ],
+      "widget_0": true,
+      "widget_1": 0,
+      "widget_2": "fixed",
+      "widget_3": 1
+    }
+  },
+  "53": {
+    "class_type": "LatentUpscaleBy",
+    "inputs": {
+      "samples": [
+        "48",
+        1
+      ],
+      "widget_0": "bislerp",
+      "widget_1": 1.5
+    }
+  },
+  "54": {
+    "class_type": "PromptStashSaver",
+    "inputs": {
+      "widget_0": false,
+      "widget_1": "A feet-first perspective of two women lying on their backs, leaning on their elbows.\n\nThe woman on the left has an angular East Asian facial structure with a sharp jawline, high cheekbones, and perfectly formed features; her straight, thick chestnut hair falls over her right shoulder in a natural, flowing manner. \nThe woman on the left shows \"QWEN2512\" hand written in light blue color on her left's sole. She wears a greenish monokini.\n\nThe woman on the right has a Northern European facial structure with a softer, rounded jaw, a prominent nose bridge marked by light freckles, and light auburn hair with a fine, wavy texture that lifts gently in the breeze. \nThe woman on right shows \"/LDG\" hand written in red color on her right's sole. She wears a white bikini with strawberries motif.\n\nBoth women exhibit naturally toned, athletic physiques with balanced proportions and perfectly formed limbs, they keep direct eye contact with calm, neutral gazes and slightly parted lips. \n\nThe scene is illuminated by a warm, golden-hour backlight that creates a diffused glow and casts long, soft shadows across the fine white sand, which is smooth and damp in patches with scattered natural seashells along the towel\u2019s edges. \n\nIn the background, a turquoise ocean reflects the sky in gentle ripples under a horizon transitioning from pale blue to soft orange, while the shoreline blends into the distance with a shallow depth of field that maintains razor-sharp focus on their facial features and skin sheen, blurring the background in a naturalistic, soft gradient. Every anatomical detail is rendered with precise clarity: the unpolished fingernails show clear nail beds and natural texture, the skin exhibits subtle pores and a healthy sheen, and the overall composition reflects architectural precision in form, proportion, and spatial depth.",
+      "widget_2": "2girls beach",
+      "widget_3": "None",
+      "widget_4": "Realistic Prompt"
+    }
+  },
+  "6": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "60": {
+    "class_type": "Sigmas From Text",
+    "inputs": {
+      "widget_0": "1.0, 0.9807878732681274, 0.9586856961250305, 0.9329885244369507, 0.9027414917945862, 0.8666188716888428, 0.8227245807647705, 0.7682479023933411, 0.6988377571105957, 0.6073780655860901, 0.4813782870769501, 0.29671740531921387, 0.0"
+    }
+  },
+  "61": {
+    "class_type": "BetaSamplingScheduler",
+    "inputs": {
+      "model": [
+        "19",
+        0
+      ],
+      "widget_0": 12,
+      "widget_1": 1.12,
+      "widget_2": 0.91
+    }
+  }
+}

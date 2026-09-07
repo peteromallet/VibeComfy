@@ -1,0 +1,237 @@
+{
+  "4958": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "codec": "auto",
+      "filename_prefix": "video/LTX-2",
+      "format": "auto",
+      "video": [
+        "5190",
+        0
+      ]
+    }
+  },
+  "5173": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "frame_rate": [
+        "5184",
+        0
+      ],
+      "negative": [
+        "5223",
+        0
+      ],
+      "positive": [
+        "5174",
+        0
+      ]
+    }
+  },
+  "5174": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "5225",
+        0
+      ],
+      "text": [
+        "5225",
+        0
+      ]
+    }
+  },
+  "5175": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "APPEARANCE two cartoon mice in a dim lab corridor \u2014 one tall grey mouse (Pinky), one small white mouse in a lab coat (Brain). Background \u2013 metal cages, flickering lights\n\nBrain turns to Pinky and says \u201cBack to the cage\u2026 to plan for tomorrow night.\u201d Pinky tilts head and asks \u201cWhy? What are we going to do tomorrow night?\u201d\ntransition: slow dolly-in on Brain\u2019s face as he grins\n\nThe small mouse throws arms wide and says \u201cThe same thing we do every night\u2026 keep pushing and onboard the world with the power of Shib!\u201d And starts laughing maniacally, head thrown back.\n"
+    }
+  },
+  "5176": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-2-19b-dev-fp8.safetensors"
+    }
+  },
+  "5178": {
+    "class_type": "LTXVGemmaCLIPModelLoader",
+    "inputs": {
+      "gemma_path": "gemma-3-12b-it-bnb-4bit\\model-00001-of-00002.safetensors",
+      "ltxv_path": "ltx-2-19b-dev-fp8.safetensors",
+      "max_length": 1024
+    }
+  },
+  "5184": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 24
+    }
+  },
+  "5185": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "batch_size": 1,
+      "color": 0,
+      "height": 432,
+      "width": 768
+    }
+  },
+  "5186": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 505,
+      "widget_1": "fixed"
+    }
+  },
+  "5188": {
+    "class_type": "LTXVAudioVAELoader",
+    "inputs": {
+      "ckpt_name": "ltx-2-19b-dev-fp8.safetensors"
+    }
+  },
+  "5189": {
+    "class_type": "3eaa20c4-5842-4fe4-87df-c0a7e83a6a78",
+    "inputs": {
+      "a": [
+        "5218",
+        1
+      ],
+      "audio": [
+        "5216",
+        2
+      ],
+      "audio_vae": [
+        "5188",
+        0
+      ],
+      "frame_rate": [
+        "5196",
+        0
+      ],
+      "image_1": [
+        "5185",
+        0
+      ],
+      "images": [
+        "5216",
+        0
+      ],
+      "length": [
+        "5186",
+        0
+      ],
+      "model": [
+        "5222",
+        0
+      ],
+      "model_1": [
+        "5222",
+        0
+      ],
+      "negative": [
+        "5173",
+        1
+      ],
+      "noise_seed": 1,
+      "positive": [
+        "5173",
+        0
+      ],
+      "strength": 121,
+      "upscale_model_1": [
+        "5210",
+        0
+      ],
+      "vae": [
+        "5176",
+        2
+      ],
+      "widget_2": 42,
+      "widget_3": 0
+    }
+  },
+  "5190": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "audio": [
+        "5189",
+        1
+      ],
+      "fps": [
+        "5218",
+        0
+      ],
+      "images": [
+        "5189",
+        0
+      ]
+    }
+  },
+  "5196": {
+    "class_type": "CM_FloatToInt",
+    "inputs": {
+      "a": [
+        "5218",
+        0
+      ],
+      "widget_0": 0
+    }
+  },
+  "5210": {
+    "class_type": "LatentUpscaleModelLoader",
+    "inputs": {
+      "model_name": "ltx-2-spatial-upscaler-x2-1.0.safetensors"
+    }
+  },
+  "5216": {
+    "class_type": "VHS_LoadVideo",
+    "inputs": {
+      "custom_height": 0,
+      "custom_width": 0,
+      "force_rate": 24,
+      "format": "AnimateDiff",
+      "frame_load_cap": 233,
+      "select_every_nth": 1,
+      "skip_first_frames": 0,
+      "video": "The Same Thing We Do Every Night... - A Pinky and The Brain Compilation - James M. Smith (480p, h264) (online-video-cutter.com).mp4"
+    }
+  },
+  "5218": {
+    "class_type": "VHS_VideoInfoLoaded",
+    "inputs": {
+      "video_info": [
+        "5216",
+        3
+      ]
+    }
+  },
+  "5222": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "ltx-2-19b-distilled-lora_resized_dynamic_fro09_avg_rank_175_fp8.safetensors",
+      "model": [
+        "5176",
+        0
+      ],
+      "strength_model": 0.6
+    }
+  },
+  "5223": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "5225",
+        0
+      ],
+      "text": "blurry, low quality, still frame, frames, watermark, overlay, titles, has blurbox, has subtitles"
+    }
+  },
+  "5225": {
+    "class_type": "LTXAVTextEncoderLoader",
+    "inputs": {
+      "ckpt_name": "ltx-2-19b-dev-fp8.safetensors",
+      "device": "default",
+      "text_encoder": "gemma_3_12B_it_heretic_fp8_e4m3fn.safetensors"
+    }
+  }
+}

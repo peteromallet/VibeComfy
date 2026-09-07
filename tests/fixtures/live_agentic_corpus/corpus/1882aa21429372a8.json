@@ -1,0 +1,1075 @@
+{
+  "edges": [
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "14"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "10"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "12"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "init_image",
+      "to_node": "12"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "12"
+    }
+  ],
+  "groups": [],
+  "id": "0ae49a8c7a95d3e4",
+  "inputs": {
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 237514639057514
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SaveAnimatedWEBP",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ComfyUI'"
+          ],
+          [
+            "widget_1",
+            "10"
+          ],
+          [
+            "widget_2",
+            "False"
+          ],
+          [
+            "widget_3",
+            "85"
+          ],
+          [
+            "widget_4",
+            "'default'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "23",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "14"
+          ],
+          [
+            "widget_3",
+            "127"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "ImageOnlyCheckpointLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "12",
+              "clip_vision"
+            ]
+          ],
+          [
+            "2",
+            [
+              "12",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'svd.safetensors'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "init_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'mountains.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "12",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "12",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "2.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "237514639057514"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1882aa21429372a87a7cdc5e9f86c5aa887a0bcbf0cdb57c7a4d5ef373fb4fc2",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Add json workflows since some people have trouble importing the webp.",
+      "commit_sha": "e59dcc00a0dcce4d2f91f7474a2ff261fe12d27b",
+      "commit_url": "https://github.com/comfyanonymous/ComfyUI_examples/commit/e59dcc00a0dcce4d2f91f7474a2ff261fe12d27b",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:video/workflow_image_to_video.json:workflow_image_to_video.json:0ae49a8c7a95d3e4",
+      "filename": "workflow_image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:13+00:00",
+      "node_class_multiset": {
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveAnimatedWEBP": 1,
+        "VAEDecode": 1,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 7,
+      "origin_date": "2023-11-24T07:34:53Z",
+      "originator_email": "comfyanonymous@protonmail.com",
+      "originator_login": "comfyanonymous",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_examples",
+      "repo_branch": "master",
+      "repo_path": "video/workflow_image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "0ae49a8c7a95d3e464c264e5095168bf568720407a8d2eb33e0b8b47d2119854",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/video/workflow_image_to_video.json",
+      "source_workflow_sha256": "3370cc3da38d657ba1f448cf6900e2de8cee244fbf885b9e0639511a3ee5f3c1",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "75cc77b7976e394a0c7096683d0f14a7d124b4cf9a52b6df273d50cd15abcd32",
+      "complexity": 3,
+      "description": "Loads an image, applies Stable Video Diffusion (SVD) conditioning with an ImageOnlyCheckpoint, samples with linear CFG guidance, decodes the latent, and saves the result as an animated WebP.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "image-to-video",
+        "svd",
+        "animated-webp",
+        "video-generation",
+        "image-conditioning"
+      ],
+      "task_type": "animation",
+      "title": "Image-to-Video with SVD and WebP Output"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SaveAnimatedWEBP",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 10,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "pos": [
+            1459,
+            376
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAnimatedWEBP"
+          },
+          "size": {
+            "0": 741.6685791015625,
+            "1": 564.5909423828125
+          },
+          "type": "SaveAnimatedWEBP",
+          "widgets_values": [
+            "ComfyUI",
+            10,
+            false,
+            85,
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI",
+          10,
+          false,
+          85,
+          "default"
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": "ComfyUI",
+        "widget_1": 10,
+        "widget_2": false,
+        "widget_3": 85,
+        "widget_4": "default"
+      }
+    },
+    "12": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 41,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 25,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                17
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                18
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            487.799932861328,
+            395.6999450683598
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": {
+            "0": 315,
+            "1": 218
+          },
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            14,
+            127,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          14,
+          127,
+          6,
+          0
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 14,
+        "widget_3": 127,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "14": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 23,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                39
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            487.799932861328,
+            265.6999450683599
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "15": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                24
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP_VISION"
+            },
+            {
+              "links": [
+                25,
+                26
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            55,
+            267
+          ],
+          "properties": {
+            "Node name for S&R": "ImageOnlyCheckpointLoader"
+          },
+          "size": {
+            "0": 369.6000061035156,
+            "1": 98
+          },
+          "type": "ImageOnlyCheckpointLoader",
+          "widgets_values": [
+            "svd.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "svd.safetensors"
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "svd.safetensors"
+      }
+    },
+    "23": {
+      "class_type": "LoadImage",
+      "id": "23",
+      "inputs": {
+        "image": "mountains.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                41
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            106,
+            441
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 314.0000305175781
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "mountains.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mountains.png",
+          "image"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 2.5,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "karras",
+        "seed": 237514639057514,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 39,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 40,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 17,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 18,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            867.7999328613287,
+            375.6999450683598
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            237514639057514,
+            "randomize",
+            20,
+            2.5,
+            "euler",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          237514639057514,
+          "randomize",
+          20,
+          2.5,
+          "euler",
+          "karras",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 26,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                10
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1207.799932861331,
+            375.6999450683598
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "10",
+      "output_type": "SaveAnimatedWEBP"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "0ae49a8c7a95d3e4",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/0ae49a8c7a95d3e4-workflow_image_to_video.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1882aa21429372a87a7cdc5e9f86c5aa887a0bcbf0cdb57c7a4d5ef373fb4fc2",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Add json workflows since some people have trouble importing the webp.",
+      "commit_sha": "e59dcc00a0dcce4d2f91f7474a2ff261fe12d27b",
+      "commit_url": "https://github.com/comfyanonymous/ComfyUI_examples/commit/e59dcc00a0dcce4d2f91f7474a2ff261fe12d27b",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:video/workflow_image_to_video.json:workflow_image_to_video.json:0ae49a8c7a95d3e4",
+      "filename": "workflow_image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:13+00:00",
+      "node_class_multiset": {
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveAnimatedWEBP": 1,
+        "VAEDecode": 1,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 7,
+      "origin_date": "2023-11-24T07:34:53Z",
+      "originator_email": "comfyanonymous@protonmail.com",
+      "originator_login": "comfyanonymous",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_examples",
+      "repo_branch": "master",
+      "repo_path": "video/workflow_image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "0ae49a8c7a95d3e464c264e5095168bf568720407a8d2eb33e0b8b47d2119854",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI_examples/master/video/workflow_image_to_video.json",
+      "source_workflow_sha256": "3370cc3da38d657ba1f448cf6900e2de8cee244fbf885b9e0639511a3ee5f3c1",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

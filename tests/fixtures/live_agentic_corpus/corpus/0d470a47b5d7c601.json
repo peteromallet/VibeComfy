@@ -1,0 +1,222 @@
+{
+  "100": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un183": [
+        "82",
+        0
+      ]
+    }
+  },
+  "124": {
+    "class_type": "QwenEmotionNode",
+    "inputs": {
+      "widget_0": "qwen0.6bemo4-merge",
+      "widget_1": "Sarcastic calm character slowly speaking: {seg}"
+    }
+  },
+  "125": {
+    "class_type": "IndexTTSEmotionOptionsNode",
+    "inputs": {
+      "widget_0": 0,
+      "widget_1": 0,
+      "widget_2": 0,
+      "widget_3": 0,
+      "widget_4": 0,
+      "widget_5": 0,
+      "widget_6": 1.2,
+      "widget_7": 0
+    }
+  },
+  "126": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un219": [
+        "125",
+        0
+      ]
+    }
+  },
+  "127": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un220": [
+        "124",
+        0
+      ]
+    }
+  },
+  "128": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un221": [
+        "130",
+        0
+      ]
+    }
+  },
+  "129": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un222": [
+        "131",
+        0
+      ]
+    }
+  },
+  "130": {
+    "class_type": "CharacterVoicesNode",
+    "inputs": {
+      "widget_0": "voices_examples/David_Attenborough CC3.wav",
+      "widget_1": ""
+    }
+  },
+  "131": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "Evelynn_ Agony s Embrace _ Voice Lines _ League of Legends (mp3cut.net) (3).mp3"
+    }
+  },
+  "132": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un228": [
+        "98",
+        0
+      ]
+    }
+  },
+  "135": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "Voice - Samira, the Desert Rose [SUBBED] - English.mp3"
+    }
+  },
+  "137": {
+    "class_type": "SaveAudioMP3",
+    "inputs": {
+      "audio": [
+        "47",
+        0
+      ],
+      "filename_prefix": "Personal/ProjectDelta/Audio/ComfyUI",
+      "quality": "V0"
+    }
+  },
+  "138": {
+    "class_type": "IndexTTSEngineNode",
+    "inputs": {
+      "emotion_control": [
+        "126",
+        0
+      ],
+      "widget_0": "local:IndexTTS-2",
+      "widget_1": "auto",
+      "widget_10": 0,
+      "widget_11": 10,
+      "widget_12": 4,
+      "widget_13": 1500,
+      "widget_14": true,
+      "widget_15": false,
+      "widget_16": "auto",
+      "widget_17": false,
+      "widget_18": false,
+      "widget_19": false,
+      "widget_2": 2,
+      "widget_20": 0,
+      "widget_3": false,
+      "widget_4": 120,
+      "widget_5": 200,
+      "widget_6": 0.1,
+      "widget_7": 0.8,
+      "widget_8": 30,
+      "widget_9": true
+    }
+  },
+  "47": {
+    "class_type": "UnifiedTTSTextNode",
+    "inputs": {
+      "TTS_engine": [
+        "138",
+        0
+      ],
+      "opt_narrator": [
+        "51",
+        0
+      ],
+      "text": [
+        "99",
+        0
+      ],
+      "widget_0": "Hello! This is unified TTS with character switching support.\n[Alice] Hi there! I'm Alice speaking with the selected TTS engine.\n[Bob] And I'm Bob! This works with any TTS engine.\nBack to the main narrator voice for the conclusion.",
+      "widget_1": "none",
+      "widget_2": 2979319074,
+      "widget_3": "randomize",
+      "widget_4": true,
+      "widget_5": 400,
+      "widget_6": "auto",
+      "widget_7": 100,
+      "widget_8": true,
+      "widget_9": 0
+    }
+  },
+  "50": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "47",
+        1
+      ]
+    }
+  },
+  "51": {
+    "class_type": "CharacterVoicesNode",
+    "inputs": {
+      "opt_audio_input": [
+        "135",
+        0
+      ],
+      "widget_0": "none",
+      "widget_1": " The sad mummy! My mama used to tell stories about you when I was a girl. How I loved them. Shurima needs no emperor. I know your type, Draven. The kind of man who's compensated for something. That gauntlet would be better off without you, kid. You seem kind of pale, LeBlanc. Sure you're getting enough, son?  Sarah, is it? I've killed many captains. Let's see how you measure up. A talking turtle? Okay, maybe I did have one too many. Sivir, you say you'll do anything for the right price, but what's the price of one's destiny? Hey, old man, how long you got before that demon takes over? Honestly, Lanternman, not sure you can handle my soul.  Zereth, your people ended my home. I will end your existence! If you can't keep up, don't step up. I don't have time for fools. Listen up, you sorry lot. Only one rule for this mission. Take no prisoners. I've got two rules for every fight.  If they think I kill for fame and fortune, ha! They're idiots, just like all the others. I chose this life. And sure, someday it might get me killed. But till then, I'm unstoppable. Those who followed the Ascendant burned away my home. So don't expect me to follow anyone. Indari was a great captain.  I taught me how to shoot. I taught myself how to kill. I care most about my warband or my family. Order changes depending on who gets on my nerves. Born in Shurima, raised by Noxus. Maybe I'll die in Demacia to make things interesting, huh? People always ask about my weapons. Right hand blaze, left hand thorn. Vanquish on the back? Simple as that. Sometimes I'm the hero,  Other times, I'm the villain. It's all a matter of perspective. Growing up, my maman taught me one lesson. Death isn't the scariest thing, it's a mother's rage. Darius, Swain, those names mean little to me. I answer to myself. I'm not here to make friends. Don't worry, Azir. You'll be remembered as a tyrant.  Maybe you should have smiled more. Ah, what was your dumb name again? Leave the kid, take the gauntlet. Not the first LeBlanc I've killed. Probably not the last either. Your guns have a better home now, Sara. Oh, I'm just getting started. Not sure if I just killed an Ascendant or some kid's lost pet. Ah well. Guess you don't need to run from destiny anymore, Sivir.  Be thankful I got to you before your demon did. Don't say I didn't warn you, Lantern Man. Ugh, gross. At least my boots are looking brighter. Shurima, no. The world is better off without you, Xerath. Flawless. Idiot. Not sorry. Done and dusted. Lucky for you, the last thing you saw was me.  Oh! Did I step on your moment? My time is precious. Your life is not. Ha! I win! Huh. Less than yesterday, at least. Hmm. How come no one ever tells me to reload? Oh. I really gotta check these more often. Ugh! I missed a freaking cliff-diving trip for this crap! Keep the change! You're gonna need it.  You're dead weight. Buy something nice. On me. Get a haircut. Trust me. It's alright if you don't like me. We can't all have good taste. This took years of practice. For everyone else. Taking a quick break. Try not to die while I'm gone. How did that old trick go again? Ah, right. Believe me.  Live fast, die young. Another round, ante up. Look out, guys, gals, and other pals. Samira's back. Over here. Eyes up. Keep up. Too slow. Jackpot. Showtime. My kind of rain. No better time to die. Never look back. Weapons hot. It's about to get messy.  Nah! Nah! Nope! Don't think so! Nice try! Virtues? I've got a few. Vices? A few more. Some choose steel, others bullets. Why not both? In every girl, there is a queen. I am the beauty and the beast. Only need one eye to hit my mark.  Behaved women don't make it in Noxus. I'm not built to win, I'm built to conquer. Oh, how great it would feel to shoot my past in the face. Nothing more lethal than comfort. I don't work, I slay. Last person I loved thought I was too reckless. Their loss, I never go out of style. Hope I get some blood on these boots.  The color's a bit dull. Danger runs from me. The Empire values strength. I value style. We're good partners. I'm the rose that survived the desert. Refugee. That label is where I draw my strength. Money buys a gun or two. Thrill buys a reputation. I be average when I can be savage.  Alive when I'm walking the line! Guns and swords go together like rice and saffron. The Ascended think they own my people. They are wrong. Life's simple. Take the shot or lose the chance. My folks keep telling me to settle down. Not my style. Thrilling! Maybe I'll get a tattoo to celebrate the occasion.  Push my limits, I dare you. Finally, some action. You look promising. I'm bored. Fight me. I fight on my terms. Don't hold back. I won't. Well, look at you. I'll take care of this. Seize the moment. Lookie here. Target practice.  And I'm not even looking. Don't mess with me. You're mine. Next breath might be your last. Bah, like teresh me all over again. On my worst behavior. Came all this way to die? Think fast. Always bet on me. Settle down, sweet cake. Push off. Style never fades.  At least I didn't die of boredom. The term PsyOps, short for Psychic Operations. My name's Samira. Short for Styling on Idiots. I command, BRG, whatever. I go where the thrill goes.  Refugee mercenary, the inspiration of a generation."
+    }
+  },
+  "53": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un242": [
+        "138",
+        0
+      ]
+    }
+  },
+  "65": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "I have a map of every mistake I ever made stitched into the inside of my jacket. Names fade, coins vanish, but I remember which faces I trusted and which storms were worth sailing through. I lead not because I crave praise, but because someone has to turn plans into paths when the mountain roars. My hands are older than my temper, and that\u2019s a mercy\u2014steel learns patience faster than flesh does. If you ask me to teach, I will show you how to tie a knot that won\u2019t betray you and how to speak to a coward so he finds his spine. If you ask me to fight, I will tell you exactly how much danger is worth the promise at the other end. There\u2019s no glory in survival\u2014only the quiet tallying of what we keep. Take that or leave it; I\u2019ll be awake at first light either way."
+    }
+  },
+  "82": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "On Tuesdays, the pigeons held parliament.\n[Alice:crestfallen_original] They debated the ethics of breadcrumbs and the metaphysics of flight. \n[Bob:Alice] One particularly philosophical pigeon named Thistle believed gravity was just a suggestion.\n[Cowboy:crestfallen_original] He once floated for three minutes straight, fueled by sheer conviction and a gust of rebellious wind."
+    }
+  },
+  "98": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un179": [
+        "65",
+        0
+      ]
+    }
+  },
+  "99": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un227": [
+        "132",
+        0
+      ]
+    }
+  }
+}

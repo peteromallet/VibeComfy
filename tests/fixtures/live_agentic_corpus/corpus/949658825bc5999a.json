@@ -1,0 +1,3946 @@
+{
+  "edges": [
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "mask",
+      "to_node": "14"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "mask",
+      "to_node": "15"
+    },
+    {
+      "from_node": "17",
+      "from_output": "1",
+      "to_input": "segs",
+      "to_node": "16"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "segs",
+      "to_node": "17"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "segs",
+      "to_node": "19"
+    },
+    {
+      "from_node": "36",
+      "from_output": "0",
+      "to_input": "bbox_detector",
+      "to_node": "20"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "20"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "21"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "crop_image",
+      "to_node": "21"
+    },
+    {
+      "from_node": "42",
+      "from_output": "0",
+      "to_input": "bbox",
+      "to_node": "21"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "22"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "23"
+    },
+    {
+      "from_node": "26",
+      "from_output": "0",
+      "to_input": "mask",
+      "to_node": "23"
+    },
+    {
+      "from_node": "44",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "24"
+    },
+    {
+      "from_node": "46",
+      "from_output": "1",
+      "to_input": "_un36",
+      "to_node": "26"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "27"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "value",
+      "to_node": "28"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "value",
+      "to_node": "30"
+    },
+    {
+      "from_node": "30",
+      "from_output": "2",
+      "to_input": "width",
+      "to_node": "31"
+    },
+    {
+      "from_node": "30",
+      "from_output": "1",
+      "to_input": "height",
+      "to_node": "31"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "32"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "mask",
+      "to_node": "32"
+    },
+    {
+      "from_node": "32",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "33"
+    },
+    {
+      "from_node": "32",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "34"
+    },
+    {
+      "from_node": "35",
+      "from_output": "0",
+      "to_input": "_un46",
+      "to_node": "37"
+    },
+    {
+      "from_node": "40",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "38"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "39"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "crop_image",
+      "to_node": "39"
+    },
+    {
+      "from_node": "31",
+      "from_output": "0",
+      "to_input": "bbox",
+      "to_node": "39"
+    },
+    {
+      "from_node": "34",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "40"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "41"
+    },
+    {
+      "from_node": "28",
+      "from_output": "2",
+      "to_input": "width",
+      "to_node": "42"
+    },
+    {
+      "from_node": "28",
+      "from_output": "1",
+      "to_input": "height",
+      "to_node": "42"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "43"
+    },
+    {
+      "from_node": "27",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "44"
+    },
+    {
+      "from_node": "46",
+      "from_output": "0",
+      "to_input": "_un35",
+      "to_node": "25"
+    }
+  ],
+  "groups": [],
+  "id": "2306e9e17c9c2081",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "model_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "36",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "bbox/face_yolov8m.pt"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "40",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 0
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "40",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "14": {
+        "class_type": "MaskPreview+",
+        "incoming_edge_sig": [
+          [
+            "mask",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "15": {
+        "class_type": "MaskPreview+",
+        "incoming_edge_sig": [
+          [
+            "mask",
+            [
+              "16",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "16": {
+        "class_type": "SegsToCombinedMask",
+        "incoming_edge_sig": [
+          [
+            "segs",
+            [
+              "17",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "17": {
+        "class_type": "ImpactSEGSOrderedFilter",
+        "incoming_edge_sig": [
+          [
+            "segs",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "segs"
+            ]
+          ],
+          [
+            "1",
+            [
+              "16",
+              "segs"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "order",
+            "True"
+          ],
+          [
+            "take_count",
+            "1"
+          ],
+          [
+            "take_start",
+            "0"
+          ],
+          [
+            "target",
+            "'confidence'"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'change take_start value to choose needed mask'"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "SegsToCombinedMask",
+        "incoming_edge_sig": [
+          [
+            "segs",
+            [
+              "17",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "mask"
+            ]
+          ],
+          [
+            "0",
+            [
+              "32",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "20": {
+        "class_type": "BboxDetectorSEGS",
+        "incoming_edge_sig": [
+          [
+            "bbox_detector",
+            [
+              "36",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "37",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "segs"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop_factor",
+            "1"
+          ],
+          [
+            "dilation",
+            "11"
+          ],
+          [
+            "drop_size",
+            "10"
+          ],
+          [
+            "labels",
+            "'all'"
+          ],
+          [
+            "threshold",
+            "0.5"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "Uncrop (mtb)",
+        "incoming_edge_sig": [
+          [
+            "bbox",
+            [
+              "42",
+              "0"
+            ]
+          ],
+          [
+            "crop_image",
+            [
+              "24",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "border_blending",
+            "0.25"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "23": {
+        "class_type": "ImageCropByMask",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ],
+          [
+            "mask",
+            [
+              "26",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "27",
+              "pixels"
+            ]
+          ],
+          [
+            "0",
+            [
+              "43",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "24": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "44",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "crop_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "25": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un35",
+            [
+              "46",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "23",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "28",
+              "value"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "26": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un36",
+            [
+              "46",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "27": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "44",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "28": {
+        "class_type": "ImpactImageInfo",
+        "incoming_edge_sig": [
+          [
+            "value",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "42",
+              "height"
+            ]
+          ],
+          [
+            "2",
+            [
+              "42",
+              "width"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "29": {
+        "class_type": "ImpactImageInfo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "30": {
+        "class_type": "ImpactImageInfo",
+        "incoming_edge_sig": [
+          [
+            "value",
+            [
+              "37",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "31",
+              "height"
+            ]
+          ],
+          [
+            "2",
+            [
+              "31",
+              "width"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "31": {
+        "class_type": "Bbox (mtb)",
+        "incoming_edge_sig": [
+          [
+            "height",
+            [
+              "30",
+              "1"
+            ]
+          ],
+          [
+            "width",
+            [
+              "30",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "39",
+              "bbox"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_2",
+            "1280"
+          ],
+          [
+            "widget_3",
+            "818"
+          ],
+          [
+            "x",
+            "0"
+          ],
+          [
+            "y",
+            "0"
+          ]
+        ]
+      },
+      "32": {
+        "class_type": "ImageCropByMask",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "37",
+              "0"
+            ]
+          ],
+          [
+            "mask",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "33",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "34",
+              "pixels"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "33": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "32",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "34": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "32",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "35": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "37",
+              "_un46"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'clipspace/clipspace-painted-masked-3891704.png [input]'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "36": {
+        "class_type": "UltralyticsDetectorProvider",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "bbox_detector"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "model_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "model_name",
+            "'bbox/face_yolov8m.pt'"
+          ]
+        ]
+      },
+      "37": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un46",
+            [
+              "35",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "30",
+              "value"
+            ]
+          ],
+          [
+            "0",
+            [
+              "32",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "39",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "38": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "40",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "39",
+              "crop_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "39": {
+        "class_type": "Uncrop (mtb)",
+        "incoming_edge_sig": [
+          [
+            "bbox",
+            [
+              "31",
+              "0"
+            ]
+          ],
+          [
+            "crop_image",
+            [
+              "38",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "37",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "41",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "border_blending",
+            "0.25"
+          ]
+        ]
+      },
+      "40": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "34",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "38",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "seed",
+            "0"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "41": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "42": {
+        "class_type": "Bbox (mtb)",
+        "incoming_edge_sig": [
+          [
+            "height",
+            [
+              "28",
+              "1"
+            ]
+          ],
+          [
+            "width",
+            [
+              "28",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "bbox"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_2",
+            "1280"
+          ],
+          [
+            "widget_3",
+            "818"
+          ],
+          [
+            "x",
+            "0"
+          ],
+          [
+            "y",
+            "0"
+          ]
+        ]
+      },
+      "43": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "44": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "27",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "24",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "0.4"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "seed",
+            "720551026165226"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "45": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'draw mask\\n'"
+          ]
+        ]
+      },
+      "46": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "_un35"
+            ]
+          ],
+          [
+            "1",
+            [
+              "26",
+              "_un36"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'clipspace/clipspace-painted-masked-2187445.png [input]'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "949658825bc5999a9b899af1f0df02ba9800729b8f7a00a9d714c79bb3d4ea64",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "content_preview": "for this you need to recreate what FaceDetailer does at its core , but thats pretty simple. I made node groups with both manual and automated (which detects whole head) masking options for that. I didnt implement SAM masking to put back onl",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1437922111162159237",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1437922111162159237:Detailer.json:2306e9e17c9c2081",
+      "filename": "Detailer.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:43+00:00",
+      "message_id": 1437922111162159237,
+      "node_class_multiset": {
+        "Bbox (mtb)": 2,
+        "BboxDetectorSEGS": 1,
+        "ImageCropByMask": 2,
+        "ImpactImageInfo": 3,
+        "ImpactSEGSOrderedFilter": 1,
+        "KSampler": 2,
+        "LoadImage": 2,
+        "MaskPreview+": 2,
+        "Note": 2,
+        "PreviewImage": 4,
+        "Reroute": 3,
+        "SegsToCombinedMask": 2,
+        "UltralyticsDetectorProvider": 1,
+        "Uncrop (mtb)": 2,
+        "VAEDecode": 2,
+        "VAEEncode": 2
+      },
+      "node_count": 33,
+      "origin_date": "2025-11-11T21:49:06.602000+00:00",
+      "originator_global_name": "Blink",
+      "originator_id": "958460477497802822",
+      "originator_type": "discord_message_author",
+      "originator_username": "blinkcankill",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "2306e9e17c9c20813c78a1cd0e8741e9ff76e0c7a25650377e172b14e69e0159",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1437922110910631936/Detailer.json?ex=697bd5d2&is=697a8452&hm=bcf93ee8ff475e8755cb832e927b7882dec6c76753ca182f4b2a7f60dfae228d&",
+      "source_workflow_sha256": "2db255277febabea1a09808d4223ce72e8c795dcc02b0bef8107e5169ca777d8",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "f62ea940d388c30b99347e4052cb866f57f7b87f41c37fbb6ddb97203b8423cc",
+      "complexity": 4,
+      "description": "This workflow loads images, detects faces using a YOLOv8 model, crops and uncrops regions, and generates previews of the processed images.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "face-detection",
+        "image-cropping",
+        "yolo",
+        "image-processing",
+        "preview"
+      ],
+      "task_type": "image_to_image",
+      "title": "Face Detection and Cropping Workflow"
+    }
+  },
+  "nodes": {
+    "14": {
+      "class_type": "MaskPreview+",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 14,
+          "inputs": [
+            {
+              "link": 21,
+              "localized_name": "mask",
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [],
+          "pos": [
+            5060.161848179455,
+            9068.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "MaskPreview+",
+            "cnr_id": "comfyui_essentials",
+            "ver": "1.1.0"
+          },
+          "size": [
+            300,
+            258
+          ],
+          "type": "MaskPreview+",
+          "widgets_values": []
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "MaskPreview+",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 15,
+          "inputs": [
+            {
+              "link": 22,
+              "localized_name": "mask",
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [],
+          "pos": [
+            4750.161848179455,
+            9068.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "MaskPreview+",
+            "cnr_id": "comfyui_essentials",
+            "ver": "1.1.0"
+          },
+          "size": [
+            290,
+            258
+          ],
+          "type": "MaskPreview+",
+          "widgets_values": []
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "15",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "SegsToCombinedMask",
+      "id": "16",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 23,
+              "localized_name": "segs",
+              "name": "segs",
+              "type": "SEGS"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                22
+              ],
+              "localized_name": "MASK",
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            4770.161848179455,
+            8998.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "SegsToCombinedMask",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            211.851171875,
+            26
+          ],
+          "type": "SegsToCombinedMask",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "16",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "ImpactSEGSOrderedFilter",
+      "id": "17",
+      "inputs": {
+        "order": true,
+        "take_count": 1,
+        "take_start": 0,
+        "target": "confidence"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": 24,
+              "localized_name": "segs",
+              "name": "segs",
+              "type": "SEGS"
+            },
+            {
+              "link": null,
+              "localized_name": "target",
+              "name": "target",
+              "type": "COMBO",
+              "widget": {
+                "name": "target"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "order",
+              "name": "order",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "order"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "take_start",
+              "name": "take_start",
+              "type": "INT",
+              "widget": {
+                "name": "take_start"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "take_count",
+              "name": "take_count",
+              "type": "INT",
+              "widget": {
+                "name": "take_count"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                25
+              ],
+              "localized_name": "filtered_SEGS",
+              "name": "filtered_SEGS",
+              "type": "SEGS"
+            },
+            {
+              "links": [
+                23
+              ],
+              "localized_name": "remained_SEGS",
+              "name": "remained_SEGS",
+              "type": "SEGS"
+            }
+          ],
+          "pos": [
+            4770.161848179455,
+            8798.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImpactSEGSOrderedFilter",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            270,
+            150
+          ],
+          "type": "ImpactSEGSOrderedFilter",
+          "widgets_values": [
+            "confidence",
+            true,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "confidence",
+          true,
+          0,
+          1
+        ]
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "18": {
+      "class_type": "Note",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 18,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            4770.161848179455,
+            8658.746601674871
+          ],
+          "properties": {},
+          "size": [
+            250,
+            88
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "change take_start value to choose needed mask"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "change take_start value to choose needed mask"
+        ]
+      },
+      "uid": "18",
+      "widgets": {
+        "widget_0": "change take_start value to choose needed mask"
+      }
+    },
+    "19": {
+      "class_type": "SegsToCombinedMask",
+      "id": "19",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 25,
+              "localized_name": "segs",
+              "name": "segs",
+              "type": "SEGS"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                21,
+                43
+              ],
+              "localized_name": "MASK",
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            5070.161848179455,
+            8988.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "SegsToCombinedMask",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            211.851171875,
+            26
+          ],
+          "type": "SegsToCombinedMask",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "BboxDetectorSEGS",
+      "id": "20",
+      "inputs": {
+        "crop_factor": 1,
+        "dilation": 11,
+        "drop_size": 10,
+        "labels": "all",
+        "threshold": 0.5
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [
+            {
+              "link": 26,
+              "localized_name": "bbox_detector",
+              "name": "bbox_detector",
+              "type": "BBOX_DETECTOR"
+            },
+            {
+              "link": 27,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "detailer_hook",
+              "name": "detailer_hook",
+              "shape": 7,
+              "type": "DETAILER_HOOK"
+            },
+            {
+              "link": null,
+              "localized_name": "threshold",
+              "name": "threshold",
+              "type": "FLOAT",
+              "widget": {
+                "name": "threshold"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "dilation",
+              "name": "dilation",
+              "type": "INT",
+              "widget": {
+                "name": "dilation"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "crop_factor",
+              "name": "crop_factor",
+              "type": "FLOAT",
+              "widget": {
+                "name": "crop_factor"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "drop_size",
+              "name": "drop_size",
+              "type": "INT",
+              "widget": {
+                "name": "drop_size"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "labels",
+              "name": "labels",
+              "type": "STRING",
+              "widget": {
+                "name": "labels"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                24
+              ],
+              "localized_name": "SEGS",
+              "name": "SEGS",
+              "type": "SEGS"
+            }
+          ],
+          "pos": [
+            4340.161848179455,
+            8818.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "BboxDetectorSEGS",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            400,
+            224
+          ],
+          "type": "BboxDetectorSEGS",
+          "widgets_values": [
+            0.5,
+            11,
+            1,
+            10,
+            "all"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          11,
+          1,
+          10,
+          "all"
+        ]
+      },
+      "uid": "20",
+      "widgets": {}
+    },
+    "21": {
+      "class_type": "Uncrop (mtb)",
+      "id": "21",
+      "inputs": {
+        "border_blending": 0.25
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "inputs": [
+            {
+              "link": 28,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 29,
+              "localized_name": "crop_image",
+              "name": "crop_image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 30,
+              "localized_name": "bbox",
+              "name": "bbox",
+              "type": "BBOX"
+            },
+            {
+              "link": null,
+              "localized_name": "border_blending",
+              "name": "border_blending",
+              "type": "FLOAT",
+              "widget": {
+                "name": "border_blending"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "outputs": [
+            {
+              "links": [
+                31
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            4970.161848179455,
+            8018.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "Uncrop (mtb)",
+            "cnr_id": "comfy-mtb",
+            "ver": "0.5.4"
+          },
+          "size": [
+            210,
+            98
+          ],
+          "type": "Uncrop (mtb)",
+          "widgets_values": [
+            0.25
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.25
+        ]
+      },
+      "uid": "21",
+      "widgets": {}
+    },
+    "22": {
+      "class_type": "PreviewImage",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "inputs": [
+            {
+              "link": 31,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 29,
+          "outputs": [],
+          "pos": [
+            5200.161848179455,
+            8008.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            246.00000000000023
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "22",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "ImageCropByMask",
+      "id": "23",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 32,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 33,
+              "localized_name": "mask",
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                37,
+                55
+              ],
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            4400.161848179455,
+            7978.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImageCropByMask",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "1.1.6"
+          },
+          "size": [
+            170.6099609375,
+            46
+          ],
+          "type": "ImageCropByMask",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "VAEDecode",
+      "id": "24",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 24,
+          "inputs": [
+            {
+              "link": 34,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [
+            {
+              "links": [
+                29
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            4800.161848179455,
+            7958.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "24",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "Reroute",
+      "id": "25",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 35,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                28,
+                32,
+                38
+              ],
+              "name": "",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            4230.161848179455,
+            8008.746601674871
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "25",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "Reroute",
+      "id": "26",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 36,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                33
+              ],
+              "name": "",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            4230.161848179455,
+            8048.746601674871
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "26",
+      "widgets": {}
+    },
+    "27": {
+      "class_type": "VAEEncode",
+      "id": "27",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 27,
+          "inputs": [
+            {
+              "link": 37,
+              "localized_name": "pixels",
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                56
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            4640.161848179455,
+            7958.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEEncode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "27",
+      "widgets": {}
+    },
+    "28": {
+      "class_type": "ImpactImageInfo",
+      "id": "28",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 28,
+          "inputs": [
+            {
+              "link": 38,
+              "localized_name": "value",
+              "name": "value",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": null,
+              "localized_name": "batch",
+              "name": "batch",
+              "type": "INT"
+            },
+            {
+              "links": [
+                54
+              ],
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT"
+            },
+            {
+              "links": [
+                53
+              ],
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "localized_name": "channel",
+              "name": "channel",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            4200.161848179455,
+            8148.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImpactImageInfo",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            144.175390625,
+            86
+          ],
+          "type": "ImpactImageInfo",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "28",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "ImpactImageInfo",
+      "id": "29",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 29,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "value",
+              "name": "value",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": null,
+              "localized_name": "batch",
+              "name": "batch",
+              "type": "INT"
+            },
+            {
+              "links": [],
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT"
+            },
+            {
+              "links": [],
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "localized_name": "channel",
+              "name": "channel",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            4400.161848179455,
+            8028.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImpactImageInfo",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            144.175390625,
+            86
+          ],
+          "type": "ImpactImageInfo",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "29",
+      "widgets": {}
+    },
+    "30": {
+      "class_type": "ImpactImageInfo",
+      "id": "30",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 30,
+          "inputs": [
+            {
+              "link": 39,
+              "localized_name": "value",
+              "name": "value",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": null,
+              "localized_name": "batch",
+              "name": "batch",
+              "type": "INT"
+            },
+            {
+              "links": [
+                41
+              ],
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT"
+            },
+            {
+              "links": [
+                40
+              ],
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "localized_name": "channel",
+              "name": "channel",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            4280.161848179455,
+            9138.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImpactImageInfo",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "8.25.1"
+          },
+          "size": [
+            144.175390625,
+            86
+          ],
+          "type": "ImpactImageInfo",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "30",
+      "widgets": {}
+    },
+    "31": {
+      "class_type": "Bbox (mtb)",
+      "id": "31",
+      "inputs": {
+        "x": 0,
+        "y": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 31,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "x",
+              "name": "x",
+              "type": "INT",
+              "widget": {
+                "name": "x"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "y",
+              "name": "y",
+              "type": "INT",
+              "widget": {
+                "name": "y"
+              }
+            },
+            {
+              "link": 40,
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 41,
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                50
+              ],
+              "localized_name": "BBOX",
+              "name": "BBOX",
+              "type": "BBOX"
+            }
+          ],
+          "pos": [
+            4440.161848179455,
+            9108.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "Bbox (mtb)",
+            "cnr_id": "comfy-mtb",
+            "ver": "0.5.4"
+          },
+          "size": [
+            270,
+            130
+          ],
+          "type": "Bbox (mtb)",
+          "widgets_values": [
+            0,
+            0,
+            1280,
+            818
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          0,
+          1280,
+          818
+        ]
+      },
+      "uid": "31",
+      "widgets": {
+        "widget_2": 1280,
+        "widget_3": 818
+      }
+    },
+    "32": {
+      "class_type": "ImageCropByMask",
+      "id": "32",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 32,
+          "inputs": [
+            {
+              "link": 42,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 43,
+              "localized_name": "mask",
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                44,
+                45
+              ],
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            5310.161848179455,
+            8898.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "ImageCropByMask",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "1.1.6"
+          },
+          "size": [
+            170.6099609375,
+            46
+          ],
+          "type": "ImageCropByMask",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "32",
+      "widgets": {}
+    },
+    "33": {
+      "class_type": "PreviewImage",
+      "id": "33",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 33,
+          "inputs": [
+            {
+              "link": 44,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [],
+          "pos": [
+            5380.161848179455,
+            9068.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            246
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "33",
+      "widgets": {}
+    },
+    "34": {
+      "class_type": "VAEEncode",
+      "id": "34",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 34,
+          "inputs": [
+            {
+              "link": 45,
+              "localized_name": "pixels",
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 26,
+          "outputs": [
+            {
+              "links": [
+                51
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            5550.161848179455,
+            8668.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEEncode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "34",
+      "widgets": {}
+    },
+    "35": {
+      "class_type": "LoadImage",
+      "id": "35",
+      "inputs": {
+        "image": "clipspace/clipspace-painted-masked-3891704.png [input]",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 35,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "image",
+              "name": "image",
+              "type": "COMBO",
+              "widget": {
+                "name": "image"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "choose file to upload",
+              "name": "upload",
+              "type": "IMAGEUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                46
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "localized_name": "MASK",
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            3890.161848179455,
+            8938.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "clipspace/clipspace-painted-masked-3891704.png [input]",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "clipspace/clipspace-painted-masked-3891704.png [input]",
+          "image"
+        ]
+      },
+      "uid": "35",
+      "widgets": {}
+    },
+    "36": {
+      "class_type": "UltralyticsDetectorProvider",
+      "id": "36",
+      "inputs": {
+        "model_name": "bbox/face_yolov8m.pt"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 36,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "model_name",
+              "name": "model_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "model_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                26
+              ],
+              "localized_name": "BBOX_DETECTOR",
+              "name": "BBOX_DETECTOR",
+              "type": "BBOX_DETECTOR"
+            },
+            {
+              "links": null,
+              "localized_name": "SEGM_DETECTOR",
+              "name": "SEGM_DETECTOR",
+              "type": "SEGM_DETECTOR"
+            }
+          ],
+          "pos": [
+            3900.161848179455,
+            8808.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "UltralyticsDetectorProvider",
+            "cnr_id": "comfyui-impact-subpack",
+            "ver": "1.3.5"
+          },
+          "size": [
+            270,
+            78
+          ],
+          "type": "UltralyticsDetectorProvider",
+          "widgets_values": [
+            "bbox/face_yolov8m.pt"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "bbox/face_yolov8m.pt"
+        ]
+      },
+      "uid": "36",
+      "widgets": {}
+    },
+    "37": {
+      "class_type": "Reroute",
+      "id": "37",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 37,
+          "inputs": [
+            {
+              "link": 46,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                27,
+                39,
+                42,
+                48
+              ],
+              "name": "",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            4210.161848179455,
+            8928.746601674871
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "37",
+      "widgets": {}
+    },
+    "38": {
+      "class_type": "VAEDecode",
+      "id": "38",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "inputs": [
+            {
+              "link": 47,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                49
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            5710.161848179455,
+            8668.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "38",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "Uncrop (mtb)",
+      "id": "39",
+      "inputs": {
+        "border_blending": 0.25
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [
+            {
+              "link": 48,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 49,
+              "localized_name": "crop_image",
+              "name": "crop_image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 50,
+              "localized_name": "bbox",
+              "name": "bbox",
+              "type": "BBOX"
+            },
+            {
+              "link": null,
+              "localized_name": "border_blending",
+              "name": "border_blending",
+              "type": "FLOAT",
+              "widget": {
+                "name": "border_blending"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 31,
+          "outputs": [
+            {
+              "links": [
+                52
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            5810.161848179455,
+            8768.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "Uncrop (mtb)",
+            "cnr_id": "comfy-mtb",
+            "ver": "0.5.4"
+          },
+          "size": [
+            210,
+            98
+          ],
+          "type": "Uncrop (mtb)",
+          "widgets_values": [
+            0.25
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.25
+        ]
+      },
+      "uid": "39",
+      "widgets": {}
+    },
+    "40": {
+      "class_type": "KSampler",
+      "id": "40",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 0,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 40,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": null,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 51,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [
+            {
+              "links": [
+                47
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            5530.161848179455,
+            8758.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            0,
+            "randomize",
+            20,
+            8,
+            "euler",
+            "simple",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          "randomize",
+          20,
+          8,
+          "euler",
+          "simple",
+          1
+        ]
+      },
+      "uid": "40",
+      "widgets": {}
+    },
+    "41": {
+      "class_type": "PreviewImage",
+      "id": "41",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 41,
+          "inputs": [
+            {
+              "link": 52,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 32,
+          "outputs": [],
+          "pos": [
+            5540.161848179455,
+            9068.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            140,
+            26
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "41",
+      "widgets": {}
+    },
+    "42": {
+      "class_type": "Bbox (mtb)",
+      "id": "42",
+      "inputs": {
+        "x": 0,
+        "y": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 42,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "x",
+              "name": "x",
+              "type": "INT",
+              "widget": {
+                "name": "x"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "y",
+              "name": "y",
+              "type": "INT",
+              "widget": {
+                "name": "y"
+              }
+            },
+            {
+              "link": 53,
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 54,
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                30
+              ],
+              "localized_name": "BBOX",
+              "name": "BBOX",
+              "type": "BBOX"
+            }
+          ],
+          "pos": [
+            4380.161848179455,
+            8158.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "Bbox (mtb)",
+            "cnr_id": "comfy-mtb",
+            "ver": "0.5.4"
+          },
+          "size": [
+            270,
+            130
+          ],
+          "type": "Bbox (mtb)",
+          "widgets_values": [
+            0,
+            0,
+            1280,
+            818
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          0,
+          1280,
+          818
+        ]
+      },
+      "uid": "42",
+      "widgets": {
+        "widget_2": 1280,
+        "widget_3": 818
+      }
+    },
+    "43": {
+      "class_type": "PreviewImage",
+      "id": "43",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 43,
+          "inputs": [
+            {
+              "link": 55,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [],
+          "pos": [
+            4360.161848179455,
+            8208.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            210,
+            258
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "43",
+      "widgets": {}
+    },
+    "44": {
+      "class_type": "KSampler",
+      "id": "44",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 0.4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 720551026165226,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 44,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": null,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 56,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                34
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            4670.161848179455,
+            8048.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            270,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            720551026165226,
+            "randomize",
+            20,
+            8,
+            "euler",
+            "simple",
+            0.4
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          720551026165226,
+          "randomize",
+          20,
+          8,
+          "euler",
+          "simple",
+          0.4
+        ]
+      },
+      "uid": "44",
+      "widgets": {}
+    },
+    "45": {
+      "class_type": "Note",
+      "id": "45",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 45,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            3920.161848179455,
+            7978.746601674871
+          ],
+          "properties": {},
+          "size": [
+            210,
+            88
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "draw mask\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "draw mask\n"
+        ]
+      },
+      "uid": "45",
+      "widgets": {
+        "widget_0": "draw mask\n"
+      }
+    },
+    "46": {
+      "class_type": "LoadImage",
+      "id": "46",
+      "inputs": {
+        "image": "clipspace/clipspace-painted-masked-2187445.png [input]",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 46,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "image",
+              "name": "image",
+              "type": "COMBO",
+              "widget": {
+                "name": "image"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "choose file to upload",
+              "name": "upload",
+              "type": "IMAGEUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                35
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                36
+              ],
+              "localized_name": "MASK",
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            3900.161848179455,
+            8088.746601674871
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            274.080078125,
+            314.0000000000002
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "clipspace/clipspace-painted-masked-2187445.png [input]",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "clipspace/clipspace-painted-masked-2187445.png [input]",
+          "image"
+        ]
+      },
+      "uid": "46",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "22",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "33",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "41",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "43",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "bbox/face_yolov8m.pt"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "2306e9e17c9c2081",
+    "path": "external_workflows/.shadow/source/2306e9e17c9c2081-Detailer.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "949658825bc5999a9b899af1f0df02ba9800729b8f7a00a9d714c79bb3d4ea64",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "content_preview": "for this you need to recreate what FaceDetailer does at its core , but thats pretty simple. I made node groups with both manual and automated (which detects whole head) masking options for that. I didnt implement SAM masking to put back onl",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1437922111162159237",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1437922111162159237:Detailer.json:2306e9e17c9c2081",
+      "filename": "Detailer.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:43+00:00",
+      "message_id": 1437922111162159237,
+      "node_class_multiset": {
+        "Bbox (mtb)": 2,
+        "BboxDetectorSEGS": 1,
+        "ImageCropByMask": 2,
+        "ImpactImageInfo": 3,
+        "ImpactSEGSOrderedFilter": 1,
+        "KSampler": 2,
+        "LoadImage": 2,
+        "MaskPreview+": 2,
+        "Note": 2,
+        "PreviewImage": 4,
+        "Reroute": 3,
+        "SegsToCombinedMask": 2,
+        "UltralyticsDetectorProvider": 1,
+        "Uncrop (mtb)": 2,
+        "VAEDecode": 2,
+        "VAEEncode": 2
+      },
+      "node_count": 33,
+      "origin_date": "2025-11-11T21:49:06.602000+00:00",
+      "originator_global_name": "Blink",
+      "originator_id": "958460477497802822",
+      "originator_type": "discord_message_author",
+      "originator_username": "blinkcankill",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "2306e9e17c9c20813c78a1cd0e8741e9ff76e0c7a25650377e172b14e69e0159",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1437922110910631936/Detailer.json?ex=697bd5d2&is=697a8452&hm=bcf93ee8ff475e8755cb832e927b7882dec6c76753ca182f4b2a7f60dfae228d&",
+      "source_workflow_sha256": "2db255277febabea1a09808d4223ce72e8c795dcc02b0bef8107e5169ca777d8",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

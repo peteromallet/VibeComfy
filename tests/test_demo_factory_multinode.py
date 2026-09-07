@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -26,6 +28,18 @@ from vibecomfy.demo_factory.run_campaign import (
     _remove_subgraph_fault,
     run_multinode_case,
 )
+
+
+_TRACKED_CORPUS = Path(__file__).parent / "fixtures" / "live_agentic_corpus" / "corpus"
+MULTINODE_WORKFLOWS = [
+    replace(
+        spec,
+        locator=str(_TRACKED_CORPUS / Path(spec.locator).name),
+    )
+    if spec.kind == "corpus"
+    else spec
+    for spec in MULTINODE_WORKFLOWS
+]
 
 
 def _fresh_id_reconstruction(
@@ -77,30 +91,37 @@ def test_multinode_table_has_ten_explicit_unique_fixtures() -> None:
         assert check_leakage(spec.inquiry)["safe"] is True
 
 
-def test_all_multinode_fixtures_remove_exact_slice_without_dangling_links() -> None:
-    for spec in MULTINODE_WORKFLOWS:
-        golden = _golden_for_multinode(spec)
-        injection = _remove_subgraph_fault(
-            golden,
-            spec.slice_node_ids,
-            spec.feature_key,
-        )
-        golden_nodes = {
-            str(node.get("id")): node for node in golden.get("nodes", [])
-        }
-        broken_nodes = {
-            str(node.get("id")): node
-            for node in injection.broken.get("nodes", [])
-        }
+@pytest.mark.parametrize(
+    "case_id",
+    [spec.case_id for spec in MULTINODE_WORKFLOWS],
+    ids=[spec.case_id for spec in MULTINODE_WORKFLOWS],
+)
+def test_all_multinode_fixtures_remove_exact_slice_without_dangling_links(
+    case_id: str,
+) -> None:
+    spec = next(spec for spec in MULTINODE_WORKFLOWS if spec.case_id == case_id)
+    golden = _golden_for_multinode(spec)
+    injection = _remove_subgraph_fault(
+        golden,
+        spec.slice_node_ids,
+        spec.feature_key,
+    )
+    golden_nodes = {
+        str(node.get("id")): node for node in golden.get("nodes", [])
+    }
+    broken_nodes = {
+        str(node.get("id")): node
+        for node in injection.broken.get("nodes", [])
+    }
 
-        assert set(spec.slice_node_ids).isdisjoint(broken_nodes)
-        assert len(golden_nodes) - len(broken_nodes) == len(spec.slice_node_ids)
-        assert _dangling_links(injection.broken) == []
-        for node_id, broken_node in broken_nodes.items():
-            golden_node = golden_nodes[node_id]
-            assert broken_node.get("type") == golden_node.get("type")
-            assert broken_node.get("widgets_values") == golden_node.get("widgets_values")
-            assert broken_node.get("properties") == golden_node.get("properties")
+    assert set(spec.slice_node_ids).isdisjoint(broken_nodes)
+    assert len(golden_nodes) - len(broken_nodes) == len(spec.slice_node_ids)
+    assert _dangling_links(injection.broken) == []
+    for node_id, broken_node in broken_nodes.items():
+        golden_node = golden_nodes[node_id]
+        assert broken_node.get("type") == golden_node.get("type")
+        assert broken_node.get("widgets_values") == golden_node.get("widgets_values")
+        assert broken_node.get("properties") == golden_node.get("properties")
 
 
 def test_m10_existing_loci_reject_fresh_internal_ids_but_multinode_reaches_judge(

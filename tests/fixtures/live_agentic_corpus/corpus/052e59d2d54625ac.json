@@ -1,0 +1,1870 @@
+{
+  "edges": [
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "17"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "24"
+    },
+    {
+      "from_node": "22",
+      "from_output": "1",
+      "to_input": "audio",
+      "to_node": "24"
+    },
+    {
+      "from_node": "22",
+      "from_output": "2",
+      "to_input": "fps",
+      "to_node": "24"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "23"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "22"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "torch_compile_args",
+      "to_node": "13"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "dit",
+      "to_node": "10"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "10"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "torch_compile_args",
+      "to_node": "14"
+    }
+  ],
+  "groups": [],
+  "id": "7321f2ba8fac394a",
+  "inputs": {
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "10",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 42
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SeedVR2VideoUpscaler",
+        "incoming_edge_sig": [
+          [
+            "dit",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "17",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "24",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "0"
+          ],
+          [
+            "color_correction",
+            "True"
+          ],
+          [
+            "enable_debug",
+            "'cpu'"
+          ],
+          [
+            "input_noise_scale",
+            "0"
+          ],
+          [
+            "latent_noise_scale",
+            "0"
+          ],
+          [
+            "max_resolution",
+            "1080"
+          ],
+          [
+            "offload_device",
+            "0"
+          ],
+          [
+            "prepend_frames",
+            "3"
+          ],
+          [
+            "resolution",
+            "'fixed'"
+          ],
+          [
+            "seed",
+            "42"
+          ],
+          [
+            "temporal_overlap",
+            "'lab'"
+          ],
+          [
+            "uniform_batch_size",
+            "33"
+          ],
+          [
+            "widget_12",
+            "False"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "SeedVR2LoadVAEModel",
+        "incoming_edge_sig": [
+          [
+            "torch_compile_args",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cache_model",
+            "False"
+          ],
+          [
+            "decode_tile_overlap",
+            "128"
+          ],
+          [
+            "decode_tile_size",
+            "768"
+          ],
+          [
+            "decode_tiled",
+            "True"
+          ],
+          [
+            "device",
+            "'cuda:0'"
+          ],
+          [
+            "encode_tile_overlap",
+            "128"
+          ],
+          [
+            "encode_tile_size",
+            "1024"
+          ],
+          [
+            "encode_tiled",
+            "True"
+          ],
+          [
+            "model",
+            "'ema_vae_fp16.safetensors'"
+          ],
+          [
+            "offload_device",
+            "'cpu'"
+          ],
+          [
+            "tile_debug",
+            "'false'"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "SeedVR2LoadDiTModel",
+        "incoming_edge_sig": [
+          [
+            "torch_compile_args",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "dit"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "attention_mode",
+            "'sdpa'"
+          ],
+          [
+            "blocks_to_swap",
+            "32"
+          ],
+          [
+            "cache_model",
+            "False"
+          ],
+          [
+            "device",
+            "'cuda:0'"
+          ],
+          [
+            "model",
+            "'seedvr2_ema_3b_fp16.safetensors'"
+          ],
+          [
+            "offload_device",
+            "'cpu'"
+          ],
+          [
+            "swap_io_components",
+            "False"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "JoinImageWithAlpha",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "22",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "18": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Enable + connect input alpha to upscale alpha/mask channel along with RGB channel (for RGBA inputs)'"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "SeedVR2TorchCompileSettings",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "13",
+              "torch_compile_args"
+            ]
+          ],
+          [
+            "0",
+            [
+              "14",
+              "torch_compile_args"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "backend",
+            "'inductor'"
+          ],
+          [
+            "dynamic",
+            "False"
+          ],
+          [
+            "dynamo_cache_size_limit",
+            "64"
+          ],
+          [
+            "dynamo_recompile_limit",
+            "128"
+          ],
+          [
+            "fullgraph",
+            "False"
+          ],
+          [
+            "mode",
+            "'default'"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Enable torch.compile optimization. First batch has compilation overhead, but speeds up subsequent batches. Best for long videos, not single images.'"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "LoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "file",
+            "'Mustache_640x360.mp4'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "GetVideoComponents",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "image"
+            ]
+          ],
+          [
+            "1",
+            [
+              "24",
+              "audio"
+            ]
+          ],
+          [
+            "2",
+            [
+              "24",
+              "fps"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "23": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "24",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "24": {
+        "class_type": "CreateVideo",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "22",
+              "1"
+            ]
+          ],
+          [
+            "fps",
+            [
+              "22",
+              "2"
+            ]
+          ],
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "052e59d2d54625acae3f4756f68b602dcc52d593b66e6ca76a8ba9a84dee3c9b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "Here is the example WF in the custom node directory of seedvr2.",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1460874743602479217",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1460874743602479217:SeedVR2_HD_video_upscale.json:7321f2ba8fac394a",
+      "filename": "SeedVR2_HD_video_upscale.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:49+00:00",
+      "message_id": 1460874743602479217,
+      "node_class_multiset": {
+        "CreateVideo": 1,
+        "GetVideoComponents": 1,
+        "JoinImageWithAlpha": 1,
+        "LoadVideo": 1,
+        "Note": 2,
+        "SaveVideo": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2TorchCompileSettings": 1,
+        "SeedVR2VideoUpscaler": 1
+      },
+      "node_count": 11,
+      "origin_date": "2026-01-14T05:54:40.615000+00:00",
+      "originator_global_name": "Beaon",
+      "originator_id": "353395229778378754",
+      "originator_type": "discord_message_author",
+      "originator_username": "beaon",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "7321f2ba8fac394a90c19a2adcbe1a9d2f02c40c59ee25de96bc5db54921823d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1460874743337975899/SeedVR2_HD_video_upscale.json?ex=696929e0&is=6967d860&hm=2cdede819f13f3f71e5a92e77f4d769ccd1c14d8d01d20a34f4d9c35264047d1&",
+      "source_workflow_sha256": "5f239423ebd943483853f4da5f284477fdb2d99c9817f857a73be61f9caff987",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "fb6336e37fe4ff4ff6c8cbcb83a8c583350e6ae65043cb3a8157ea031efbe5e0",
+      "complexity": 3,
+      "description": "Upscales a video using SeedVR2 models, with VAE and DiT model loading, optional torch compile settings, and outputs the upscaled video.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video-upscaling",
+        "seedvr2",
+        "video-processing",
+        "vae",
+        "dit",
+        "torch-compile"
+      ],
+      "task_type": "upscaling",
+      "title": "SeedVR2 Video Upscaling Workflow"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SeedVR2VideoUpscaler",
+      "id": "10",
+      "inputs": {
+        "batch_size": 0,
+        "color_correction": true,
+        "enable_debug": "cpu",
+        "input_noise_scale": 0,
+        "latent_noise_scale": 0,
+        "max_resolution": 1080,
+        "offload_device": 0,
+        "prepend_frames": 3,
+        "resolution": "fixed",
+        "seed": 42,
+        "temporal_overlap": "lab",
+        "uniform_batch_size": 33
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 16,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 11,
+              "localized_name": "dit",
+              "name": "dit",
+              "type": "SEEDVR2_DIT"
+            },
+            {
+              "link": 10,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "SEEDVR2_VAE"
+            },
+            {
+              "link": null,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "resolution",
+              "name": "resolution",
+              "type": "INT",
+              "widget": {
+                "name": "resolution"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "max_resolution",
+              "name": "max_resolution",
+              "type": "INT",
+              "widget": {
+                "name": "max_resolution"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "batch_size",
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "uniform_batch_size",
+              "name": "uniform_batch_size",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "uniform_batch_size"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "color_correction",
+              "name": "color_correction",
+              "type": "COMBO",
+              "widget": {
+                "name": "color_correction"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "temporal_overlap",
+              "name": "temporal_overlap",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "temporal_overlap"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "prepend_frames",
+              "name": "prepend_frames",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "prepend_frames"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "input_noise_scale",
+              "name": "input_noise_scale",
+              "shape": 7,
+              "type": "FLOAT",
+              "widget": {
+                "name": "input_noise_scale"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "latent_noise_scale",
+              "name": "latent_noise_scale",
+              "shape": 7,
+              "type": "FLOAT",
+              "widget": {
+                "name": "latent_noise_scale"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "offload_device",
+              "name": "offload_device",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "offload_device"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "enable_debug",
+              "name": "enable_debug",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "enable_debug"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                22
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            840.6414062499999,
+            104.58710937499997
+          ],
+          "properties": {
+            "Node name for S&R": "SeedVR2VideoUpscaler",
+            "aux_id": "ainvfx/ComfyUI-SeedVR2_VideoUpscaler",
+            "ver": "690cc39379c1481159ddd451368dbf2295930fc6"
+          },
+          "size": [
+            270,
+            386
+          ],
+          "type": "SeedVR2VideoUpscaler",
+          "widgets_values": [
+            42,
+            "fixed",
+            1080,
+            0,
+            33,
+            true,
+            "lab",
+            3,
+            0,
+            0,
+            0,
+            "cpu",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 13,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          42,
+          "fixed",
+          1080,
+          0,
+          33,
+          true,
+          "lab",
+          3,
+          0,
+          0,
+          0,
+          "cpu",
+          false
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_12": false
+      }
+    },
+    "13": {
+      "class_type": "SeedVR2LoadVAEModel",
+      "id": "13",
+      "inputs": {
+        "cache_model": false,
+        "decode_tile_overlap": 128,
+        "decode_tile_size": 768,
+        "decode_tiled": true,
+        "device": "cuda:0",
+        "encode_tile_overlap": 128,
+        "encode_tile_size": 1024,
+        "encode_tiled": true,
+        "model": "ema_vae_fp16.safetensors",
+        "offload_device": "cpu",
+        "tile_debug": "false"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "inputs": [
+            {
+              "link": 19,
+              "localized_name": "torch_compile_args",
+              "name": "torch_compile_args",
+              "shape": 7,
+              "type": "TORCH_COMPILE_ARGS"
+            },
+            {
+              "link": null,
+              "localized_name": "model",
+              "name": "model",
+              "type": "COMBO",
+              "widget": {
+                "name": "model"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "device",
+              "name": "device",
+              "type": "COMBO",
+              "widget": {
+                "name": "device"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "encode_tiled",
+              "name": "encode_tiled",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "encode_tiled"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "encode_tile_size",
+              "name": "encode_tile_size",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "encode_tile_size"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "encode_tile_overlap",
+              "name": "encode_tile_overlap",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "encode_tile_overlap"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "decode_tiled",
+              "name": "decode_tiled",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "decode_tiled"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "decode_tile_size",
+              "name": "decode_tile_size",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "decode_tile_size"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "decode_tile_overlap",
+              "name": "decode_tile_overlap",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "decode_tile_overlap"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "tile_debug",
+              "name": "tile_debug",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "tile_debug"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "offload_device",
+              "name": "offload_device",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "offload_device"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cache_model",
+              "name": "cache_model",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "cache_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                10
+              ],
+              "localized_name": "SEEDVR2_VAE",
+              "name": "SEEDVR2_VAE",
+              "type": "SEEDVR2_VAE"
+            }
+          ],
+          "pos": [
+            57.08203125,
+            413.14453125
+          ],
+          "properties": {
+            "Node name for S&R": "SeedVR2LoadVAEModel",
+            "aux_id": "ainvfx/ComfyUI-SeedVR2_VideoUpscaler",
+            "ver": "690cc39379c1481159ddd451368dbf2295930fc6"
+          },
+          "size": [
+            312.866796875,
+            298
+          ],
+          "type": "SeedVR2LoadVAEModel",
+          "widgets_values": [
+            "ema_vae_fp16.safetensors",
+            "cuda:0",
+            true,
+            1024,
+            128,
+            true,
+            768,
+            128,
+            "false",
+            "cpu",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 11,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ema_vae_fp16.safetensors",
+          "cuda:0",
+          true,
+          1024,
+          128,
+          true,
+          768,
+          128,
+          "false",
+          "cpu",
+          false
+        ]
+      },
+      "uid": "13",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "SeedVR2LoadDiTModel",
+      "id": "14",
+      "inputs": {
+        "attention_mode": "sdpa",
+        "blocks_to_swap": 32,
+        "cache_model": false,
+        "device": "cuda:0",
+        "model": "seedvr2_ema_3b_fp16.safetensors",
+        "offload_device": "cpu",
+        "swap_io_components": false
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 18,
+              "localized_name": "torch_compile_args",
+              "name": "torch_compile_args",
+              "shape": 7,
+              "type": "TORCH_COMPILE_ARGS"
+            },
+            {
+              "link": null,
+              "localized_name": "model",
+              "name": "model",
+              "type": "COMBO",
+              "widget": {
+                "name": "model"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "device",
+              "name": "device",
+              "type": "COMBO",
+              "widget": {
+                "name": "device"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "blocks_to_swap",
+              "name": "blocks_to_swap",
+              "shape": 7,
+              "type": "INT",
+              "widget": {
+                "name": "blocks_to_swap"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "swap_io_components",
+              "name": "swap_io_components",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "swap_io_components"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "offload_device",
+              "name": "offload_device",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "offload_device"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cache_model",
+              "name": "cache_model",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "cache_model"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "attention_mode",
+              "name": "attention_mode",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "attention_mode"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                11
+              ],
+              "localized_name": "SEEDVR2_DIT",
+              "name": "SEEDVR2_DIT",
+              "type": "SEEDVR2_DIT"
+            }
+          ],
+          "pos": [
+            61.165625,
+            125.97187500000004
+          ],
+          "properties": {
+            "Node name for S&R": "SeedVR2LoadDiTModel",
+            "aux_id": "ainvfx/ComfyUI-SeedVR2_VideoUpscaler",
+            "ver": "690cc39379c1481159ddd451368dbf2295930fc6"
+          },
+          "size": [
+            307.6646484375,
+            202
+          ],
+          "type": "SeedVR2LoadDiTModel",
+          "widgets_values": [
+            "seedvr2_ema_3b_fp16.safetensors",
+            "cuda:0",
+            32,
+            false,
+            "cpu",
+            false,
+            "sdpa"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "seedvr2_ema_3b_fp16.safetensors",
+          "cuda:0",
+          32,
+          false,
+          "cpu",
+          false,
+          "sdpa"
+        ]
+      },
+      "uid": "14",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "JoinImageWithAlpha",
+      "id": "17",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": 21,
+              "localized_name": "image",
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "alpha",
+              "name": "alpha",
+              "type": "MASK"
+            }
+          ],
+          "mode": 4,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            415.46463925106394,
+            -269.3527671179127
+          ],
+          "properties": {
+            "Node name for S&R": "JoinImageWithAlpha",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            176.86484375,
+            46
+          ],
+          "type": "JoinImageWithAlpha",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "18": {
+      "class_type": "Note",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 18,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [],
+          "pos": [
+            417.45701148476115,
+            -167.7461915699906
+          ],
+          "properties": {},
+          "size": [
+            210,
+            94.05179298404067
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "Enable + connect input alpha to upscale alpha/mask channel along with RGB channel (for RGBA inputs)"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Enable + connect input alpha to upscale alpha/mask channel along with RGB channel (for RGBA inputs)"
+        ]
+      },
+      "uid": "18",
+      "widgets": {
+        "widget_0": "Enable + connect input alpha to upscale alpha/mask channel along with RGB channel (for RGBA inputs)"
+      }
+    },
+    "19": {
+      "class_type": "SeedVR2TorchCompileSettings",
+      "id": "19",
+      "inputs": {
+        "backend": "inductor",
+        "dynamic": false,
+        "dynamo_cache_size_limit": 64,
+        "dynamo_recompile_limit": 128,
+        "fullgraph": false,
+        "mode": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "backend",
+              "name": "backend",
+              "type": "COMBO",
+              "widget": {
+                "name": "backend"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "mode",
+              "name": "mode",
+              "type": "COMBO",
+              "widget": {
+                "name": "mode"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "fullgraph",
+              "name": "fullgraph",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "fullgraph"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "dynamic",
+              "name": "dynamic",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "dynamic"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "dynamo_cache_size_limit",
+              "name": "dynamo_cache_size_limit",
+              "type": "INT",
+              "widget": {
+                "name": "dynamo_cache_size_limit"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "dynamo_recompile_limit",
+              "name": "dynamo_recompile_limit",
+              "type": "INT",
+              "widget": {
+                "name": "dynamo_recompile_limit"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                18,
+                19
+              ],
+              "localized_name": "TORCH_COMPILE_ARGS",
+              "name": "TORCH_COMPILE_ARGS",
+              "type": "TORCH_COMPILE_ARGS"
+            }
+          ],
+          "pos": [
+            -369.50847923647007,
+            315.0949953354577
+          ],
+          "properties": {
+            "Node name for S&R": "SeedVR2TorchCompileSettings",
+            "aux_id": "ainvfx/ComfyUI-SeedVR2_VideoUpscaler",
+            "ver": "690cc39379c1481159ddd451368dbf2295930fc6"
+          },
+          "size": [
+            307.671484375,
+            178
+          ],
+          "type": "SeedVR2TorchCompileSettings",
+          "widgets_values": [
+            "inductor",
+            "default",
+            false,
+            false,
+            64,
+            128
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "inductor",
+          "default",
+          false,
+          false,
+          64,
+          128
+        ]
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "Note",
+      "id": "20",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 20,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            -358.9923959032341,
+            553.3187800066305
+          ],
+          "properties": {},
+          "size": [
+            290.1922351462714,
+            97.95592567265356
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "Enable torch.compile optimization. First batch has compilation overhead, but speeds up subsequent batches. Best for long videos, not single images."
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Enable torch.compile optimization. First batch has compilation overhead, but speeds up subsequent batches. Best for long videos, not single images."
+        ]
+      },
+      "uid": "20",
+      "widgets": {
+        "widget_0": "Enable torch.compile optimization. First batch has compilation overhead, but speeds up subsequent batches. Best for long videos, not single images."
+      }
+    },
+    "21": {
+      "class_type": "LoadVideo",
+      "id": "21",
+      "inputs": {
+        "file": "Mustache_640x360.mp4",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "file",
+              "name": "file",
+              "type": "COMBO",
+              "widget": {
+                "name": "file"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "choose file to upload",
+              "name": "upload",
+              "type": "IMAGEUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                20
+              ],
+              "localized_name": "VIDEO",
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -201.66033140975628,
+            -266.86977401462417
+          ],
+          "properties": {
+            "Node name for S&R": "LoadVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            274.080078125,
+            228.1700439453125
+          ],
+          "type": "LoadVideo",
+          "widgets_values": [
+            "Mustache_640x360.mp4",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Mustache_640x360.mp4",
+          "image"
+        ]
+      },
+      "uid": "21",
+      "widgets": {}
+    },
+    "22": {
+      "class_type": "GetVideoComponents",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "inputs": [
+            {
+              "link": 20,
+              "localized_name": "video",
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                21
+              ],
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                25
+              ],
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": [
+                24
+              ],
+              "localized_name": "fps",
+              "name": "fps",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            149.28727188425574,
+            -267.41033914727126
+          ],
+          "properties": {
+            "Node name for S&R": "GetVideoComponents",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            185.17734375,
+            66
+          ],
+          "type": "GetVideoComponents",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "22",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "SaveVideo",
+      "id": "23",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 23,
+              "localized_name": "video",
+              "name": "video",
+              "type": "VIDEO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "format",
+              "name": "format",
+              "type": "COMBO",
+              "widget": {
+                "name": "format"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "codec",
+              "name": "codec",
+              "type": "COMBO",
+              "widget": {
+                "name": "codec"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [],
+          "pos": [
+            1499.476781650457,
+            101.92559527677722
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            270,
+            249.875
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "CreateVideo",
+      "id": "24",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 24,
+          "inputs": [
+            {
+              "link": 22,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": 25,
+              "localized_name": "audio",
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": 24,
+              "localized_name": "fps",
+              "name": "fps",
+              "type": "FLOAT",
+              "widget": {
+                "name": "fps"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "localized_name": "VIDEO",
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            1171.8133710326213,
+            102.33318716823825
+          ],
+          "properties": {
+            "Node name for S&R": "CreateVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.68"
+          },
+          "size": [
+            270,
+            78
+          ],
+          "type": "CreateVideo",
+          "widgets_values": [
+            30
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          30
+        ]
+      },
+      "uid": "24",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "23",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "7321f2ba8fac394a",
+    "path": "external_workflows/.shadow/source/7321f2ba8fac394a-SeedVR2_HD_video_upscale.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "052e59d2d54625acae3f4756f68b602dcc52d593b66e6ca76a8ba9a84dee3c9b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "Here is the example WF in the custom node directory of seedvr2.",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1460874743602479217",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1460874743602479217:SeedVR2_HD_video_upscale.json:7321f2ba8fac394a",
+      "filename": "SeedVR2_HD_video_upscale.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:49+00:00",
+      "message_id": 1460874743602479217,
+      "node_class_multiset": {
+        "CreateVideo": 1,
+        "GetVideoComponents": 1,
+        "JoinImageWithAlpha": 1,
+        "LoadVideo": 1,
+        "Note": 2,
+        "SaveVideo": 1,
+        "SeedVR2LoadDiTModel": 1,
+        "SeedVR2LoadVAEModel": 1,
+        "SeedVR2TorchCompileSettings": 1,
+        "SeedVR2VideoUpscaler": 1
+      },
+      "node_count": 11,
+      "origin_date": "2026-01-14T05:54:40.615000+00:00",
+      "originator_global_name": "Beaon",
+      "originator_id": "353395229778378754",
+      "originator_type": "discord_message_author",
+      "originator_username": "beaon",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "7321f2ba8fac394a90c19a2adcbe1a9d2f02c40c59ee25de96bc5db54921823d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1460874743337975899/SeedVR2_HD_video_upscale.json?ex=696929e0&is=6967d860&hm=2cdede819f13f3f71e5a92e77f4d769ccd1c14d8d01d20a34f4d9c35264047d1&",
+      "source_workflow_sha256": "5f239423ebd943483853f4da5f284477fdb2d99c9817f857a73be61f9caff987",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

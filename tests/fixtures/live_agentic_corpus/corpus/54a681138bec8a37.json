@@ -1,0 +1,1882 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "2"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "8"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "10"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "14"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "15"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "16"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "17"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "12"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "6"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "6"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "image3",
+      "to_node": "6"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "image4",
+      "to_node": "6"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "3"
+    }
+  ],
+  "groups": [],
+  "id": "8351ecabd791b2cb",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'ComfyUI_00912_.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "easy imageRemBg",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "16",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RMBG-1.4'"
+          ],
+          [
+            "widget_1",
+            "'Preview'"
+          ],
+          [
+            "widget_2",
+            "'transp'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'white'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'Documentary164_00003.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "easy imageRemBg",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RMBG-1.4'"
+          ],
+          [
+            "widget_1",
+            "'Preview'"
+          ],
+          [
+            "widget_2",
+            "'transp'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'white'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "ImageResizeKJv2",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop_position",
+            "'center'"
+          ],
+          [
+            "divisible_by",
+            "2"
+          ],
+          [
+            "height",
+            "1024"
+          ],
+          [
+            "keep_proportion",
+            "'pad'"
+          ],
+          [
+            "pad_color",
+            "'255,255,255'"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "1024"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "ImageResizeKJv2",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop_position",
+            "'center'"
+          ],
+          [
+            "divisible_by",
+            "2"
+          ],
+          [
+            "height",
+            "1024"
+          ],
+          [
+            "keep_proportion",
+            "'pad'"
+          ],
+          [
+            "pad_color",
+            "'255,255,255'"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "1024"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "ImageResizeKJv2",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image3"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop_position",
+            "'center'"
+          ],
+          [
+            "divisible_by",
+            "2"
+          ],
+          [
+            "height",
+            "1024"
+          ],
+          [
+            "keep_proportion",
+            "'pad'"
+          ],
+          [
+            "pad_color",
+            "'255,255,255'"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "1024"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "ImageResizeKJv2",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image4"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop_position",
+            "'center'"
+          ],
+          [
+            "divisible_by",
+            "2"
+          ],
+          [
+            "height",
+            "1024"
+          ],
+          [
+            "keep_proportion",
+            "'pad'"
+          ],
+          [
+            "pad_color",
+            "'255,255,255'"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "1024"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "easy imageRemBg",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RMBG-1.4'"
+          ],
+          [
+            "widget_1",
+            "'Preview'"
+          ],
+          [
+            "widget_2",
+            "'transp'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'white'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "6": {
+        "class_type": "ImageGridComposite2x2",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "15",
+              "0"
+            ]
+          ],
+          [
+            "image3",
+            [
+              "16",
+              "0"
+            ]
+          ],
+          [
+            "image4",
+            [
+              "17",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "7": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'ComfyUI_00857_.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "easy imageRemBg",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "7",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RMBG-1.4'"
+          ],
+          [
+            "widget_1",
+            "'Preview'"
+          ],
+          [
+            "widget_2",
+            "'transp'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'white'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'vid_img2vid_output_00044.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "54a681138bec8a379fcf6f6ede02187213733a178ba38a64e08d100bdc52a2aa",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1313445718467284992,
+      "channel_name": "hunyuanvideo",
+      "content_preview": "have a play - load any 4 images and it will extract the subject - resize each to fit inside a 1024 square and then turn that into a 2x2 grid",
+      "discord_message_url": "https://discord.com/channels/@me/1313445718467284992/1370404146183929947",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1370404146183929947:Extract_and_Composite_Subjetcs.json:8351ecabd791b2cb",
+      "filename": "Extract_and_Composite_Subjetcs.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:16+00:00",
+      "message_id": 1370404146183929947,
+      "node_class_multiset": {
+        "ImageGridComposite2x2": 1,
+        "ImageResizeKJv2": 4,
+        "LoadImage": 4,
+        "PreviewImage": 1,
+        "easy imageRemBg": 4
+      },
+      "node_count": 14,
+      "origin_date": "2025-05-09T14:16:49.328000+00:00",
+      "originator_global_name": "AJO",
+      "originator_id": "781949465065684993",
+      "originator_type": "discord_message_author",
+      "originator_username": "ajo6268",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "8351ecabd791b2cb2c1c3f43f6d961c8749321f25a3e46f31b2a2a680c1fe262",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1313445718467284992/1370404146238328852/Extract_and_Composite_Subjetcs.json?ex=68200891&is=681eb711&hm=ac198a962df9a7956d01b688ed2a5826f2f770e90c56df9aada74c6dfd4b9517&",
+      "source_workflow_sha256": "cd8b1b0ed21efb10da6cd72e1f7762476113b0d9b3855bd37b07ac09d0514686",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "9a84f7e79a762a197e777f471e2da21ee4c015d7f8777b4172986aae645496e5",
+      "complexity": 2,
+      "description": "Loads images, removes backgrounds, resizes them, and composites them into a 2x2 grid for preview.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "background-removal",
+        "image-compositing",
+        "grid",
+        "resize",
+        "preview"
+      ],
+      "task_type": "upscaling",
+      "title": "Background Removal and Grid Composition"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "LoadImage",
+      "id": "1",
+      "inputs": {
+        "image": "ComfyUI_00912_.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 1,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1660,
+            160
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.32",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "ComfyUI_00912_.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI_00912_.png",
+          "image"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "10": {
+      "class_type": "easy imageRemBg",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                19
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1080,
+            580
+          ],
+          "properties": {
+            "Node name for S&R": "easy imageRemBg",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "1.2.9",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            410
+          ],
+          "type": "easy imageRemBg",
+          "widgets_values": [
+            "RMBG-1.4",
+            "Preview",
+            "transp",
+            false,
+            "white",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RMBG-1.4",
+          "Preview",
+          "transp",
+          false,
+          "white",
+          false
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": "RMBG-1.4",
+        "widget_1": "Preview",
+        "widget_2": "transp",
+        "widget_3": false,
+        "widget_4": "white",
+        "widget_5": false
+      }
+    },
+    "11": {
+      "class_type": "LoadImage",
+      "id": "11",
+      "inputs": {
+        "image": "Documentary164_00003.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 11,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                8
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1380,
+            510
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.32",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "Documentary164_00003.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Documentary164_00003.png",
+          "image"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "easy imageRemBg",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                20
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -800,
+            580
+          ],
+          "properties": {
+            "Node name for S&R": "easy imageRemBg",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "1.2.9",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            410.00006103515625
+          ],
+          "type": "easy imageRemBg",
+          "widgets_values": [
+            "RMBG-1.4",
+            "Preview",
+            "transp",
+            false,
+            "white",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RMBG-1.4",
+          "Preview",
+          "transp",
+          false,
+          "white",
+          false
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": "RMBG-1.4",
+        "widget_1": "Preview",
+        "widget_2": "transp",
+        "widget_3": false,
+        "widget_4": "white",
+        "widget_5": false
+      }
+    },
+    "14": {
+      "class_type": "ImageResizeKJv2",
+      "id": "14",
+      "inputs": {
+        "crop_position": "center",
+        "divisible_by": 2,
+        "height": 1024,
+        "keep_proportion": "pad",
+        "pad_color": "255,255,255",
+        "upscale_method": "nearest-exact",
+        "width": 1024
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 13,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "height",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -520,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "ImageResizeKJv2",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            242
+          ],
+          "type": "ImageResizeKJv2",
+          "widgets_values": [
+            1024,
+            1024,
+            "nearest-exact",
+            "pad",
+            "255,255,255",
+            "center",
+            2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          "nearest-exact",
+          "pad",
+          "255,255,255",
+          "center",
+          2
+        ]
+      },
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "ImageResizeKJv2",
+      "id": "15",
+      "inputs": {
+        "crop_position": "center",
+        "divisible_by": 2,
+        "height": 1024,
+        "keep_proportion": "pad",
+        "pad_color": "255,255,255",
+        "upscale_method": "nearest-exact",
+        "width": 1024
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "inputs": [
+            {
+              "link": 18,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                15
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "height",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -240,
+            140
+          ],
+          "properties": {
+            "Node name for S&R": "ImageResizeKJv2",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            242
+          ],
+          "type": "ImageResizeKJv2",
+          "widgets_values": [
+            1024,
+            1024,
+            "nearest-exact",
+            "pad",
+            "255,255,255",
+            "center",
+            2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          "nearest-exact",
+          "pad",
+          "255,255,255",
+          "center",
+          2
+        ]
+      },
+      "uid": "15",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "ImageResizeKJv2",
+      "id": "16",
+      "inputs": {
+        "crop_position": "center",
+        "divisible_by": 2,
+        "height": 1024,
+        "keep_proportion": "pad",
+        "pad_color": "255,255,255",
+        "upscale_method": "nearest-exact",
+        "width": 1024
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 19,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "height",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -520,
+            410
+          ],
+          "properties": {
+            "Node name for S&R": "ImageResizeKJv2",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            242
+          ],
+          "type": "ImageResizeKJv2",
+          "widgets_values": [
+            1024,
+            1024,
+            "nearest-exact",
+            "pad",
+            "255,255,255",
+            "center",
+            2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          "nearest-exact",
+          "pad",
+          "255,255,255",
+          "center",
+          2
+        ]
+      },
+      "uid": "16",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "ImageResizeKJv2",
+      "id": "17",
+      "inputs": {
+        "crop_position": "center",
+        "divisible_by": 2,
+        "height": 1024,
+        "keep_proportion": "pad",
+        "pad_color": "255,255,255",
+        "upscale_method": "nearest-exact",
+        "width": 1024
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": 20,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                17
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "width",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "height",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -240,
+            420
+          ],
+          "properties": {
+            "Node name for S&R": "ImageResizeKJv2",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            242
+          ],
+          "type": "ImageResizeKJv2",
+          "widgets_values": [
+            1024,
+            1024,
+            "nearest-exact",
+            "pad",
+            "255,255,255",
+            "center",
+            2
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          "nearest-exact",
+          "pad",
+          "255,255,255",
+          "center",
+          2
+        ]
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "2": {
+      "class_type": "easy imageRemBg",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1080,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "easy imageRemBg",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "1.2.9",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            410
+          ],
+          "type": "easy imageRemBg",
+          "widgets_values": [
+            "RMBG-1.4",
+            "Preview",
+            "transp",
+            false,
+            "white",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RMBG-1.4",
+          "Preview",
+          "transp",
+          false,
+          "white",
+          false
+        ]
+      },
+      "uid": "2",
+      "widgets": {
+        "widget_0": "RMBG-1.4",
+        "widget_1": "Preview",
+        "widget_2": "transp",
+        "widget_3": false,
+        "widget_4": "white",
+        "widget_5": false
+      }
+    },
+    "3": {
+      "class_type": "PreviewImage",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 12,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [],
+          "pos": [
+            -270,
+            710
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.33",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            300,
+            320
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "ImageGridComposite2x2",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "image1",
+              "type": "IMAGE"
+            },
+            {
+              "link": 15,
+              "name": "image2",
+              "type": "IMAGE"
+            },
+            {
+              "link": 16,
+              "name": "image3",
+              "type": "IMAGE"
+            },
+            {
+              "link": 17,
+              "name": "image4",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -510,
+            690
+          ],
+          "properties": {
+            "Node name for S&R": "ImageGridComposite2x2",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "bec42252c690c1b5b2064b5a6732ad11cc452759",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            206.41659545898438,
+            86
+          ],
+          "type": "ImageGridComposite2x2"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "LoadImage",
+      "id": "7",
+      "inputs": {
+        "image": "ComfyUI_00857_.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 7,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1380,
+            160
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.32",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "ComfyUI_00857_.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI_00857_.png",
+          "image"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "easy imageRemBg",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 6,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                18
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -800,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "easy imageRemBg",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "1.2.9",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            410
+          ],
+          "type": "easy imageRemBg",
+          "widgets_values": [
+            "RMBG-1.4",
+            "Preview",
+            "transp",
+            false,
+            "white",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RMBG-1.4",
+          "Preview",
+          "transp",
+          false,
+          "white",
+          false
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": "RMBG-1.4",
+        "widget_1": "Preview",
+        "widget_2": "transp",
+        "widget_3": false,
+        "widget_4": "white",
+        "widget_5": false
+      }
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "id": "9",
+      "inputs": {
+        "image": "vid_img2vid_output_00044.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#3f5159",
+          "color": "#2a363b",
+          "flags": {},
+          "id": 9,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -1660,
+            510
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.32",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "vid_img2vid_output_00044.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#3f5159",
+        "color": "#2a363b",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vid_img2vid_output_00044.png",
+          "image"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "3",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "8351ecabd791b2cb",
+    "path": "external_workflows/.shadow/source/8351ecabd791b2cb-Extract_and_Composite_Subjetcs.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "54a681138bec8a379fcf6f6ede02187213733a178ba38a64e08d100bdc52a2aa",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1313445718467284992,
+      "channel_name": "hunyuanvideo",
+      "content_preview": "have a play - load any 4 images and it will extract the subject - resize each to fit inside a 1024 square and then turn that into a 2x2 grid",
+      "discord_message_url": "https://discord.com/channels/@me/1313445718467284992/1370404146183929947",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1370404146183929947:Extract_and_Composite_Subjetcs.json:8351ecabd791b2cb",
+      "filename": "Extract_and_Composite_Subjetcs.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:16+00:00",
+      "message_id": 1370404146183929947,
+      "node_class_multiset": {
+        "ImageGridComposite2x2": 1,
+        "ImageResizeKJv2": 4,
+        "LoadImage": 4,
+        "PreviewImage": 1,
+        "easy imageRemBg": 4
+      },
+      "node_count": 14,
+      "origin_date": "2025-05-09T14:16:49.328000+00:00",
+      "originator_global_name": "AJO",
+      "originator_id": "781949465065684993",
+      "originator_type": "discord_message_author",
+      "originator_username": "ajo6268",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "8351ecabd791b2cb2c1c3f43f6d961c8749321f25a3e46f31b2a2a680c1fe262",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1313445718467284992/1370404146238328852/Extract_and_Composite_Subjetcs.json?ex=68200891&is=681eb711&hm=ac198a962df9a7956d01b688ed2a5826f2f770e90c56df9aada74c6dfd4b9517&",
+      "source_workflow_sha256": "cd8b1b0ed21efb10da6cd72e1f7762476113b0d9b3855bd37b07ac09d0514686",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

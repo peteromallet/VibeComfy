@@ -1,0 +1,2627 @@
+{
+  "edges": [
+    {
+      "from_node": "120",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "71",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "110"
+    },
+    {
+      "from_node": "71",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "116"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "60"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "66",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "108",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "76",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "80",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "66"
+    },
+    {
+      "from_node": "120",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "108"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "108"
+    },
+    {
+      "from_node": "84",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "108"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "108"
+    },
+    {
+      "from_node": "75",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "108"
+    },
+    {
+      "from_node": "71",
+      "from_output": "1",
+      "to_input": "mask",
+      "to_node": "108"
+    },
+    {
+      "from_node": "75",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "76"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "76"
+    },
+    {
+      "from_node": "116",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "75"
+    },
+    {
+      "from_node": "116",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "118"
+    },
+    {
+      "from_node": "119",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "80"
+    }
+  ],
+  "groups": [],
+  "id": "9c2e004b5afd5644",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "119",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "qwen-image-Q4_0.gguf"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": " "
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 111536359725563
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "108": {
+        "class_type": "ControlNetInpaintingAliMamaApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "84",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "75",
+              "0"
+            ]
+          ],
+          [
+            "mask",
+            [
+              "71",
+              "1"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "110": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "71",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "115": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'Right-click on the Load Image node, then click \"Open in MaskEditor\" to open it and paint the area you want to inpaint.\\n\\nYou can learn more about MaskEditor in the [MaskEditor Document](https://docs.comfy.org/interface/maskeditor)'"
+          ]
+        ]
+      },
+      "116": {
+        "class_type": "ImagePadForOutpaint",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "71",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "118",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "75",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "bottom",
+            "0"
+          ],
+          [
+            "feathering",
+            "40"
+          ],
+          [
+            "left",
+            "104"
+          ],
+          [
+            "right",
+            "104"
+          ],
+          [
+            "top",
+            "104"
+          ]
+        ]
+      },
+      "117": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'For outpainting, you should use the  mask from **Pad Image for Outpaintin*g** node '"
+          ]
+        ]
+      },
+      "118": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "116",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "119": {
+        "class_type": "UnetLoaderGGUF",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "80",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'qwen-image-Q4_0.gguf'"
+          ]
+        ]
+      },
+      "120": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'Qwen\\\\qwen_2.5_vl_7b_fp8_scaled.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'qwen_image'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "76",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "66",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "108",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "108",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "2.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "seed",
+            "111536359725563"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "vae"
+            ]
+          ],
+          [
+            "0",
+            [
+              "76",
+              "vae"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'qwen_image_vae.safetensors'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "120",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'A man facing upwards, with closed eyes and smiling face, detailed'"
+          ]
+        ]
+      },
+      "60": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "66": {
+        "class_type": "ModelSamplingAuraFlow",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "80",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "3.1000000000000005"
+          ]
+        ]
+      },
+      "68": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Increase the shift if you get too many blury/dark/bad images. Decrease if you want to try increasing detail.'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "120",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "' '"
+          ]
+        ]
+      },
+      "71": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "110",
+              "pixels"
+            ]
+          ],
+          [
+            "0",
+            [
+              "116",
+              "image"
+            ]
+          ],
+          [
+            "1",
+            [
+              "108",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'clipspace/clipspace-painted-masked-6301513.png [input]'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "75": {
+        "class_type": "ImageScaleToTotalPixels",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "116",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "76",
+              "pixels"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "megapixels",
+            "1.68"
+          ],
+          [
+            "upscale_method",
+            "'area'"
+          ]
+        ]
+      },
+      "76": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "75",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "78": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'[Tutorial](https://docs.comfy.org/tutorials/image/qwen/qwen-image) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/image/qwen/qwen-image)\\n\\n\\n## Model links\\n\\nYou can find all the models on [Huggingface](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main) or [Modelscope](https://modelscope.cn/models/Comfy-Org/Qwen-Image_ComfyUI/files)\\n\\n**Diffusion model**\\n\\n- [qwen_image_fp8_e4m3fn.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors)\\n\\n**ControlNet**\\n\\n- [Qwen-Image-InstantX-ControlNet-Inpainting.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors)\\n\\n\\n**LoRA**\\n\\n- [Qwen-Image-Lightning-4steps-V1.0.safetensors](https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors)\\n\\n**Text encoder**\\n\\n- [qwen_2.5_vl_7b_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors)\\n\\n**VAE**\\n\\n- [qwen_image_vae.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors)\\n\\n\\nModel Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\\n\u2502   \u2502   \u251c\u2500\u2500 qwen_image_fp8_e4m3fn.safetensors\\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_distill_full_fp8_e4m3fn.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/\\n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-Lightning-8steps-V1.0.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 controlnet/ \\n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-InstantX-ControlNet-Inpainting.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 vae/\\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_vae.safetensors\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 text_encoders/\\n\u2502       \u2514\u2500\u2500 qwen_2.5_vl_7b_fp8_scaled.safetensors\\n```\\n'"
+          ]
+        ]
+      },
+      "79": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'You can test and find the best setting by yourself. The following table is for reference.\\n\\n| model            | steps | cfg |\\n|---------------------|---------------|---------------|\\n| fp8_e4m3fn             | 20                | 2.5               |\\n| fp8_e4m3fn + 4 Steps lightning LoRA    | 4               | 1.0               |\\n'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "80": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "119",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "66",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'Qwen-Image-Lightning-4steps-V2.0.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "84": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Qwen-Image-InstantX-ControlNet-Inpainting.safetensors'"
+          ]
+        ]
+      },
+      "86": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"Set cfg to 1.0 for a speed boost at the cost of consistency. Samplers like res_multistep work pretty well at cfg 1.0\\n\\nThe official number of steps is 50 but I think that's too much. Even just 10 steps seems to work.\""
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "09fc64f94ce5ed2684c5bd551f285d8ac0ee751c5d0b545078e31d95ad35bb62",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1402003225061625888,
+      "channel_name": "qwen-image",
+      "content_preview": "Have you tested the latest InstantX controlnet inpainting?...dropped day before yesterday",
+      "discord_message_url": "https://discord.com/channels/@me/1402003225061625888/1416331396489805966",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1416331396489805966:Qwen_Inpainting.json:9c2e004b5afd5644",
+      "filename": "Qwen_Inpainting.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:36+00:00",
+      "message_id": 1416331396489805966,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "ControlNetInpaintingAliMamaApply": 1,
+        "ControlNetLoader": 1,
+        "ImagePadForOutpaint": 1,
+        "ImageScaleToTotalPixels": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "LoraLoaderModelOnly": 1,
+        "MarkdownNote": 4,
+        "ModelSamplingAuraFlow": 1,
+        "Note": 2,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "UnetLoaderGGUF": 1,
+        "VAEDecode": 1,
+        "VAEEncode": 2,
+        "VAELoader": 1
+      },
+      "node_count": 24,
+      "origin_date": "2025-09-13T07:55:19.088000+00:00",
+      "originator_global_name": "Atlas",
+      "originator_id": "888302189041311755",
+      "originator_type": "discord_message_author",
+      "originator_username": "tom_scaria",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "9c2e004b5afd5644fa18c57639201856e34a0f5e70dd9a6e76ee96199712758d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1402003225061625888/1416331396078768228/Qwen_Inpainting.json?ex=68c674e6&is=68c52366&hm=fcf4dd696e558c7155321f6e219104701fdcbe1d467ad9de20da289ea09a24f1&",
+      "source_workflow_sha256": "998e1f74217e3e8316f1bf154d40ce5e58acd5d894367eed9d46a1ed928d1759",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "48722582862e9fa6f9347cd1f95ef3298467b22b748fc299a94319381073e7a2",
+      "complexity": 3,
+      "description": "Uses Qwen-Image-Lightning model with ControlNet inpainting to generate or modify images based on text prompts, with support for outpainting and LoRA.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "inpainting",
+        "outpainting",
+        "controlnet",
+        "qwen",
+        "image-generation",
+        "lora",
+        "text-to-image"
+      ],
+      "task_type": "inpainting",
+      "title": "Qwen Image Inpainting with ControlNet"
+    }
+  },
+  "nodes": {
+    "108": {
+      "class_type": "ControlNetInpaintingAliMamaApply",
+      "id": "108",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 108,
+          "inputs": [
+            {
+              "link": 190,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 191,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 192,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 193,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 194,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 195,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                188
+              ],
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                189
+              ],
+              "name": "negative",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            834.7630615234375,
+            199.9304962158203
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetInpaintingAliMamaApply",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.59"
+          },
+          "size": [
+            317.0093688964844,
+            206
+          ],
+          "type": "ControlNetInpaintingAliMamaApply",
+          "widgets_values": [
+            1,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          0,
+          1
+        ]
+      },
+      "uid": "108",
+      "widgets": {
+        "widget_0": 1,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "110": {
+      "class_type": "VAEEncode",
+      "id": "110",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 110,
+          "inputs": [
+            {
+              "link": 197,
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            324.080078125,
+            455
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.59"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEEncode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "110",
+      "widgets": {}
+    },
+    "115": {
+      "class_type": "MarkdownNote",
+      "id": "115",
+      "inputs": {
+        "unused_widget_0": "Right-click on the Load Image node, then click \"Open in MaskEditor\" to open it and paint the area you want to inpaint.\n\nYou can learn more about MaskEditor in the [MaskEditor Document](https://docs.comfy.org/interface/maskeditor)"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 115,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            -462.4257507324219,
+            588.766845703125
+          ],
+          "properties": {},
+          "size": [
+            307.56927490234375,
+            169.79689025878906
+          ],
+          "title": "About how to create mask",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "Right-click on the Load Image node, then click \"Open in MaskEditor\" to open it and paint the area you want to inpaint.\n\nYou can learn more about MaskEditor in the [MaskEditor Document](https://docs.comfy.org/interface/maskeditor)"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Right-click on the Load Image node, then click \"Open in MaskEditor\" to open it and paint the area you want to inpaint.\n\nYou can learn more about MaskEditor in the [MaskEditor Document](https://docs.comfy.org/interface/maskeditor)"
+        ]
+      },
+      "uid": "115",
+      "widgets": {}
+    },
+    "116": {
+      "class_type": "ImagePadForOutpaint",
+      "id": "116",
+      "inputs": {
+        "bottom": 0,
+        "feathering": 40,
+        "left": 104,
+        "right": 104,
+        "top": 104
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 116,
+          "inputs": [
+            {
+              "link": 200,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                201,
+                202
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            390.7713317871094,
+            708.6484375
+          ],
+          "properties": {
+            "Node name for S&R": "ImagePadForOutpaint",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.59"
+          },
+          "size": [
+            270,
+            174
+          ],
+          "type": "ImagePadForOutpaint",
+          "widgets_values": [
+            104,
+            104,
+            104,
+            0,
+            40
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          104,
+          104,
+          104,
+          0,
+          40
+        ]
+      },
+      "uid": "116",
+      "widgets": {}
+    },
+    "117": {
+      "class_type": "MarkdownNote",
+      "id": "117",
+      "inputs": {
+        "unused_widget_0": "For outpainting, you should use the  mask from **Pad Image for Outpaintin*g** node "
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 117,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [],
+          "pos": [
+            -460,
+            1040
+          ],
+          "properties": {},
+          "size": [
+            307.56927490234375,
+            169.79689025878906
+          ],
+          "title": "About outpainting",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "For outpainting, you should use the  mask from **Pad Image for Outpaintin*g** node "
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "For outpainting, you should use the  mask from **Pad Image for Outpaintin*g** node "
+        ]
+      },
+      "uid": "117",
+      "widgets": {}
+    },
+    "118": {
+      "class_type": "PreviewImage",
+      "id": "118",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 118,
+          "inputs": [
+            {
+              "link": 202,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 18,
+          "outputs": [],
+          "pos": [
+            398.6643371582031,
+            968.9293212890625
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.59"
+          },
+          "size": [
+            140,
+            26
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "118",
+      "widgets": {}
+    },
+    "119": {
+      "class_type": "UnetLoaderGGUF",
+      "id": "119",
+      "inputs": {
+        "unet_name": "qwen-image-Q4_0.gguf"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 119,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                203
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -88.73102569580078,
+            6.834909439086914
+          ],
+          "properties": {
+            "Node name for S&R": "UnetLoaderGGUF",
+            "cnr_id": "comfyui-gguf",
+            "ver": "bc5223b0e37e053dbec2ea5e5f52c2fd4b8f712a"
+          },
+          "size": [
+            304.82916259765625,
+            58
+          ],
+          "type": "UnetLoaderGGUF",
+          "widgets_values": [
+            "qwen-image-Q4_0.gguf"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "qwen-image-Q4_0.gguf"
+        ]
+      },
+      "uid": "119",
+      "widgets": {}
+    },
+    "120": {
+      "class_type": "CLIPLoader",
+      "id": "120",
+      "inputs": {
+        "clip_name": "Qwen\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "device": "default",
+        "type": "qwen_image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 120,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                204,
+                205
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            -97.83108520507812,
+            126.61371612548828
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            315.9910888671875,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "Qwen\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+            "qwen_image",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Qwen\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+          "qwen_image",
+          "default"
+        ]
+      },
+      "uid": "120",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 2.5,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 111536359725563,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 156,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 188,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 189,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 142,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                128
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1290.0623779296875,
+            -1.2983819246292114
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            310,
+            566
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            111536359725563,
+            "randomize",
+            20,
+            2.5,
+            "euler",
+            "simple",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          111536359725563,
+          "randomize",
+          20,
+          2.5,
+          "euler",
+          "simple",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "VAELoader",
+      "id": "39",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                76,
+                144,
+                193
+              ],
+              "name": "VAE",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -120,
+            290
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "vae",
+                "name": "qwen_image_vae.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+              }
+            ],
+            "ver": "0.3.51"
+          },
+          "size": [
+            380,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "qwen_image_vae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "qwen_image_vae.safetensors"
+        ]
+      },
+      "uid": "39",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "A man facing upwards, with closed eyes and smiling face, detailed"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 204,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                190
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            300,
+            170
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            460,
+            164.31304931640625
+          ],
+          "title": "CLIP Text Encode (Positive Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "A man facing upwards, with closed eyes and smiling face, detailed"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A man facing upwards, with closed eyes and smiling face, detailed"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "60": {
+      "class_type": "SaveImage",
+      "id": "60",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 60,
+          "inputs": [
+            {
+              "link": 110,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [],
+          "pos": [
+            2002.4825439453125,
+            45.12841796875
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            970,
+            1030
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "60",
+      "widgets": {}
+    },
+    "66": {
+      "class_type": "ModelSamplingAuraFlow",
+      "id": "66",
+      "inputs": {
+        "shift": 3.1000000000000005
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 66,
+          "inputs": [
+            {
+              "link": 149,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                156
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            837.9961547851562,
+            -4.203619956970215
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingAuraFlow",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            310,
+            58
+          ],
+          "type": "ModelSamplingAuraFlow",
+          "widgets_values": [
+            3.1000000000000005
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          3.1000000000000005
+        ]
+      },
+      "uid": "66",
+      "widgets": {}
+    },
+    "68": {
+      "class_type": "Note",
+      "id": "68",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 68,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            826.6304931640625,
+            -197.34292602539062
+          ],
+          "properties": {},
+          "size": [
+            310,
+            90
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "Increase the shift if you get too many blury/dark/bad images. Decrease if you want to try increasing detail."
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Increase the shift if you get too many blury/dark/bad images. Decrease if you want to try increasing detail."
+        ]
+      },
+      "uid": "68",
+      "widgets": {
+        "widget_0": "Increase the shift if you get too many blury/dark/bad images. Decrease if you want to try increasing detail."
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": " "
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 205,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                191
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            300,
+            380
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            460,
+            140
+          ],
+          "title": "CLIP Text Encode (Negative Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            " "
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          " "
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "71": {
+      "class_type": "LoadImage",
+      "id": "71",
+      "inputs": {
+        "image": "clipspace/clipspace-painted-masked-6301513.png [input]",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 71,
+          "inputs": [],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                197,
+                200
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                195
+              ],
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -73.20216369628906,
+            657.9524536132812
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            274.080078125,
+            314.00006103515625
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "clipspace/clipspace-painted-masked-6301513.png [input]",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "clipspace/clipspace-painted-masked-6301513.png [input]",
+          "image"
+        ]
+      },
+      "uid": "71",
+      "widgets": {}
+    },
+    "75": {
+      "class_type": "ImageScaleToTotalPixels",
+      "id": "75",
+      "inputs": {
+        "megapixels": 1.68,
+        "upscale_method": "area"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 75,
+          "inputs": [
+            {
+              "link": 201,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                143,
+                194
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            763.9873657226562,
+            709.4038696289062
+          ],
+          "properties": {
+            "Node name for S&R": "ImageScaleToTotalPixels",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "ImageScaleToTotalPixels",
+          "widgets_values": [
+            "area",
+            1.68
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "area",
+          1.68
+        ]
+      },
+      "uid": "75",
+      "widgets": {}
+    },
+    "76": {
+      "class_type": "VAEEncode",
+      "id": "76",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 76,
+          "inputs": [
+            {
+              "link": 143,
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": 144,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                142
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            997.2962036132812,
+            472.7699279785156
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEEncode",
+          "widgets_values": []
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "76",
+      "widgets": {}
+    },
+    "78": {
+      "class_type": "MarkdownNote",
+      "id": "78",
+      "inputs": {
+        "unused_widget_0": "[Tutorial](https://docs.comfy.org/tutorials/image/qwen/qwen-image) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/image/qwen/qwen-image)\n\n\n## Model links\n\nYou can find all the models on [Huggingface](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main) or [Modelscope](https://modelscope.cn/models/Comfy-Org/Qwen-Image_ComfyUI/files)\n\n**Diffusion model**\n\n- [qwen_image_fp8_e4m3fn.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors)\n\n**ControlNet**\n\n- [Qwen-Image-InstantX-ControlNet-Inpainting.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors)\n\n\n**LoRA**\n\n- [Qwen-Image-Lightning-4steps-V1.0.safetensors](https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors)\n\n**Text encoder**\n\n- [qwen_2.5_vl_7b_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors)\n\n**VAE**\n\n- [qwen_image_vae.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_image_fp8_e4m3fn.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_distill_full_fp8_e4m3fn.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/\n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-Lightning-8steps-V1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 controlnet/ \n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-InstantX-ControlNet-Inpainting.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 vae/\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_vae.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502       \u2514\u2500\u2500 qwen_2.5_vl_7b_fp8_scaled.safetensors\n```\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 78,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -690,
+            -50
+          ],
+          "properties": {
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            541.36865234375,
+            579.70263671875
+          ],
+          "title": "Model links",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "[Tutorial](https://docs.comfy.org/tutorials/image/qwen/qwen-image) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/image/qwen/qwen-image)\n\n\n## Model links\n\nYou can find all the models on [Huggingface](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main) or [Modelscope](https://modelscope.cn/models/Comfy-Org/Qwen-Image_ComfyUI/files)\n\n**Diffusion model**\n\n- [qwen_image_fp8_e4m3fn.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors)\n\n**ControlNet**\n\n- [Qwen-Image-InstantX-ControlNet-Inpainting.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors)\n\n\n**LoRA**\n\n- [Qwen-Image-Lightning-4steps-V1.0.safetensors](https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors)\n\n**Text encoder**\n\n- [qwen_2.5_vl_7b_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors)\n\n**VAE**\n\n- [qwen_image_vae.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_image_fp8_e4m3fn.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_distill_full_fp8_e4m3fn.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/\n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-Lightning-8steps-V1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 controlnet/ \n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-InstantX-ControlNet-Inpainting.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 vae/\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_vae.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502       \u2514\u2500\u2500 qwen_2.5_vl_7b_fp8_scaled.safetensors\n```\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[Tutorial](https://docs.comfy.org/tutorials/image/qwen/qwen-image) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/image/qwen/qwen-image)\n\n\n## Model links\n\nYou can find all the models on [Huggingface](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/tree/main) or [Modelscope](https://modelscope.cn/models/Comfy-Org/Qwen-Image_ComfyUI/files)\n\n**Diffusion model**\n\n- [qwen_image_fp8_e4m3fn.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors)\n\n**ControlNet**\n\n- [Qwen-Image-InstantX-ControlNet-Inpainting.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors)\n\n\n**LoRA**\n\n- [Qwen-Image-Lightning-4steps-V1.0.safetensors](https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors)\n\n**Text encoder**\n\n- [qwen_2.5_vl_7b_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors)\n\n**VAE**\n\n- [qwen_image_vae.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500 qwen_image_fp8_e4m3fn.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_distill_full_fp8_e4m3fn.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/\n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-Lightning-8steps-V1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 controlnet/ \n\u2502   \u2502   \u2514\u2500\u2500 Qwen-Image-InstantX-ControlNet-Inpainting.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 vae/\n\u2502   \u2502   \u2514\u2500\u2500 qwen_image_vae.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502       \u2514\u2500\u2500 qwen_2.5_vl_7b_fp8_scaled.safetensors\n```\n"
+        ]
+      },
+      "uid": "78",
+      "widgets": {}
+    },
+    "79": {
+      "class_type": "MarkdownNote",
+      "id": "79",
+      "inputs": {
+        "unused_widget_0": "You can test and find the best setting by yourself. The following table is for reference.\n\n| model            | steps | cfg |\n|---------------------|---------------|---------------|\n| fp8_e4m3fn             | 20                | 2.5               |\n| fp8_e4m3fn + 4 Steps lightning LoRA    | 4               | 1.0               |\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 79,
+          "inputs": [],
+          "mode": 0,
+          "order": 10,
+          "outputs": [],
+          "pos": [
+            1276.9735107421875,
+            854.9829711914062
+          ],
+          "properties": {},
+          "size": [
+            310,
+            140
+          ],
+          "title": "KSampler settings",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "You can test and find the best setting by yourself. The following table is for reference.\n\n| model            | steps | cfg |\n|---------------------|---------------|---------------|\n| fp8_e4m3fn             | 20                | 2.5               |\n| fp8_e4m3fn + 4 Steps lightning LoRA    | 4               | 1.0               |\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "You can test and find the best setting by yourself. The following table is for reference.\n\n| model            | steps | cfg |\n|---------------------|---------------|---------------|\n| fp8_e4m3fn             | 20                | 2.5               |\n| fp8_e4m3fn + 4 Steps lightning LoRA    | 4               | 1.0               |\n"
+        ]
+      },
+      "uid": "79",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 128,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 76,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                110
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1647.712890625,
+            45.98853302001953
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.51"
+          },
+          "size": [
+            310,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    },
+    "80": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "80",
+      "inputs": {
+        "lora_name": "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 80,
+          "inputs": [
+            {
+              "link": 203,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 4,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                149
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            320,
+            -10
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "loras",
+                "name": "Qwen-Image-Lightning-4steps-V1.0.safetensors",
+                "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-4steps-V1.0.safetensors"
+              }
+            ],
+            "ver": "0.3.51"
+          },
+          "size": [
+            430,
+            82
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+          1
+        ]
+      },
+      "uid": "80",
+      "widgets": {}
+    },
+    "84": {
+      "class_type": "ControlNetLoader",
+      "id": "84",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 84,
+          "inputs": [],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                192
+              ],
+              "name": "CONTROL_NET",
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            -120,
+            400
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "controlnet",
+                "name": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/main/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+              }
+            ],
+            "ver": "0.3.51"
+          },
+          "size": [
+            380,
+            58
+          ],
+          "type": "ControlNetLoader",
+          "widgets_values": [
+            "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+        ]
+      },
+      "uid": "84",
+      "widgets": {
+        "widget_0": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+      }
+    },
+    "86": {
+      "class_type": "Note",
+      "id": "86",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 86,
+          "inputs": [],
+          "mode": 0,
+          "order": 9,
+          "outputs": [],
+          "pos": [
+            1286.7354736328125,
+            668.4282836914062
+          ],
+          "properties": {},
+          "size": [
+            307.4002380371094,
+            127.38092803955078
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "Set cfg to 1.0 for a speed boost at the cost of consistency. Samplers like res_multistep work pretty well at cfg 1.0\n\nThe official number of steps is 50 but I think that's too much. Even just 10 steps seems to work."
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Set cfg to 1.0 for a speed boost at the cost of consistency. Samplers like res_multistep work pretty well at cfg 1.0\n\nThe official number of steps is 50 but I think that's too much. Even just 10 steps seems to work."
+        ]
+      },
+      "uid": "86",
+      "widgets": {
+        "widget_0": "Set cfg to 1.0 for a speed boost at the cost of consistency. Samplers like res_multistep work pretty well at cfg 1.0\n\nThe official number of steps is 50 but I think that's too much. Even just 10 steps seems to work."
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "60",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "118",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+      "Qwen\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "qwen-image-Q4_0.gguf",
+      "qwen_image_vae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "9c2e004b5afd5644",
+    "path": "external_workflows/.shadow/source/9c2e004b5afd5644-Qwen_Inpainting.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "09fc64f94ce5ed2684c5bd551f285d8ac0ee751c5d0b545078e31d95ad35bb62",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1402003225061625888,
+      "channel_name": "qwen-image",
+      "content_preview": "Have you tested the latest InstantX controlnet inpainting?...dropped day before yesterday",
+      "discord_message_url": "https://discord.com/channels/@me/1402003225061625888/1416331396489805966",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1416331396489805966:Qwen_Inpainting.json:9c2e004b5afd5644",
+      "filename": "Qwen_Inpainting.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:36+00:00",
+      "message_id": 1416331396489805966,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "ControlNetInpaintingAliMamaApply": 1,
+        "ControlNetLoader": 1,
+        "ImagePadForOutpaint": 1,
+        "ImageScaleToTotalPixels": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "LoraLoaderModelOnly": 1,
+        "MarkdownNote": 4,
+        "ModelSamplingAuraFlow": 1,
+        "Note": 2,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "UnetLoaderGGUF": 1,
+        "VAEDecode": 1,
+        "VAEEncode": 2,
+        "VAELoader": 1
+      },
+      "node_count": 24,
+      "origin_date": "2025-09-13T07:55:19.088000+00:00",
+      "originator_global_name": "Atlas",
+      "originator_id": "888302189041311755",
+      "originator_type": "discord_message_author",
+      "originator_username": "tom_scaria",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "9c2e004b5afd5644fa18c57639201856e34a0f5e70dd9a6e76ee96199712758d",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1402003225061625888/1416331396078768228/Qwen_Inpainting.json?ex=68c674e6&is=68c52366&hm=fcf4dd696e558c7155321f6e219104701fdcbe1d467ad9de20da289ea09a24f1&",
+      "source_workflow_sha256": "998e1f74217e3e8316f1bf154d40ce5e58acd5d894367eed9d46a1ed928d1759",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

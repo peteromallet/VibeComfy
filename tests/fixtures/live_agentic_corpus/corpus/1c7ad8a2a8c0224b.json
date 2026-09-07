@@ -1,0 +1,1689 @@
+{
+  "edges": [
+    {
+      "from_node": "164",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "256"
+    },
+    {
+      "from_node": "201",
+      "from_output": "0",
+      "to_input": "switch",
+      "to_node": "256"
+    },
+    {
+      "from_node": "200",
+      "from_output": "0",
+      "to_input": "image_1",
+      "to_node": "256"
+    },
+    {
+      "from_node": "256",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "265"
+    },
+    {
+      "from_node": "201",
+      "from_output": "0",
+      "to_input": "switch",
+      "to_node": "240"
+    },
+    {
+      "from_node": "164",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "240"
+    },
+    {
+      "from_node": "200",
+      "from_output": "0",
+      "to_input": "image_1",
+      "to_node": "240"
+    },
+    {
+      "from_node": "240",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "263"
+    },
+    {
+      "from_node": "224",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "264"
+    },
+    {
+      "from_node": "164",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "224"
+    },
+    {
+      "from_node": "201",
+      "from_output": "0",
+      "to_input": "switch",
+      "to_node": "224"
+    },
+    {
+      "from_node": "200",
+      "from_output": "0",
+      "to_input": "image_1",
+      "to_node": "224"
+    }
+  ],
+  "groups": [],
+  "id": "41dba5f5e7ed2d41",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "164": {
+        "class_type": "LoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "224",
+              "video"
+            ]
+          ],
+          [
+            "0",
+            [
+              "240",
+              "video"
+            ]
+          ],
+          [
+            "0",
+            [
+              "256",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "file",
+            "'chimp.mp4'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "200": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "224",
+              "image_1"
+            ]
+          ],
+          [
+            "0",
+            [
+              "240",
+              "image_1"
+            ]
+          ],
+          [
+            "0",
+            [
+              "256",
+              "image_1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'hf_20260201_013532_0d4f40b4-2927-45f9-bb45-e97e108378b9.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "201": {
+        "class_type": "PrimitiveBoolean",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "224",
+              "switch"
+            ]
+          ],
+          [
+            "0",
+            [
+              "240",
+              "switch"
+            ]
+          ],
+          [
+            "0",
+            [
+              "256",
+              "switch"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "True"
+          ]
+        ]
+      },
+      "224": {
+        "class_type": "2dc75cab-e957-4437-a5bb-2afb0ea00516",
+        "incoming_edge_sig": [
+          [
+            "image_1",
+            [
+              "200",
+              "0"
+            ]
+          ],
+          [
+            "switch",
+            [
+              "201",
+              "0"
+            ]
+          ],
+          [
+            "video",
+            [
+              "164",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "264",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "None"
+          ],
+          [
+            "widget_1",
+            "1920"
+          ],
+          [
+            "widget_2",
+            "1088"
+          ],
+          [
+            "widget_3",
+            "None"
+          ],
+          [
+            "widget_4",
+            "None"
+          ],
+          [
+            "widget_5",
+            "True"
+          ]
+        ]
+      },
+      "240": {
+        "class_type": "b83ac947-e174-4a8e-b0c1-f7c3b8f00419",
+        "incoming_edge_sig": [
+          [
+            "image_1",
+            [
+              "200",
+              "0"
+            ]
+          ],
+          [
+            "switch",
+            [
+              "201",
+              "0"
+            ]
+          ],
+          [
+            "video",
+            [
+              "164",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "263",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "None"
+          ],
+          [
+            "widget_1",
+            "1920"
+          ],
+          [
+            "widget_2",
+            "1088"
+          ],
+          [
+            "widget_3",
+            "None"
+          ],
+          [
+            "widget_4",
+            "None"
+          ],
+          [
+            "widget_5",
+            "True"
+          ]
+        ]
+      },
+      "256": {
+        "class_type": "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f",
+        "incoming_edge_sig": [
+          [
+            "image_1",
+            [
+              "200",
+              "0"
+            ]
+          ],
+          [
+            "switch",
+            [
+              "201",
+              "0"
+            ]
+          ],
+          [
+            "video",
+            [
+              "164",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "265",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "None"
+          ],
+          [
+            "widget_1",
+            "1920"
+          ],
+          [
+            "widget_2",
+            "1088"
+          ],
+          [
+            "widget_3",
+            "None"
+          ],
+          [
+            "widget_4",
+            "None"
+          ],
+          [
+            "widget_5",
+            "True"
+          ]
+        ]
+      },
+      "263": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "240",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "264": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "224",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "265": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "256",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "271": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'# Always load Image'"
+          ]
+        ]
+      },
+      "272": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## LTX-2 Prompting Tips\\n1. **Core Actions**: Describe events and actions as they occur over time  \\n2. **Audio**: Describe sounds and dialogue needed for the scene  \\n3. **Reference Image**: Do not repeat details already present  \\n4. **Consistency**: Avoid instructions that do not match the reference image, as this will degrade results\\n'"
+          ]
+        ]
+      },
+      "273": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Model Links\\n\\n**LTX-2 Model Weights**\\n\\n- [ltx-2-19b-distilled.safetensors](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled.safetensors)\\n- [ ltx-2-spatial-upscaler-x2-1.0.safetensors ](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors)\\n- [ IC LoRA - Canny ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Canny-Control/resolve/main/ltx-2-19b-ic-lora-canny-control.safetensors)\\n- [ IC LoRA - Depth ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Depth-Control/resolve/main/ltx-2-19b-ic-lora-depth-control.safetensors)\\n- [ IC LoRA - Pose ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Pose-Control/resolve/main/ltx-2-19b-ic-lora-pose-control.safetensors)\\n\\n\\n\\n**Text Encoder**\\n- [Google Gemma 3](https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized)\\n\\nPlease download the entire folder - \\n\\n- Run: \\n 1. cd models/text_encoders\\n 2. git clone https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized\\n\\n*Full documentation can be found [here](https://docs.ltx.video/open-source-model/integration-tools/comfy-ui#text-encoder)\\n\\n\\n**Model Storage Location**\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\\n\u2502   \u2502      \u251c\u2500\u2500 gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 checkpoints/\\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-19b-distilled.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 latent_upscale_models/ \\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-spatial-upscaler-x2-1.0.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/ \\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-canny-control.safetensors\\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-depth-control.safetensors\\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-pose-control.safetensors\\n```\\n**Assets**\\n- [buildings.mp4 (input video)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings.mp4)\\n- [buildings ff (first frame)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings%20ff.png)\\n\\n## Report Issues\\nTo report any issues when running this workflow, [go to GitHub](https://github.com/Lightricks/ComfyUI-LTXVideo/issues)\\n'"
+          ]
+        ]
+      },
+      "274": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'Width & height settings must be divisible by 64. \\n\\nRunning with invalid parameters **will not cause errors**. Instead, the flow will silently choose the closest valid parameters. '"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1c7ad8a2a8c0224b3d3b46f78b0e3329e8315630c538f6bc0385c90035f276b3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "the workflow",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1469554498237235200",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1469554498237235200:LTX-2_ICLoRA_All_Distilled-ex.json:41dba5f5e7ed2d41",
+      "filename": "LTX-2_ICLoRA_All_Distilled-ex.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:51+00:00",
+      "message_id": 1469554498237235200,
+      "node_class_multiset": {
+        "2dc75cab-e957-4437-a5bb-2afb0ea00516": 1,
+        "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f": 1,
+        "LoadImage": 1,
+        "LoadVideo": 1,
+        "MarkdownNote": 4,
+        "PrimitiveBoolean": 1,
+        "SaveVideo": 3,
+        "b83ac947-e174-4a8e-b0c1-f7c3b8f00419": 1
+      },
+      "node_count": 13,
+      "origin_date": "2026-02-07T04:44:55.382000+00:00",
+      "originator_global_name": "AIGambino",
+      "originator_id": "948500705268867072",
+      "originator_type": "discord_message_author",
+      "originator_username": "nextgen5.0",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "41dba5f5e7ed2d418b04f7b583ed2e2dfc8d480344c79503978fef73ef089650",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1469554498405011732/LTX-2_ICLoRA_All_Distilled-ex.json?ex=6988bd87&is=69876c07&hm=9e5e5a52c2c2c461c99d04ad69a97b3e639ffecd492ad59ee18cda6cfa57955d&",
+      "source_workflow_sha256": "38b98f0a0c5cebac12f7507760ab6ec960971629772a2626b79acc41fccecc5e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "8ed407dcff61afbc636f8631cb2f0ea813060c209b845a364e3f90694eb2a6a3",
+      "complexity": 3,
+      "description": "Loads a video and an image, applies boolean logic, and saves three video outputs.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video",
+        "image",
+        "save-video",
+        "boolean",
+        "workflow"
+      ],
+      "task_type": "other",
+      "title": "Video Loading and Saving Workflow"
+    }
+  },
+  "nodes": {
+    "164": {
+      "class_type": "LoadVideo",
+      "id": "164",
+      "inputs": {
+        "file": "chimp.mp4",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 164,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                362,
+                398,
+                432
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -4273.650112839631,
+            4496.243204253725
+          ],
+          "properties": {
+            "Node name for S&R": "LoadVideo",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            386.798828125,
+            458.5515914425977
+          ],
+          "type": "LoadVideo",
+          "widgets_values": [
+            "chimp.mp4",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "chimp.mp4",
+          "image"
+        ]
+      },
+      "uid": "164",
+      "widgets": {}
+    },
+    "200": {
+      "class_type": "LoadImage",
+      "id": "200",
+      "inputs": {
+        "image": "hf_20260201_013532_0d4f40b4-2927-45f9-bb45-e97e108378b9.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 200,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                450,
+                451,
+                452
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -4285.129479933403,
+            5143.939169472896
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            400.4874419937255,
+            378.7916882359277
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "hf_20260201_013532_0d4f40b4-2927-45f9-bb45-e97e108378b9.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "hf_20260201_013532_0d4f40b4-2927-45f9-bb45-e97e108378b9.png",
+          "image"
+        ]
+      },
+      "uid": "200",
+      "widgets": {}
+    },
+    "201": {
+      "class_type": "PrimitiveBoolean",
+      "id": "201",
+      "inputs": {
+        "value": true
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 201,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                363,
+                397,
+                433
+              ],
+              "name": "BOOLEAN",
+              "type": "BOOLEAN"
+            }
+          ],
+          "pos": [
+            -4281.760208043995,
+            5035.499737380581
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveBoolean",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            384.03006973056927,
+            58
+          ],
+          "title": "Text Only",
+          "type": "PrimitiveBoolean",
+          "widgets_values": [
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true
+        ]
+      },
+      "uid": "201",
+      "widgets": {}
+    },
+    "224": {
+      "class_type": "2dc75cab-e957-4437-a5bb-2afb0ea00516",
+      "id": "224",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 224,
+          "inputs": [
+            {
+              "link": 362,
+              "name": "video",
+              "type": "VIDEO"
+            },
+            {
+              "link": 363,
+              "name": "switch",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "switch"
+              }
+            },
+            {
+              "label": "first frame",
+              "link": 450,
+              "name": "image_1",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "label": "video",
+              "links": [
+                455
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -3776.2387424832514,
+            4340.026662390727
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "212",
+                "value"
+              ],
+              [
+                "-1",
+                "width"
+              ],
+              [
+                "-1",
+                "height"
+              ],
+              [
+                "223",
+                "noise_seed"
+              ],
+              [
+                "223",
+                "461: control_after_generate"
+              ],
+              [
+                "-1",
+                "switch"
+              ]
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "switch": true
+              }
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            430.6110937678254,
+            456.14251880590064
+          ],
+          "type": "2dc75cab-e957-4437-a5bb-2afb0ea00516",
+          "widgets_values": [
+            null,
+            1920,
+            1088,
+            null,
+            null,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          1920,
+          1088,
+          null,
+          null,
+          true
+        ]
+      },
+      "uid": "224",
+      "widgets": {
+        "widget_0": null,
+        "widget_1": 1920,
+        "widget_2": 1088,
+        "widget_3": null,
+        "widget_4": null,
+        "widget_5": true
+      }
+    },
+    "240": {
+      "class_type": "b83ac947-e174-4a8e-b0c1-f7c3b8f00419",
+      "id": "240",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 240,
+          "inputs": [
+            {
+              "link": 397,
+              "name": "switch",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "switch"
+              }
+            },
+            {
+              "link": 398,
+              "name": "video",
+              "type": "VIDEO"
+            },
+            {
+              "label": "first frame",
+              "link": 451,
+              "name": "image_1",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 8,
+          "outputs": [
+            {
+              "label": "video",
+              "links": [
+                454
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -3775.456558964413,
+            4846.109439002414
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "229",
+                "value"
+              ],
+              [
+                "-1",
+                "width"
+              ],
+              [
+                "-1",
+                "height"
+              ],
+              [
+                "239",
+                "noise_seed"
+              ],
+              [
+                "239",
+                "461: control_after_generate"
+              ],
+              [
+                "-1",
+                "switch"
+              ]
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "switch": true
+              }
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            428.1032473412265,
+            462.6733832580858
+          ],
+          "type": "b83ac947-e174-4a8e-b0c1-f7c3b8f00419",
+          "widgets_values": [
+            null,
+            1920,
+            1088,
+            null,
+            null,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          1920,
+          1088,
+          null,
+          null,
+          true
+        ]
+      },
+      "uid": "240",
+      "widgets": {
+        "widget_0": null,
+        "widget_1": 1920,
+        "widget_2": 1088,
+        "widget_3": null,
+        "widget_4": null,
+        "widget_5": true
+      }
+    },
+    "256": {
+      "class_type": "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f",
+      "id": "256",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 256,
+          "inputs": [
+            {
+              "link": 432,
+              "name": "video",
+              "type": "VIDEO"
+            },
+            {
+              "link": 433,
+              "name": "switch",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "switch"
+              }
+            },
+            {
+              "label": "first frame",
+              "link": 452,
+              "name": "image_1",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 9,
+          "outputs": [
+            {
+              "label": "video",
+              "links": [
+                456
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -3774.406825396875,
+            5370.867781047884
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "244",
+                "value"
+              ],
+              [
+                "-1",
+                "width"
+              ],
+              [
+                "-1",
+                "height"
+              ],
+              [
+                "253",
+                "noise_seed"
+              ],
+              [
+                "253",
+                "461: control_after_generate"
+              ],
+              [
+                "-1",
+                "switch"
+              ]
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {
+                "switch": true
+              }
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            425.6797091343742,
+            459.5094361285983
+          ],
+          "type": "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f",
+          "widgets_values": [
+            null,
+            1920,
+            1088,
+            null,
+            null,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          1920,
+          1088,
+          null,
+          null,
+          true
+        ]
+      },
+      "uid": "256",
+      "widgets": {
+        "widget_0": null,
+        "widget_1": 1920,
+        "widget_2": 1088,
+        "widget_3": null,
+        "widget_4": null,
+        "widget_5": true
+      }
+    },
+    "263": {
+      "class_type": "SaveVideo",
+      "id": "263",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 263,
+          "inputs": [
+            {
+              "link": 454,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 4,
+          "order": 11,
+          "outputs": [],
+          "pos": [
+            -3300.791002295813,
+            4850.00281731496
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            407.5231522848858,
+            444.0448474342347
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "263",
+      "widgets": {}
+    },
+    "264": {
+      "class_type": "SaveVideo",
+      "id": "264",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 264,
+          "inputs": [
+            {
+              "link": 455,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [],
+          "pos": [
+            -3293.4996000710007,
+            4344.231267080603
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            394.3820764961033,
+            441.7206085664038
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "264",
+      "widgets": {}
+    },
+    "265": {
+      "class_type": "SaveVideo",
+      "id": "265",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 265,
+          "inputs": [
+            {
+              "link": 456,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 4,
+          "order": 12,
+          "outputs": [],
+          "pos": [
+            -3307.3567107528597,
+            5373.118200558858
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.5.1"
+          },
+          "size": [
+            416.2646763195153,
+            452.6478370150671
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "265",
+      "widgets": {}
+    },
+    "271": {
+      "class_type": "MarkdownNote",
+      "id": "271",
+      "inputs": {
+        "unused_widget_0": "# Always load Image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 271,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            -4629.107422925351,
+            5360.98941520992
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            210,
+            88
+          ],
+          "title": "Important",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "# Always load Image"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "# Always load Image"
+        ]
+      },
+      "uid": "271",
+      "widgets": {}
+    },
+    "272": {
+      "class_type": "MarkdownNote",
+      "id": "272",
+      "inputs": {
+        "unused_widget_0": "## LTX-2 Prompting Tips\n1. **Core Actions**: Describe events and actions as they occur over time  \n2. **Audio**: Describe sounds and dialogue needed for the scene  \n3. **Reference Image**: Do not repeat details already present  \n4. **Consistency**: Avoid instructions that do not match the reference image, as this will degrade results\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 272,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            -4782.341673813574,
+            5107.78314157236
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            471.21870630897365,
+            207.61883103687887
+          ],
+          "title": "Prompting LTX-2",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## LTX-2 Prompting Tips\n1. **Core Actions**: Describe events and actions as they occur over time  \n2. **Audio**: Describe sounds and dialogue needed for the scene  \n3. **Reference Image**: Do not repeat details already present  \n4. **Consistency**: Avoid instructions that do not match the reference image, as this will degrade results\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## LTX-2 Prompting Tips\n1. **Core Actions**: Describe events and actions as they occur over time  \n2. **Audio**: Describe sounds and dialogue needed for the scene  \n3. **Reference Image**: Do not repeat details already present  \n4. **Consistency**: Avoid instructions that do not match the reference image, as this will degrade results\n"
+        ]
+      },
+      "uid": "272",
+      "widgets": {}
+    },
+    "273": {
+      "class_type": "MarkdownNote",
+      "id": "273",
+      "inputs": {
+        "unused_widget_0": "## Model Links\n\n**LTX-2 Model Weights**\n\n- [ltx-2-19b-distilled.safetensors](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled.safetensors)\n- [ ltx-2-spatial-upscaler-x2-1.0.safetensors ](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors)\n- [ IC LoRA - Canny ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Canny-Control/resolve/main/ltx-2-19b-ic-lora-canny-control.safetensors)\n- [ IC LoRA - Depth ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Depth-Control/resolve/main/ltx-2-19b-ic-lora-depth-control.safetensors)\n- [ IC LoRA - Pose ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Pose-Control/resolve/main/ltx-2-19b-ic-lora-pose-control.safetensors)\n\n\n\n**Text Encoder**\n- [Google Gemma 3](https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized)\n\nPlease download the entire folder - \n\n- Run: \n 1. cd models/text_encoders\n 2. git clone https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized\n\n*Full documentation can be found [here](https://docs.ltx.video/open-source-model/integration-tools/comfy-ui#text-encoder)\n\n\n**Model Storage Location**\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u251c\u2500\u2500 gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-19b-distilled.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 latent_upscale_models/ \n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-spatial-upscaler-x2-1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/ \n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-canny-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-depth-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-pose-control.safetensors\n```\n**Assets**\n- [buildings.mp4 (input video)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings.mp4)\n- [buildings ff (first frame)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings%20ff.png)\n\n## Report Issues\nTo report any issues when running this workflow, [go to GitHub](https://github.com/Lightricks/ComfyUI-LTXVideo/issues)\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 273,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            -4785.564205750212,
+            4455.096649073921
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            474.7453652124491,
+            605.585189911063
+          ],
+          "title": "Model Links",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Model Links\n\n**LTX-2 Model Weights**\n\n- [ltx-2-19b-distilled.safetensors](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled.safetensors)\n- [ ltx-2-spatial-upscaler-x2-1.0.safetensors ](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors)\n- [ IC LoRA - Canny ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Canny-Control/resolve/main/ltx-2-19b-ic-lora-canny-control.safetensors)\n- [ IC LoRA - Depth ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Depth-Control/resolve/main/ltx-2-19b-ic-lora-depth-control.safetensors)\n- [ IC LoRA - Pose ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Pose-Control/resolve/main/ltx-2-19b-ic-lora-pose-control.safetensors)\n\n\n\n**Text Encoder**\n- [Google Gemma 3](https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized)\n\nPlease download the entire folder - \n\n- Run: \n 1. cd models/text_encoders\n 2. git clone https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized\n\n*Full documentation can be found [here](https://docs.ltx.video/open-source-model/integration-tools/comfy-ui#text-encoder)\n\n\n**Model Storage Location**\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u251c\u2500\u2500 gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-19b-distilled.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 latent_upscale_models/ \n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-spatial-upscaler-x2-1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/ \n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-canny-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-depth-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-pose-control.safetensors\n```\n**Assets**\n- [buildings.mp4 (input video)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings.mp4)\n- [buildings ff (first frame)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings%20ff.png)\n\n## Report Issues\nTo report any issues when running this workflow, [go to GitHub](https://github.com/Lightricks/ComfyUI-LTXVideo/issues)\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Model Links\n\n**LTX-2 Model Weights**\n\n- [ltx-2-19b-distilled.safetensors](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled.safetensors)\n- [ ltx-2-spatial-upscaler-x2-1.0.safetensors ](https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors)\n- [ IC LoRA - Canny ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Canny-Control/resolve/main/ltx-2-19b-ic-lora-canny-control.safetensors)\n- [ IC LoRA - Depth ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Depth-Control/resolve/main/ltx-2-19b-ic-lora-depth-control.safetensors)\n- [ IC LoRA - Pose ](https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Pose-Control/resolve/main/ltx-2-19b-ic-lora-pose-control.safetensors)\n\n\n\n**Text Encoder**\n- [Google Gemma 3](https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized)\n\nPlease download the entire folder - \n\n- Run: \n 1. cd models/text_encoders\n 2. git clone https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized\n\n*Full documentation can be found [here](https://docs.ltx.video/open-source-model/integration-tools/comfy-ui#text-encoder)\n\n\n**Model Storage Location**\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u251c\u2500\u2500 gemma-3-12b-it-qat-q4_0-unquantized/model-00001-of-00005.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-19b-distilled.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 latent_upscale_models/ \n\u2502   \u2502      \u2514\u2500\u2500 ltx-2-spatial-upscaler-x2-1.0.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 loras/ \n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-canny-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-depth-control.safetensors\n\u2502           \u2514\u2500\u2500 ltx-2-19b-ic-lora-pose-control.safetensors\n```\n**Assets**\n- [buildings.mp4 (input video)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings.mp4)\n- [buildings ff (first frame)](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/master/example_workflows/assets/buildings%20ff.png)\n\n## Report Issues\nTo report any issues when running this workflow, [go to GitHub](https://github.com/Lightricks/ComfyUI-LTXVideo/issues)\n"
+        ]
+      },
+      "uid": "273",
+      "widgets": {}
+    },
+    "274": {
+      "class_type": "MarkdownNote",
+      "id": "274",
+      "inputs": {
+        "unused_widget_0": "Width & height settings must be divisible by 64. \n\nRunning with invalid parameters **will not cause errors**. Instead, the flow will silently choose the closest valid parameters. "
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 274,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -3705.3723898360204,
+            4198.991136202638
+          ],
+          "properties": {
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.6",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            271.8700736604794,
+            105.6563141843053
+          ],
+          "title": "Video Size",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "Width & height settings must be divisible by 64. \n\nRunning with invalid parameters **will not cause errors**. Instead, the flow will silently choose the closest valid parameters. "
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Width & height settings must be divisible by 64. \n\nRunning with invalid parameters **will not cause errors**. Instead, the flow will silently choose the closest valid parameters. "
+        ]
+      },
+      "uid": "274",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "263",
+      "output_type": "SaveVideo"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "264",
+      "output_type": "SaveVideo"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "265",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "41dba5f5e7ed2d41",
+    "path": "external_workflows/.shadow/source/41dba5f5e7ed2d41-LTX-2_ICLoRA_All_Distilled-ex.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1c7ad8a2a8c0224b3d3b46f78b0e3329e8315630c538f6bc0385c90035f276b3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "the workflow",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1469554498237235200",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1469554498237235200:LTX-2_ICLoRA_All_Distilled-ex.json:41dba5f5e7ed2d41",
+      "filename": "LTX-2_ICLoRA_All_Distilled-ex.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:51+00:00",
+      "message_id": 1469554498237235200,
+      "node_class_multiset": {
+        "2dc75cab-e957-4437-a5bb-2afb0ea00516": 1,
+        "3ad0b41c-8c47-4e10-a53e-ed340cc26b5f": 1,
+        "LoadImage": 1,
+        "LoadVideo": 1,
+        "MarkdownNote": 4,
+        "PrimitiveBoolean": 1,
+        "SaveVideo": 3,
+        "b83ac947-e174-4a8e-b0c1-f7c3b8f00419": 1
+      },
+      "node_count": 13,
+      "origin_date": "2026-02-07T04:44:55.382000+00:00",
+      "originator_global_name": "AIGambino",
+      "originator_id": "948500705268867072",
+      "originator_type": "discord_message_author",
+      "originator_username": "nextgen5.0",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "41dba5f5e7ed2d418b04f7b583ed2e2dfc8d480344c79503978fef73ef089650",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1469554498405011732/LTX-2_ICLoRA_All_Distilled-ex.json?ex=6988bd87&is=69876c07&hm=9e5e5a52c2c2c461c99d04ad69a97b3e639ffecd492ad59ee18cda6cfa57955d&",
+      "source_workflow_sha256": "38b98f0a0c5cebac12f7507760ab6ec960971629772a2626b79acc41fccecc5e",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

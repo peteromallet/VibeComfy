@@ -1,0 +1,3888 @@
+{
+  "edges": [
+    {
+      "from_node": "175",
+      "from_output": "0",
+      "to_input": "_un554",
+      "to_node": "141"
+    },
+    {
+      "from_node": "154",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "157"
+    },
+    {
+      "from_node": "152",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "155"
+    },
+    {
+      "from_node": "126",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "150"
+    },
+    {
+      "from_node": "150",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "151"
+    },
+    {
+      "from_node": "151",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "152"
+    },
+    {
+      "from_node": "173",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "130"
+    },
+    {
+      "from_node": "175",
+      "from_output": "1",
+      "to_input": "latent",
+      "to_node": "130"
+    },
+    {
+      "from_node": "133",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "130"
+    },
+    {
+      "from_node": "133",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "130"
+    },
+    {
+      "from_node": "141",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "130"
+    },
+    {
+      "from_node": "130",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "131"
+    },
+    {
+      "from_node": "127",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "131"
+    },
+    {
+      "from_node": "176",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "62"
+    },
+    {
+      "from_node": "131",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "142"
+    },
+    {
+      "from_node": "176",
+      "from_output": "0",
+      "to_input": "hybrid_image",
+      "to_node": "142"
+    },
+    {
+      "from_node": "141",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "142"
+    },
+    {
+      "from_node": "142",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "47"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "48"
+    },
+    {
+      "from_node": "139",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "50"
+    },
+    {
+      "from_node": "142",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "138"
+    },
+    {
+      "from_node": "141",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "138"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "139"
+    },
+    {
+      "from_node": "141",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "139"
+    },
+    {
+      "from_node": "139",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "137"
+    },
+    {
+      "from_node": "127",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "137"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "latent",
+      "to_node": "136"
+    },
+    {
+      "from_node": "127",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "133"
+    },
+    {
+      "from_node": "175",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "133"
+    },
+    {
+      "from_node": "171",
+      "from_output": "0",
+      "to_input": "ipadapter",
+      "to_node": "173"
+    },
+    {
+      "from_node": "172",
+      "from_output": "0",
+      "to_input": "clip_vision",
+      "to_node": "173"
+    },
+    {
+      "from_node": "176",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "173"
+    },
+    {
+      "from_node": "127",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "173"
+    },
+    {
+      "from_node": "157",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "153"
+    },
+    {
+      "from_node": "131",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "16"
+    },
+    {
+      "from_node": "131",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "102"
+    },
+    {
+      "from_node": "175",
+      "from_output": "0",
+      "to_input": "deforum_frame_data",
+      "to_node": "102"
+    },
+    {
+      "from_node": "155",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "174"
+    },
+    {
+      "from_node": "153",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "175"
+    },
+    {
+      "from_node": "135",
+      "from_output": "0",
+      "to_input": "latent",
+      "to_node": "175"
+    },
+    {
+      "from_node": "174",
+      "from_output": "0",
+      "to_input": "deforum_data",
+      "to_node": "154"
+    }
+  ],
+  "groups": [],
+  "id": "c49d53264203554e",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "127",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors"
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "102": {
+        "class_type": "DeforumVideoSaveNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_frame_data",
+            [
+              "175",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "131",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'deforum_'"
+          ],
+          [
+            "widget_1",
+            "12"
+          ],
+          [
+            "widget_2",
+            "'max_frames'"
+          ],
+          [
+            "widget_3",
+            "0"
+          ]
+        ]
+      },
+      "126": {
+        "class_type": "DeforumPromptNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "150",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"0:'the deathstar colliding with a planet in space, explosion'\\n100:'dart vader in the desert, DUNE GIANT WORM, by moebius'\""
+          ]
+        ]
+      },
+      "127": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "173",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "133",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "131",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "137",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors'"
+          ]
+        ]
+      },
+      "130": {
+        "class_type": "DeforumKSampler",
+        "incoming_edge_sig": [
+          [
+            "deforum_frame_data",
+            [
+              "141",
+              "0"
+            ]
+          ],
+          [
+            "latent",
+            [
+              "175",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "173",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "133",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "133",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "131",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "131": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "130",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "127",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "102",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "142",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "16",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "133": {
+        "class_type": "DeforumConditioningBlendNode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "127",
+              "1"
+            ]
+          ],
+          [
+            "deforum_frame_data",
+            [
+              "175",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "130",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "130",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'gaussian'"
+          ]
+        ]
+      },
+      "135": {
+        "class_type": "DeforumGetCachedLatentNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "175",
+              "latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "136": {
+        "class_type": "DeforumCacheLatentNode",
+        "incoming_edge_sig": [
+          [
+            "latent",
+            [
+              "137",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "137": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "139",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "127",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "136",
+              "latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "138": {
+        "class_type": "DeforumFrameWarpNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_frame_data",
+            [
+              "141",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "142",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "139",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "48",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "139": {
+        "class_type": "DeforumAddNoiseNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_frame_data",
+            [
+              "141",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "138",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "137",
+              "pixels"
+            ]
+          ],
+          [
+            "0",
+            [
+              "50",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "141": {
+        "class_type": "Reroute",
+        "incoming_edge_sig": [
+          [
+            "_un554",
+            [
+              "175",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "130",
+              "deforum_frame_data"
+            ]
+          ],
+          [
+            "0",
+            [
+              "138",
+              "deforum_frame_data"
+            ]
+          ],
+          [
+            "0",
+            [
+              "139",
+              "deforum_frame_data"
+            ]
+          ],
+          [
+            "0",
+            [
+              "142",
+              "deforum_frame_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "142": {
+        "class_type": "DeforumHybridMotionNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_frame_data",
+            [
+              "141",
+              "0"
+            ]
+          ],
+          [
+            "hybrid_image",
+            [
+              "176",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "131",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "138",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "47",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RAFT'"
+          ]
+        ]
+      },
+      "150": {
+        "class_type": "DeforumAnimParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "126",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3D'"
+          ],
+          [
+            "widget_1",
+            "100"
+          ],
+          [
+            "widget_2",
+            "'wrap'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'20230129210106'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "151": {
+        "class_type": "DeforumDepthParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "150",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "152",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "'Zoe'"
+          ],
+          [
+            "widget_2",
+            "0.2"
+          ],
+          [
+            "widget_3",
+            "'border'"
+          ],
+          [
+            "widget_4",
+            "'bicubic'"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "152": {
+        "class_type": "DeforumTranslationParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "151",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "155",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'0:(0)'"
+          ],
+          [
+            "widget_1",
+            "'0:(1.0)'"
+          ],
+          [
+            "widget_2",
+            "'0:(0)'"
+          ],
+          [
+            "widget_3",
+            "'0:(0)'"
+          ],
+          [
+            "widget_4",
+            "'0:(0)'"
+          ],
+          [
+            "widget_5",
+            "'0:(0.5)'"
+          ],
+          [
+            "widget_6",
+            "'0:(0.5)'"
+          ],
+          [
+            "widget_7",
+            "'0:(0)'"
+          ],
+          [
+            "widget_8",
+            "'0:(0)'"
+          ],
+          [
+            "widget_9",
+            "'0:(0)'"
+          ]
+        ]
+      },
+      "153": {
+        "class_type": "DeforumNoiseParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "157",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "175",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "'0: (0.8)'"
+          ],
+          [
+            "widget_10",
+            "0.5"
+          ],
+          [
+            "widget_2",
+            "'0: (0.1)'"
+          ],
+          [
+            "widget_3",
+            "'0: (5)'"
+          ],
+          [
+            "widget_4",
+            "'0: (1.0)'"
+          ],
+          [
+            "widget_5",
+            "'0: (0.0)'"
+          ],
+          [
+            "widget_6",
+            "'perlin'"
+          ],
+          [
+            "widget_7",
+            "8"
+          ],
+          [
+            "widget_8",
+            "8"
+          ],
+          [
+            "widget_9",
+            "4"
+          ]
+        ]
+      },
+      "154": {
+        "class_type": "DeforumDiffusionParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "174",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "157",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'0: (0.03)'"
+          ],
+          [
+            "widget_1",
+            "'0: (0.3)'"
+          ],
+          [
+            "widget_2",
+            "'0: (1.0)'"
+          ],
+          [
+            "widget_3",
+            "'0: (5)'"
+          ],
+          [
+            "widget_4",
+            "False"
+          ],
+          [
+            "widget_5",
+            "'0: (25)'"
+          ],
+          [
+            "widget_6",
+            "False"
+          ],
+          [
+            "widget_7",
+            "'0:(0)'"
+          ],
+          [
+            "widget_8",
+            "False"
+          ],
+          [
+            "widget_9",
+            "'0:(1)'"
+          ]
+        ]
+      },
+      "155": {
+        "class_type": "DeforumColorParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "152",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "174",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Image'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ],
+          [
+            "widget_2",
+            "1"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "False"
+          ]
+        ]
+      },
+      "157": {
+        "class_type": "DeforumHybridScheduleNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "154",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "153",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'0:(0.5)'"
+          ],
+          [
+            "widget_1",
+            "'0:(0.5)'"
+          ],
+          [
+            "widget_2",
+            "'0:(1)'"
+          ],
+          [
+            "widget_3",
+            "'0:(100)'"
+          ],
+          [
+            "widget_4",
+            "'0:(0)'"
+          ],
+          [
+            "widget_5",
+            "'0:(0.8)'"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "131",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "170": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Welcome to Deforum!\\n\\nThe below graph provides a pluggable Deforum Animation pipeline in ComfyUI. It works frame-by-frame, so the best practice is to enable Extra options, and Auto Queue.\\n\\nDeforum Parameter and Schedule nodes represent all settings available to consume after chaining up by the Deforum Iterator node, which keeps track of the current frame, generates/gets the cached latent to be denoised in the next pass. The parameters and schedule\\'s are the same as in the auto1111 extension and in the Colab version.\\n\\nHybrid nodes are currently bypassed (purple), enabling them, and selecting a video transforms the pipeline into Deforum Hybrid. Iteration can be reset to frame 0 with the reset value being set to 1 on the iterator node. Don\\'t forget to switch it back to 0 to use the generated image/latent.\"\\n\\nDeforum Video Save node dumps its collected frames when the current frame\\'s id reaches/has passed max_frames.'"
+          ]
+        ]
+      },
+      "171": {
+        "class_type": "IPAdapterModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "173",
+              "ipadapter"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ip-adapter_sdxl_vit-h.safetensors'"
+          ]
+        ]
+      },
+      "172": {
+        "class_type": "CLIPVisionLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "173",
+              "clip_vision"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'ipadapter_image_encoder_15.safetensors'"
+          ]
+        ]
+      },
+      "173": {
+        "class_type": "IPAdapterApply",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "172",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "176",
+              "0"
+            ]
+          ],
+          [
+            "ipadapter",
+            [
+              "171",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "127",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "130",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.8"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "'original'"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "1"
+          ],
+          [
+            "widget_5",
+            "False"
+          ]
+        ]
+      },
+      "174": {
+        "class_type": "DeforumBaseParamsNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "155",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "154",
+              "deforum_data"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "1024"
+          ],
+          [
+            "widget_10",
+            "'output/deforum'"
+          ],
+          [
+            "widget_11",
+            "0.8"
+          ],
+          [
+            "widget_12",
+            "True"
+          ],
+          [
+            "widget_13",
+            "False"
+          ],
+          [
+            "widget_14",
+            "False"
+          ],
+          [
+            "widget_15",
+            "True"
+          ],
+          [
+            "widget_16",
+            "False"
+          ],
+          [
+            "widget_2",
+            "'euler'"
+          ],
+          [
+            "widget_3",
+            "'normal'"
+          ],
+          [
+            "widget_4",
+            "25"
+          ],
+          [
+            "widget_5",
+            "7"
+          ],
+          [
+            "widget_6",
+            "1"
+          ],
+          [
+            "widget_7",
+            "'Deforum_{timestring}'"
+          ],
+          [
+            "widget_8",
+            "'fixed'"
+          ],
+          [
+            "widget_9",
+            "1"
+          ]
+        ]
+      },
+      "175": {
+        "class_type": "DeforumIteratorNode",
+        "incoming_edge_sig": [
+          [
+            "deforum_data",
+            [
+              "153",
+              "0"
+            ]
+          ],
+          [
+            "latent",
+            [
+              "135",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "102",
+              "deforum_frame_data"
+            ]
+          ],
+          [
+            "0",
+            [
+              "133",
+              "deforum_frame_data"
+            ]
+          ],
+          [
+            "0",
+            [
+              "141",
+              "_un554"
+            ]
+          ],
+          [
+            "1",
+            [
+              "130",
+              "latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'stable_diffusion'"
+          ],
+          [
+            "widget_1",
+            "791126192911641"
+          ],
+          [
+            "widget_2",
+            "'randomize'"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "0.8"
+          ],
+          [
+            "widget_5",
+            "0.1"
+          ],
+          [
+            "widget_6",
+            "False"
+          ],
+          [
+            "widget_7",
+            "False"
+          ]
+        ]
+      },
+      "176": {
+        "class_type": "DeforumLoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "142",
+              "hybrid_image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "173",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "62",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'2000_FILM (1).mp4'"
+          ],
+          [
+            "widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "47": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "142",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "48": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "138",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "50": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "139",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "62": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "176",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "78afac42baf0a381d96923343a47725a9616d0d42b654ca93be173f00039d8f6",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1210586549796741130",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1210586549796741130:deforum_ip_adapter_1.json:c49d53264203554e",
+      "filename": "deforum_ip_adapter_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:57+00:00",
+      "message_id": 1210586549796741130,
+      "node_class_multiset": {
+        "CLIPVisionLoader": 1,
+        "CheckpointLoaderSimple": 1,
+        "DeforumAddNoiseNode": 1,
+        "DeforumAnimParamsNode": 1,
+        "DeforumBaseParamsNode": 1,
+        "DeforumCacheLatentNode": 1,
+        "DeforumColorParamsNode": 1,
+        "DeforumConditioningBlendNode": 1,
+        "DeforumDepthParamsNode": 1,
+        "DeforumDiffusionParamsNode": 1,
+        "DeforumFrameWarpNode": 1,
+        "DeforumGetCachedLatentNode": 1,
+        "DeforumHybridMotionNode": 1,
+        "DeforumHybridScheduleNode": 1,
+        "DeforumIteratorNode": 1,
+        "DeforumKSampler": 1,
+        "DeforumLoadVideo": 1,
+        "DeforumNoiseParamsNode": 1,
+        "DeforumPromptNode": 1,
+        "DeforumTranslationParamsNode": 1,
+        "DeforumVideoSaveNode": 1,
+        "IPAdapterApply": 1,
+        "IPAdapterModelLoader": 1,
+        "Note": 1,
+        "PreviewImage": 5,
+        "Reroute": 1,
+        "VAEDecode": 1,
+        "VAEEncode": 1
+      },
+      "node_count": 32,
+      "origin_date": "2024-02-23T13:58:45.082000+00:00",
+      "originator_global_name": "NebSH",
+      "originator_id": "464322697418244096",
+      "originator_type": "discord_message_author",
+      "originator_username": "nebsh",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c49d53264203554e45ad943b32acdd37a8da516e6cceeefe6d8f5d28d71be69a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1210586549234958426/deforum_ip_adapter_1.json?ex=69796d54&is=69781bd4&hm=db45a4f68f97a52b8406482f013b850a3e672aa7a2c3385aa57eade99ee7c23b&",
+      "source_workflow_sha256": "85e425b421558a9867f3f619a38003c967170c79b024efdcac1373a83fdd380d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "cc340b22b8e6ccd82e1c4a1b6be4eb5f7bda409bfd0b3956f5345ae4ce9140d5",
+      "complexity": 4,
+      "description": "This workflow creates animated video sequences using Deforum's frame warping, noise, and conditioning blending, enhanced with IP-Adapter for image-guided generation. It outputs multiple preview images and saves the final video.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": true,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "deforum",
+        "animation",
+        "video-generation",
+        "ip-adapter",
+        "image-to-video",
+        "stable-diffusion",
+        "frame-warping",
+        "conditioning-blend"
+      ],
+      "task_type": "other",
+      "title": "Deforum Stable Diffusion Animation with IP-Adapter"
+    }
+  },
+  "nodes": {
+    "102": {
+      "class_type": "DeforumVideoSaveNode",
+      "id": "102",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 102,
+          "inputs": [
+            {
+              "link": 475,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 552,
+              "name": "deforum_frame_data",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "pos": [
+            1524,
+            804
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumVideoSaveNode"
+          },
+          "size": {
+            "0": 315,
+            "1": 150
+          },
+          "type": "DeforumVideoSaveNode",
+          "widgets_values": [
+            "deforum_",
+            12,
+            "max_frames",
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "deforum_",
+          12,
+          "max_frames",
+          0
+        ]
+      },
+      "uid": "102",
+      "widgets": {
+        "widget_0": "deforum_",
+        "widget_1": 12,
+        "widget_2": "max_frames",
+        "widget_3": 0
+      }
+    },
+    "126": {
+      "class_type": "DeforumPromptNode",
+      "id": "126",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 126,
+          "inputs": [
+            {
+              "link": null,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                537
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -650,
+            -270
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumPromptNode"
+          },
+          "size": {
+            "0": 313.04736328125,
+            "1": 276.55352783203125
+          },
+          "type": "DeforumPromptNode",
+          "widgets_values": [
+            "0:'the deathstar colliding with a planet in space, explosion'\n100:'dart vader in the desert, DUNE GIANT WORM, by moebius'"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "0:'the deathstar colliding with a planet in space, explosion'\n100:'dart vader in the desert, DUNE GIANT WORM, by moebius'"
+        ]
+      },
+      "uid": "126",
+      "widgets": {
+        "widget_0": "0:'the deathstar colliding with a planet in space, explosion'\n100:'dart vader in the desert, DUNE GIANT WORM, by moebius'"
+      }
+    },
+    "127": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "127",
+      "inputs": {
+        "ckpt_name": "protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 127,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                546
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                428
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                417,
+                450
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            91,
+            743
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors"
+        ]
+      },
+      "uid": "127",
+      "widgets": {}
+    },
+    "130": {
+      "class_type": "DeforumKSampler",
+      "id": "130",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 130,
+          "inputs": [
+            {
+              "link": 547,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 555,
+              "name": "latent",
+              "slot_index": 1,
+              "type": "LATENT"
+            },
+            {
+              "link": 430,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 431,
+              "name": "negative",
+              "slot_index": 3,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 459,
+              "name": "deforum_frame_data",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                416
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            650,
+            120
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumKSampler"
+          },
+          "size": {
+            "0": 325.93902587890625,
+            "1": 106
+          },
+          "type": "DeforumKSampler"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "130",
+      "widgets": {}
+    },
+    "131": {
+      "class_type": "VAEDecode",
+      "id": "131",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 131,
+          "inputs": [
+            {
+              "link": 416,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 417,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                462,
+                469,
+                475
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            690,
+            310
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "131",
+      "widgets": {}
+    },
+    "133": {
+      "class_type": "DeforumConditioningBlendNode",
+      "id": "133",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 133,
+          "inputs": [
+            {
+              "link": 428,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 553,
+              "name": "deforum_frame_data",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                430
+              ],
+              "name": "POSITIVE",
+              "shape": 3,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                431
+              ],
+              "name": "NEGATIVE",
+              "shape": 3,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            637,
+            -334
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumConditioningBlendNode"
+          },
+          "size": {
+            "0": 342.5999755859375,
+            "1": 78
+          },
+          "type": "DeforumConditioningBlendNode",
+          "widgets_values": [
+            "gaussian"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "gaussian"
+        ]
+      },
+      "uid": "133",
+      "widgets": {
+        "widget_0": "gaussian"
+      }
+    },
+    "135": {
+      "class_type": "DeforumGetCachedLatentNode",
+      "id": "135",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 135,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                551
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            132,
+            1262
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumGetCachedLatentNode"
+          },
+          "size": {
+            "0": 218.39999389648438,
+            "1": 26
+          },
+          "type": "DeforumGetCachedLatentNode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "135",
+      "widgets": {}
+    },
+    "136": {
+      "class_type": "DeforumCacheLatentNode",
+      "id": "136",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 136,
+          "inputs": [
+            {
+              "link": 438,
+              "name": "latent",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 31,
+          "outputs": [
+            {
+              "links": null,
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            681,
+            1134
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumCacheLatentNode"
+          },
+          "size": {
+            "0": 210,
+            "1": 26
+          },
+          "type": "DeforumCacheLatentNode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "136",
+      "widgets": {}
+    },
+    "137": {
+      "class_type": "VAEEncode",
+      "id": "137",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 137,
+          "inputs": [
+            {
+              "link": 489,
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": 450,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                438
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            691,
+            1001
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEEncode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "137",
+      "widgets": {}
+    },
+    "138": {
+      "class_type": "DeforumFrameWarpNode",
+      "id": "138",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 138,
+          "inputs": [
+            {
+              "link": 440,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 441,
+              "name": "deforum_frame_data",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [
+            {
+              "links": [
+                455,
+                488
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            660,
+            668
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumFrameWarpNode"
+          },
+          "size": {
+            "0": 304.79998779296875,
+            "1": 46
+          },
+          "type": "DeforumFrameWarpNode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "138",
+      "widgets": {}
+    },
+    "139": {
+      "class_type": "DeforumAddNoiseNode",
+      "id": "139",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 139,
+          "inputs": [
+            {
+              "link": 488,
+              "name": "image",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 443,
+              "name": "deforum_frame_data",
+              "slot_index": 1,
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [
+            {
+              "links": [
+                456,
+                489
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            642,
+            875
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumAddNoiseNode"
+          },
+          "size": {
+            "0": 324.6453552246094,
+            "1": 46
+          },
+          "type": "DeforumAddNoiseNode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "139",
+      "widgets": {}
+    },
+    "141": {
+      "class_type": "Reroute",
+      "id": "141",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 141,
+          "inputs": [
+            {
+              "link": 554,
+              "name": "",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                441,
+                443,
+                447,
+                459
+              ],
+              "name": "",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "pos": [
+            532,
+            972
+          ],
+          "properties": {
+            "horizontal": false,
+            "showOutputText": false
+          },
+          "size": [
+            75,
+            26
+          ],
+          "type": "Reroute"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "141",
+      "widgets": {}
+    },
+    "142": {
+      "class_type": "DeforumHybridMotionNode",
+      "id": "142",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 142,
+          "inputs": [
+            {
+              "link": 469,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 557,
+              "name": "hybrid_image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 447,
+              "name": "deforum_frame_data",
+              "type": "DEFORUM_FRAME_DATA"
+            }
+          ],
+          "mode": 4,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                440,
+                460
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            639,
+            428
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumHybridMotionNode"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "DeforumHybridMotionNode",
+          "widgets_values": [
+            "RAFT"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RAFT"
+        ]
+      },
+      "uid": "142",
+      "widgets": {
+        "widget_0": "RAFT"
+      }
+    },
+    "150": {
+      "class_type": "DeforumAnimParamsNode",
+      "id": "150",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 150,
+          "inputs": [
+            {
+              "link": 537,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                497
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -660,
+            70
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumAnimParamsNode"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 178
+          },
+          "type": "DeforumAnimParamsNode",
+          "widgets_values": [
+            "3D",
+            100,
+            "wrap",
+            false,
+            "20230129210106",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3D",
+          100,
+          "wrap",
+          false,
+          "20230129210106",
+          false
+        ]
+      },
+      "uid": "150",
+      "widgets": {
+        "widget_0": "3D",
+        "widget_1": 100,
+        "widget_2": "wrap",
+        "widget_3": false,
+        "widget_4": "20230129210106",
+        "widget_5": false
+      }
+    },
+    "151": {
+      "class_type": "DeforumDepthParamsNode",
+      "id": "151",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 151,
+          "inputs": [
+            {
+              "link": 497,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                498
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -660,
+            320
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumDepthParamsNode"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 178
+          },
+          "type": "DeforumDepthParamsNode",
+          "widgets_values": [
+            true,
+            "Zoe",
+            0.2,
+            "border",
+            "bicubic",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          "Zoe",
+          0.2,
+          "border",
+          "bicubic",
+          false
+        ]
+      },
+      "uid": "151",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": "Zoe",
+        "widget_2": 0.2,
+        "widget_3": "border",
+        "widget_4": "bicubic",
+        "widget_5": false
+      }
+    },
+    "152": {
+      "class_type": "DeforumTranslationParamsNode",
+      "id": "152",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 152,
+          "inputs": [
+            {
+              "link": 498,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                535
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -660,
+            570
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumTranslationParamsNode"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 274
+          },
+          "type": "DeforumTranslationParamsNode",
+          "widgets_values": [
+            "0:(0)",
+            "0:(1.0)",
+            "0:(0)",
+            "0:(0)",
+            "0:(0)",
+            "0:(0.5)",
+            "0:(0.5)",
+            "0:(0)",
+            "0:(0)",
+            "0:(0)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "0:(0)",
+          "0:(1.0)",
+          "0:(0)",
+          "0:(0)",
+          "0:(0)",
+          "0:(0.5)",
+          "0:(0.5)",
+          "0:(0)",
+          "0:(0)",
+          "0:(0)"
+        ]
+      },
+      "uid": "152",
+      "widgets": {
+        "widget_0": "0:(0)",
+        "widget_1": "0:(1.0)",
+        "widget_2": "0:(0)",
+        "widget_3": "0:(0)",
+        "widget_4": "0:(0)",
+        "widget_5": "0:(0.5)",
+        "widget_6": "0:(0.5)",
+        "widget_7": "0:(0)",
+        "widget_8": "0:(0)",
+        "widget_9": "0:(0)"
+      }
+    },
+    "153": {
+      "class_type": "DeforumNoiseParamsNode",
+      "id": "153",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 153,
+          "inputs": [
+            {
+              "link": 541,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                550
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -300,
+            810
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumNoiseParamsNode"
+          },
+          "size": {
+            "0": 272.06170654296875,
+            "1": 298
+          },
+          "type": "DeforumNoiseParamsNode",
+          "widgets_values": [
+            true,
+            "0: (0.8)",
+            "0: (0.1)",
+            "0: (5)",
+            "0: (1.0)",
+            "0: (0.0)",
+            "perlin",
+            8,
+            8,
+            4,
+            0.5
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 11,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          "0: (0.8)",
+          "0: (0.1)",
+          "0: (5)",
+          "0: (1.0)",
+          "0: (0.0)",
+          "perlin",
+          8,
+          8,
+          4,
+          0.5
+        ]
+      },
+      "uid": "153",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": "0: (0.8)",
+        "widget_10": 0.5,
+        "widget_2": "0: (0.1)",
+        "widget_3": "0: (5)",
+        "widget_4": "0: (1.0)",
+        "widget_5": "0: (0.0)",
+        "widget_6": "perlin",
+        "widget_7": 8,
+        "widget_8": 8,
+        "widget_9": 4
+      }
+    },
+    "154": {
+      "class_type": "DeforumDiffusionParamsNode",
+      "id": "154",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 154,
+          "inputs": [
+            {
+              "link": 549,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                540
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -300,
+            230
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumDiffusionParamsNode"
+          },
+          "size": {
+            "0": 278.891845703125,
+            "1": 274
+          },
+          "type": "DeforumDiffusionParamsNode",
+          "widgets_values": [
+            "0: (0.03)",
+            "0: (0.3)",
+            "0: (1.0)",
+            "0: (5)",
+            false,
+            "0: (25)",
+            false,
+            "0:(0)",
+            false,
+            "0:(1)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "0: (0.03)",
+          "0: (0.3)",
+          "0: (1.0)",
+          "0: (5)",
+          false,
+          "0: (25)",
+          false,
+          "0:(0)",
+          false,
+          "0:(1)"
+        ]
+      },
+      "uid": "154",
+      "widgets": {
+        "widget_0": "0: (0.03)",
+        "widget_1": "0: (0.3)",
+        "widget_2": "0: (1.0)",
+        "widget_3": "0: (5)",
+        "widget_4": false,
+        "widget_5": "0: (25)",
+        "widget_6": false,
+        "widget_7": "0:(0)",
+        "widget_8": false,
+        "widget_9": "0:(1)"
+      }
+    },
+    "155": {
+      "class_type": "DeforumColorParamsNode",
+      "id": "155",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 155,
+          "inputs": [
+            {
+              "link": 535,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                548
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -660,
+            910
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumColorParamsNode"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 154
+          },
+          "type": "DeforumColorParamsNode",
+          "widgets_values": [
+            "Image",
+            "",
+            1,
+            false,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Image",
+          "",
+          1,
+          false,
+          false
+        ]
+      },
+      "uid": "155",
+      "widgets": {
+        "widget_0": "Image",
+        "widget_1": "",
+        "widget_2": 1,
+        "widget_3": false,
+        "widget_4": false
+      }
+    },
+    "157": {
+      "class_type": "DeforumHybridScheduleNode",
+      "id": "157",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 157,
+          "inputs": [
+            {
+              "link": 540,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                541
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -300,
+            550
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumHybridScheduleNode"
+          },
+          "size": {
+            "0": 274.891845703125,
+            "1": 178
+          },
+          "type": "DeforumHybridScheduleNode",
+          "widgets_values": [
+            "0:(0.5)",
+            "0:(0.5)",
+            "0:(1)",
+            "0:(100)",
+            "0:(0)",
+            "0:(0.8)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "0:(0.5)",
+          "0:(0.5)",
+          "0:(1)",
+          "0:(100)",
+          "0:(0)",
+          "0:(0.8)"
+        ]
+      },
+      "uid": "157",
+      "widgets": {
+        "widget_0": "0:(0.5)",
+        "widget_1": "0:(0.5)",
+        "widget_2": "0:(1)",
+        "widget_3": "0:(100)",
+        "widget_4": "0:(0)",
+        "widget_5": "0:(0.8)"
+      }
+    },
+    "16": {
+      "class_type": "PreviewImage",
+      "id": "16",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 462,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "pos": [
+            1270,
+            -263
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 894.2135009765625,
+            "1": 941.8845825195312
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "16",
+      "widgets": {}
+    },
+    "170": {
+      "class_type": "Note",
+      "id": "170",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 170,
+          "mode": 0,
+          "order": 1,
+          "pos": [
+            474,
+            -603
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": {
+            "0": 633.6494140625,
+            "1": 221.03656005859375
+          },
+          "type": "Note",
+          "widgets_values": [
+            "Welcome to Deforum!\n\nThe below graph provides a pluggable Deforum Animation pipeline in ComfyUI. It works frame-by-frame, so the best practice is to enable Extra options, and Auto Queue.\n\nDeforum Parameter and Schedule nodes represent all settings available to consume after chaining up by the Deforum Iterator node, which keeps track of the current frame, generates/gets the cached latent to be denoised in the next pass. The parameters and schedule's are the same as in the auto1111 extension and in the Colab version.\n\nHybrid nodes are currently bypassed (purple), enabling them, and selecting a video transforms the pipeline into Deforum Hybrid. Iteration can be reset to frame 0 with the reset value being set to 1 on the iterator node. Don't forget to switch it back to 0 to use the generated image/latent.\"\n\nDeforum Video Save node dumps its collected frames when the current frame's id reaches/has passed max_frames."
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Welcome to Deforum!\n\nThe below graph provides a pluggable Deforum Animation pipeline in ComfyUI. It works frame-by-frame, so the best practice is to enable Extra options, and Auto Queue.\n\nDeforum Parameter and Schedule nodes represent all settings available to consume after chaining up by the Deforum Iterator node, which keeps track of the current frame, generates/gets the cached latent to be denoised in the next pass. The parameters and schedule's are the same as in the auto1111 extension and in the Colab version.\n\nHybrid nodes are currently bypassed (purple), enabling them, and selecting a video transforms the pipeline into Deforum Hybrid. Iteration can be reset to frame 0 with the reset value being set to 1 on the iterator node. Don't forget to switch it back to 0 to use the generated image/latent.\"\n\nDeforum Video Save node dumps its collected frames when the current frame's id reaches/has passed max_frames."
+        ]
+      },
+      "uid": "170",
+      "widgets": {
+        "widget_0": "Welcome to Deforum!\n\nThe below graph provides a pluggable Deforum Animation pipeline in ComfyUI. It works frame-by-frame, so the best practice is to enable Extra options, and Auto Queue.\n\nDeforum Parameter and Schedule nodes represent all settings available to consume after chaining up by the Deforum Iterator node, which keeps track of the current frame, generates/gets the cached latent to be denoised in the next pass. The parameters and schedule's are the same as in the auto1111 extension and in the Colab version.\n\nHybrid nodes are currently bypassed (purple), enabling them, and selecting a video transforms the pipeline into Deforum Hybrid. Iteration can be reset to frame 0 with the reset value being set to 1 on the iterator node. Don't forget to switch it back to 0 to use the generated image/latent.\"\n\nDeforum Video Save node dumps its collected frames when the current frame's id reaches/has passed max_frames."
+      }
+    },
+    "171": {
+      "class_type": "IPAdapterModelLoader",
+      "id": "171",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 171,
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                543
+              ],
+              "name": "IPADAPTER",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IPADAPTER"
+            }
+          ],
+          "pos": [
+            105,
+            -243
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterModelLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "IPAdapterModelLoader",
+          "widgets_values": [
+            "ip-adapter_sdxl_vit-h.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ip-adapter_sdxl_vit-h.safetensors"
+        ]
+      },
+      "uid": "171",
+      "widgets": {
+        "widget_0": "ip-adapter_sdxl_vit-h.safetensors"
+      }
+    },
+    "172": {
+      "class_type": "CLIPVisionLoader",
+      "id": "172",
+      "inputs": {
+        "clip_name": "ipadapter_image_encoder_15.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 172,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                544
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            }
+          ],
+          "pos": [
+            103,
+            -115
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPVisionLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "CLIPVisionLoader",
+          "widgets_values": [
+            "ipadapter_image_encoder_15.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ipadapter_image_encoder_15.safetensors"
+        ]
+      },
+      "uid": "172",
+      "widgets": {}
+    },
+    "173": {
+      "class_type": "IPAdapterApply",
+      "id": "173",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 173,
+          "inputs": [
+            {
+              "link": 543,
+              "name": "ipadapter",
+              "type": "IPADAPTER"
+            },
+            {
+              "link": 544,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 558,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 546,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "name": "attn_mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                547
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            695,
+            -199
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterApply"
+          },
+          "size": {
+            "0": 210,
+            "1": 258
+          },
+          "type": "IPAdapterApply",
+          "widgets_values": [
+            0.8,
+            0,
+            "original",
+            0,
+            1,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.8,
+          0,
+          "original",
+          0,
+          1,
+          false
+        ]
+      },
+      "uid": "173",
+      "widgets": {
+        "widget_0": 0.8,
+        "widget_1": 0,
+        "widget_2": "original",
+        "widget_3": 0,
+        "widget_4": 1,
+        "widget_5": false
+      }
+    },
+    "174": {
+      "class_type": "DeforumBaseParamsNode",
+      "id": "174",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 174,
+          "inputs": [
+            {
+              "link": 548,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                549
+              ],
+              "name": "deforum_data",
+              "shape": 3,
+              "type": "deforum_data"
+            }
+          ],
+          "pos": [
+            -318,
+            -265
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumBaseParamsNode"
+          },
+          "size": {
+            "0": 317.4000244140625,
+            "1": 442
+          },
+          "type": "DeforumBaseParamsNode",
+          "widgets_values": [
+            1024,
+            1024,
+            "euler",
+            "normal",
+            25,
+            7,
+            1,
+            "Deforum_{timestring}",
+            "fixed",
+            1,
+            "output/deforum",
+            0.8,
+            true,
+            false,
+            false,
+            true,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 17,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          "euler",
+          "normal",
+          25,
+          7,
+          1,
+          "Deforum_{timestring}",
+          "fixed",
+          1,
+          "output/deforum",
+          0.8,
+          true,
+          false,
+          false,
+          true,
+          false
+        ]
+      },
+      "uid": "174",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 1024,
+        "widget_10": "output/deforum",
+        "widget_11": 0.8,
+        "widget_12": true,
+        "widget_13": false,
+        "widget_14": false,
+        "widget_15": true,
+        "widget_16": false,
+        "widget_2": "euler",
+        "widget_3": "normal",
+        "widget_4": 25,
+        "widget_5": 7,
+        "widget_6": 1,
+        "widget_7": "Deforum_{timestring}",
+        "widget_8": "fixed",
+        "widget_9": 1
+      }
+    },
+    "175": {
+      "class_type": "DeforumIteratorNode",
+      "id": "175",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 175,
+          "inputs": [
+            {
+              "link": 550,
+              "name": "deforum_data",
+              "type": "deforum_data"
+            },
+            {
+              "link": 551,
+              "name": "latent",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                552,
+                553,
+                554
+              ],
+              "name": "deforum_frame_data",
+              "shape": 3,
+              "type": "DEFORUM_FRAME_DATA"
+            },
+            {
+              "links": [
+                555
+              ],
+              "name": "latent",
+              "shape": 3,
+              "type": "LATENT"
+            },
+            {
+              "links": null,
+              "name": "positive_prompt",
+              "shape": 3,
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "negative_prompt",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            55,
+            914
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumIteratorNode"
+          },
+          "size": {
+            "0": 393,
+            "1": 286
+          },
+          "type": "DeforumIteratorNode",
+          "widgets_values": [
+            "stable_diffusion",
+            791126192911641,
+            "randomize",
+            0,
+            0.8,
+            0.1,
+            false,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 8,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "stable_diffusion",
+          791126192911641,
+          "randomize",
+          0,
+          0.8,
+          0.1,
+          false,
+          false
+        ]
+      },
+      "uid": "175",
+      "widgets": {
+        "widget_0": "stable_diffusion",
+        "widget_1": 791126192911641,
+        "widget_2": "randomize",
+        "widget_3": 0,
+        "widget_4": 0.8,
+        "widget_5": 0.1,
+        "widget_6": false,
+        "widget_7": false
+      }
+    },
+    "176": {
+      "class_type": "DeforumLoadVideo",
+      "id": "176",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 176,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                556,
+                557,
+                558
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            94,
+            17
+          ],
+          "properties": {
+            "Node name for S&R": "DeforumLoadVideo"
+          },
+          "size": [
+            315,
+            294
+          ],
+          "type": "DeforumLoadVideo",
+          "widgets_values": [
+            "2000_FILM (1).mp4",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "2000_FILM (1).mp4",
+          "image"
+        ]
+      },
+      "uid": "176",
+      "widgets": {
+        "widget_0": "2000_FILM (1).mp4",
+        "widget_1": "image"
+      }
+    },
+    "47": {
+      "class_type": "PreviewImage",
+      "id": "47",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 47,
+          "inputs": [
+            {
+              "link": 460,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 4,
+          "order": 26,
+          "pos": [
+            989,
+            391
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 192.6160888671875,
+            "1": 169.56472778320312
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "47",
+      "widgets": {}
+    },
+    "48": {
+      "class_type": "PreviewImage",
+      "id": "48",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 48,
+          "inputs": [
+            {
+              "link": 455,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "pos": [
+            992,
+            607
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            188.46986389160156,
+            246
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "48",
+      "widgets": {}
+    },
+    "50": {
+      "class_type": "PreviewImage",
+      "id": "50",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 50,
+          "inputs": [
+            {
+              "link": 456,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 29,
+          "pos": [
+            995,
+            817
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            189.73870849609375,
+            246
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "50",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "PreviewImage",
+      "id": "62",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 62,
+          "inputs": [
+            {
+              "link": 556,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "pos": [
+            98,
+            388
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 309.7149658203125,
+            "1": 251.35919189453125
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "62",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "16",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "47",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "48",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "50",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "62",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "ipadapter_image_encoder_15.safetensors",
+      "protovisionXLHighFidelity3D_beta0520Bakedvae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "c49d53264203554e",
+    "path": "external_workflows/.shadow/source/c49d53264203554e-deforum_ip_adapter_1.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "78afac42baf0a381d96923343a47725a9616d0d42b654ca93be173f00039d8f6",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1210586549796741130",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1210586549796741130:deforum_ip_adapter_1.json:c49d53264203554e",
+      "filename": "deforum_ip_adapter_1.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:57+00:00",
+      "message_id": 1210586549796741130,
+      "node_class_multiset": {
+        "CLIPVisionLoader": 1,
+        "CheckpointLoaderSimple": 1,
+        "DeforumAddNoiseNode": 1,
+        "DeforumAnimParamsNode": 1,
+        "DeforumBaseParamsNode": 1,
+        "DeforumCacheLatentNode": 1,
+        "DeforumColorParamsNode": 1,
+        "DeforumConditioningBlendNode": 1,
+        "DeforumDepthParamsNode": 1,
+        "DeforumDiffusionParamsNode": 1,
+        "DeforumFrameWarpNode": 1,
+        "DeforumGetCachedLatentNode": 1,
+        "DeforumHybridMotionNode": 1,
+        "DeforumHybridScheduleNode": 1,
+        "DeforumIteratorNode": 1,
+        "DeforumKSampler": 1,
+        "DeforumLoadVideo": 1,
+        "DeforumNoiseParamsNode": 1,
+        "DeforumPromptNode": 1,
+        "DeforumTranslationParamsNode": 1,
+        "DeforumVideoSaveNode": 1,
+        "IPAdapterApply": 1,
+        "IPAdapterModelLoader": 1,
+        "Note": 1,
+        "PreviewImage": 5,
+        "Reroute": 1,
+        "VAEDecode": 1,
+        "VAEEncode": 1
+      },
+      "node_count": 32,
+      "origin_date": "2024-02-23T13:58:45.082000+00:00",
+      "originator_global_name": "NebSH",
+      "originator_id": "464322697418244096",
+      "originator_type": "discord_message_author",
+      "originator_username": "nebsh",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c49d53264203554e45ad943b32acdd37a8da516e6cceeefe6d8f5d28d71be69a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1210586549234958426/deforum_ip_adapter_1.json?ex=69796d54&is=69781bd4&hm=db45a4f68f97a52b8406482f013b850a3e672aa7a2c3385aa57eade99ee7c23b&",
+      "source_workflow_sha256": "85e425b421558a9867f3f619a38003c967170c79b024efdcac1373a83fdd380d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

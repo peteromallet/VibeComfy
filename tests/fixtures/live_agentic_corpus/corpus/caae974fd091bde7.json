@@ -1,0 +1,1574 @@
+{
+  "edges": [
+    {
+      "from_node": "1038",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "1039"
+    },
+    {
+      "from_node": "1038",
+      "from_output": "0",
+      "to_input": "string_b",
+      "to_node": "1037"
+    },
+    {
+      "from_node": "1037",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "1042"
+    },
+    {
+      "from_node": "1018",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "1029"
+    },
+    {
+      "from_node": "1031",
+      "from_output": "0",
+      "to_input": "caption",
+      "to_node": "1029"
+    },
+    {
+      "from_node": "1025",
+      "from_output": "0",
+      "to_input": "output_folder",
+      "to_node": "1029"
+    },
+    {
+      "from_node": "1040",
+      "from_output": "0",
+      "to_input": "index",
+      "to_node": "1038"
+    },
+    {
+      "from_node": "1037",
+      "from_output": "0",
+      "to_input": "string_b",
+      "to_node": "1033"
+    },
+    {
+      "from_node": "1031",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "1018"
+    },
+    {
+      "from_node": "1018",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "1030"
+    },
+    {
+      "from_node": "1031",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "1032"
+    },
+    {
+      "from_node": "1033",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "1031"
+    }
+  ],
+  "groups": [],
+  "id": "aaeb8b25c26ca2a6",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1018": {
+        "class_type": "62af61d6-9745-4fea-bc43-a1f89f5cab8a",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "1031",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1029",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "1030",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'A bright travel-style close-up headshot of a young woman with blonde hair with lavender streaks, wispy bangs, green eyes, wearing a light summer dress with thin straps. She is standing in a colorful outdoor market with hanging lights and vibrant stalls blurred behind her. Natural HDR color grading. Camera angle: eye-level close-up, 85mm lens. Warm sunset light illuminating her face.'"
+          ],
+          [
+            "widget_1",
+            "'bad hands, extra fingers, missing fingers, fused fingers, broken hands, mutant hands, twisted limbs, extra limbs, missing limbs, dimple '"
+          ],
+          [
+            "widget_2",
+            "'z_image_turbo_bf16.safetensors'"
+          ],
+          [
+            "widget_3",
+            "'ae.safetensors'"
+          ],
+          [
+            "widget_4",
+            "1920"
+          ],
+          [
+            "widget_5",
+            "1080"
+          ],
+          [
+            "widget_6",
+            "69"
+          ],
+          [
+            "widget_7",
+            "10"
+          ],
+          [
+            "widget_8",
+            "0"
+          ]
+        ]
+      },
+      "1025": {
+        "class_type": "PrimitiveString",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1029",
+              "output_folder"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "'A:\\\\MUSUBI\\\\musubi-tuner-ltx2\\\\local\\\\ldataset\\\\marionette'"
+          ]
+        ]
+      },
+      "1029": {
+        "class_type": "SaveImageKJ",
+        "incoming_edge_sig": [
+          [
+            "caption",
+            [
+              "1031",
+              "0"
+            ]
+          ],
+          [
+            "images",
+            [
+              "1018",
+              "0"
+            ]
+          ],
+          [
+            "output_folder",
+            [
+              "1025",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'image'"
+          ],
+          [
+            "widget_1",
+            "'output'"
+          ],
+          [
+            "widget_2",
+            "'.txt'"
+          ]
+        ]
+      },
+      "1030": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "1018",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "1031": {
+        "class_type": "GeminiNode",
+        "incoming_edge_sig": [
+          [
+            "prompt",
+            [
+              "1033",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1018",
+              "text"
+            ]
+          ],
+          [
+            "0",
+            [
+              "1029",
+              "caption"
+            ]
+          ],
+          [
+            "0",
+            [
+              "1032",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Single Claymation Prompt Generator\\n\\nYou are now a text-to-image prompt generator that creates one single detailed prompt in a handcrafted claymation style.\\n\\nAfter the user provides details (or even minimal details), you will generate 1 unique prompt only, written in plain text, with no tables, no numbering, and no extra commentary.\\n\\nAll prompts must be created in a handcrafted claymation style, featuring textured modeling clay, visible fingerprints, handmade imperfections, and a whimsical stop-motion aesthetic.\\n\\nCore Style Rule (Always Apply)\\n\\nEvery prompt must describe:\\n\\nA handcrafted claymation-style scene\\nObjects and characters made from textured modeling clay\\nVisible fingerprints, slight surface imperfections, and handmade details\\nA cozy, whimsical, stop-motion aesthetic\\nSoft, tactile surfaces that feel sculpted by hand\\n\\nThis claymation style must never change.\\n\\nPrompt Construction Rules\\n\\nUse the following structure to build the single prompt:\\n\\n1. Color Style\\n\\nChoose one color style that enhances the claymation mood. Examples:\\n\\nWarm cinematic\\nMatte\\nSoft HDR\\nVintage warm tone\\nCozy natural lighting\\n\\nPrefer warm, cozy tones that complement clay textures.\\n\\n2. Mood\\n\\nChoose a fitting mood such as:\\n\\nCozy\\nWhimsical\\nCheerful\\nPeaceful\\nPlayful\\nMagical\\nCalm\\n3. Character or Subject\\n\\nIf a person or character is present, describe:\\n\\nFacial features\\nExpression\\nHair style and shape (sculpted clay look)\\nClothing made of clay\\nAccessories if relevant\\nBody proportions (small, round, stylized clay figure if applicable)\\n\\nIf no person is provided, create:\\n\\nA clay object\\nCreature\\nAnimal\\nFood\\nScene\\nOr whimsical subject\\n\\nAll must be made of clay.\\n\\n4. Environment\\n\\nCreate a clay environment that matches the mood\\n\\nAll surfaces must be clay-based.\\n\\n5. Camera Angle\\n\\nChoose a cinematic camera angle\\n\\nThe camera should enhance storytelling and depth.\\n\\n6. Time of Day and Lighting\\n\\nInclude:\\n\\nTime of day\\nLighting direction\\nLighting mood\\n\\n\\nInclude weather when relevant:\\n\\n\\n8. Texture and Motion Details\\n\\nAlways include tactile clay details such as:\\n\\nVisible fingerprints\\nSlight cracks\\nSoft clay folds\\nRounded sculpted edges\\nPowder-like clay dust\\nSubtle handmade imperfections\\n\\nThese details are required.\\n\\nOutput Rules (Strict)\\nOutput exactly one prompt\\nOutput must be plain text only\\nDo not use tables\\nDo not number the prompt\\nDo not explain anything\\nDo not include headings\\nDo not repeat instructions\\nDo not output multiple variations\\n\\nJust output one complete claymation-style prompt.'"
+          ],
+          [
+            "widget_1",
+            "'gemini-2.5-flash'"
+          ],
+          [
+            "widget_2",
+            "1098090568986114"
+          ],
+          [
+            "widget_3",
+            "'fixed'"
+          ],
+          [
+            "widget_4",
+            "''"
+          ]
+        ]
+      },
+      "1032": {
+        "class_type": "ShowText|pysssss",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "1031",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"A handcrafted wooden marionette scene unfurls on a miniature theatrical stage, where an eccentric alchemist marionette, meticulously carved from wood with visible grain and painted features, is suspended by multiple fine strings from its wooden head, articulated wooden arms, hands, and jointed wooden legs, all extending clearly upward and controlling its diligent movements. Its segmented body construction and round wooden joints with connection pegs are distinctly visible, giving a sense of mechanical yet handcrafted articulation. The alchemist, clad in a richly layered fabric costume of a deep indigo velvet robe and a tiny embroidered waistcoat, leans slightly over a small wooden table, its wooden hands carefully stirring a miniature, glowing, bubbling potion in a tiny, hand-blown glass beaker. The stage is framed by heavy, deep red velvet curtains, and the wooden stage floor gleams under warm spotlight illumination from above, casting theatrical shadows beneath the suspended figure and emphasizing the taut control strings. A painted backdrop depicting an arcane laboratory filled with tiny glass vials and ancient scrolls provides depth to the scene. The marionette's carved wooden face, with its painted eyes and defined eyebrows, reflects the focused intensity of the performance. Every detail, from the visible thread stitching on the fabric costume to slight paint wear on the wooden surfaces, contributes to a charming, storybook-like mood, capturing a moment of classic, performance-driven theatrical storytelling.\""
+          ]
+        ]
+      },
+      "1033": {
+        "class_type": "StringConcatenate",
+        "incoming_edge_sig": [
+          [
+            "string_b",
+            [
+              "1037",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1031",
+              "prompt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "delimiter",
+            "''"
+          ],
+          [
+            "string_a",
+            "'You are a text-to-image prompt generator that creates one single detailed prompt in a handcrafted marionette string puppet theatrical style.\\n\\nThe only user input will be a subject type.\\n\\nYou must generate one random subject that fits the provided subject type.\\n\\nDo not ask questions.\\nDo not request clarification.\\nAlways generate immediately.\\n\\nFixed Visual Style Rule\\n\\nEvery prompt must always use the same visual style:\\n\\nA handcrafted wooden marionette puppet scene featuring suspended string-controlled characters performing on a theatrical stage with visible control strings, wooden jointed limbs, fabric costumes, and stage lighting.\\n\\nThis style is permanently fixed.\\n\\nIt must never change.\\n\\nDo not switch to:\\n\\nFoam puppet styles\\nStop-motion miniature styles\\nPlush toy styles\\nMechanical animatronic styles\\nReal humans\\n\\nAll characters must clearly appear as suspended marionette puppets.\\n\\nCore Marionette Construction Rule (MANDATORY)\\n\\nAll characters must be suspended wooden marionettes.\\n\\nCharacters must include:\\n\\nWooden head structure\\nWooden jointed limbs\\nSegmented body construction\\nArticulated wooden arms\\nArticulated wooden legs\\nWooden torso pieces\\n\\nEvery marionette must include:\\n\\nVisible string connections\\nMultiple control strings\\nSuspension from above\\n\\nStrings are required.\\n\\nWithout strings, the image is incorrect.\\n\\nString Visibility Rule (CRITICAL)\\n\\nEvery marionette must have:\\n\\nClearly visible strings connecting:\\n\\nHead\\nArms\\nHands\\nLegs\\n\\nStrings must:\\n\\nExtend upward\\nRemain visible\\nControl movement direction\\n\\nAvoid:\\n\\nHidden strings\\nImplied strings\\nInvisible control.\\n\\nVisible strings define marionette realism.\\n\\nSuspension Rule\\n\\nMarionettes must always appear:\\n\\nSuspended in the air\\nNot standing freely\\n\\nFeet may:\\n\\nHover slightly\\nTouch stage lightly\\n\\nBut characters must still appear controlled by strings.\\n\\nAvoid:\\n\\nGrounded figures\\nFree-standing puppets.\\n\\nJoint Construction Rule\\n\\nAll limbs must clearly show jointed articulation.\\n\\nInclude:\\n\\nRound wooden joints\\nConnection pegs\\nSegmented limb pieces\\nJoint hinges\\n\\nMovement capability must feel mechanical but handcrafted.\\n\\nAvoid:\\n\\nSoft flexible bodies\\nFoam-based limbs.\\n\\nSurface Material Rule\\n\\nMaterials must appear handcrafted and physical.\\n\\nInclude:\\n\\nCarved wood surfaces\\nPainted wooden faces\\nFabric clothing\\nThread stitching\\nHand-painted details\\nWood grain visibility\\n\\nSurfaces may include:\\n\\nPaint wear\\nSurface scratches\\nAging effects\\n\\nAvoid:\\n\\nSoft plush materials\\nSmooth digital surfaces.\\n\\nFace Design Rule\\n\\nMarionette faces must appear carved and painted.\\n\\nInclude:\\n\\nPainted eyes\\nDefined painted eyebrows\\nWood-carved facial features\\nGlossy painted surfaces\\n\\nExpressions may feel:\\n\\nStylized\\nTheatrical\\nHandcrafted\\n\\nAvoid:\\n\\nSoft foam faces\\nRealistic human skin.\\n\\nCostume Rule\\n\\nAll marionettes must wear fabric costumes.\\n\\nInclude:\\n\\nLayered clothing\\nFabric textures\\nSmall buttons\\nDecorative stitching\\nStage costumes\\n\\nClothing must feel:\\n\\nHandmade\\nScaled to puppet size.\\n\\nEnvironment Rule (MANDATORY)\\n\\nScenes must occur in theatrical marionette environments.\\n\\nExamples:\\n\\nWooden puppet stages\\nMiniature theater sets\\nCurtained stage areas\\nStorybook-style stage backdrops\\nIndoor theater environments\\n\\nInclude:\\n\\nStage curtains\\nWooden flooring\\nDecorative stage props\\nPainted background scenery\\n\\nAvoid:\\n\\nReal-world modern environments\\nOutdoor natural landscapes\\nIndustrial locations.\\n\\nStage Lighting Rule (MANDATORY)\\n\\nLighting must resemble theatrical stage lighting.\\n\\nUse:\\n\\nWarm spotlight lighting\\nStage illumination\\nDirectional lighting from above\\nSoft theatrical lighting\\n\\nLighting must:\\n\\nHighlight puppet faces\\nCast shadows beneath suspended figures\\nEmphasize strings and movement\\n\\nAvoid:\\n\\nNatural daylight realism\\nIndustrial lighting\\nHarsh white lighting.\\n\\nLighting should feel:\\n\\nPerformance-focused.\\n\\nMulti-Marionette Performance Rule (HIGHLY RECOMMENDED)\\n\\nScenes should frequently include:\\n\\nMultiple marionette characters performing together.\\n\\nExamples:\\n\\nActing\\nDancing\\nInteracting\\nPerforming story moments\\n\\nMulti-character staging strengthens authenticity.\\n\\nMovement Rule\\n\\nCharacters must appear mid-performance.\\n\\nExamples:\\n\\nWalking motion\\nDancing posture\\nArm gestures\\nLeaning motion\\nTurning posture\\n\\nMovement must feel:\\n\\nSuspended\\nString-driven\\n\\nAvoid static poses.\\n\\nDepth and Stage Composition Rule\\n\\nScenes must include layered stage depth.\\n\\nInclude:\\n\\nForeground marionettes\\nMid-stage characters\\nBackground painted scenery\\n\\nCurtains may frame edges.\\n\\nEverything must feel:\\n\\nLike a live puppet performance.\\n\\nColor Palette Rule\\n\\nUse classic theatrical and storybook tones.\\n\\nExamples:\\n\\nDeep reds\\nWarm browns\\nGold accents\\nPainted decorative colors\\nClassic stage colors\\n\\nColors should feel:\\n\\nVintage\\nTheatrical\\nHandcrafted.\\n\\nAvoid neon modern palettes.\\n\\nImperfection Rule\\n\\nAll marionettes must show handcrafted details.\\n\\nInclude:\\n\\nVisible brush strokes\\nSlight paint variation\\nWood imperfections\\nMinor costume wrinkles\\n\\nAvoid perfect digital smoothness.\\n\\nHandcrafted realism strengthens believability.\\n\\nScale Rule\\n\\nEverything must feel:\\n\\nMiniature and stage-scaled.\\n\\nInclude:\\n\\nSmall props\\nMiniature furniture\\nTiny stage elements\\n\\nAvoid life-sized realism.\\n\\nMood Rule\\n\\nScenes should feel:\\n\\nStorybook-like\\nTheatrical\\nCharming\\nClassic\\nPerformance-driven\\n\\nMood should reflect staged storytelling.\\n\\nSubject Generation Rule\\n\\nUse the user-provided subject type to generate one random subject belonging to that category.\\n\\nAvoid repetition.\\n\\nAvoid predictable outputs.\\n\\nSubjects must feel appropriate for theatrical marionette storytelling.\\n\\nOutput Structure Rule\\n\\nWrite one continuous paragraph.\\n\\nDo not label sections.\\n\\nThe paragraph must naturally include:\\n\\nMarionette subject description\\nString and joint details\\nStage environment description\\nLighting description\\nMovement description\\nCostume detail\\nMood description\\n\\nEverything must read like a theatrical puppet performance.\\n\\nOutput Rules\\n\\nOutput exactly one prompt.\\n\\nOutput plain text only.\\n\\nDo not:\\n\\nUse tables\\nUse numbering\\nUse bullet points\\nAdd explanations\\nAdd commentary\\nAdd headings\\nOutput multiple prompts\\n\\nOutput only:\\n\\nOne complete handcrafted marionette puppet stage scene prompt.\\n\\nNothing else.\\n\\n'"
+          ]
+        ]
+      },
+      "1037": {
+        "class_type": "StringConcatenate",
+        "incoming_edge_sig": [
+          [
+            "string_b",
+            [
+              "1038",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1033",
+              "string_b"
+            ]
+          ],
+          [
+            "0",
+            [
+              "1042",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "delimiter",
+            "''"
+          ],
+          [
+            "string_a",
+            "'user input: \\n\\n'"
+          ]
+        ]
+      },
+      "1038": {
+        "class_type": "VRGDG_PromptSplitter_General",
+        "incoming_edge_sig": [
+          [
+            "index",
+            [
+              "1040",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1037",
+              "string_b"
+            ]
+          ],
+          [
+            "0",
+            [
+              "1039",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'[\\n  \"a pirate captain searching for buried treasure\",\\n  \"a knight battling a fire-breathing dragon\",\\n  \"a wizard casting a glowing spell\",\\n  \"a baker decorating a towering cake\",\\n  \"a fisherman reeling in a giant fish\",\\n  \"a king announcing a royal decree\",\\n  \"a queen hosting a grand celebration\",\\n  \"a jester juggling colorful balls\",\\n  \"a blacksmith hammering molten metal\",\\n  \"a sailor steering through crashing waves\",\\n  \"a chef tossing vegetables in a pan\",\\n  \"a farmer harvesting golden wheat\",\\n  \"a librarian stacking ancient books\",\\n  \"a doctor examining a patient\",\\n  \"a musician playing a grand piano\",\\n  \"a dancer spinning gracefully\",\\n  \"a magician pulling a rabbit from a hat\",\\n  \"a hunter tracking animal footprints\",\\n  \"a miner discovering sparkling gems\",\\n  \"a teacher writing on a chalkboard\",\\n  \"a detective examining clues with a magnifying glass\",\\n  \"a painter creating a landscape masterpiece\",\\n  \"a tailor stitching a fancy coat\",\\n  \"a carpenter building wooden furniture\",\\n  \"a florist arranging a bouquet\",\\n  \"a gardener watering blooming flowers\",\\n  \"a circus performer swinging on a trapeze\",\\n  \"a clown riding a tiny bicycle\",\\n  \"a ringmaster introducing a circus act\",\\n  \"a toy maker assembling wooden toys\",\\n  \"a clockmaker adjusting delicate gears\",\\n  \"a storyteller reading from an old book\",\\n  \"a prince practicing sword fighting\",\\n  \"a princess waving from a balcony\",\\n  \"a dragon keeper feeding a small dragon\",\\n  \"a lighthouse keeper lighting the beacon\",\\n  \"a train conductor signaling departure\",\\n  \"a pilot checking flight controls\",\\n  \"a treasure hunter opening a mysterious chest\",\\n  \"an explorer mapping unknown lands\",\\n  \"a shepherd guiding a flock of sheep\",\\n  \"a merchant weighing goods on a scale\",\\n  \"a jeweler polishing a sparkling ring\",\\n  \"a soldier standing at attention\",\\n  \"a monk ringing a temple bell\",\\n  \"a scientist mixing bubbling potions\",\\n  \"a barber trimming a beard\",\\n  \"a watchman holding a lantern at night\",\\n  \"a street performer balancing on stilts\",\\n  \"a storyteller performing a dramatic tale\"\\n]'"
+          ],
+          [
+            "widget_1",
+            "0"
+          ]
+        ]
+      },
+      "1039": {
+        "class_type": "ShowText|pysssss",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "1038",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'a barber trimming a beard'"
+          ]
+        ]
+      },
+      "1040": {
+        "class_type": "PrimitiveInt",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "1038",
+              "index"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "0"
+          ],
+          [
+            "widget_1",
+            "'increment'"
+          ]
+        ]
+      },
+      "1042": {
+        "class_type": "ShowText|pysssss",
+        "incoming_edge_sig": [
+          [
+            "text",
+            [
+              "1037",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'user input: \\n\\na barber trimming a beard'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "caae974fd091bde7f66f620c6912d4f6b9ef0430e2ac41d32d778b9dd70b6b10",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1443174533271130132,
+      "channel_name": "z-image",
+      "content_preview": "<@898641326692769803>",
+      "discord_message_url": "https://discord.com/channels/@me/1443174533271130132/1491550323511394385",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1491550323511394385:zimage_dataset_creator.json:aaeb8b25c26ca2a6",
+      "filename": "zimage_dataset_creator.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:56+00:00",
+      "message_id": 1491550323511394385,
+      "node_class_multiset": {
+        "62af61d6-9745-4fea-bc43-a1f89f5cab8a": 1,
+        "GeminiNode": 1,
+        "PreviewImage": 1,
+        "PrimitiveInt": 1,
+        "PrimitiveString": 1,
+        "SaveImageKJ": 1,
+        "ShowText|pysssss": 3,
+        "StringConcatenate": 2,
+        "VRGDG_PromptSplitter_General": 1
+      },
+      "node_count": 12,
+      "origin_date": "2026-04-08T21:28:28.790000+00:00",
+      "originator_global_name": "VRGameDevGirl84(RTX 5090)",
+      "originator_id": "330829305477333022",
+      "originator_type": "discord_message_author",
+      "originator_username": "vrgamedevgirl",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "aaeb8b25c26ca2a6264d8973d7c33a80147751c359ad4e9214b627db5196d0b2",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1443174533271130132/1491550323398021151/zimage_dataset_creator.json?ex=69d819fc&is=69d6c87c&hm=0de300db276e206f77e91583a4e37a309919d10bd2c144775f876bcf65c4fcf3&",
+      "source_workflow_sha256": "2da23cb34a01523ad54043f3af87eb2f32eaff071cfd7f17a64cbca9e971aadc",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "f9080af8842d4a2e7acfb309160dbb9760bb4a81d7671f1d955e17ff2e0dcf7f",
+      "complexity": 3,
+      "description": "Uses a Gemini node to process text, splits prompts with VRGDG_PromptSplitter_General, concatenates strings, and displays results via ShowText and PreviewImage.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "gemini",
+        "prompt-splitting",
+        "text-processing",
+        "string-concatenation",
+        "preview-image"
+      ],
+      "task_type": "other",
+      "title": "Gemini Prompt Splitter and Text Display Workflow"
+    }
+  },
+  "nodes": {
+    "1018": {
+      "class_type": "62af61d6-9745-4fea-bc43-a1f89f5cab8a",
+      "id": "1018",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 1018,
+          "inputs": [
+            {
+              "link": 1616,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                1610,
+                1614
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2135.190905103441,
+            7731.352723665887
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "-1",
+                "text"
+              ],
+              [
+                "-1",
+                "text_1"
+              ],
+              [
+                "-1",
+                "unet_name"
+              ],
+              [
+                "-1",
+                "vae_name"
+              ],
+              [
+                "-1",
+                "width_1"
+              ],
+              [
+                "-1",
+                "height_1"
+              ],
+              [
+                "-1",
+                "noise_seed"
+              ],
+              [
+                "-1",
+                "value"
+              ],
+              [
+                "-1",
+                "start_at_step"
+              ]
+            ],
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.3.75"
+          },
+          "size": [
+            425.5431526736188,
+            422
+          ],
+          "type": "62af61d6-9745-4fea-bc43-a1f89f5cab8a",
+          "widgets_values": [
+            "A bright travel-style close-up headshot of a young woman with blonde hair with lavender streaks, wispy bangs, green eyes, wearing a light summer dress with thin straps. She is standing in a colorful outdoor market with hanging lights and vibrant stalls blurred behind her. Natural HDR color grading. Camera angle: eye-level close-up, 85mm lens. Warm sunset light illuminating her face.",
+            "bad hands, extra fingers, missing fingers, fused fingers, broken hands, mutant hands, twisted limbs, extra limbs, missing limbs, dimple ",
+            "z_image_turbo_bf16.safetensors",
+            "ae.safetensors",
+            1920,
+            1080,
+            69,
+            10,
+            0
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 9,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A bright travel-style close-up headshot of a young woman with blonde hair with lavender streaks, wispy bangs, green eyes, wearing a light summer dress with thin straps. She is standing in a colorful outdoor market with hanging lights and vibrant stalls blurred behind her. Natural HDR color grading. Camera angle: eye-level close-up, 85mm lens. Warm sunset light illuminating her face.",
+          "bad hands, extra fingers, missing fingers, fused fingers, broken hands, mutant hands, twisted limbs, extra limbs, missing limbs, dimple ",
+          "z_image_turbo_bf16.safetensors",
+          "ae.safetensors",
+          1920,
+          1080,
+          69,
+          10,
+          0
+        ]
+      },
+      "uid": "1018",
+      "widgets": {
+        "widget_0": "A bright travel-style close-up headshot of a young woman with blonde hair with lavender streaks, wispy bangs, green eyes, wearing a light summer dress with thin straps. She is standing in a colorful outdoor market with hanging lights and vibrant stalls blurred behind her. Natural HDR color grading. Camera angle: eye-level close-up, 85mm lens. Warm sunset light illuminating her face.",
+        "widget_1": "bad hands, extra fingers, missing fingers, fused fingers, broken hands, mutant hands, twisted limbs, extra limbs, missing limbs, dimple ",
+        "widget_2": "z_image_turbo_bf16.safetensors",
+        "widget_3": "ae.safetensors",
+        "widget_4": 1920,
+        "widget_5": 1080,
+        "widget_6": 69,
+        "widget_7": 10,
+        "widget_8": 0
+      }
+    },
+    "1025": {
+      "class_type": "PrimitiveString",
+      "id": "1025",
+      "inputs": {
+        "value": "A:\\MUSUBI\\musubi-tuner-ltx2\\local\\ldataset\\marionette"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1025,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1611
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2678.1008467217066,
+            7545.629715851356
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveString",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            538.6199999999999,
+            99.13999999999942
+          ],
+          "type": "PrimitiveString",
+          "widgets_values": [
+            "A:\\MUSUBI\\musubi-tuner-ltx2\\local\\ldataset\\marionette"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A:\\MUSUBI\\musubi-tuner-ltx2\\local\\ldataset\\marionette"
+        ]
+      },
+      "uid": "1025",
+      "widgets": {}
+    },
+    "1029": {
+      "class_type": "SaveImageKJ",
+      "id": "1029",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1029,
+          "inputs": [
+            {
+              "link": 1610,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": 1627,
+              "name": "caption",
+              "shape": 7,
+              "type": "STRING"
+            },
+            {
+              "link": 1611,
+              "name": "output_folder",
+              "type": "STRING",
+              "widget": {
+                "name": "output_folder"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": null,
+              "name": "filename",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            3246.2310267217035,
+            7532.974355851347
+          ],
+          "properties": {
+            "Node name for S&R": "SaveImageKJ",
+            "cnr_id": "comfyui-kjnodes",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "a9ab19d2a7933e03f72bc00103863f06b9483300"
+          },
+          "size": [
+            288,
+            126
+          ],
+          "type": "SaveImageKJ",
+          "widgets_values": [
+            "image",
+            "output",
+            ".txt"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "image",
+          "output",
+          ".txt"
+        ]
+      },
+      "uid": "1029",
+      "widgets": {
+        "widget_0": "image",
+        "widget_1": "output",
+        "widget_2": ".txt"
+      }
+    },
+    "1030": {
+      "class_type": "PreviewImage",
+      "id": "1030",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1030,
+          "inputs": [
+            {
+              "link": 1614,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [],
+          "pos": [
+            2613.3815547217005,
+            7765.252682851354
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            1049.0730000000003,
+            611.6399999999994
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "1030",
+      "widgets": {}
+    },
+    "1031": {
+      "class_type": "GeminiNode",
+      "id": "1031",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 1031,
+          "inputs": [
+            {
+              "link": null,
+              "name": "images",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "video",
+              "shape": 7,
+              "type": "VIDEO"
+            },
+            {
+              "link": null,
+              "name": "files",
+              "shape": 7,
+              "type": "GEMINI_INPUT_FILES"
+            },
+            {
+              "link": 1618,
+              "name": "prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                1616,
+                1617,
+                1627
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1673.4954655646811,
+            7736.274989074491
+          ],
+          "properties": {
+            "Node name for S&R": "GeminiNode",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            420.7831000000001,
+            274
+          ],
+          "type": "GeminiNode",
+          "widgets_values": [
+            "Single Claymation Prompt Generator\n\nYou are now a text-to-image prompt generator that creates one single detailed prompt in a handcrafted claymation style.\n\nAfter the user provides details (or even minimal details), you will generate 1 unique prompt only, written in plain text, with no tables, no numbering, and no extra commentary.\n\nAll prompts must be created in a handcrafted claymation style, featuring textured modeling clay, visible fingerprints, handmade imperfections, and a whimsical stop-motion aesthetic.\n\nCore Style Rule (Always Apply)\n\nEvery prompt must describe:\n\nA handcrafted claymation-style scene\nObjects and characters made from textured modeling clay\nVisible fingerprints, slight surface imperfections, and handmade details\nA cozy, whimsical, stop-motion aesthetic\nSoft, tactile surfaces that feel sculpted by hand\n\nThis claymation style must never change.\n\nPrompt Construction Rules\n\nUse the following structure to build the single prompt:\n\n1. Color Style\n\nChoose one color style that enhances the claymation mood. Examples:\n\nWarm cinematic\nMatte\nSoft HDR\nVintage warm tone\nCozy natural lighting\n\nPrefer warm, cozy tones that complement clay textures.\n\n2. Mood\n\nChoose a fitting mood such as:\n\nCozy\nWhimsical\nCheerful\nPeaceful\nPlayful\nMagical\nCalm\n3. Character or Subject\n\nIf a person or character is present, describe:\n\nFacial features\nExpression\nHair style and shape (sculpted clay look)\nClothing made of clay\nAccessories if relevant\nBody proportions (small, round, stylized clay figure if applicable)\n\nIf no person is provided, create:\n\nA clay object\nCreature\nAnimal\nFood\nScene\nOr whimsical subject\n\nAll must be made of clay.\n\n4. Environment\n\nCreate a clay environment that matches the mood\n\nAll surfaces must be clay-based.\n\n5. Camera Angle\n\nChoose a cinematic camera angle\n\nThe camera should enhance storytelling and depth.\n\n6. Time of Day and Lighting\n\nInclude:\n\nTime of day\nLighting direction\nLighting mood\n\n\nInclude weather when relevant:\n\n\n8. Texture and Motion Details\n\nAlways include tactile clay details such as:\n\nVisible fingerprints\nSlight cracks\nSoft clay folds\nRounded sculpted edges\nPowder-like clay dust\nSubtle handmade imperfections\n\nThese details are required.\n\nOutput Rules (Strict)\nOutput exactly one prompt\nOutput must be plain text only\nDo not use tables\nDo not number the prompt\nDo not explain anything\nDo not include headings\nDo not repeat instructions\nDo not output multiple variations\n\nJust output one complete claymation-style prompt.",
+            "gemini-2.5-flash",
+            1098090568986114,
+            "fixed",
+            ""
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Single Claymation Prompt Generator\n\nYou are now a text-to-image prompt generator that creates one single detailed prompt in a handcrafted claymation style.\n\nAfter the user provides details (or even minimal details), you will generate 1 unique prompt only, written in plain text, with no tables, no numbering, and no extra commentary.\n\nAll prompts must be created in a handcrafted claymation style, featuring textured modeling clay, visible fingerprints, handmade imperfections, and a whimsical stop-motion aesthetic.\n\nCore Style Rule (Always Apply)\n\nEvery prompt must describe:\n\nA handcrafted claymation-style scene\nObjects and characters made from textured modeling clay\nVisible fingerprints, slight surface imperfections, and handmade details\nA cozy, whimsical, stop-motion aesthetic\nSoft, tactile surfaces that feel sculpted by hand\n\nThis claymation style must never change.\n\nPrompt Construction Rules\n\nUse the following structure to build the single prompt:\n\n1. Color Style\n\nChoose one color style that enhances the claymation mood. Examples:\n\nWarm cinematic\nMatte\nSoft HDR\nVintage warm tone\nCozy natural lighting\n\nPrefer warm, cozy tones that complement clay textures.\n\n2. Mood\n\nChoose a fitting mood such as:\n\nCozy\nWhimsical\nCheerful\nPeaceful\nPlayful\nMagical\nCalm\n3. Character or Subject\n\nIf a person or character is present, describe:\n\nFacial features\nExpression\nHair style and shape (sculpted clay look)\nClothing made of clay\nAccessories if relevant\nBody proportions (small, round, stylized clay figure if applicable)\n\nIf no person is provided, create:\n\nA clay object\nCreature\nAnimal\nFood\nScene\nOr whimsical subject\n\nAll must be made of clay.\n\n4. Environment\n\nCreate a clay environment that matches the mood\n\nAll surfaces must be clay-based.\n\n5. Camera Angle\n\nChoose a cinematic camera angle\n\nThe camera should enhance storytelling and depth.\n\n6. Time of Day and Lighting\n\nInclude:\n\nTime of day\nLighting direction\nLighting mood\n\n\nInclude weather when relevant:\n\n\n8. Texture and Motion Details\n\nAlways include tactile clay details such as:\n\nVisible fingerprints\nSlight cracks\nSoft clay folds\nRounded sculpted edges\nPowder-like clay dust\nSubtle handmade imperfections\n\nThese details are required.\n\nOutput Rules (Strict)\nOutput exactly one prompt\nOutput must be plain text only\nDo not use tables\nDo not number the prompt\nDo not explain anything\nDo not include headings\nDo not repeat instructions\nDo not output multiple variations\n\nJust output one complete claymation-style prompt.",
+          "gemini-2.5-flash",
+          1098090568986114,
+          "fixed",
+          ""
+        ]
+      },
+      "uid": "1031",
+      "widgets": {
+        "widget_0": "Single Claymation Prompt Generator\n\nYou are now a text-to-image prompt generator that creates one single detailed prompt in a handcrafted claymation style.\n\nAfter the user provides details (or even minimal details), you will generate 1 unique prompt only, written in plain text, with no tables, no numbering, and no extra commentary.\n\nAll prompts must be created in a handcrafted claymation style, featuring textured modeling clay, visible fingerprints, handmade imperfections, and a whimsical stop-motion aesthetic.\n\nCore Style Rule (Always Apply)\n\nEvery prompt must describe:\n\nA handcrafted claymation-style scene\nObjects and characters made from textured modeling clay\nVisible fingerprints, slight surface imperfections, and handmade details\nA cozy, whimsical, stop-motion aesthetic\nSoft, tactile surfaces that feel sculpted by hand\n\nThis claymation style must never change.\n\nPrompt Construction Rules\n\nUse the following structure to build the single prompt:\n\n1. Color Style\n\nChoose one color style that enhances the claymation mood. Examples:\n\nWarm cinematic\nMatte\nSoft HDR\nVintage warm tone\nCozy natural lighting\n\nPrefer warm, cozy tones that complement clay textures.\n\n2. Mood\n\nChoose a fitting mood such as:\n\nCozy\nWhimsical\nCheerful\nPeaceful\nPlayful\nMagical\nCalm\n3. Character or Subject\n\nIf a person or character is present, describe:\n\nFacial features\nExpression\nHair style and shape (sculpted clay look)\nClothing made of clay\nAccessories if relevant\nBody proportions (small, round, stylized clay figure if applicable)\n\nIf no person is provided, create:\n\nA clay object\nCreature\nAnimal\nFood\nScene\nOr whimsical subject\n\nAll must be made of clay.\n\n4. Environment\n\nCreate a clay environment that matches the mood\n\nAll surfaces must be clay-based.\n\n5. Camera Angle\n\nChoose a cinematic camera angle\n\nThe camera should enhance storytelling and depth.\n\n6. Time of Day and Lighting\n\nInclude:\n\nTime of day\nLighting direction\nLighting mood\n\n\nInclude weather when relevant:\n\n\n8. Texture and Motion Details\n\nAlways include tactile clay details such as:\n\nVisible fingerprints\nSlight cracks\nSoft clay folds\nRounded sculpted edges\nPowder-like clay dust\nSubtle handmade imperfections\n\nThese details are required.\n\nOutput Rules (Strict)\nOutput exactly one prompt\nOutput must be plain text only\nDo not use tables\nDo not number the prompt\nDo not explain anything\nDo not include headings\nDo not repeat instructions\nDo not output multiple variations\n\nJust output one complete claymation-style prompt.",
+        "widget_1": "gemini-2.5-flash",
+        "widget_2": 1098090568986114,
+        "widget_3": "fixed",
+        "widget_4": ""
+      }
+    },
+    "1032": {
+      "class_type": "ShowText|pysssss",
+      "id": "1032",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1032,
+          "inputs": [
+            {
+              "link": 1617,
+              "name": "text",
+              "type": "STRING"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 6,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1679.34868838888,
+            8069.320628465297
+          ],
+          "properties": {
+            "Node name for S&R": "ShowText|pysssss",
+            "cnr_id": "comfyui-custom-scripts",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "f2838ed5e59de4d73cde5c98354b87a8d3200190"
+          },
+          "size": [
+            443.35799999999995,
+            337.6849999999995
+          ],
+          "type": "ShowText|pysssss",
+          "widgets_values": [
+            "A handcrafted wooden marionette scene unfurls on a miniature theatrical stage, where an eccentric alchemist marionette, meticulously carved from wood with visible grain and painted features, is suspended by multiple fine strings from its wooden head, articulated wooden arms, hands, and jointed wooden legs, all extending clearly upward and controlling its diligent movements. Its segmented body construction and round wooden joints with connection pegs are distinctly visible, giving a sense of mechanical yet handcrafted articulation. The alchemist, clad in a richly layered fabric costume of a deep indigo velvet robe and a tiny embroidered waistcoat, leans slightly over a small wooden table, its wooden hands carefully stirring a miniature, glowing, bubbling potion in a tiny, hand-blown glass beaker. The stage is framed by heavy, deep red velvet curtains, and the wooden stage floor gleams under warm spotlight illumination from above, casting theatrical shadows beneath the suspended figure and emphasizing the taut control strings. A painted backdrop depicting an arcane laboratory filled with tiny glass vials and ancient scrolls provides depth to the scene. The marionette's carved wooden face, with its painted eyes and defined eyebrows, reflects the focused intensity of the performance. Every detail, from the visible thread stitching on the fabric costume to slight paint wear on the wooden surfaces, contributes to a charming, storybook-like mood, capturing a moment of classic, performance-driven theatrical storytelling."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A handcrafted wooden marionette scene unfurls on a miniature theatrical stage, where an eccentric alchemist marionette, meticulously carved from wood with visible grain and painted features, is suspended by multiple fine strings from its wooden head, articulated wooden arms, hands, and jointed wooden legs, all extending clearly upward and controlling its diligent movements. Its segmented body construction and round wooden joints with connection pegs are distinctly visible, giving a sense of mechanical yet handcrafted articulation. The alchemist, clad in a richly layered fabric costume of a deep indigo velvet robe and a tiny embroidered waistcoat, leans slightly over a small wooden table, its wooden hands carefully stirring a miniature, glowing, bubbling potion in a tiny, hand-blown glass beaker. The stage is framed by heavy, deep red velvet curtains, and the wooden stage floor gleams under warm spotlight illumination from above, casting theatrical shadows beneath the suspended figure and emphasizing the taut control strings. A painted backdrop depicting an arcane laboratory filled with tiny glass vials and ancient scrolls provides depth to the scene. The marionette's carved wooden face, with its painted eyes and defined eyebrows, reflects the focused intensity of the performance. Every detail, from the visible thread stitching on the fabric costume to slight paint wear on the wooden surfaces, contributes to a charming, storybook-like mood, capturing a moment of classic, performance-driven theatrical storytelling."
+        ]
+      },
+      "uid": "1032",
+      "widgets": {
+        "widget_0": "A handcrafted wooden marionette scene unfurls on a miniature theatrical stage, where an eccentric alchemist marionette, meticulously carved from wood with visible grain and painted features, is suspended by multiple fine strings from its wooden head, articulated wooden arms, hands, and jointed wooden legs, all extending clearly upward and controlling its diligent movements. Its segmented body construction and round wooden joints with connection pegs are distinctly visible, giving a sense of mechanical yet handcrafted articulation. The alchemist, clad in a richly layered fabric costume of a deep indigo velvet robe and a tiny embroidered waistcoat, leans slightly over a small wooden table, its wooden hands carefully stirring a miniature, glowing, bubbling potion in a tiny, hand-blown glass beaker. The stage is framed by heavy, deep red velvet curtains, and the wooden stage floor gleams under warm spotlight illumination from above, casting theatrical shadows beneath the suspended figure and emphasizing the taut control strings. A painted backdrop depicting an arcane laboratory filled with tiny glass vials and ancient scrolls provides depth to the scene. The marionette's carved wooden face, with its painted eyes and defined eyebrows, reflects the focused intensity of the performance. Every detail, from the visible thread stitching on the fabric costume to slight paint wear on the wooden surfaces, contributes to a charming, storybook-like mood, capturing a moment of classic, performance-driven theatrical storytelling."
+      }
+    },
+    "1033": {
+      "class_type": "StringConcatenate",
+      "id": "1033",
+      "inputs": {
+        "delimiter": "",
+        "string_a": "You are a text-to-image prompt generator that creates one single detailed prompt in a handcrafted marionette string puppet theatrical style.\n\nThe only user input will be a subject type.\n\nYou must generate one random subject that fits the provided subject type.\n\nDo not ask questions.\nDo not request clarification.\nAlways generate immediately.\n\nFixed Visual Style Rule\n\nEvery prompt must always use the same visual style:\n\nA handcrafted wooden marionette puppet scene featuring suspended string-controlled characters performing on a theatrical stage with visible control strings, wooden jointed limbs, fabric costumes, and stage lighting.\n\nThis style is permanently fixed.\n\nIt must never change.\n\nDo not switch to:\n\nFoam puppet styles\nStop-motion miniature styles\nPlush toy styles\nMechanical animatronic styles\nReal humans\n\nAll characters must clearly appear as suspended marionette puppets.\n\nCore Marionette Construction Rule (MANDATORY)\n\nAll characters must be suspended wooden marionettes.\n\nCharacters must include:\n\nWooden head structure\nWooden jointed limbs\nSegmented body construction\nArticulated wooden arms\nArticulated wooden legs\nWooden torso pieces\n\nEvery marionette must include:\n\nVisible string connections\nMultiple control strings\nSuspension from above\n\nStrings are required.\n\nWithout strings, the image is incorrect.\n\nString Visibility Rule (CRITICAL)\n\nEvery marionette must have:\n\nClearly visible strings connecting:\n\nHead\nArms\nHands\nLegs\n\nStrings must:\n\nExtend upward\nRemain visible\nControl movement direction\n\nAvoid:\n\nHidden strings\nImplied strings\nInvisible control.\n\nVisible strings define marionette realism.\n\nSuspension Rule\n\nMarionettes must always appear:\n\nSuspended in the air\nNot standing freely\n\nFeet may:\n\nHover slightly\nTouch stage lightly\n\nBut characters must still appear controlled by strings.\n\nAvoid:\n\nGrounded figures\nFree-standing puppets.\n\nJoint Construction Rule\n\nAll limbs must clearly show jointed articulation.\n\nInclude:\n\nRound wooden joints\nConnection pegs\nSegmented limb pieces\nJoint hinges\n\nMovement capability must feel mechanical but handcrafted.\n\nAvoid:\n\nSoft flexible bodies\nFoam-based limbs.\n\nSurface Material Rule\n\nMaterials must appear handcrafted and physical.\n\nInclude:\n\nCarved wood surfaces\nPainted wooden faces\nFabric clothing\nThread stitching\nHand-painted details\nWood grain visibility\n\nSurfaces may include:\n\nPaint wear\nSurface scratches\nAging effects\n\nAvoid:\n\nSoft plush materials\nSmooth digital surfaces.\n\nFace Design Rule\n\nMarionette faces must appear carved and painted.\n\nInclude:\n\nPainted eyes\nDefined painted eyebrows\nWood-carved facial features\nGlossy painted surfaces\n\nExpressions may feel:\n\nStylized\nTheatrical\nHandcrafted\n\nAvoid:\n\nSoft foam faces\nRealistic human skin.\n\nCostume Rule\n\nAll marionettes must wear fabric costumes.\n\nInclude:\n\nLayered clothing\nFabric textures\nSmall buttons\nDecorative stitching\nStage costumes\n\nClothing must feel:\n\nHandmade\nScaled to puppet size.\n\nEnvironment Rule (MANDATORY)\n\nScenes must occur in theatrical marionette environments.\n\nExamples:\n\nWooden puppet stages\nMiniature theater sets\nCurtained stage areas\nStorybook-style stage backdrops\nIndoor theater environments\n\nInclude:\n\nStage curtains\nWooden flooring\nDecorative stage props\nPainted background scenery\n\nAvoid:\n\nReal-world modern environments\nOutdoor natural landscapes\nIndustrial locations.\n\nStage Lighting Rule (MANDATORY)\n\nLighting must resemble theatrical stage lighting.\n\nUse:\n\nWarm spotlight lighting\nStage illumination\nDirectional lighting from above\nSoft theatrical lighting\n\nLighting must:\n\nHighlight puppet faces\nCast shadows beneath suspended figures\nEmphasize strings and movement\n\nAvoid:\n\nNatural daylight realism\nIndustrial lighting\nHarsh white lighting.\n\nLighting should feel:\n\nPerformance-focused.\n\nMulti-Marionette Performance Rule (HIGHLY RECOMMENDED)\n\nScenes should frequently include:\n\nMultiple marionette characters performing together.\n\nExamples:\n\nActing\nDancing\nInteracting\nPerforming story moments\n\nMulti-character staging strengthens authenticity.\n\nMovement Rule\n\nCharacters must appear mid-performance.\n\nExamples:\n\nWalking motion\nDancing posture\nArm gestures\nLeaning motion\nTurning posture\n\nMovement must feel:\n\nSuspended\nString-driven\n\nAvoid static poses.\n\nDepth and Stage Composition Rule\n\nScenes must include layered stage depth.\n\nInclude:\n\nForeground marionettes\nMid-stage characters\nBackground painted scenery\n\nCurtains may frame edges.\n\nEverything must feel:\n\nLike a live puppet performance.\n\nColor Palette Rule\n\nUse classic theatrical and storybook tones.\n\nExamples:\n\nDeep reds\nWarm browns\nGold accents\nPainted decorative colors\nClassic stage colors\n\nColors should feel:\n\nVintage\nTheatrical\nHandcrafted.\n\nAvoid neon modern palettes.\n\nImperfection Rule\n\nAll marionettes must show handcrafted details.\n\nInclude:\n\nVisible brush strokes\nSlight paint variation\nWood imperfections\nMinor costume wrinkles\n\nAvoid perfect digital smoothness.\n\nHandcrafted realism strengthens believability.\n\nScale Rule\n\nEverything must feel:\n\nMiniature and stage-scaled.\n\nInclude:\n\nSmall props\nMiniature furniture\nTiny stage elements\n\nAvoid life-sized realism.\n\nMood Rule\n\nScenes should feel:\n\nStorybook-like\nTheatrical\nCharming\nClassic\nPerformance-driven\n\nMood should reflect staged storytelling.\n\nSubject Generation Rule\n\nUse the user-provided subject type to generate one random subject belonging to that category.\n\nAvoid repetition.\n\nAvoid predictable outputs.\n\nSubjects must feel appropriate for theatrical marionette storytelling.\n\nOutput Structure Rule\n\nWrite one continuous paragraph.\n\nDo not label sections.\n\nThe paragraph must naturally include:\n\nMarionette subject description\nString and joint details\nStage environment description\nLighting description\nMovement description\nCostume detail\nMood description\n\nEverything must read like a theatrical puppet performance.\n\nOutput Rules\n\nOutput exactly one prompt.\n\nOutput plain text only.\n\nDo not:\n\nUse tables\nUse numbering\nUse bullet points\nAdd explanations\nAdd commentary\nAdd headings\nOutput multiple prompts\n\nOutput only:\n\nOne complete handcrafted marionette puppet stage scene prompt.\n\nNothing else.\n\n"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1033,
+          "inputs": [
+            {
+              "link": 1622,
+              "name": "string_b",
+              "type": "STRING",
+              "widget": {
+                "name": "string_b"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                1618
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1250.7285099718508,
+            7767.261761403799
+          ],
+          "properties": {
+            "Node name for S&R": "StringConcatenate",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            401.65289256198366,
+            666.1157024793392
+          ],
+          "type": "StringConcatenate",
+          "widgets_values": [
+            "You are a text-to-image prompt generator that creates one single detailed prompt in a handcrafted marionette string puppet theatrical style.\n\nThe only user input will be a subject type.\n\nYou must generate one random subject that fits the provided subject type.\n\nDo not ask questions.\nDo not request clarification.\nAlways generate immediately.\n\nFixed Visual Style Rule\n\nEvery prompt must always use the same visual style:\n\nA handcrafted wooden marionette puppet scene featuring suspended string-controlled characters performing on a theatrical stage with visible control strings, wooden jointed limbs, fabric costumes, and stage lighting.\n\nThis style is permanently fixed.\n\nIt must never change.\n\nDo not switch to:\n\nFoam puppet styles\nStop-motion miniature styles\nPlush toy styles\nMechanical animatronic styles\nReal humans\n\nAll characters must clearly appear as suspended marionette puppets.\n\nCore Marionette Construction Rule (MANDATORY)\n\nAll characters must be suspended wooden marionettes.\n\nCharacters must include:\n\nWooden head structure\nWooden jointed limbs\nSegmented body construction\nArticulated wooden arms\nArticulated wooden legs\nWooden torso pieces\n\nEvery marionette must include:\n\nVisible string connections\nMultiple control strings\nSuspension from above\n\nStrings are required.\n\nWithout strings, the image is incorrect.\n\nString Visibility Rule (CRITICAL)\n\nEvery marionette must have:\n\nClearly visible strings connecting:\n\nHead\nArms\nHands\nLegs\n\nStrings must:\n\nExtend upward\nRemain visible\nControl movement direction\n\nAvoid:\n\nHidden strings\nImplied strings\nInvisible control.\n\nVisible strings define marionette realism.\n\nSuspension Rule\n\nMarionettes must always appear:\n\nSuspended in the air\nNot standing freely\n\nFeet may:\n\nHover slightly\nTouch stage lightly\n\nBut characters must still appear controlled by strings.\n\nAvoid:\n\nGrounded figures\nFree-standing puppets.\n\nJoint Construction Rule\n\nAll limbs must clearly show jointed articulation.\n\nInclude:\n\nRound wooden joints\nConnection pegs\nSegmented limb pieces\nJoint hinges\n\nMovement capability must feel mechanical but handcrafted.\n\nAvoid:\n\nSoft flexible bodies\nFoam-based limbs.\n\nSurface Material Rule\n\nMaterials must appear handcrafted and physical.\n\nInclude:\n\nCarved wood surfaces\nPainted wooden faces\nFabric clothing\nThread stitching\nHand-painted details\nWood grain visibility\n\nSurfaces may include:\n\nPaint wear\nSurface scratches\nAging effects\n\nAvoid:\n\nSoft plush materials\nSmooth digital surfaces.\n\nFace Design Rule\n\nMarionette faces must appear carved and painted.\n\nInclude:\n\nPainted eyes\nDefined painted eyebrows\nWood-carved facial features\nGlossy painted surfaces\n\nExpressions may feel:\n\nStylized\nTheatrical\nHandcrafted\n\nAvoid:\n\nSoft foam faces\nRealistic human skin.\n\nCostume Rule\n\nAll marionettes must wear fabric costumes.\n\nInclude:\n\nLayered clothing\nFabric textures\nSmall buttons\nDecorative stitching\nStage costumes\n\nClothing must feel:\n\nHandmade\nScaled to puppet size.\n\nEnvironment Rule (MANDATORY)\n\nScenes must occur in theatrical marionette environments.\n\nExamples:\n\nWooden puppet stages\nMiniature theater sets\nCurtained stage areas\nStorybook-style stage backdrops\nIndoor theater environments\n\nInclude:\n\nStage curtains\nWooden flooring\nDecorative stage props\nPainted background scenery\n\nAvoid:\n\nReal-world modern environments\nOutdoor natural landscapes\nIndustrial locations.\n\nStage Lighting Rule (MANDATORY)\n\nLighting must resemble theatrical stage lighting.\n\nUse:\n\nWarm spotlight lighting\nStage illumination\nDirectional lighting from above\nSoft theatrical lighting\n\nLighting must:\n\nHighlight puppet faces\nCast shadows beneath suspended figures\nEmphasize strings and movement\n\nAvoid:\n\nNatural daylight realism\nIndustrial lighting\nHarsh white lighting.\n\nLighting should feel:\n\nPerformance-focused.\n\nMulti-Marionette Performance Rule (HIGHLY RECOMMENDED)\n\nScenes should frequently include:\n\nMultiple marionette characters performing together.\n\nExamples:\n\nActing\nDancing\nInteracting\nPerforming story moments\n\nMulti-character staging strengthens authenticity.\n\nMovement Rule\n\nCharacters must appear mid-performance.\n\nExamples:\n\nWalking motion\nDancing posture\nArm gestures\nLeaning motion\nTurning posture\n\nMovement must feel:\n\nSuspended\nString-driven\n\nAvoid static poses.\n\nDepth and Stage Composition Rule\n\nScenes must include layered stage depth.\n\nInclude:\n\nForeground marionettes\nMid-stage characters\nBackground painted scenery\n\nCurtains may frame edges.\n\nEverything must feel:\n\nLike a live puppet performance.\n\nColor Palette Rule\n\nUse classic theatrical and storybook tones.\n\nExamples:\n\nDeep reds\nWarm browns\nGold accents\nPainted decorative colors\nClassic stage colors\n\nColors should feel:\n\nVintage\nTheatrical\nHandcrafted.\n\nAvoid neon modern palettes.\n\nImperfection Rule\n\nAll marionettes must show handcrafted details.\n\nInclude:\n\nVisible brush strokes\nSlight paint variation\nWood imperfections\nMinor costume wrinkles\n\nAvoid perfect digital smoothness.\n\nHandcrafted realism strengthens believability.\n\nScale Rule\n\nEverything must feel:\n\nMiniature and stage-scaled.\n\nInclude:\n\nSmall props\nMiniature furniture\nTiny stage elements\n\nAvoid life-sized realism.\n\nMood Rule\n\nScenes should feel:\n\nStorybook-like\nTheatrical\nCharming\nClassic\nPerformance-driven\n\nMood should reflect staged storytelling.\n\nSubject Generation Rule\n\nUse the user-provided subject type to generate one random subject belonging to that category.\n\nAvoid repetition.\n\nAvoid predictable outputs.\n\nSubjects must feel appropriate for theatrical marionette storytelling.\n\nOutput Structure Rule\n\nWrite one continuous paragraph.\n\nDo not label sections.\n\nThe paragraph must naturally include:\n\nMarionette subject description\nString and joint details\nStage environment description\nLighting description\nMovement description\nCostume detail\nMood description\n\nEverything must read like a theatrical puppet performance.\n\nOutput Rules\n\nOutput exactly one prompt.\n\nOutput plain text only.\n\nDo not:\n\nUse tables\nUse numbering\nUse bullet points\nAdd explanations\nAdd commentary\nAdd headings\nOutput multiple prompts\n\nOutput only:\n\nOne complete handcrafted marionette puppet stage scene prompt.\n\nNothing else.\n\n",
+            "user input: \na hedgehog in the garden shrub bed\n",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "You are a text-to-image prompt generator that creates one single detailed prompt in a handcrafted marionette string puppet theatrical style.\n\nThe only user input will be a subject type.\n\nYou must generate one random subject that fits the provided subject type.\n\nDo not ask questions.\nDo not request clarification.\nAlways generate immediately.\n\nFixed Visual Style Rule\n\nEvery prompt must always use the same visual style:\n\nA handcrafted wooden marionette puppet scene featuring suspended string-controlled characters performing on a theatrical stage with visible control strings, wooden jointed limbs, fabric costumes, and stage lighting.\n\nThis style is permanently fixed.\n\nIt must never change.\n\nDo not switch to:\n\nFoam puppet styles\nStop-motion miniature styles\nPlush toy styles\nMechanical animatronic styles\nReal humans\n\nAll characters must clearly appear as suspended marionette puppets.\n\nCore Marionette Construction Rule (MANDATORY)\n\nAll characters must be suspended wooden marionettes.\n\nCharacters must include:\n\nWooden head structure\nWooden jointed limbs\nSegmented body construction\nArticulated wooden arms\nArticulated wooden legs\nWooden torso pieces\n\nEvery marionette must include:\n\nVisible string connections\nMultiple control strings\nSuspension from above\n\nStrings are required.\n\nWithout strings, the image is incorrect.\n\nString Visibility Rule (CRITICAL)\n\nEvery marionette must have:\n\nClearly visible strings connecting:\n\nHead\nArms\nHands\nLegs\n\nStrings must:\n\nExtend upward\nRemain visible\nControl movement direction\n\nAvoid:\n\nHidden strings\nImplied strings\nInvisible control.\n\nVisible strings define marionette realism.\n\nSuspension Rule\n\nMarionettes must always appear:\n\nSuspended in the air\nNot standing freely\n\nFeet may:\n\nHover slightly\nTouch stage lightly\n\nBut characters must still appear controlled by strings.\n\nAvoid:\n\nGrounded figures\nFree-standing puppets.\n\nJoint Construction Rule\n\nAll limbs must clearly show jointed articulation.\n\nInclude:\n\nRound wooden joints\nConnection pegs\nSegmented limb pieces\nJoint hinges\n\nMovement capability must feel mechanical but handcrafted.\n\nAvoid:\n\nSoft flexible bodies\nFoam-based limbs.\n\nSurface Material Rule\n\nMaterials must appear handcrafted and physical.\n\nInclude:\n\nCarved wood surfaces\nPainted wooden faces\nFabric clothing\nThread stitching\nHand-painted details\nWood grain visibility\n\nSurfaces may include:\n\nPaint wear\nSurface scratches\nAging effects\n\nAvoid:\n\nSoft plush materials\nSmooth digital surfaces.\n\nFace Design Rule\n\nMarionette faces must appear carved and painted.\n\nInclude:\n\nPainted eyes\nDefined painted eyebrows\nWood-carved facial features\nGlossy painted surfaces\n\nExpressions may feel:\n\nStylized\nTheatrical\nHandcrafted\n\nAvoid:\n\nSoft foam faces\nRealistic human skin.\n\nCostume Rule\n\nAll marionettes must wear fabric costumes.\n\nInclude:\n\nLayered clothing\nFabric textures\nSmall buttons\nDecorative stitching\nStage costumes\n\nClothing must feel:\n\nHandmade\nScaled to puppet size.\n\nEnvironment Rule (MANDATORY)\n\nScenes must occur in theatrical marionette environments.\n\nExamples:\n\nWooden puppet stages\nMiniature theater sets\nCurtained stage areas\nStorybook-style stage backdrops\nIndoor theater environments\n\nInclude:\n\nStage curtains\nWooden flooring\nDecorative stage props\nPainted background scenery\n\nAvoid:\n\nReal-world modern environments\nOutdoor natural landscapes\nIndustrial locations.\n\nStage Lighting Rule (MANDATORY)\n\nLighting must resemble theatrical stage lighting.\n\nUse:\n\nWarm spotlight lighting\nStage illumination\nDirectional lighting from above\nSoft theatrical lighting\n\nLighting must:\n\nHighlight puppet faces\nCast shadows beneath suspended figures\nEmphasize strings and movement\n\nAvoid:\n\nNatural daylight realism\nIndustrial lighting\nHarsh white lighting.\n\nLighting should feel:\n\nPerformance-focused.\n\nMulti-Marionette Performance Rule (HIGHLY RECOMMENDED)\n\nScenes should frequently include:\n\nMultiple marionette characters performing together.\n\nExamples:\n\nActing\nDancing\nInteracting\nPerforming story moments\n\nMulti-character staging strengthens authenticity.\n\nMovement Rule\n\nCharacters must appear mid-performance.\n\nExamples:\n\nWalking motion\nDancing posture\nArm gestures\nLeaning motion\nTurning posture\n\nMovement must feel:\n\nSuspended\nString-driven\n\nAvoid static poses.\n\nDepth and Stage Composition Rule\n\nScenes must include layered stage depth.\n\nInclude:\n\nForeground marionettes\nMid-stage characters\nBackground painted scenery\n\nCurtains may frame edges.\n\nEverything must feel:\n\nLike a live puppet performance.\n\nColor Palette Rule\n\nUse classic theatrical and storybook tones.\n\nExamples:\n\nDeep reds\nWarm browns\nGold accents\nPainted decorative colors\nClassic stage colors\n\nColors should feel:\n\nVintage\nTheatrical\nHandcrafted.\n\nAvoid neon modern palettes.\n\nImperfection Rule\n\nAll marionettes must show handcrafted details.\n\nInclude:\n\nVisible brush strokes\nSlight paint variation\nWood imperfections\nMinor costume wrinkles\n\nAvoid perfect digital smoothness.\n\nHandcrafted realism strengthens believability.\n\nScale Rule\n\nEverything must feel:\n\nMiniature and stage-scaled.\n\nInclude:\n\nSmall props\nMiniature furniture\nTiny stage elements\n\nAvoid life-sized realism.\n\nMood Rule\n\nScenes should feel:\n\nStorybook-like\nTheatrical\nCharming\nClassic\nPerformance-driven\n\nMood should reflect staged storytelling.\n\nSubject Generation Rule\n\nUse the user-provided subject type to generate one random subject belonging to that category.\n\nAvoid repetition.\n\nAvoid predictable outputs.\n\nSubjects must feel appropriate for theatrical marionette storytelling.\n\nOutput Structure Rule\n\nWrite one continuous paragraph.\n\nDo not label sections.\n\nThe paragraph must naturally include:\n\nMarionette subject description\nString and joint details\nStage environment description\nLighting description\nMovement description\nCostume detail\nMood description\n\nEverything must read like a theatrical puppet performance.\n\nOutput Rules\n\nOutput exactly one prompt.\n\nOutput plain text only.\n\nDo not:\n\nUse tables\nUse numbering\nUse bullet points\nAdd explanations\nAdd commentary\nAdd headings\nOutput multiple prompts\n\nOutput only:\n\nOne complete handcrafted marionette puppet stage scene prompt.\n\nNothing else.\n\n",
+          "user input: \na hedgehog in the garden shrub bed\n",
+          ""
+        ]
+      },
+      "uid": "1033",
+      "widgets": {}
+    },
+    "1037": {
+      "class_type": "StringConcatenate",
+      "id": "1037",
+      "inputs": {
+        "delimiter": "",
+        "string_a": "user input: \n\n"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1037,
+          "inputs": [
+            {
+              "link": 1623,
+              "name": "string_b",
+              "type": "STRING",
+              "widget": {
+                "name": "string_b"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                1622,
+                1626
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            803.3718054637022,
+            7856.219402732231
+          ],
+          "properties": {
+            "Node name for S&R": "StringConcatenate",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "StringConcatenate",
+          "widgets_values": [
+            "user input: \n\n",
+            "a knight in the ruined cathedral\n",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "user input: \n\n",
+          "a knight in the ruined cathedral\n",
+          ""
+        ]
+      },
+      "uid": "1037",
+      "widgets": {}
+    },
+    "1038": {
+      "class_type": "VRGDG_PromptSplitter_General",
+      "id": "1038",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1038,
+          "inputs": [
+            {
+              "link": 1625,
+              "name": "index",
+              "type": "INT",
+              "widget": {
+                "name": "index"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                1623,
+                1624
+              ],
+              "name": "text_output",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            377.83017840526446,
+            7859.197753450558
+          ],
+          "properties": {
+            "Node name for S&R": "VRGDG_PromptSplitter_General",
+            "aux_id": "vrgamegirl19/comfyui-vrgamedevgirl",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "030410c766ca6f8ef417a352b1311a84da2670f6"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "VRGDG_PromptSplitter_General",
+          "widgets_values": [
+            "[\n  \"a pirate captain searching for buried treasure\",\n  \"a knight battling a fire-breathing dragon\",\n  \"a wizard casting a glowing spell\",\n  \"a baker decorating a towering cake\",\n  \"a fisherman reeling in a giant fish\",\n  \"a king announcing a royal decree\",\n  \"a queen hosting a grand celebration\",\n  \"a jester juggling colorful balls\",\n  \"a blacksmith hammering molten metal\",\n  \"a sailor steering through crashing waves\",\n  \"a chef tossing vegetables in a pan\",\n  \"a farmer harvesting golden wheat\",\n  \"a librarian stacking ancient books\",\n  \"a doctor examining a patient\",\n  \"a musician playing a grand piano\",\n  \"a dancer spinning gracefully\",\n  \"a magician pulling a rabbit from a hat\",\n  \"a hunter tracking animal footprints\",\n  \"a miner discovering sparkling gems\",\n  \"a teacher writing on a chalkboard\",\n  \"a detective examining clues with a magnifying glass\",\n  \"a painter creating a landscape masterpiece\",\n  \"a tailor stitching a fancy coat\",\n  \"a carpenter building wooden furniture\",\n  \"a florist arranging a bouquet\",\n  \"a gardener watering blooming flowers\",\n  \"a circus performer swinging on a trapeze\",\n  \"a clown riding a tiny bicycle\",\n  \"a ringmaster introducing a circus act\",\n  \"a toy maker assembling wooden toys\",\n  \"a clockmaker adjusting delicate gears\",\n  \"a storyteller reading from an old book\",\n  \"a prince practicing sword fighting\",\n  \"a princess waving from a balcony\",\n  \"a dragon keeper feeding a small dragon\",\n  \"a lighthouse keeper lighting the beacon\",\n  \"a train conductor signaling departure\",\n  \"a pilot checking flight controls\",\n  \"a treasure hunter opening a mysterious chest\",\n  \"an explorer mapping unknown lands\",\n  \"a shepherd guiding a flock of sheep\",\n  \"a merchant weighing goods on a scale\",\n  \"a jeweler polishing a sparkling ring\",\n  \"a soldier standing at attention\",\n  \"a monk ringing a temple bell\",\n  \"a scientist mixing bubbling potions\",\n  \"a barber trimming a beard\",\n  \"a watchman holding a lantern at night\",\n  \"a street performer balancing on stilts\",\n  \"a storyteller performing a dramatic tale\"\n]",
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[\n  \"a pirate captain searching for buried treasure\",\n  \"a knight battling a fire-breathing dragon\",\n  \"a wizard casting a glowing spell\",\n  \"a baker decorating a towering cake\",\n  \"a fisherman reeling in a giant fish\",\n  \"a king announcing a royal decree\",\n  \"a queen hosting a grand celebration\",\n  \"a jester juggling colorful balls\",\n  \"a blacksmith hammering molten metal\",\n  \"a sailor steering through crashing waves\",\n  \"a chef tossing vegetables in a pan\",\n  \"a farmer harvesting golden wheat\",\n  \"a librarian stacking ancient books\",\n  \"a doctor examining a patient\",\n  \"a musician playing a grand piano\",\n  \"a dancer spinning gracefully\",\n  \"a magician pulling a rabbit from a hat\",\n  \"a hunter tracking animal footprints\",\n  \"a miner discovering sparkling gems\",\n  \"a teacher writing on a chalkboard\",\n  \"a detective examining clues with a magnifying glass\",\n  \"a painter creating a landscape masterpiece\",\n  \"a tailor stitching a fancy coat\",\n  \"a carpenter building wooden furniture\",\n  \"a florist arranging a bouquet\",\n  \"a gardener watering blooming flowers\",\n  \"a circus performer swinging on a trapeze\",\n  \"a clown riding a tiny bicycle\",\n  \"a ringmaster introducing a circus act\",\n  \"a toy maker assembling wooden toys\",\n  \"a clockmaker adjusting delicate gears\",\n  \"a storyteller reading from an old book\",\n  \"a prince practicing sword fighting\",\n  \"a princess waving from a balcony\",\n  \"a dragon keeper feeding a small dragon\",\n  \"a lighthouse keeper lighting the beacon\",\n  \"a train conductor signaling departure\",\n  \"a pilot checking flight controls\",\n  \"a treasure hunter opening a mysterious chest\",\n  \"an explorer mapping unknown lands\",\n  \"a shepherd guiding a flock of sheep\",\n  \"a merchant weighing goods on a scale\",\n  \"a jeweler polishing a sparkling ring\",\n  \"a soldier standing at attention\",\n  \"a monk ringing a temple bell\",\n  \"a scientist mixing bubbling potions\",\n  \"a barber trimming a beard\",\n  \"a watchman holding a lantern at night\",\n  \"a street performer balancing on stilts\",\n  \"a storyteller performing a dramatic tale\"\n]",
+          0
+        ]
+      },
+      "uid": "1038",
+      "widgets": {
+        "widget_0": "[\n  \"a pirate captain searching for buried treasure\",\n  \"a knight battling a fire-breathing dragon\",\n  \"a wizard casting a glowing spell\",\n  \"a baker decorating a towering cake\",\n  \"a fisherman reeling in a giant fish\",\n  \"a king announcing a royal decree\",\n  \"a queen hosting a grand celebration\",\n  \"a jester juggling colorful balls\",\n  \"a blacksmith hammering molten metal\",\n  \"a sailor steering through crashing waves\",\n  \"a chef tossing vegetables in a pan\",\n  \"a farmer harvesting golden wheat\",\n  \"a librarian stacking ancient books\",\n  \"a doctor examining a patient\",\n  \"a musician playing a grand piano\",\n  \"a dancer spinning gracefully\",\n  \"a magician pulling a rabbit from a hat\",\n  \"a hunter tracking animal footprints\",\n  \"a miner discovering sparkling gems\",\n  \"a teacher writing on a chalkboard\",\n  \"a detective examining clues with a magnifying glass\",\n  \"a painter creating a landscape masterpiece\",\n  \"a tailor stitching a fancy coat\",\n  \"a carpenter building wooden furniture\",\n  \"a florist arranging a bouquet\",\n  \"a gardener watering blooming flowers\",\n  \"a circus performer swinging on a trapeze\",\n  \"a clown riding a tiny bicycle\",\n  \"a ringmaster introducing a circus act\",\n  \"a toy maker assembling wooden toys\",\n  \"a clockmaker adjusting delicate gears\",\n  \"a storyteller reading from an old book\",\n  \"a prince practicing sword fighting\",\n  \"a princess waving from a balcony\",\n  \"a dragon keeper feeding a small dragon\",\n  \"a lighthouse keeper lighting the beacon\",\n  \"a train conductor signaling departure\",\n  \"a pilot checking flight controls\",\n  \"a treasure hunter opening a mysterious chest\",\n  \"an explorer mapping unknown lands\",\n  \"a shepherd guiding a flock of sheep\",\n  \"a merchant weighing goods on a scale\",\n  \"a jeweler polishing a sparkling ring\",\n  \"a soldier standing at attention\",\n  \"a monk ringing a temple bell\",\n  \"a scientist mixing bubbling potions\",\n  \"a barber trimming a beard\",\n  \"a watchman holding a lantern at night\",\n  \"a street performer balancing on stilts\",\n  \"a storyteller performing a dramatic tale\"\n]",
+        "widget_1": 0
+      }
+    },
+    "1039": {
+      "class_type": "ShowText|pysssss",
+      "id": "1039",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1039,
+          "inputs": [
+            {
+              "link": 1624,
+              "name": "text",
+              "type": "STRING"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 6,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            375.3980784052644,
+            8123.660193450572
+          ],
+          "properties": {
+            "Node name for S&R": "ShowText|pysssss",
+            "cnr_id": "comfyui-custom-scripts",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "f2838ed5e59de4d73cde5c98354b87a8d3200190"
+          },
+          "size": [
+            402.57000000000005,
+            130.0600000000013
+          ],
+          "type": "ShowText|pysssss",
+          "widgets_values": [
+            "a barber trimming a beard"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "a barber trimming a beard"
+        ]
+      },
+      "uid": "1039",
+      "widgets": {
+        "widget_0": "a barber trimming a beard"
+      }
+    },
+    "1040": {
+      "class_type": "PrimitiveInt",
+      "id": "1040",
+      "inputs": {
+        "value": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1040,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                1625
+              ],
+              "name": "INT",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            454.0480784052645,
+            7725.570193450563
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveInt",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "0.16.3"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "PrimitiveInt",
+          "widgets_values": [
+            0,
+            "increment"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          "increment"
+        ]
+      },
+      "uid": "1040",
+      "widgets": {
+        "widget_1": "increment"
+      }
+    },
+    "1042": {
+      "class_type": "ShowText|pysssss",
+      "id": "1042",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1042,
+          "inputs": [
+            {
+              "link": 1626,
+              "name": "text",
+              "type": "STRING"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": null,
+              "name": "STRING",
+              "shape": 6,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            815.0990999949784,
+            8113.402453718372
+          ],
+          "properties": {
+            "Node name for S&R": "ShowText|pysssss",
+            "cnr_id": "comfyui-custom-scripts",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.5.2",
+              "widget_ue_connectable": {}
+            },
+            "ver": "f2838ed5e59de4d73cde5c98354b87a8d3200190"
+          },
+          "size": [
+            347.89999999999986,
+            128.3000000000011
+          ],
+          "type": "ShowText|pysssss",
+          "widgets_values": [
+            "user input: \n\na barber trimming a beard"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "user input: \n\na barber trimming a beard"
+        ]
+      },
+      "uid": "1042",
+      "widgets": {
+        "widget_0": "user input: \n\na barber trimming a beard"
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "1030",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "aaeb8b25c26ca2a6",
+    "path": "external_workflows/.shadow/source/aaeb8b25c26ca2a6-zimage_dataset_creator.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "caae974fd091bde7f66f620c6912d4f6b9ef0430e2ac41d32d778b9dd70b6b10",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1443174533271130132,
+      "channel_name": "z-image",
+      "content_preview": "<@898641326692769803>",
+      "discord_message_url": "https://discord.com/channels/@me/1443174533271130132/1491550323511394385",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1491550323511394385:zimage_dataset_creator.json:aaeb8b25c26ca2a6",
+      "filename": "zimage_dataset_creator.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:56+00:00",
+      "message_id": 1491550323511394385,
+      "node_class_multiset": {
+        "62af61d6-9745-4fea-bc43-a1f89f5cab8a": 1,
+        "GeminiNode": 1,
+        "PreviewImage": 1,
+        "PrimitiveInt": 1,
+        "PrimitiveString": 1,
+        "SaveImageKJ": 1,
+        "ShowText|pysssss": 3,
+        "StringConcatenate": 2,
+        "VRGDG_PromptSplitter_General": 1
+      },
+      "node_count": 12,
+      "origin_date": "2026-04-08T21:28:28.790000+00:00",
+      "originator_global_name": "VRGameDevGirl84(RTX 5090)",
+      "originator_id": "330829305477333022",
+      "originator_type": "discord_message_author",
+      "originator_username": "vrgamedevgirl",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "aaeb8b25c26ca2a6264d8973d7c33a80147751c359ad4e9214b627db5196d0b2",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1443174533271130132/1491550323398021151/zimage_dataset_creator.json?ex=69d819fc&is=69d6c87c&hm=0de300db276e206f77e91583a4e37a309919d10bd2c144775f876bcf65c4fcf3&",
+      "source_workflow_sha256": "2da23cb34a01523ad54043f3af87eb2f32eaff071cfd7f17a64cbca9e971aadc",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

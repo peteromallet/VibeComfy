@@ -57,6 +57,28 @@ def _refusal_verdict_content(**overrides: object) -> dict:
     return content
 
 
+def _ks_schema_provider_for_sampler_uid() -> object:
+    """Retain the KSampler schema while binding the fixture's string UID.
+
+    The shared KSampler provider uses the numeric UID from its older edit
+    session fixture.  These judge cases intentionally use ``sampler`` as the
+    durable UI UID, so the frozen node-class witness must name that UID too.
+    """
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, capture_schema_snapshot
+    from tests.test_agent_edit_settings_contract import _ks_schema_provider
+
+    base = _ks_schema_provider()
+    snapshot = capture_schema_snapshot(
+        class_types=("KSampler",),
+        request_snapshot={
+            "schemas": dict(base.snapshot.schemas),
+            "missing_classes": list(base.snapshot.missing_classes),
+        },
+        node_classes={"1": "KSampler"},
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def test_parse_verdict_string_false_pass_with_all_criteria_true_is_not_pass() -> None:
     """D13 rework: a string-typed pass_ (``"false"``) is malformed, not a
     coercible value — the verdict must fail closed even with all criteria
@@ -186,7 +208,7 @@ def test_intent_judge_surfaces_derived_fail_for_fabricated_pass(
         json.dumps({"nodes": []}), encoding="utf-8"
     )
     (tmp_path / "candidate.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1}]}), encoding="utf-8"
+        json.dumps({"nodes": [{"id": 1, "class_type": "KSampler"}]}), encoding="utf-8"
     )
     criteria = _edit_verdict_content()["criteria"]
     criteria["correct_parameter_changed"] = False
@@ -245,7 +267,7 @@ def test_intent_judge_includes_scenario_desired_rubric(
         json.dumps({"nodes": []}), encoding="utf-8"
     )
     (tmp_path / "candidate.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1}]}), encoding="utf-8"
+        json.dumps({"nodes": [{"id": 1, "class_type": "KSampler"}]}), encoding="utf-8"
     )
     seen: dict[str, object] = {}
 
@@ -574,10 +596,10 @@ def test_semantic_judge_surfaces_derived_fail_for_fabricated_pass(
     monkeypatch,
 ) -> None:
     (tmp_path / "original.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo", "class_type": "SaveVideo"}]}), encoding="utf-8"
     )
     (tmp_path / "final.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo", "class_type": "SaveVideo"}]}), encoding="utf-8"
     )
     (tmp_path / "response.json").write_text(
         json.dumps({"reply": "SaveVideo is the output node.", "ok": True}),
@@ -647,7 +669,7 @@ def test_semantic_judge_includes_rubric_and_ui_not_prose_as_evidence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    original = {"nodes": [{"id": 1, "type": "SaveVideo"}], "links": []}
+    original = {"nodes": [{"id": 1, "type": "SaveVideo", "class_type": "SaveVideo"}], "links": []}
     (tmp_path / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
     (tmp_path / "final.ui.json").write_text(json.dumps(original), encoding="utf-8")
     (tmp_path / "response.json").write_text(
@@ -698,11 +720,11 @@ def test_grounded_refusal_judge_includes_ui_inventory(
         encoding="utf-8",
     )
     (tmp_path / "original.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]}),
+        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"}]}),
         encoding="utf-8",
     )
     (tmp_path / "final.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]}),
+        json.dumps({"nodes": [{"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"}]}),
         encoding="utf-8",
     )
     seen: dict[str, object] = {}
@@ -781,9 +803,10 @@ def test_intent_judge_grades_delta_with_replay_evidence(
             {
                 "nodes": [
                     {
-                        "id": "sampler",
+                        "id": 1,
                         "type": "KSampler",
-                        "properties": {"vibecomfy_uid": "sampler"},
+                        "class_type": "KSampler",
+                        "properties": {"vibecomfy_uid": "1"},
                         "widgets_values": [42, "fixed", 20, 7, "euler", "normal", 1],
                     }
                 ]
@@ -796,9 +819,10 @@ def test_intent_judge_grades_delta_with_replay_evidence(
             {
                 "nodes": [
                     {
-                        "id": "sampler",
+                        "id": 1,
                         "type": "KSampler",
-                        "properties": {"vibecomfy_uid": "sampler"},
+                        "class_type": "KSampler",
+                        "properties": {"vibecomfy_uid": "1"},
                         "widgets_values": [42, "fixed", 30, 7, "euler", "normal", 1],
                     }
                 ]
@@ -811,10 +835,15 @@ def test_intent_judge_grades_delta_with_replay_evidence(
             _judge_delta_response_json(
                 original,
                 candidate,
-                ops=[{"op": "set_node_field", "target": ["", "sampler", "steps"], "value": 30}],
+                ops=[{"op": "set_node_field", "target": ["", "1", "steps"], "value": 30}],
             )
         ),
         encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_schema_provider",
+        lambda _name: _ks_schema_provider_for_sampler_uid(),
     )
 
     seen: dict[str, object] = {}
@@ -846,7 +875,7 @@ def test_intent_judge_grades_delta_with_replay_evidence(
         rendered = payload["renderer_lenses"][side]
         assert rendered is not None
         assert "## Diff" in rendered
-        assert "sampler.steps = 30" in rendered
+        assert "1.steps = 30" in rendered
     assert "Accepted Δ" in seen["messages"][0]["content"]
 
 
@@ -861,9 +890,10 @@ def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
             {
                 "nodes": [
                     {
-                        "id": "sampler",
+                        "id": 1,
                         "type": "KSampler",
-                        "properties": {"vibecomfy_uid": "sampler"},
+                        "class_type": "KSampler",
+                        "properties": {"vibecomfy_uid": "1"},
                         "widgets_values": [42, "fixed", 40, 7, "euler", "normal", 1],
                     }
                 ]
@@ -876,9 +906,10 @@ def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
             {
                 "nodes": [
                     {
-                        "id": "sampler",
+                        "id": 1,
                         "type": "KSampler",
-                        "properties": {"vibecomfy_uid": "sampler"},
+                        "class_type": "KSampler",
+                        "properties": {"vibecomfy_uid": "1"},
                         "widgets_values": [42, "fixed", 16, 7, "euler", "normal", 1],
                     }
                 ]
@@ -894,7 +925,7 @@ def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
                 ops=[
                     {
                         "op": "set_node_field",
-                        "target": ["", "sampler", "steps"],
+                        "target": ["", "1", "steps"],
                         "value": 16,
                     }
                 ],
@@ -902,6 +933,11 @@ def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
         ),
         encoding="utf-8",
     )
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_schema_provider",
+        lambda _name: _ks_schema_provider_for_sampler_uid(),
+    )
+
     seen: dict[str, object] = {}
 
     def fake_run_model_turn(task, *, messages, **kwargs):  # noqa: ANN001, ANN202

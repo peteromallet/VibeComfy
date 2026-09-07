@@ -1,0 +1,1646 @@
+{
+  "edges": [
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "10"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "10"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "10"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "3",
+      "from_output": "5",
+      "to_input": "clip",
+      "to_node": "14"
+    },
+    {
+      "from_node": "91",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "15"
+    },
+    {
+      "from_node": "3",
+      "from_output": "5",
+      "to_input": "clip",
+      "to_node": "15"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "20"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "20"
+    },
+    {
+      "from_node": "23",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "20"
+    },
+    {
+      "from_node": "3",
+      "from_output": "3",
+      "to_input": "latent_image",
+      "to_node": "20"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "21"
+    },
+    {
+      "from_node": "10",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "21"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "21"
+    },
+    {
+      "from_node": "30",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "21"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "23"
+    },
+    {
+      "from_node": "21",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "23"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "23"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "23"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "28"
+    },
+    {
+      "from_node": "3",
+      "from_output": "4",
+      "to_input": "vae",
+      "to_node": "28"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "30"
+    },
+    {
+      "from_node": "28",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "31"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "latent",
+      "to_node": "73"
+    },
+    {
+      "from_node": "73",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "74"
+    },
+    {
+      "from_node": "3",
+      "from_output": "4",
+      "to_input": "vae",
+      "to_node": "74"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "92"
+    },
+    {
+      "from_node": "92",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "94"
+    },
+    {
+      "from_node": "28",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "97"
+    }
+  ],
+  "groups": [],
+  "id": "c8c952e36cf8390c",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "revAnimated_v11.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "14",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "bokeh,child, loli, petite,(Embedding:FastNegativeV2:1),(bad-artist:1),(worst quality, low quality:1.4),(bad_prompt_version2:0.8),bad-hands-5,lowres,bad anatomy,bad hands,((text)),(watermark),error,missing fingers,extra digit,fewer digits,cropped,worst quality,low quality,normal quality,((username)),blurry,(extra limbs),bad-artist-anime,badhandv4,Embedding:EasyNegative:1),Embedding:ng_deepnegative_v1_75t:1),(Embedding:verybadimagenegative_v1.3:1),Embedding:BadDream:1),(three hands:1.6),(three legs:1.2),(more than two hands:1.4),(more than two legs,:1.2)"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "noise_seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "20",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 645653006368068
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "20",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 30
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "ControlNetApplyAdvanced",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "21",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "end_percent",
+            "1"
+          ],
+          [
+            "start_percent",
+            "0.25"
+          ],
+          [
+            "strength",
+            "0.55"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3",
+              "5"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'bokeh,child, loli, petite,(Embedding:FastNegativeV2:1),(bad-artist:1),(worst quality, low quality:1.4),(bad_prompt_version2:0.8),bad-hands-5,lowres,bad anatomy,bad hands,((text)),(watermark),error,missing fingers,extra digit,fewer digits,cropped,worst quality,low quality,normal quality,((username)),blurry,(extra limbs),bad-artist-anime,badhandv4,Embedding:EasyNegative:1),Embedding:ng_deepnegative_v1_75t:1),(Embedding:verybadimagenegative_v1.3:1),Embedding:BadDream:1),(three hands:1.6),(three legs:1.2),(more than two hands:1.4),(more than two legs,:1.2)'"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3",
+              "5"
+            ]
+          ],
+          [
+            "text",
+            [
+              "91",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "20": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "3",
+              "3"
+            ]
+          ],
+          [
+            "model",
+            [
+              "94",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "23",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "28",
+              "samples"
+            ]
+          ],
+          [
+            "0",
+            [
+              "73",
+              "latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "noise_seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'enable'"
+          ],
+          [
+            "cfg",
+            "7"
+          ],
+          [
+            "end_at_step",
+            "10000"
+          ],
+          [
+            "noise_seed",
+            "645653006368068"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'disable'"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "start_at_step",
+            "0"
+          ],
+          [
+            "steps",
+            "30"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "ControlNetApplyAdvanced",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "30",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "10",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "23",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "end_percent",
+            "1"
+          ],
+          [
+            "start_percent",
+            "0"
+          ],
+          [
+            "strength",
+            "0.7000000000000001"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "ControlNetApplyAdvanced",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "8",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "21",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "20",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "end_percent",
+            "1"
+          ],
+          [
+            "start_percent",
+            "0.623"
+          ],
+          [
+            "strength",
+            "0.17"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "23",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "30",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'https___twitter_com_banodoco[H_x28].png'"
+          ],
+          [
+            "upload",
+            "'image'"
+          ]
+        ]
+      },
+      "28": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "20",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "3",
+              "4"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "31",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "97",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "3": {
+        "class_type": "Efficient Loader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "92",
+              "model"
+            ]
+          ],
+          [
+            "3",
+            [
+              "20",
+              "latent_image"
+            ]
+          ],
+          [
+            "4",
+            [
+              "28",
+              "vae"
+            ]
+          ],
+          [
+            "4",
+            [
+              "74",
+              "vae"
+            ]
+          ],
+          [
+            "5",
+            [
+              "14",
+              "clip"
+            ]
+          ],
+          [
+            "5",
+            [
+              "15",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "ckpt_name",
+            "'revAnimated_v11.safetensors'"
+          ],
+          [
+            "clip_skip",
+            "-2"
+          ],
+          [
+            "empty_latent_height",
+            "768"
+          ],
+          [
+            "empty_latent_width",
+            "768"
+          ],
+          [
+            "lora_clip_strength",
+            "1"
+          ],
+          [
+            "lora_model_strength",
+            "1"
+          ],
+          [
+            "lora_name",
+            "'add_detail.safetensors'"
+          ],
+          [
+            "negative",
+            "''"
+          ],
+          [
+            "positive",
+            "''"
+          ],
+          [
+            "token_normalization",
+            "'none'"
+          ],
+          [
+            "vae_name",
+            "'vae-ft-mse-840000-ema-pruned.safetensors'"
+          ],
+          [
+            "weight_interpretation",
+            "'comfy'"
+          ]
+        ]
+      },
+      "30": {
+        "class_type": "ImageInvert",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "31": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "28",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "control_net_name",
+            "'control_v1p_sd15_qrcode.safetensors'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "control_net_name",
+            "'control_v1p_sd15_brightness.safetensors'"
+          ]
+        ]
+      },
+      "73": {
+        "class_type": "NNLatentUpscale",
+        "incoming_edge_sig": [
+          [
+            "latent",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "74",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "upscale",
+            "1.5"
+          ],
+          [
+            "version",
+            "'SD 1.x'"
+          ]
+        ]
+      },
+      "74": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "73",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "3",
+              "4"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "8": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "control_net_name",
+            "'control_v11f1e_sd15_tile.pth'"
+          ]
+        ]
+      },
+      "91": {
+        "class_type": "OneButtonPrompt",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "artist",
+            "'all'"
+          ],
+          [
+            "base_model",
+            "188796702543254"
+          ],
+          [
+            "custom_outfit",
+            "''"
+          ],
+          [
+            "custom_subject",
+            "'masterwork quality, bold lines, psycadelic, clouds, rainbow colors'"
+          ],
+          [
+            "emojis",
+            "False"
+          ],
+          [
+            "humanoids_gender",
+            "'all'"
+          ],
+          [
+            "imagemodechance",
+            "20"
+          ],
+          [
+            "imagetype",
+            "'all'"
+          ],
+          [
+            "insanitylevel",
+            "5"
+          ],
+          [
+            "prompt_enhancer",
+            "'randomize'"
+          ],
+          [
+            "seed",
+            "580598872718452"
+          ],
+          [
+            "subject",
+            "'all'"
+          ],
+          [
+            "subject_subtype_objects",
+            "'all'"
+          ],
+          [
+            "subject_subtypes_concepts",
+            "'all'"
+          ],
+          [
+            "subject_subtypes_humanoids",
+            "'all'"
+          ]
+        ]
+      },
+      "92": {
+        "class_type": "SelfAttentionGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "94",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "blur_sigma",
+            "2"
+          ],
+          [
+            "scale",
+            "0.5"
+          ]
+        ]
+      },
+      "94": {
+        "class_type": "FreeU_V2",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "92",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "b1",
+            "1.3"
+          ],
+          [
+            "b2",
+            "1.4"
+          ],
+          [
+            "s1",
+            "0.9"
+          ],
+          [
+            "s2",
+            "0.2"
+          ]
+        ]
+      },
+      "97": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "28",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "7567d20f91a2d6b54594cf0ade89f8d18ffbf891a0e49fe7d951248d56a8e16a",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1229946086668500992,
+      "channel_name": "qr-code-tests",
+      "content_preview": "So if anyone is interested in this kind of stuff, feel free to hit me up and I can try to help out best I can, been messing with these things for ages now.  Here is a simple workflow I use to generate some simple qr code art within ComfyUI.",
+      "discord_message_url": "https://discord.com/channels/@me/1229946086668500992/1229949033741680671",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1229949033741680671:simple_artiQ.json:c8c952e36cf8390c",
+      "filename": "simple_artiQ.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:58+00:00",
+      "message_id": 1229949033741680671,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "ControlNetApplyAdvanced": 3,
+        "ControlNetLoader": 3,
+        "Efficient Loader": 1,
+        "FreeU_V2": 1,
+        "ImageInvert": 1,
+        "KSamplerAdvanced": 1,
+        "LoadImage": 1,
+        "NNLatentUpscale": 1,
+        "OneButtonPrompt": 1,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "SelfAttentionGuidance": 1,
+        "VAEDecode": 2
+      },
+      "node_count": 20,
+      "origin_date": "2024-04-17T00:18:20.992000+00:00",
+      "originator_global_name": "Question",
+      "originator_id": "199568892345974785",
+      "originator_type": "discord_message_author",
+      "originator_username": "question_ak",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c8c952e36cf8390ced061b07e05d6a6aaa68094d2190f972695dbf872b95ab81",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1229946086668500992/1229949032030273597/simple_artiQ.json?ex=697b500c&is=6979fe8c&hm=8d11445e90834c51b60e0305f86bbff7b462c82c22afcf347f7bf6a93bda5ac6&",
+      "source_workflow_sha256": "3a34114299ec188096856bf7f0628559b326d929dadd69b5a4b8f90dc5bb27e2",
+      "workflow_format": "comfy_api"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "f7edf95e8fd75fc0439c8018159f19823c5149d85012a6467528a61ec4ada574",
+      "complexity": 4,
+      "description": "This workflow uses multiple ControlNet models (tile, brightness, QR code) and a detail enhancer to generate images from a prompt, with optional self-attention guidance and FreeU for improved quality.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "controlnet",
+        "image-generation",
+        "detail-enhancement",
+        "self-attention-guidance",
+        "freeu",
+        "latent-upscale",
+        "image-invert",
+        "one-button-prompt"
+      ],
+      "task_type": "controlnet",
+      "title": "Multi-ControlNet Image Generation with Detail Enhancement"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "ControlNetApplyAdvanced",
+      "id": "10",
+      "inputs": {
+        "end_percent": 1,
+        "start_percent": 0.25,
+        "strength": 0.55
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Apply ControlNet (Advanced)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "10",
+      "widgets": {}
+    },
+    "14": {
+      "class_type": "CLIPTextEncode",
+      "id": "14",
+      "inputs": {
+        "text": "bokeh,child, loli, petite,(Embedding:FastNegativeV2:1),(bad-artist:1),(worst quality, low quality:1.4),(bad_prompt_version2:0.8),bad-hands-5,lowres,bad anatomy,bad hands,((text)),(watermark),error,missing fingers,extra digit,fewer digits,cropped,worst quality,low quality,normal quality,((username)),blurry,(extra limbs),bad-artist-anime,badhandv4,Embedding:EasyNegative:1),Embedding:ng_deepnegative_v1_75t:1),(Embedding:verybadimagenegative_v1.3:1),Embedding:BadDream:1),(three hands:1.6),(three legs:1.2),(more than two hands:1.4),(more than two legs,:1.2)"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "CLIP Text Encode (Prompt)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "CLIPTextEncode",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_meta": {
+          "title": "CLIP Text Encode (Prompt)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "15",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "KSamplerAdvanced",
+      "id": "20",
+      "inputs": {
+        "add_noise": "enable",
+        "cfg": 7,
+        "end_at_step": 10000,
+        "noise_seed": 645653006368068,
+        "return_with_leftover_noise": "disable",
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "start_at_step": 0,
+        "steps": 30
+      },
+      "metadata": {
+        "_meta": {
+          "title": "KSampler (Advanced)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "20",
+      "widgets": {}
+    },
+    "21": {
+      "class_type": "ControlNetApplyAdvanced",
+      "id": "21",
+      "inputs": {
+        "end_percent": 1,
+        "start_percent": 0,
+        "strength": 0.7000000000000001
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Apply ControlNet (Advanced)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "21",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "ControlNetApplyAdvanced",
+      "id": "23",
+      "inputs": {
+        "end_percent": 1,
+        "start_percent": 0.623,
+        "strength": 0.17
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Apply ControlNet (Advanced)"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "23",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "LoadImage",
+      "id": "25",
+      "inputs": {
+        "image": "https___twitter_com_banodoco[H_x28].png",
+        "upload": "image"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Load Image"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "25",
+      "widgets": {}
+    },
+    "28": {
+      "class_type": "VAEDecode",
+      "id": "28",
+      "inputs": {},
+      "metadata": {
+        "_meta": {
+          "title": "VAE Decode"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "28",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "Efficient Loader",
+      "id": "3",
+      "inputs": {
+        "batch_size": 1,
+        "ckpt_name": "revAnimated_v11.safetensors",
+        "clip_skip": -2,
+        "empty_latent_height": 768,
+        "empty_latent_width": 768,
+        "lora_clip_strength": 1,
+        "lora_model_strength": 1,
+        "lora_name": "add_detail.safetensors",
+        "negative": "",
+        "positive": "",
+        "token_normalization": "none",
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors",
+        "weight_interpretation": "comfy"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Efficient Loader"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "3",
+      "widgets": {}
+    },
+    "30": {
+      "class_type": "ImageInvert",
+      "id": "30",
+      "inputs": {},
+      "metadata": {
+        "_meta": {
+          "title": "Invert Image"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "30",
+      "widgets": {}
+    },
+    "31": {
+      "class_type": "SaveImage",
+      "id": "31",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Save Image"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "31",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "ControlNetLoader",
+      "id": "6",
+      "inputs": {
+        "control_net_name": "control_v1p_sd15_qrcode.safetensors"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Load ControlNet Model"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "ControlNetLoader",
+      "id": "7",
+      "inputs": {
+        "control_net_name": "control_v1p_sd15_brightness.safetensors"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Load ControlNet Model"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "7",
+      "widgets": {}
+    },
+    "73": {
+      "class_type": "NNLatentUpscale",
+      "id": "73",
+      "inputs": {
+        "upscale": 1.5,
+        "version": "SD 1.x"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "NNLatentUpscale"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "73",
+      "widgets": {}
+    },
+    "74": {
+      "class_type": "VAEDecode",
+      "id": "74",
+      "inputs": {},
+      "metadata": {
+        "_meta": {
+          "title": "VAE Decode"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "74",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "ControlNetLoader",
+      "id": "8",
+      "inputs": {
+        "control_net_name": "control_v11f1e_sd15_tile.pth"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Load ControlNet Model"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    },
+    "91": {
+      "class_type": "OneButtonPrompt",
+      "id": "91",
+      "inputs": {
+        "artist": "all",
+        "base_model": 188796702543254,
+        "custom_outfit": "",
+        "custom_subject": "masterwork quality, bold lines, psycadelic, clouds, rainbow colors",
+        "emojis": false,
+        "humanoids_gender": "all",
+        "imagemodechance": 20,
+        "imagetype": "all",
+        "insanitylevel": 5,
+        "prompt_enhancer": "randomize",
+        "seed": 580598872718452,
+        "subject": "all",
+        "subject_subtype_objects": "all",
+        "subject_subtypes_concepts": "all",
+        "subject_subtypes_humanoids": "all"
+      },
+      "metadata": {
+        "_meta": {
+          "title": "One Button Prompt"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "91",
+      "widgets": {}
+    },
+    "92": {
+      "class_type": "SelfAttentionGuidance",
+      "id": "92",
+      "inputs": {
+        "blur_sigma": 2,
+        "scale": 0.5
+      },
+      "metadata": {
+        "_meta": {
+          "title": "Self-Attention Guidance"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "92",
+      "widgets": {}
+    },
+    "94": {
+      "class_type": "FreeU_V2",
+      "id": "94",
+      "inputs": {
+        "b1": 1.3,
+        "b2": 1.4,
+        "s1": 0.9,
+        "s2": 0.2
+      },
+      "metadata": {
+        "_meta": {
+          "title": "FreeU_V2"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "94",
+      "widgets": {}
+    },
+    "97": {
+      "class_type": "PreviewImage",
+      "id": "97",
+      "inputs": {},
+      "metadata": {
+        "_meta": {
+          "title": "Preview Image"
+        },
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "97",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "31",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "97",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "add_detail.safetensors",
+      "control_v11f1e_sd15_tile.pth",
+      "control_v1p_sd15_brightness.safetensors",
+      "control_v1p_sd15_qrcode.safetensors",
+      "revAnimated_v11.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "c8c952e36cf8390c",
+    "path": "external_workflows/.shadow/source/c8c952e36cf8390c-simple_artiQ.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "7567d20f91a2d6b54594cf0ade89f8d18ffbf891a0e49fe7d951248d56a8e16a",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1229946086668500992,
+      "channel_name": "qr-code-tests",
+      "content_preview": "So if anyone is interested in this kind of stuff, feel free to hit me up and I can try to help out best I can, been messing with these things for ages now.  Here is a simple workflow I use to generate some simple qr code art within ComfyUI.",
+      "discord_message_url": "https://discord.com/channels/@me/1229946086668500992/1229949033741680671",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1229949033741680671:simple_artiQ.json:c8c952e36cf8390c",
+      "filename": "simple_artiQ.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:58+00:00",
+      "message_id": 1229949033741680671,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "ControlNetApplyAdvanced": 3,
+        "ControlNetLoader": 3,
+        "Efficient Loader": 1,
+        "FreeU_V2": 1,
+        "ImageInvert": 1,
+        "KSamplerAdvanced": 1,
+        "LoadImage": 1,
+        "NNLatentUpscale": 1,
+        "OneButtonPrompt": 1,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "SelfAttentionGuidance": 1,
+        "VAEDecode": 2
+      },
+      "node_count": 20,
+      "origin_date": "2024-04-17T00:18:20.992000+00:00",
+      "originator_global_name": "Question",
+      "originator_id": "199568892345974785",
+      "originator_type": "discord_message_author",
+      "originator_username": "question_ak",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "c8c952e36cf8390ced061b07e05d6a6aaa68094d2190f972695dbf872b95ab81",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1229946086668500992/1229949032030273597/simple_artiQ.json?ex=697b500c&is=6979fe8c&hm=8d11445e90834c51b60e0305f86bbff7b462c82c22afcf347f7bf6a93bda5ac6&",
+      "source_workflow_sha256": "3a34114299ec188096856bf7f0628559b326d929dadd69b5a4b8f90dc5bb27e2",
+      "workflow_format": "comfy_api"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

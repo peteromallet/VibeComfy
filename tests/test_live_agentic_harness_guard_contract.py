@@ -46,7 +46,7 @@ def _write_successful_candidate(output_dir: Path, **overrides: object) -> None:
     response = {
         "ok": True,
         "graph_unchanged": False,
-        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "candidate_graph": {"nodes": [{"id": 1, "class_type": "KSampler"}], "links": []},
         "outcome": {"kind": "candidate"},
         "change_details": {"landed_operation_count": 1},
         "gates": {
@@ -996,7 +996,7 @@ def test_desired_edit_fails_closed_on_fabricated_intent_judge_pass(
     output_dir = tmp_path / "desired-fabricated-intent-pass"
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_successful_candidate(output_dir)
-    _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1}]})
+    _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1, "class_type": "KSampler"}]})
     (output_dir / "implementation_result.json").write_text(
         json.dumps({"status": "success"}), encoding="utf-8"
     )
@@ -1085,7 +1085,7 @@ def test_agentic_guard_ignores_oversized_model_request(tmp_path: Path) -> None:
                 "ok": True,
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
-                "candidate": {"nodes": [{"id": 1}]},
+                "candidate": {"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 "change_details": {"landed_operation_count": 1},
             }
         ),
@@ -1127,7 +1127,7 @@ def test_agentic_guard_ignores_forbidden_model_request_substrings(
                 "ok": True,
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
-                "candidate": {"nodes": [{"id": 1}]},
+                "candidate": {"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 "change_details": {"landed_operation_count": 1},
             }
         ),
@@ -1557,7 +1557,7 @@ def test_agentic_guard_false_validation_success_claim_still_fails_via_gates(
                 "message": "Validation passed and the candidate is ready to apply.",
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
-                "candidate_graph": {"nodes": [{"id": 1}]},
+                "candidate_graph": {"nodes": [{"id": 1, "class_type": "KSampler"}]},
                 "change_details": {"landed_operation_count": 1},
                 "gates": {
                     "ir_validate_ok": False,
@@ -1626,7 +1626,7 @@ def test_agentic_guard_expected_edit_requires_positive_landed_count(
         "ok": True,
         "graph_unchanged": False,
         "outcome": {"kind": "candidate"},
-        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "candidate_graph": {"nodes": [{"id": 1, "class_type": "KSampler"}], "links": []},
         "gates": _ALL_GATES_PASS,
     }
     if change_details is not None:
@@ -1661,7 +1661,7 @@ def test_agentic_guard_expected_edit_with_positive_landed_count_passes(
                 "ok": True,
                 "graph_unchanged": False,
                 "outcome": {"kind": "candidate"},
-                "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+                "candidate_graph": {"nodes": [{"id": 1, "class_type": "KSampler"}], "links": []},
                 "change_details": {"landed_operation_count": 1},
                 "gates": _ALL_GATES_PASS,
             }
@@ -2273,8 +2273,8 @@ def test_identical_refusal_prose_fails_when_schema_contradicts(
     _write_safe_refusal_response(output_dir)
     _write_ui_pair(
         output_dir,
-        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]},
-        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple"}]},
+        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"}]},
+        {"nodes": [{"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"}]},
     )
     (output_dir / "final.ui.json").write_text(
         (output_dir / "original.ui.json").read_text(encoding="utf-8"),
@@ -2356,7 +2356,7 @@ def test_healthy_but_false_explanation_fails(
         reply="The blur is caused by a GaussianBlur node that is not in the graph.",
     )
     (output_dir / "original.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}], "links": []}),
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo", "class_type": "SaveVideo"}], "links": []}),
         encoding="utf-8",
     )
     (output_dir / "final.ui.json").write_text(
@@ -2412,7 +2412,7 @@ def test_empty_but_valid_semantic_answer_fails(tmp_path: Path) -> None:
     _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
     _write_non_edit_response(output_dir, reply="   ")
     (output_dir / "original.ui.json").write_text(
-        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo"}]}), encoding="utf-8"
+        json.dumps({"nodes": [{"id": 1, "type": "SaveVideo", "class_type": "SaveVideo"}]}), encoding="utf-8"
     )
     (output_dir / "final.ui.json").write_text(
         (output_dir / "original.ui.json").read_text(encoding="utf-8"), encoding="utf-8"
@@ -2560,7 +2560,7 @@ def test_corrected_d13_edits_use_edit_intent_judge(
         output_dir = tmp_path / scenario_id
         _write_flow_metadata(output_dir, status=STATUS_SUCCESS, live=True)
         _write_successful_candidate(output_dir)
-        _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1}]})
+        _write_ui_pair(output_dir, {"nodes": []}, {"nodes": [{"id": 1, "class_type": "KSampler"}]})
         scenario = json.loads(
             (
                 Path(__file__).parent

@@ -1,0 +1,301 @@
+{
+  "32": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "z_image_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "33": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "device": "default",
+      "type": "lumina2"
+    }
+  },
+  "34": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "35": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "33",
+        0
+      ],
+      "text": "A photorealistic image of a young East Asian woman finds a moment of peaceful solitude on a wrought-iron park bench during a cool spring night. Her long, dark hair cascades over the collar of her chic beige trench coat. With a serene expression, she cradles a warm, white ceramic mug of coffee, its steam gently rising into the crisp night air. The scene is bathed in the warm, golden glow of a nearby lamppost, which illuminates a stunning canopy of blooming pink cherry blossom trees. A few delicate petals have drifted down, resting on the bench and the dark pavement. The background is a soft-focus dreamscape of the park at night, with the distant, twinkling lights of the city creating a beautiful bokeh effect. The composition is a medium shot with a shallow depth of field, drawing the viewer's eye to the woman's tranquil moment of reflection. The atmosphere is calm, contemplative, and cinematic, with a color palette that balances the warm light and pink blossoms against the cool, deep blues of the night"
+    }
+  },
+  "36": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "33",
+        0
+      ],
+      "text": ""
+    }
+  },
+  "37": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "50",
+        0
+      ],
+      "model": [
+        "32",
+        0
+      ],
+      "negative": [
+        "38",
+        0
+      ],
+      "positive": [
+        "64",
+        0
+      ],
+      "sampler_name": "euler_ancestral",
+      "scheduler": "simple",
+      "seed": [
+        "42",
+        3
+      ],
+      "steps": 9
+    }
+  },
+  "38": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "35",
+        0
+      ]
+    }
+  },
+  "39": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "37",
+        0
+      ],
+      "vae": [
+        "34",
+        0
+      ]
+    }
+  },
+  "42": {
+    "class_type": "easy forLoopStart",
+    "inputs": {
+      "initial_value1": [
+        "49",
+        0
+      ],
+      "initial_value2": [
+        "47",
+        0
+      ],
+      "widget_0": 4
+    }
+  },
+  "44": {
+    "class_type": "easy forLoopEnd",
+    "inputs": {
+      "flow": [
+        "42",
+        0
+      ],
+      "initial_value1": [
+        "53",
+        0
+      ],
+      "initial_value2": [
+        "59",
+        0
+      ]
+    }
+  },
+  "46": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "55",
+        0
+      ]
+    }
+  },
+  "47": {
+    "class_type": "easy int",
+    "inputs": {
+      "widget_0": 12
+    }
+  },
+  "49": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "batch_size": 1,
+      "color": 0,
+      "height": [
+        "51",
+        1
+      ],
+      "width": [
+        "51",
+        0
+      ]
+    }
+  },
+  "50": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "height": [
+        "51",
+        1
+      ],
+      "widget_0": 512,
+      "widget_1": 512,
+      "widget_2": 1,
+      "width": [
+        "51",
+        0
+      ]
+    }
+  },
+  "51": {
+    "class_type": "FluxResolutionNode",
+    "inputs": {
+      "widget_0": "1.0",
+      "widget_1": "7:5 (Elegant Landscape)",
+      "widget_2": "64",
+      "widget_3": false,
+      "widget_4": "1:1"
+    }
+  },
+  "52": {
+    "class_type": "Display Any (rgthree)",
+    "inputs": {
+      "source": [
+        "51",
+        2
+      ],
+      "widget_0": ""
+    }
+  },
+  "53": {
+    "class_type": "ImageBatch",
+    "inputs": {
+      "image1": [
+        "42",
+        2
+      ],
+      "image2": [
+        "39",
+        0
+      ]
+    }
+  },
+  "54": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "39",
+        0
+      ]
+    }
+  },
+  "55": {
+    "class_type": "ImageGridComposite2x2",
+    "inputs": {
+      "image1": [
+        "58",
+        1
+      ],
+      "image2": [
+        "58",
+        2
+      ],
+      "image3": [
+        "58",
+        3
+      ],
+      "image4": [
+        "58",
+        4
+      ]
+    }
+  },
+  "58": {
+    "class_type": "ImageBatchSplitter //Inspire",
+    "inputs": {
+      "images": [
+        "44",
+        0
+      ],
+      "widget_0": 4
+    }
+  },
+  "59": {
+    "class_type": "SimpleMath+",
+    "inputs": {
+      "a": [
+        "42",
+        3
+      ],
+      "widget_0": "a+100"
+    }
+  },
+  "60": {
+    "class_type": "Display Any (rgthree)",
+    "inputs": {
+      "source": [
+        "42",
+        3
+      ],
+      "widget_0": ""
+    }
+  },
+  "62": {
+    "class_type": "ConditioningSetTimestepRange",
+    "inputs": {
+      "conditioning": [
+        "36",
+        0
+      ],
+      "end": 0.20000000000000004,
+      "start": 0
+    }
+  },
+  "63": {
+    "class_type": "ConditioningSetTimestepRange",
+    "inputs": {
+      "conditioning": [
+        "35",
+        0
+      ],
+      "end": 1,
+      "start": 0.20000000000000004
+    }
+  },
+  "64": {
+    "class_type": "ConditioningCombine",
+    "inputs": {
+      "conditioning_1": [
+        "62",
+        0
+      ],
+      "conditioning_2": [
+        "63",
+        0
+      ]
+    }
+  }
+}

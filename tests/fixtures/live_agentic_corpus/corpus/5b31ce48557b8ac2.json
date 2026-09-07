@@ -1,0 +1,679 @@
+{
+  "edges": [
+    {
+      "from_node": "151",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "148"
+    },
+    {
+      "from_node": "149",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "151"
+    },
+    {
+      "from_node": "150",
+      "from_output": "0",
+      "to_input": "image_1",
+      "to_node": "151"
+    }
+  ],
+  "groups": [],
+  "id": "ab26e54ffdde7cbe",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "148": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "151",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crf",
+            "19"
+          ],
+          [
+            "filename_prefix",
+            "'Wan22_FFLF'"
+          ],
+          [
+            "format",
+            "'video/h264-mp4'"
+          ],
+          [
+            "frame_rate",
+            "16"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "pix_fmt",
+            "'yuv420p'"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "save_output",
+            "True"
+          ],
+          [
+            "trim_to_audio",
+            "False"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': '040fb41d361139423c63f1d8d2def583f9a4446262e0907692332ce007c31e06.mp4', 'format': 'video/h264-mp4', 'frame_rate': 16, 'fullpath': '', 'subfolder': '', 'type': 'output', 'workflow': 'Wan22_FFLF_00001.png'}}"
+          ]
+        ]
+      },
+      "149": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'709e0ee051b7790daeef96a272eb8cb8639dd750361ac3cbad0fb68b492dacd7.JPG'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "150": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "151",
+              "image_1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'df286f42d74b5c592f5054a3f82be3e07a679176d59bb8d48c4abf57af1d5908.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "151": {
+        "class_type": "7b6536ac-75e7-4061-b96d-b22892f1b799",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "149",
+              "0"
+            ]
+          ],
+          [
+            "image_1",
+            [
+              "150",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "148",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "5b31ce48557b8ac224398d475df2dcfd87b7d245b384c8b4cc9679885987b675",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "content_preview": "thats my version of it. Works for me",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1445764875493183600",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1445764875493183600:Wan22_FFLF.json:ab26e54ffdde7cbe",
+      "filename": "Wan22_FFLF.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:44+00:00",
+      "message_id": 1445764875493183600,
+      "node_class_multiset": {
+        "7b6536ac-75e7-4061-b96d-b22892f1b799": 1,
+        "LoadImage": 2,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 4,
+      "origin_date": "2025-12-03T13:13:27.330000+00:00",
+      "originator_global_name": "Valle",
+      "originator_id": "246646497129660416",
+      "originator_type": "discord_message_author",
+      "originator_username": "vallestutz",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ab26e54ffdde7cbee6120f0e794536ac357e51f6fc7a90d8b19e589cd3b002bb",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1445764875191062529/Wan22_FFLF.json?ex=693231b7&is=6930e037&hm=d91c8f699d14f7a45cc0956afd27367ee65b803bdc285ebcc88e0a8390b0a7d4&",
+      "source_workflow_sha256": "1290a3dfb60537fdf43badc61931e8f624aaa248a8028831069c45d6e9777809",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "1133317490ca338fb5f3872cba5282740f8801907316acfd47d61b5b3eacb036",
+      "complexity": 1,
+      "description": "A workflow that loads two images and combines them into a video using VHS_VideoCombine.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video-combine",
+        "image-loading",
+        "video-generation"
+      ],
+      "task_type": "image_to_video",
+      "title": "Video Combine with Image Loading"
+    }
+  },
+  "nodes": {
+    "148": {
+      "class_type": "VHS_VideoCombine",
+      "id": "148",
+      "inputs": {
+        "crf": 19,
+        "filename_prefix": "Wan22_FFLF",
+        "format": "video/h264-mp4",
+        "frame_rate": 16,
+        "loop_count": 0,
+        "pingpong": false,
+        "pix_fmt": "yuv420p",
+        "save_metadata": true,
+        "save_output": true,
+        "trim_to_audio": false,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "040fb41d361139423c63f1d8d2def583f9a4446262e0907692332ce007c31e06.mp4",
+            "format": "video/h264-mp4",
+            "frame_rate": 16,
+            "fullpath": "",
+            "subfolder": "",
+            "type": "output",
+            "workflow": "Wan22_FFLF_00001.png"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#355",
+          "color": "#233",
+          "flags": {},
+          "id": 148,
+          "inputs": [
+            {
+              "link": 267,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "meta_batch",
+              "shape": 7,
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "shape": 7,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": null,
+              "name": "Filenames",
+              "type": "VHS_FILENAMES"
+            }
+          ],
+          "pos": [
+            -241.29753534180523,
+            -85.05094532069461
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            460,
+            641.3333333333333
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "crf": 19,
+            "filename_prefix": "Wan22_FFLF",
+            "format": "video/h264-mp4",
+            "frame_rate": 16,
+            "loop_count": 0,
+            "pingpong": false,
+            "pix_fmt": "yuv420p",
+            "save_metadata": true,
+            "save_output": true,
+            "trim_to_audio": false,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "040fb41d361139423c63f1d8d2def583f9a4446262e0907692332ce007c31e06.mp4",
+                "format": "video/h264-mp4",
+                "frame_rate": 16,
+                "fullpath": "",
+                "subfolder": "",
+                "type": "output",
+                "workflow": "Wan22_FFLF_00001.png"
+              },
+              "paused": false
+            }
+          }
+        },
+        "bgcolor": "#355",
+        "color": "#233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 11,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "crf": 19,
+          "filename_prefix": "Wan22_FFLF",
+          "format": "video/h264-mp4",
+          "frame_rate": 16,
+          "loop_count": 0,
+          "pingpong": false,
+          "pix_fmt": "yuv420p",
+          "save_metadata": true,
+          "save_output": true,
+          "trim_to_audio": false,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "040fb41d361139423c63f1d8d2def583f9a4446262e0907692332ce007c31e06.mp4",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
+              "fullpath": "",
+              "subfolder": "",
+              "type": "output",
+              "workflow": "Wan22_FFLF_00001.png"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "148",
+      "widgets": {}
+    },
+    "149": {
+      "class_type": "LoadImage",
+      "id": "149",
+      "inputs": {
+        "image": "709e0ee051b7790daeef96a272eb8cb8639dd750361ac3cbad0fb68b492dacd7.JPG",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 149,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                268
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -961.2975353418054,
+            -85.05094532069461
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "widget_ue_connectable": {
+                "image": true,
+                "upload": true
+              }
+            },
+            "ver": "0.3.49"
+          },
+          "size": [
+            350,
+            350
+          ],
+          "title": "Start Frame",
+          "type": "LoadImage",
+          "widgets_values": [
+            "709e0ee051b7790daeef96a272eb8cb8639dd750361ac3cbad0fb68b492dacd7.JPG",
+            "image"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "709e0ee051b7790daeef96a272eb8cb8639dd750361ac3cbad0fb68b492dacd7.JPG",
+          "image"
+        ]
+      },
+      "uid": "149",
+      "widgets": {}
+    },
+    "150": {
+      "class_type": "LoadImage",
+      "id": "150",
+      "inputs": {
+        "image": "df286f42d74b5c592f5054a3f82be3e07a679176d59bb8d48c4abf57af1d5908.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 150,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                269
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -961.2975353418054,
+            304.94905467930533
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ue_properties": {
+              "widget_ue_connectable": {
+                "image": true,
+                "upload": true
+              }
+            },
+            "ver": "0.3.49"
+          },
+          "size": [
+            350,
+            350
+          ],
+          "title": "End Frame",
+          "type": "LoadImage",
+          "widgets_values": [
+            "df286f42d74b5c592f5054a3f82be3e07a679176d59bb8d48c4abf57af1d5908.png",
+            "image"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "df286f42d74b5c592f5054a3f82be3e07a679176d59bb8d48c4abf57af1d5908.png",
+          "image"
+        ]
+      },
+      "uid": "150",
+      "widgets": {}
+    },
+    "151": {
+      "class_type": "7b6536ac-75e7-4061-b96d-b22892f1b799",
+      "id": "151",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 151,
+          "inputs": [
+            {
+              "link": 268,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 269,
+              "name": "image_1",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                267
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -571.2975353418053,
+            -85.05094532069461
+          ],
+          "properties": {
+            "proxyWidgets": [
+              [
+                "90",
+                "text"
+              ],
+              [
+                "84",
+                "noise_seed"
+              ],
+              [
+                "84",
+                "control_after_generate"
+              ]
+            ]
+          },
+          "size": [
+            300,
+            364
+          ],
+          "type": "7b6536ac-75e7-4061-b96d-b22892f1b799",
+          "widgets_values": []
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "151",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "148",
+      "output_type": "VHS_VideoCombine"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "ab26e54ffdde7cbe",
+    "path": "external_workflows/.shadow/source/ab26e54ffdde7cbe-Wan22_FFLF.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "5b31ce48557b8ac224398d475df2dcfd87b7d245b384c8b4cc9679885987b675",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "content_preview": "thats my version of it. Works for me",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1445764875493183600",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1445764875493183600:Wan22_FFLF.json:ab26e54ffdde7cbe",
+      "filename": "Wan22_FFLF.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:44+00:00",
+      "message_id": 1445764875493183600,
+      "node_class_multiset": {
+        "7b6536ac-75e7-4061-b96d-b22892f1b799": 1,
+        "LoadImage": 2,
+        "VHS_VideoCombine": 1
+      },
+      "node_count": 4,
+      "origin_date": "2025-12-03T13:13:27.330000+00:00",
+      "originator_global_name": "Valle",
+      "originator_id": "246646497129660416",
+      "originator_type": "discord_message_author",
+      "originator_username": "vallestutz",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ab26e54ffdde7cbee6120f0e794536ac357e51f6fc7a90d8b19e589cd3b002bb",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1445764875191062529/Wan22_FFLF.json?ex=693231b7&is=6930e037&hm=d91c8f699d14f7a45cc0956afd27367ee65b803bdc285ebcc88e0a8390b0a7d4&",
+      "source_workflow_sha256": "1290a3dfb60537fdf43badc61931e8f624aaa248a8028831069c45d6e9777809",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

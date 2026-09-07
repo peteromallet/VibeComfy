@@ -1,0 +1,2454 @@
+{
+  "edges": [
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "17"
+    },
+    {
+      "from_node": "12",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "17"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "11"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "11"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "11"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "11"
+    },
+    {
+      "from_node": "45",
+      "from_output": "0",
+      "to_input": "steps",
+      "to_node": "11"
+    },
+    {
+      "from_node": "47",
+      "from_output": "0",
+      "to_input": "start_at_step",
+      "to_node": "11"
+    },
+    {
+      "from_node": "49",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "10"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "10"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "10"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "45",
+      "from_output": "0",
+      "to_input": "steps",
+      "to_node": "10"
+    },
+    {
+      "from_node": "47",
+      "from_output": "0",
+      "to_input": "end_at_step",
+      "to_node": "10"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "16"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "19"
+    },
+    {
+      "from_node": "49",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "15"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "49"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "49"
+    }
+  ],
+  "groups": [],
+  "id": "f6f362075d89b501",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "12",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "sd_xl_refiner_1.0.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "16",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "text, watermark"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "noise_seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "11",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 0
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "end_at_step",
+            [
+              "47",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "49",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "steps",
+            [
+              "45",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'enable'"
+          ],
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "noise_seed",
+            "699031726722722"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'enable'"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "start_at_step",
+            "0"
+          ],
+          [
+            "unused_widget_2",
+            "'randomize'"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "12",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "16",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "15",
+              "0"
+            ]
+          ],
+          [
+            "start_at_step",
+            [
+              "47",
+              "0"
+            ]
+          ],
+          [
+            "steps",
+            [
+              "45",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "noise_seed"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'disable'"
+          ],
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "end_at_step",
+            "10000"
+          ],
+          [
+            "noise_seed",
+            "0"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'disable'"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "unused_widget_2",
+            "'fixed'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "15",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "16",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "17",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'sd_xl_refiner_1.0.safetensors'"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "12",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\\n'"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "12",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'text, watermark'"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "11",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "12",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "19": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "17",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "36": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"This is a checkpoint model loader. \\n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\\n - In this example, it is for the Base SDXL model\\n - This node is also used for SD1.5 and SD2.x models\\n \\nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations\""
+          ]
+        ]
+      },
+      "37": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"This is a checkpoint model loader. \\n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\\n - In this example, it is for the Refiner SDXL model\\n\\nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations.\""
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "49",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "49",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'juggernautXL.safetensors'"
+          ]
+        ]
+      },
+      "40": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Here are the settings that SHOULD stay in place if you want this workflow to work correctly:\\n - add_noise: enable = This adds random noise into the picture so the model can denoise it\\n\\n - return_with_leftover_noise: enable = This sends the latent image data and all it\\'s leftover noise to the next KSampler node.\\n\\nThe settings to pay attention to:\\n - control_after_generate = generates a new random seed after each workflow job completed.\\n - steps = This is the amount of iterations you would like to run the positive and negative CLIP prompts through. Each Step will add (positive) or remove (negative) pixels based on what stable diffusion \"thinks\" should be there according to the model\\'s training\\n - cfg = This is how much you want SDXL to adhere to the prompt. Lower CFG gives you more creative but often blurrier results. Higher CFG (recommended max 10) gives you stricter results according to the CLIP prompt. If the CFG value is too high, it can also result in \"burn-in\" where the edges of the picture become even stronger, often highlighting details in unnatural ways.\\n - sampler_name = This is the sampler type, and unfortunately different samplers and schedulers have better results with fewer steps, while others have better success with higher steps. This will require experimentation on your part!\\n - scheduler = The algorithm/method used to choose the timesteps to denoise the picture.\\n - start_at_step = This is the step number the KSampler will start out it\\'s process of de-noising the picture or \"removing the random noise to reveal the picture within\". The first KSampler usually starts with Step 0. Starting at step 0 is the same as setting denoise to 1.0 in the regular Sampler node.\\n - end_at_step = This is the step number the KSampler will stop it\\'s process of de-noising the picture. If there is any remaining leftover noise and return_with_leftover_noise is enabled, then it will pass on the left over noise to the next KSampler (assuming there is another one).'"
+          ]
+        ]
+      },
+      "41": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'This node will take the latent data from the KSampler and, using the VAE, it will decode it into visible data\\n\\nVAE = Latent --> Visible\\n\\nThis can then be sent to the Save Image node to be saved as a PNG.'"
+          ]
+        ]
+      },
+      "42": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "\"This node sets the image's resolution in Width and Height.\\n\\nNOTE: For SDXL, it is recommended to use trained values listed below:\\n - 1024 x 1024\\n - 1152 x 896\\n - 896  x 1152\\n - 1216 x 832\\n - 832  x 1216\\n - 1344 x 768\\n - 768  x 1344\\n - 1536 x 640\\n - 640  x 1536\""
+          ]
+        ]
+      },
+      "45": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "steps"
+            ]
+          ],
+          [
+            "0",
+            [
+              "11",
+              "steps"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "25"
+          ]
+        ]
+      },
+      "47": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "end_at_step"
+            ]
+          ],
+          [
+            "0",
+            [
+              "11",
+              "start_at_step"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "20"
+          ]
+        ]
+      },
+      "48": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'These can be used to control the total sampling steps and the step at which the sampling switches to the refiner.'"
+          ]
+        ]
+      },
+      "49": {
+        "class_type": "Power Lora Loader (rgthree)",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "None"
+          ],
+          [
+            "unused_widget_1",
+            "{'type': 'PowerLoraLoaderHeaderWidget'}"
+          ],
+          [
+            "unused_widget_2",
+            "{'on': True, 'lora': 'movieposters.safetensors', 'strength': 1, 'strengthTwo': None}"
+          ],
+          [
+            "unused_widget_3",
+            "{'on': True, 'lora': 'LeThAiVN_Cyborg_LoRA_Flux_V1.safetensors', 'strength': 1, 'strengthTwo': None}"
+          ],
+          [
+            "widget_4",
+            "{'on': True, 'lora': 'super-realism.safetensors', 'strength': 1, 'strengthTwo': None}"
+          ],
+          [
+            "widget_5",
+            "None"
+          ],
+          [
+            "widget_6",
+            "''"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "1024"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "49",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\\n'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'text, watermark'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c9df19048aae0738b68f35cb3f7acad01020d92e711dde9b218bb478db46ad76",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "hello guys. how can I load a lora in stability matrix comfyui?",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1334350956258791496",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1334350956258791496:my_JuggernaughtXL_cyborg.json:f6f362075d89b501",
+      "filename": "my_JuggernaughtXL_cyborg.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:09+00:00",
+      "message_id": 1334350956258791496,
+      "node_class_multiset": {
+        "CLIPTextEncode": 4,
+        "CheckpointLoaderSimple": 2,
+        "EmptyLatentImage": 1,
+        "KSamplerAdvanced": 2,
+        "Note": 6,
+        "Power Lora Loader (rgthree)": 1,
+        "PrimitiveNode": 2,
+        "SaveImage": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 20,
+      "origin_date": "2025-01-30T02:34:19.014000+00:00",
+      "originator_global_name": "Avt3k",
+      "originator_id": "432597031840776192",
+      "originator_type": "discord_message_author",
+      "originator_username": "avt3k3393",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "f6f362075d89b501eae1e3e28881fc6bc68cca9f2b4a3dc7d4686f754c6951c8",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1334350956279894076/my_JuggernaughtXL_cyborg.json?ex=697975ab&is=6978242b&hm=04d8f4809f46c42d2cbd8782bd74546b2f13738d8496a6ee6cef5c7858afc034&",
+      "source_workflow_sha256": "824b163d5cc1adc37470aaa8b6dc93f00ecb33fdb9681e150c582bb934ad07cf",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "d0e2bac89ac57749de1c7bb2f0396ff475beca2f99af723173efd37733019a2f",
+      "complexity": 3,
+      "description": "Generates images using two checkpoints (juggernautXL and sd_xl_refiner) with advanced KSampler settings, CLIP text encoding, and LoRA support, outputting saved images.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "image-generation",
+        "stable-diffusion",
+        "xl",
+        "refiner",
+        "lora",
+        "ksampler",
+        "text-to-image"
+      ],
+      "task_type": "text_to_image",
+      "title": "Dual Checkpoint XL Image Generation with Refiner"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "KSamplerAdvanced",
+      "id": "10",
+      "inputs": {
+        "add_noise": "enable",
+        "cfg": 8,
+        "noise_seed": 699031726722722,
+        "return_with_leftover_noise": "enable",
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "start_at_step": 0,
+        "unused_widget_2": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 46,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 11,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 12,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 27,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 41,
+              "name": "steps",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 43,
+              "name": "end_at_step",
+              "slot_index": 5,
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1000,
+            230
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced"
+          },
+          "size": [
+            300,
+            334
+          ],
+          "title": "KSampler (Advanced) - BASE",
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "enable",
+            699031726722722,
+            "randomize",
+            25,
+            8,
+            "euler",
+            "normal",
+            0,
+            20,
+            "enable"
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          699031726722722,
+          "randomize",
+          25,
+          8,
+          "euler",
+          "normal",
+          0,
+          20,
+          "enable"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "KSamplerAdvanced",
+      "id": "11",
+      "inputs": {
+        "add_noise": "disable",
+        "cfg": 8,
+        "end_at_step": 10000,
+        "noise_seed": 0,
+        "return_with_leftover_noise": "disable",
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "unused_widget_2": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "model",
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "link": 23,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 24,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 38,
+              "name": "steps",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 44,
+              "name": "start_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "start_at_step"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                25
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1800,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced"
+          },
+          "size": [
+            300,
+            340
+          ],
+          "title": "KSampler (Advanced) - REFINER",
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "disable",
+            0,
+            "fixed",
+            25,
+            8,
+            "euler",
+            "normal",
+            20,
+            10000,
+            "disable"
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "disable",
+          0,
+          "fixed",
+          25,
+          8,
+          "euler",
+          "normal",
+          20,
+          10000,
+          "disable"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "12",
+      "inputs": {
+        "ckpt_name": "sd_xl_refiner_1.0.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 12,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                19,
+                20
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                34
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            600,
+            -611
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": [
+            350,
+            100
+          ],
+          "title": "Load Checkpoint - REFINER",
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "sd_xl_refiner_1.0.safetensors"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sd_xl_refiner_1.0.safetensors"
+        ]
+      },
+      "uid": "12",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "CLIPTextEncode",
+      "id": "15",
+      "inputs": {
+        "text": "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 15,
+          "inputs": [
+            {
+              "link": 19,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1110,
+            -270
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            340,
+            140
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+        ]
+      },
+      "uid": "15",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "CLIPTextEncode",
+      "id": "16",
+      "inputs": {
+        "text": "text, watermark"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 20,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                24
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1110,
+            -90
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            340,
+            140
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "text, watermark"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "text, watermark"
+        ]
+      },
+      "uid": "16",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "VAEDecode",
+      "id": "17",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#593930",
+          "color": "#332922",
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": 25,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 34,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                28
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2220.77099609375,
+            129.60260009765625
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": [
+            200,
+            50
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "bgcolor": "#593930",
+        "color": "#332922",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "19": {
+      "class_type": "SaveImage",
+      "id": "19",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 28,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [],
+          "pos": [
+            2600,
+            130
+          ],
+          "properties": {},
+          "size": [
+            735.552734375,
+            823.98193359375
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "36": {
+      "class_type": "Note",
+      "id": "36",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 36,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -302.8046875,
+            -201.93359375
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            315.70074462890625,
+            147.9551239013672
+          ],
+          "title": "Note - Load Checkpoint BASE",
+          "type": "Note",
+          "widgets_values": [
+            "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Base SDXL model\n - This node is also used for SD1.5 and SD2.x models\n \nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Base SDXL model\n - This node is also used for SD1.5 and SD2.x models\n \nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations"
+        ]
+      },
+      "uid": "36",
+      "widgets": {
+        "widget_0": "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Base SDXL model\n - This node is also used for SD1.5 and SD2.x models\n \nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations"
+      }
+    },
+    "37": {
+      "class_type": "Note",
+      "id": "37",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 37,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            610,
+            -460
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            330,
+            140
+          ],
+          "title": "Note - Load Checkpoint REFINER",
+          "type": "Note",
+          "widgets_values": [
+            "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Refiner SDXL model\n\nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations."
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Refiner SDXL model\n\nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations."
+        ]
+      },
+      "uid": "37",
+      "widgets": {
+        "widget_0": "This is a checkpoint model loader. \n - This is set up automatically with the optimal settings for whatever SD model version you choose to use.\n - In this example, it is for the Refiner SDXL model\n\nNOTE: When loading in another person's workflow, be sure to manually choose your own *local* model. This also applies to LoRas and all their deviations."
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "4",
+      "inputs": {
+        "ckpt_name": "juggernautXL.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 4,
+          "inputs": [],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                45
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                5,
+                47
+              ],
+              "name": "CLIP",
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [],
+              "name": "VAE",
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -318.8046875,
+            -351.93359375
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": [
+            350,
+            100
+          ],
+          "title": "Load Checkpoint - BASE",
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "juggernautXL.safetensors"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "juggernautXL.safetensors"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "40": {
+      "class_type": "Note",
+      "id": "40",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 40,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            1325,
+            234
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            451.5049743652344,
+            424.4164123535156
+          ],
+          "title": "Note - KSampler  ADVANCED General Information",
+          "type": "Note",
+          "widgets_values": [
+            "Here are the settings that SHOULD stay in place if you want this workflow to work correctly:\n - add_noise: enable = This adds random noise into the picture so the model can denoise it\n\n - return_with_leftover_noise: enable = This sends the latent image data and all it's leftover noise to the next KSampler node.\n\nThe settings to pay attention to:\n - control_after_generate = generates a new random seed after each workflow job completed.\n - steps = This is the amount of iterations you would like to run the positive and negative CLIP prompts through. Each Step will add (positive) or remove (negative) pixels based on what stable diffusion \"thinks\" should be there according to the model's training\n - cfg = This is how much you want SDXL to adhere to the prompt. Lower CFG gives you more creative but often blurrier results. Higher CFG (recommended max 10) gives you stricter results according to the CLIP prompt. If the CFG value is too high, it can also result in \"burn-in\" where the edges of the picture become even stronger, often highlighting details in unnatural ways.\n - sampler_name = This is the sampler type, and unfortunately different samplers and schedulers have better results with fewer steps, while others have better success with higher steps. This will require experimentation on your part!\n - scheduler = The algorithm/method used to choose the timesteps to denoise the picture.\n - start_at_step = This is the step number the KSampler will start out it's process of de-noising the picture or \"removing the random noise to reveal the picture within\". The first KSampler usually starts with Step 0. Starting at step 0 is the same as setting denoise to 1.0 in the regular Sampler node.\n - end_at_step = This is the step number the KSampler will stop it's process of de-noising the picture. If there is any remaining leftover noise and return_with_leftover_noise is enabled, then it will pass on the left over noise to the next KSampler (assuming there is another one)."
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Here are the settings that SHOULD stay in place if you want this workflow to work correctly:\n - add_noise: enable = This adds random noise into the picture so the model can denoise it\n\n - return_with_leftover_noise: enable = This sends the latent image data and all it's leftover noise to the next KSampler node.\n\nThe settings to pay attention to:\n - control_after_generate = generates a new random seed after each workflow job completed.\n - steps = This is the amount of iterations you would like to run the positive and negative CLIP prompts through. Each Step will add (positive) or remove (negative) pixels based on what stable diffusion \"thinks\" should be there according to the model's training\n - cfg = This is how much you want SDXL to adhere to the prompt. Lower CFG gives you more creative but often blurrier results. Higher CFG (recommended max 10) gives you stricter results according to the CLIP prompt. If the CFG value is too high, it can also result in \"burn-in\" where the edges of the picture become even stronger, often highlighting details in unnatural ways.\n - sampler_name = This is the sampler type, and unfortunately different samplers and schedulers have better results with fewer steps, while others have better success with higher steps. This will require experimentation on your part!\n - scheduler = The algorithm/method used to choose the timesteps to denoise the picture.\n - start_at_step = This is the step number the KSampler will start out it's process of de-noising the picture or \"removing the random noise to reveal the picture within\". The first KSampler usually starts with Step 0. Starting at step 0 is the same as setting denoise to 1.0 in the regular Sampler node.\n - end_at_step = This is the step number the KSampler will stop it's process of de-noising the picture. If there is any remaining leftover noise and return_with_leftover_noise is enabled, then it will pass on the left over noise to the next KSampler (assuming there is another one)."
+        ]
+      },
+      "uid": "40",
+      "widgets": {
+        "widget_0": "Here are the settings that SHOULD stay in place if you want this workflow to work correctly:\n - add_noise: enable = This adds random noise into the picture so the model can denoise it\n\n - return_with_leftover_noise: enable = This sends the latent image data and all it's leftover noise to the next KSampler node.\n\nThe settings to pay attention to:\n - control_after_generate = generates a new random seed after each workflow job completed.\n - steps = This is the amount of iterations you would like to run the positive and negative CLIP prompts through. Each Step will add (positive) or remove (negative) pixels based on what stable diffusion \"thinks\" should be there according to the model's training\n - cfg = This is how much you want SDXL to adhere to the prompt. Lower CFG gives you more creative but often blurrier results. Higher CFG (recommended max 10) gives you stricter results according to the CLIP prompt. If the CFG value is too high, it can also result in \"burn-in\" where the edges of the picture become even stronger, often highlighting details in unnatural ways.\n - sampler_name = This is the sampler type, and unfortunately different samplers and schedulers have better results with fewer steps, while others have better success with higher steps. This will require experimentation on your part!\n - scheduler = The algorithm/method used to choose the timesteps to denoise the picture.\n - start_at_step = This is the step number the KSampler will start out it's process of de-noising the picture or \"removing the random noise to reveal the picture within\". The first KSampler usually starts with Step 0. Starting at step 0 is the same as setting denoise to 1.0 in the regular Sampler node.\n - end_at_step = This is the step number the KSampler will stop it's process of de-noising the picture. If there is any remaining leftover noise and return_with_leftover_noise is enabled, then it will pass on the left over noise to the next KSampler (assuming there is another one)."
+      }
+    },
+    "41": {
+      "class_type": "Note",
+      "id": "41",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#593930",
+          "color": "#332922",
+          "flags": {},
+          "id": 41,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            2160.77099609375,
+            229.60260009765625
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            320,
+            120
+          ],
+          "title": "Note - VAE Decoder",
+          "type": "Note",
+          "widgets_values": [
+            "This node will take the latent data from the KSampler and, using the VAE, it will decode it into visible data\n\nVAE = Latent --> Visible\n\nThis can then be sent to the Save Image node to be saved as a PNG."
+          ]
+        },
+        "bgcolor": "#593930",
+        "color": "#332922",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "This node will take the latent data from the KSampler and, using the VAE, it will decode it into visible data\n\nVAE = Latent --> Visible\n\nThis can then be sent to the Save Image node to be saved as a PNG."
+        ]
+      },
+      "uid": "41",
+      "widgets": {
+        "widget_0": "This node will take the latent data from the KSampler and, using the VAE, it will decode it into visible data\n\nVAE = Latent --> Visible\n\nThis can then be sent to the Save Image node to be saved as a PNG."
+      }
+    },
+    "42": {
+      "class_type": "Note",
+      "id": "42",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 42,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            564.5040893554688,
+            801.1200561523438
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            260,
+            210
+          ],
+          "title": "Note - Empty Latent Image",
+          "type": "Note",
+          "widgets_values": [
+            "This node sets the image's resolution in Width and Height.\n\nNOTE: For SDXL, it is recommended to use trained values listed below:\n - 1024 x 1024\n - 1152 x 896\n - 896  x 1152\n - 1216 x 832\n - 832  x 1216\n - 1344 x 768\n - 768  x 1344\n - 1536 x 640\n - 640  x 1536"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "This node sets the image's resolution in Width and Height.\n\nNOTE: For SDXL, it is recommended to use trained values listed below:\n - 1024 x 1024\n - 1152 x 896\n - 896  x 1152\n - 1216 x 832\n - 832  x 1216\n - 1344 x 768\n - 768  x 1344\n - 1536 x 640\n - 640  x 1536"
+        ]
+      },
+      "uid": "42",
+      "widgets": {
+        "widget_0": "This node sets the image's resolution in Width and Height.\n\nNOTE: For SDXL, it is recommended to use trained values listed below:\n - 1024 x 1024\n - 1152 x 896\n - 896  x 1152\n - 1216 x 832\n - 832  x 1216\n - 1344 x 768\n - 768  x 1344\n - 1536 x 640\n - 640  x 1536"
+      }
+    },
+    "45": {
+      "class_type": "PrimitiveNode",
+      "id": "45",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 25
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 45,
+          "inputs": [],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                38,
+                41
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            }
+          ],
+          "pos": [
+            1039.5286865234375,
+            734.6113891601562
+          ],
+          "properties": {
+            "Run widget replace on values": false
+          },
+          "size": [
+            210,
+            82
+          ],
+          "title": "steps",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            25,
+            "fixed"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          25,
+          "fixed"
+        ]
+      },
+      "uid": "45",
+      "widgets": {}
+    },
+    "47": {
+      "class_type": "PrimitiveNode",
+      "id": "47",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 20
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 47,
+          "inputs": [],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                43,
+                44
+              ],
+              "name": "INT",
+              "slot_index": 0,
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            }
+          ],
+          "pos": [
+            1037.5286865234375,
+            881.6113891601562
+          ],
+          "properties": {
+            "Run widget replace on values": false
+          },
+          "size": [
+            210,
+            82
+          ],
+          "title": "end_at_step",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            20,
+            "fixed"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          20,
+          "fixed"
+        ]
+      },
+      "uid": "47",
+      "widgets": {}
+    },
+    "48": {
+      "class_type": "Note",
+      "id": "48",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 48,
+          "inputs": [],
+          "mode": 0,
+          "order": 9,
+          "outputs": [],
+          "pos": [
+            1036,
+            1018
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": [
+            213.90769958496094,
+            110.17156982421875
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "These can be used to control the total sampling steps and the step at which the sampling switches to the refiner."
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "These can be used to control the total sampling steps and the step at which the sampling switches to the refiner."
+        ]
+      },
+      "uid": "48",
+      "widgets": {
+        "widget_0": "These can be used to control the total sampling steps and the step at which the sampling switches to the refiner."
+      }
+    },
+    "49": {
+      "class_type": "Power Lora Loader (rgthree)",
+      "id": "49",
+      "inputs": {
+        "unused_widget_0": null,
+        "unused_widget_1": {
+          "type": "PowerLoraLoaderHeaderWidget"
+        },
+        "unused_widget_2": {
+          "lora": "movieposters.safetensors",
+          "on": true,
+          "strength": 1,
+          "strengthTwo": null
+        },
+        "unused_widget_3": {
+          "lora": "LeThAiVN_Cyborg_LoRA_Flux_V1.safetensors",
+          "on": true,
+          "strength": 1,
+          "strengthTwo": null
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 49,
+          "inputs": [
+            {
+              "dir": 3,
+              "link": 45,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "dir": 3,
+              "link": 47,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "dir": 4,
+              "links": [
+                46
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "dir": 4,
+              "links": [
+                48
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            177.20773315429688,
+            -494.65118408203125
+          ],
+          "properties": {
+            "Show Strengths": "Single Strength"
+          },
+          "size": [
+            340.20001220703125,
+            190
+          ],
+          "type": "Power Lora Loader (rgthree)",
+          "widgets_values": [
+            null,
+            {
+              "type": "PowerLoraLoaderHeaderWidget"
+            },
+            {
+              "lora": "movieposters.safetensors",
+              "on": true,
+              "strength": 1,
+              "strengthTwo": null
+            },
+            {
+              "lora": "LeThAiVN_Cyborg_LoRA_Flux_V1.safetensors",
+              "on": true,
+              "strength": 1,
+              "strengthTwo": null
+            },
+            {
+              "lora": "super-realism.safetensors",
+              "on": true,
+              "strength": 1,
+              "strengthTwo": null
+            },
+            null,
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          {
+            "type": "PowerLoraLoaderHeaderWidget"
+          },
+          {
+            "lora": "movieposters.safetensors",
+            "on": true,
+            "strength": 1,
+            "strengthTwo": null
+          },
+          {
+            "lora": "LeThAiVN_Cyborg_LoRA_Flux_V1.safetensors",
+            "on": true,
+            "strength": 1,
+            "strengthTwo": null
+          },
+          {
+            "lora": "super-realism.safetensors",
+            "on": true,
+            "strength": 1,
+            "strengthTwo": null
+          },
+          null,
+          ""
+        ]
+      },
+      "uid": "49",
+      "widgets": {
+        "widget_4": {
+          "lora": "super-realism.safetensors",
+          "on": true,
+          "strength": 1,
+          "strengthTwo": null
+        },
+        "widget_5": null,
+        "widget_6": ""
+      }
+    },
+    "5": {
+      "class_type": "EmptyLatentImage",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 5,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                27
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            544.5040893554688,
+            651.1200561523438
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": [
+            300,
+            110
+          ],
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            1024,
+            1024,
+            1
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 1024,
+        "widget_2": 1
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 48,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                11
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            610,
+            30
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            320,
+            160
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "8k, cyborg action movie of the dynamic fighting,  uhd,dslr,high quality,film grain,uhd,dslr,best quality,professional photography,cinema,ultra realistic,outdoor,film camera,dslr,lens flare,super-resolution,(16k),uhd,realistic,ultra realistic,ultra quality,film look,\n"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "text, watermark"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            610,
+            240
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            320,
+            150
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "text, watermark"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "text, watermark"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "19",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "juggernautXL.safetensors",
+      "sd_xl_refiner_1.0.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "f6f362075d89b501",
+    "path": "external_workflows/.shadow/source/f6f362075d89b501-my_JuggernaughtXL_cyborg.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c9df19048aae0738b68f35cb3f7acad01020d92e711dde9b218bb478db46ad76",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1145677539738665020,
+      "channel_name": "comfyui",
+      "content_preview": "hello guys. how can I load a lora in stability matrix comfyui?",
+      "discord_message_url": "https://discord.com/channels/@me/1145677539738665020/1334350956258791496",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1334350956258791496:my_JuggernaughtXL_cyborg.json:f6f362075d89b501",
+      "filename": "my_JuggernaughtXL_cyborg.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:09+00:00",
+      "message_id": 1334350956258791496,
+      "node_class_multiset": {
+        "CLIPTextEncode": 4,
+        "CheckpointLoaderSimple": 2,
+        "EmptyLatentImage": 1,
+        "KSamplerAdvanced": 2,
+        "Note": 6,
+        "Power Lora Loader (rgthree)": 1,
+        "PrimitiveNode": 2,
+        "SaveImage": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 20,
+      "origin_date": "2025-01-30T02:34:19.014000+00:00",
+      "originator_global_name": "Avt3k",
+      "originator_id": "432597031840776192",
+      "originator_type": "discord_message_author",
+      "originator_username": "avt3k3393",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "f6f362075d89b501eae1e3e28881fc6bc68cca9f2b4a3dc7d4686f754c6951c8",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1145677539738665020/1334350956279894076/my_JuggernaughtXL_cyborg.json?ex=697975ab&is=6978242b&hm=04d8f4809f46c42d2cbd8782bd74546b2f13738d8496a6ee6cef5c7858afc034&",
+      "source_workflow_sha256": "824b163d5cc1adc37470aaa8b6dc93f00ecb33fdb9681e150c582bb934ad07cf",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

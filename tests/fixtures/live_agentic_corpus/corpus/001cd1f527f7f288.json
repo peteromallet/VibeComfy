@@ -1,0 +1,248 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimpleWithNoiseSelect",
+    "inputs": {
+      "widget_0": "dreamshaper_8.safetensors",
+      "widget_1": "sqrt_linear (AnimateDiff)"
+    }
+  },
+  "10": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "2",
+        0
+      ]
+    }
+  },
+  "12": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Images\\image",
+      "images": [
+        "10",
+        0
+      ]
+    }
+  },
+  "2": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+    }
+  },
+  "26": {
+    "class_type": "LoadImagesFromDirectory",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": 32,
+      "widget_2": 0
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": "8k portrait of beautiful cyborg with ginger hair, intricate, elegant, highly detailed, majestic, red clothing, digital photography,  (masterpiece, sidelighting, finely detailed beautiful eyes: 1.2), hdr, (detailed background of a field)"
+    }
+  },
+  "5": {
+    "class_type": "PrimitiveNode",
+    "inputs": {
+      "value": 1087534154549928
+    }
+  },
+  "50": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "53",
+        0
+      ]
+    }
+  },
+  "53": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "crop": "disabled",
+      "height": [
+        "62",
+        0
+      ],
+      "image": [
+        "26",
+        0
+      ],
+      "upscale_method": "nearest-exact",
+      "width": [
+        "61",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "text": ""
+    }
+  },
+  "61": {
+    "class_type": "Integer",
+    "inputs": {
+      "widget_0": 576
+    }
+  },
+  "62": {
+    "class_type": "Integer",
+    "inputs": {
+      "widget_0": 1024
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7,
+      "denoise": 1,
+      "latent_image": [
+        "73",
+        1
+      ],
+      "model": [
+        "73",
+        0
+      ],
+      "negative": [
+        "72",
+        1
+      ],
+      "positive": [
+        "72",
+        0
+      ],
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "seed": [
+        "5",
+        0
+      ],
+      "steps": 25
+    }
+  },
+  "70": {
+    "class_type": "ControlNetLoaderAdvanced",
+    "inputs": {
+      "widget_0": "control_v11p_sd15_lineart.pth"
+    }
+  },
+  "71": {
+    "class_type": "LineArtPreprocessor",
+    "inputs": {
+      "image": [
+        "53",
+        0
+      ],
+      "widget_0": "disable",
+      "widget_1": 512
+    }
+  },
+  "72": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "control_net": [
+        "70",
+        0
+      ],
+      "image": [
+        "71",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "widget_0": 0.6,
+      "widget_1": 0,
+      "widget_2": 1
+    }
+  },
+  "73": {
+    "class_type": "ADE_AnimateDiffLoaderV1Advanced",
+    "inputs": {
+      "latents": [
+        "96",
+        0
+      ],
+      "model": [
+        "1",
+        0
+      ],
+      "widget_0": "temporaldiff-v1-animatediff.ckpt",
+      "widget_1": false,
+      "widget_2": 16,
+      "widget_3": 1,
+      "widget_4": 4,
+      "widget_5": "uniform",
+      "widget_6": false,
+      "widget_7": "sqrt_linear (AnimateDiff)"
+    }
+  },
+  "74": {
+    "class_type": "ADE_AnimateDiffCombine",
+    "inputs": {
+      "images": [
+        "10",
+        0
+      ],
+      "widget_0": 24,
+      "widget_1": 0,
+      "widget_2": "Enabled",
+      "widget_3": "video/h264-mp4",
+      "widget_4": false,
+      "widget_5": true
+    }
+  },
+  "92": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "71",
+        0
+      ]
+    }
+  },
+  "96": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "batch_size": [
+        "26",
+        2
+      ],
+      "height": [
+        "62",
+        0
+      ],
+      "widget_0": 512,
+      "widget_1": 512,
+      "widget_2": 1,
+      "width": [
+        "61",
+        0
+      ]
+    }
+  }
+}

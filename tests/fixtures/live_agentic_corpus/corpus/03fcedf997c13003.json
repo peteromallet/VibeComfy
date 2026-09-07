@@ -1,0 +1,2317 @@
+{
+  "edges": [
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "54"
+    },
+    {
+      "from_node": "56",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "55"
+    },
+    {
+      "from_node": "55",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "58"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "58"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "58"
+    },
+    {
+      "from_node": "57",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "58"
+    },
+    {
+      "from_node": "54",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "57"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "57"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "57"
+    },
+    {
+      "from_node": "59",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "57"
+    },
+    {
+      "from_node": "58",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "60",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "61"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "60"
+    }
+  ],
+  "groups": [],
+  "id": "ee60708fdf5b5a25",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "37",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "noise_seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "58",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 0
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "58",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "37": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "54",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'fp8_e4m3fn_fast'"
+          ]
+        ]
+      },
+      "38": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'umt5_xxl_fp8_e4m3fn_scaled.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'wan'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'wan_2.1_vae.safetensors'"
+          ]
+        ]
+      },
+      "54": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "37",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "8.000000000000002"
+          ]
+        ]
+      },
+      "55": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "56",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "58",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "8"
+          ]
+        ]
+      },
+      "56": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "55",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'fp8_e4m3fn_fast'"
+          ]
+        ]
+      },
+      "57": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "59",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "54",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "58",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'enable'"
+          ],
+          [
+            "cfg",
+            "3.5"
+          ],
+          [
+            "end_at_step",
+            "10"
+          ],
+          [
+            "noise_seed",
+            "774388746670969"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'enable'"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "start_at_step",
+            "0"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_2",
+            "'randomize'"
+          ]
+        ]
+      },
+      "58": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "57",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "55",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "noise_seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'disable'"
+          ],
+          [
+            "cfg",
+            "3.5"
+          ],
+          [
+            "end_at_step",
+            "10000"
+          ],
+          [
+            "noise_seed",
+            "0"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'disable'"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "start_at_step",
+            "10"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_2",
+            "'fixed'"
+          ]
+        ]
+      },
+      "59": {
+        "class_type": "EmptyHunyuanLatentVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "704"
+          ],
+          [
+            "length",
+            "121"
+          ],
+          [
+            "width",
+            "1280"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "positive"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'A close-up of a young woman smiling gently in the rain, raindrops glistening on her face and eyelashes. The video captures the delicate details of her expression and the water droplets, with soft light reflecting off her skin in the rainy atmosphere.'"
+          ]
+        ]
+      },
+      "60": {
+        "class_type": "CreateVideo",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "fps",
+            "24"
+          ]
+        ]
+      },
+      "61": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "60",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "62": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\\n)\\n\\n**Diffusion Model**\\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\\n\\n**VAE**\\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\\n\\n**Text Encoder**   \\n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\\n\\n\\nFile save location\\n\\n```\\nComfyUI/\\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \\n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\\n```\\n'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "negative"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "58",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "03fcedf997c13003edc872bda78ae98df4d37ff513c6c4f943d8b48cdebfc34d",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1399384740548575314",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1399384740548575314:video_wan2_2_14B_t2v.json:ee60708fdf5b5a25",
+      "filename": "video_wan2_2_14B_t2v.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:27+00:00",
+      "message_id": 1399384740548575314,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "CreateVideo": 1,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSamplerAdvanced": 2,
+        "MarkdownNote": 1,
+        "ModelSamplingSD3": 2,
+        "SaveVideo": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 15,
+      "origin_date": "2025-07-28T13:35:21.458000+00:00",
+      "originator_global_name": "JohnDopamine",
+      "originator_id": "771193439399444490",
+      "originator_type": "discord_message_author",
+      "originator_username": "johndopamine",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ee60708fdf5b5a25a94a06e3c5cebd440ae03740a7d44d88a0a9e2671150f1f7",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1399384740225617980/video_wan2_2_14B_t2v.json?ex=6888ce19&is=68877c99&hm=0048687b667da455ee90d27b360485043c6d0911fc30d9539e7d392332d1ff0a&",
+      "source_workflow_sha256": "6a98fa5a35845ccac7ecd86470f77bec282f73433040b18fc99eb9d87f8653b9",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "afa5871c01cfb8215ca4485b642f1ce8d25c7a53c5c7e82cdd71792ed349e23c",
+      "complexity": 2,
+      "description": "Generates a video from text prompts using two UNET models (high and low noise) with separate sampling configurations, then decodes and saves the result.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "text-to-video",
+        "wan2.2",
+        "hunyuan",
+        "video-generation",
+        "dual-unet",
+        "model-sampling",
+        "fp8"
+      ],
+      "task_type": "text_to_image",
+      "title": "Wan2.2 Text-to-Video with Dual UNET and Model Sampling"
+    }
+  },
+  "nodes": {
+    "37": {
+      "class_type": "UNETLoader",
+      "id": "37",
+      "inputs": {
+        "unet_name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "fp8_e4m3fn_fast"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 37,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "unet_name",
+              "name": "unet_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "unet_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "weight_dtype",
+              "name": "weight_dtype",
+              "type": "COMBO",
+              "widget": {
+                "name": "weight_dtype"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                110
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            34.225364685058594,
+            -71.77911376953125
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "diffusion_models",
+                "name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            346.7470703125,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+            "fp8_e4m3fn_fast"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+          "fp8_e4m3fn_fast"
+        ]
+      },
+      "uid": "37",
+      "widgets": {}
+    },
+    "38": {
+      "class_type": "CLIPLoader",
+      "id": "38",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "device": "default",
+        "type": "wan"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "clip_name",
+              "name": "clip_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "clip_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "type",
+              "name": "type",
+              "type": "COMBO",
+              "widget": {
+                "name": "type"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "device",
+              "name": "device",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "device"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                74,
+                75
+              ],
+              "localized_name": "CLIP",
+              "name": "CLIP",
+              "slot_index": 0,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            38.86457061767578,
+            189.26513671875
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            346.391845703125,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "wan",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "wan",
+          "default"
+        ]
+      },
+      "uid": "38",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "VAELoader",
+      "id": "39",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "vae_name",
+              "name": "vae_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "vae_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                76
+              ],
+              "localized_name": "VAE",
+              "name": "VAE",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            40,
+            350
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "vae",
+                "name": "wan_2.1_vae.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            344.731689453125,
+            59.98149108886719
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "wan_2.1_vae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan_2.1_vae.safetensors"
+        ]
+      },
+      "uid": "39",
+      "widgets": {}
+    },
+    "54": {
+      "class_type": "ModelSamplingSD3",
+      "id": "54",
+      "inputs": {
+        "shift": 8.000000000000002
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 54,
+          "inputs": [
+            {
+              "link": 110,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "shift",
+              "name": "shift",
+              "type": "FLOAT",
+              "widget": {
+                "name": "shift"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                125
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            640,
+            -70
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            60
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            8.000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8.000000000000002
+        ]
+      },
+      "uid": "54",
+      "widgets": {}
+    },
+    "55": {
+      "class_type": "ModelSamplingSD3",
+      "id": "55",
+      "inputs": {
+        "shift": 8
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 55,
+          "inputs": [
+            {
+              "link": 112,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "shift",
+              "name": "shift",
+              "type": "FLOAT",
+              "widget": {
+                "name": "shift"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                123
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            640,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8
+        ]
+      },
+      "uid": "55",
+      "widgets": {}
+    },
+    "56": {
+      "class_type": "UNETLoader",
+      "id": "56",
+      "inputs": {
+        "unet_name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "fp8_e4m3fn_fast"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 56,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "unet_name",
+              "name": "unet_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "unet_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "weight_dtype",
+              "name": "weight_dtype",
+              "type": "COMBO",
+              "widget": {
+                "name": "weight_dtype"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                112
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            34.70310592651367,
+            57.175601959228516
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "diffusion_models",
+                "name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            346.7470703125,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+            "fp8_e4m3fn_fast"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+          "fp8_e4m3fn_fast"
+        ]
+      },
+      "uid": "56",
+      "widgets": {}
+    },
+    "57": {
+      "class_type": "KSamplerAdvanced",
+      "id": "57",
+      "inputs": {
+        "add_noise": "enable",
+        "cfg": 3.5,
+        "end_at_step": 10,
+        "noise_seed": 774388746670969,
+        "return_with_leftover_noise": "enable",
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "start_at_step": 0,
+        "steps": 20,
+        "unused_widget_2": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 57,
+          "inputs": [
+            {
+              "link": 125,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 127,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 129,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 126,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "add_noise",
+              "name": "add_noise",
+              "type": "COMBO",
+              "widget": {
+                "name": "add_noise"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "noise_seed",
+              "name": "noise_seed",
+              "type": "INT",
+              "widget": {
+                "name": "noise_seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "start_at_step",
+              "name": "start_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "start_at_step"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "end_at_step",
+              "name": "end_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "return_with_leftover_noise",
+              "name": "return_with_leftover_noise",
+              "type": "COMBO",
+              "widget": {
+                "name": "return_with_leftover_noise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                113
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            890,
+            -60
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            304.748046875,
+            334
+          ],
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "enable",
+            774388746670969,
+            "randomize",
+            20,
+            3.5,
+            "euler",
+            "simple",
+            0,
+            10,
+            "enable"
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          774388746670969,
+          "randomize",
+          20,
+          3.5,
+          "euler",
+          "simple",
+          0,
+          10,
+          "enable"
+        ]
+      },
+      "uid": "57",
+      "widgets": {}
+    },
+    "58": {
+      "class_type": "KSamplerAdvanced",
+      "id": "58",
+      "inputs": {
+        "add_noise": "disable",
+        "cfg": 3.5,
+        "end_at_step": 10000,
+        "noise_seed": 0,
+        "return_with_leftover_noise": "disable",
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "start_at_step": 10,
+        "steps": 20,
+        "unused_widget_2": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 58,
+          "inputs": [
+            {
+              "link": 123,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 128,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 130,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 113,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "add_noise",
+              "name": "add_noise",
+              "type": "COMBO",
+              "widget": {
+                "name": "add_noise"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "noise_seed",
+              "name": "noise_seed",
+              "type": "INT",
+              "widget": {
+                "name": "noise_seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "start_at_step",
+              "name": "start_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "start_at_step"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "end_at_step",
+              "name": "end_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "return_with_leftover_noise",
+              "name": "return_with_leftover_noise",
+              "type": "COMBO",
+              "widget": {
+                "name": "return_with_leftover_noise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                124
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            890,
+            360
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            304.748046875,
+            498.6905822753906
+          ],
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "disable",
+            0,
+            "fixed",
+            20,
+            3.5,
+            "euler",
+            "simple",
+            10,
+            10000,
+            "disable"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "disable",
+          0,
+          "fixed",
+          20,
+          3.5,
+          "euler",
+          "simple",
+          10,
+          10000,
+          "disable"
+        ]
+      },
+      "uid": "58",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "EmptyHunyuanLatentVideo",
+      "id": "59",
+      "inputs": {
+        "batch_size": 1,
+        "height": 704,
+        "length": 121,
+        "width": 1280
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "length",
+              "name": "length",
+              "type": "INT",
+              "widget": {
+                "name": "length"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "batch_size",
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                126
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            50,
+            530
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyHunyuanLatentVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            315,
+            130
+          ],
+          "type": "EmptyHunyuanLatentVideo",
+          "widgets_values": [
+            1280,
+            704,
+            121,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1280,
+          704,
+          121,
+          1
+        ]
+      },
+      "uid": "59",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "A close-up of a young woman smiling gently in the rain, raindrops glistening on her face and eyelashes. The video captures the delicate details of her expression and the water droplets, with soft light reflecting off her skin in the rainy atmosphere."
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 74,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                127,
+                128
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            420,
+            280
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            422.84503173828125,
+            164.31304931640625
+          ],
+          "title": "CLIP Text Encode (Positive Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "A close-up of a young woman smiling gently in the rain, raindrops glistening on her face and eyelashes. The video captures the delicate details of her expression and the water droplets, with soft light reflecting off her skin in the rainy atmosphere."
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A close-up of a young woman smiling gently in the rain, raindrops glistening on her face and eyelashes. The video captures the delicate details of her expression and the water droplets, with soft light reflecting off her skin in the rainy atmosphere."
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "60": {
+      "class_type": "CreateVideo",
+      "id": "60",
+      "inputs": {
+        "fps": 24
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 60,
+          "inputs": [
+            {
+              "link": 131,
+              "localized_name": "images",
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "audio",
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "fps",
+              "name": "fps",
+              "type": "FLOAT",
+              "widget": {
+                "name": "fps"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                132
+              ],
+              "localized_name": "VIDEO",
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            1240,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "CreateVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            78
+          ],
+          "type": "CreateVideo",
+          "widgets_values": [
+            24
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          24
+        ]
+      },
+      "uid": "60",
+      "widgets": {}
+    },
+    "61": {
+      "class_type": "SaveVideo",
+      "id": "61",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 61,
+          "inputs": [
+            {
+              "link": 132,
+              "localized_name": "video",
+              "name": "video",
+              "type": "VIDEO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "format",
+              "name": "format",
+              "type": "COMBO",
+              "widget": {
+                "name": "format"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "codec",
+              "name": "codec",
+              "type": "COMBO",
+              "widget": {
+                "name": "codec"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [],
+          "pos": [
+            1240,
+            190
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            710,
+            660
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "61",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "MarkdownNote",
+      "id": "62",
+      "inputs": {
+        "unused_widget_0": "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 62,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            -480,
+            -120
+          ],
+          "properties": {
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            480,
+            350
+          ],
+          "title": "Model Links",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+        ]
+      },
+      "uid": "62",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 75,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                129,
+                130
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            420,
+            480
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            425.27801513671875,
+            180.6060791015625
+          ],
+          "title": "CLIP Text Encode (Negative Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 124,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 76,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                131
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1240,
+            -40
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "61",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "wan_2.1_vae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "ee60708fdf5b5a25",
+    "path": "external_workflows/.shadow/source/ee60708fdf5b5a25-video_wan2_2_14B_t2v.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "03fcedf997c13003edc872bda78ae98df4d37ff513c6c4f943d8b48cdebfc34d",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1342763350815277067,
+      "channel_name": "wan_chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1342763350815277067/1399384740548575314",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1399384740548575314:video_wan2_2_14B_t2v.json:ee60708fdf5b5a25",
+      "filename": "video_wan2_2_14B_t2v.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:27+00:00",
+      "message_id": 1399384740548575314,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "CreateVideo": 1,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSamplerAdvanced": 2,
+        "MarkdownNote": 1,
+        "ModelSamplingSD3": 2,
+        "SaveVideo": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 15,
+      "origin_date": "2025-07-28T13:35:21.458000+00:00",
+      "originator_global_name": "JohnDopamine",
+      "originator_id": "771193439399444490",
+      "originator_type": "discord_message_author",
+      "originator_username": "johndopamine",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ee60708fdf5b5a25a94a06e3c5cebd440ae03740a7d44d88a0a9e2671150f1f7",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1342763350815277067/1399384740225617980/video_wan2_2_14B_t2v.json?ex=6888ce19&is=68877c99&hm=0048687b667da455ee90d27b360485043c6d0911fc30d9539e7d392332d1ff0a&",
+      "source_workflow_sha256": "6a98fa5a35845ccac7ecd86470f77bec282f73433040b18fc99eb9d87f8653b9",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

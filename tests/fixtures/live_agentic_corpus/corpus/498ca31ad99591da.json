@@ -1,0 +1,1042 @@
+{
+  "118": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "746",
+        2
+      ],
+      "model": [
+        "545",
+        0
+      ],
+      "negative": [
+        "746",
+        1
+      ],
+      "positive": [
+        "746",
+        0
+      ],
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "seed": [
+        "562",
+        0
+      ],
+      "steps": [
+        "529",
+        0
+      ]
+    }
+  },
+  "119": {
+    "class_type": "TrimVideoLatent",
+    "inputs": {
+      "samples": [
+        "118",
+        0
+      ],
+      "trim_amount": [
+        "746",
+        3
+      ],
+      "widget_0": 0
+    }
+  },
+  "13": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "device": "default",
+      "type": "wan"
+    }
+  },
+  "14": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "Wan2_1_VAE_fp32.safetensors"
+    }
+  },
+  "143": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "642",
+        0
+      ],
+      "b": [
+        "151",
+        0
+      ],
+      "expression": "a-b"
+    }
+  },
+  "147": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "audio": [
+        "681",
+        2
+      ],
+      "crf": 19,
+      "filename_prefix": "wan_native",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "594",
+        0
+      ],
+      "images": [
+        "626",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "15": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "612",
+        1
+      ],
+      "text": ""
+    }
+  },
+  "151": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 10
+    }
+  },
+  "16": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "612",
+        1
+      ],
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+    }
+  },
+  "181": {
+    "class_type": "GetImageRangeFromBatch",
+    "inputs": {
+      "images": [
+        "92",
+        0
+      ],
+      "num_frames": [
+        "21",
+        0
+      ],
+      "start_index": 0
+    }
+  },
+  "19": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 576
+    }
+  },
+  "20": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 1024
+    }
+  },
+  "21": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 65
+    }
+  },
+  "30": {
+    "class_type": "TrimVideoLatent",
+    "inputs": {
+      "samples": [
+        "656",
+        0
+      ],
+      "trim_amount": [
+        "742",
+        3
+      ],
+      "widget_0": 0
+    }
+  },
+  "32": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "594",
+        0
+      ],
+      "images": [
+        "721",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": false,
+      "trim_to_audio": false
+    }
+  },
+  "355": {
+    "class_type": "Label (rgthree)",
+    "inputs": {}
+  },
+  "376": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "696",
+        0
+      ]
+    }
+  },
+  "48": {
+    "class_type": "LayerUtility: PurgeVRAM",
+    "inputs": {
+      "anything": [
+        "679",
+        0
+      ],
+      "purge_cache": false,
+      "purge_models": true
+    }
+  },
+  "529": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 4
+    }
+  },
+  "544": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": {
+      "model": [
+        "753",
+        0
+      ],
+      "shift": [
+        "602",
+        0
+      ]
+    }
+  },
+  "545": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": {
+      "model": [
+        "753",
+        0
+      ],
+      "shift": [
+        "602",
+        0
+      ]
+    }
+  },
+  "56": {
+    "class_type": "GetImageRangeFromBatch",
+    "inputs": {
+      "images": [
+        "625",
+        2
+      ],
+      "num_frames": [
+        "151",
+        0
+      ],
+      "start_index": [
+        "143",
+        0
+      ]
+    }
+  },
+  "562": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 0
+    }
+  },
+  "575": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ComfyUI_00021_.png"
+    }
+  },
+  "594": {
+    "class_type": "FloatConstant",
+    "inputs": {
+      "value": 16.000000000000004
+    }
+  },
+  "602": {
+    "class_type": "FloatConstant",
+    "inputs": {
+      "value": 6.000000000000002
+    }
+  },
+  "611": {
+    "class_type": "PathchSageAttentionKJ",
+    "inputs": {
+      "model": [
+        "612",
+        0
+      ],
+      "sage_attention": "auto"
+    }
+  },
+  "612": {
+    "class_type": "Power Lora Loader (rgthree)",
+    "inputs": {
+      "clip": [
+        "13",
+        0
+      ],
+      "model": [
+        "680",
+        0
+      ],
+      "widget_10": "",
+      "widget_4": {
+        "lora": "WanVideo\\Wan21_AccVid_T2V_14B_lora_rank32_fp16.safetensors",
+        "on": false,
+        "strength": 0.5,
+        "strengthTwo": null
+      },
+      "widget_5": {
+        "lora": "WanVideo\\Wan2.1-Fun-14B-InP-MPS.safetensors",
+        "on": false,
+        "strength": 0.75,
+        "strengthTwo": null
+      },
+      "widget_6": {
+        "lora": "WanVideo\\Wan14B_RealismBoost.safetensors",
+        "on": true,
+        "strength": 0.2,
+        "strengthTwo": null
+      },
+      "widget_7": {
+        "lora": "WanVideo\\DetailEnhancerV1.safetensors",
+        "on": true,
+        "strength": 0.2,
+        "strengthTwo": null
+      },
+      "widget_8": {
+        "lora": "WAN\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+        "on": true,
+        "strength": 0.6,
+        "strengthTwo": null
+      },
+      "widget_9": {}
+    }
+  },
+  "625": {
+    "class_type": "easy forLoopStart",
+    "inputs": {
+      "initial_value1": [
+        "721",
+        0
+      ],
+      "total": [
+        "628",
+        0
+      ],
+      "widget_0": 1
+    }
+  },
+  "626": {
+    "class_type": "easy forLoopEnd",
+    "inputs": {
+      "flow": [
+        "625",
+        0
+      ],
+      "initial_value1": [
+        "686",
+        0
+      ]
+    }
+  },
+  "627": {
+    "class_type": "VHS_GetImageCount",
+    "inputs": {
+      "images": [
+        "92",
+        0
+      ]
+    }
+  },
+  "628": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "627",
+        0
+      ],
+      "b": [
+        "21",
+        0
+      ],
+      "c": [
+        "151",
+        0
+      ],
+      "expression": "(round(a/b))-1"
+    }
+  },
+  "642": {
+    "class_type": "VHS_GetImageCount",
+    "inputs": {
+      "images": [
+        "625",
+        2
+      ]
+    }
+  },
+  "643": {
+    "class_type": "GetImageRangeFromBatch",
+    "inputs": {
+      "images": [
+        "92",
+        0
+      ],
+      "num_frames": [
+        "21",
+        0
+      ],
+      "start_index": [
+        "644",
+        0
+      ]
+    }
+  },
+  "644": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "143",
+        0
+      ],
+      "b": [
+        "151",
+        0
+      ],
+      "expression": "a+b-10\n"
+    }
+  },
+  "649": {
+    "class_type": "easy showAnything",
+    "inputs": {
+      "anything": [
+        "625",
+        1
+      ]
+    }
+  },
+  "655": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "594",
+        0
+      ],
+      "images": [
+        "625",
+        2
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": false,
+      "trim_to_audio": false
+    }
+  },
+  "656": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "742",
+        2
+      ],
+      "model": [
+        "544",
+        0
+      ],
+      "negative": [
+        "742",
+        1
+      ],
+      "positive": [
+        "742",
+        0
+      ],
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "seed": [
+        "562",
+        0
+      ],
+      "steps": [
+        "529",
+        0
+      ]
+    }
+  },
+  "659": {
+    "class_type": "VHS_GetImageCount",
+    "inputs": {
+      "images": [
+        "757",
+        0
+      ]
+    }
+  },
+  "660": {
+    "class_type": "easy showAnything",
+    "inputs": {
+      "anything": [
+        "659",
+        0
+      ]
+    }
+  },
+  "661": {
+    "class_type": "easy showAnything",
+    "inputs": {
+      "anything": [
+        "627",
+        0
+      ]
+    }
+  },
+  "662": {
+    "class_type": "VHS_GetImageCount",
+    "inputs": {
+      "images": [
+        "721",
+        0
+      ]
+    }
+  },
+  "663": {
+    "class_type": "easy showAnything",
+    "inputs": {
+      "anything": [
+        "662",
+        0
+      ]
+    }
+  },
+  "666": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "743",
+        1
+      ]
+    }
+  },
+  "672": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "743",
+        0
+      ]
+    }
+  },
+  "673": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "666",
+        0
+      ]
+    }
+  },
+  "678": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "overlap": 64,
+      "samples": [
+        "119",
+        0
+      ],
+      "temporal_overlap": 16,
+      "temporal_size": 64,
+      "tile_size": 512,
+      "vae": [
+        "14",
+        0
+      ]
+    }
+  },
+  "679": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "overlap": 64,
+      "samples": [
+        "30",
+        0
+      ],
+      "temporal_overlap": 16,
+      "temporal_size": 64,
+      "tile_size": 512,
+      "vae": [
+        "14",
+        0
+      ]
+    }
+  },
+  "680": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "Wan2.1_14B_VACE-Q8_0.gguf"
+    }
+  },
+  "681": {
+    "class_type": "VHS_LoadVideo",
+    "inputs": {
+      "choose video to upload": "image",
+      "custom_height": [
+        "20",
+        0
+      ],
+      "custom_width": [
+        "19",
+        0
+      ],
+      "force_rate": 16,
+      "format": "AnimateDiff",
+      "frame_load_cap": 0,
+      "select_every_nth": 1,
+      "skip_first_frames": 0,
+      "video": "Qui danse le mieux \ud83e\udd14 #shortvideo.mp4"
+    }
+  },
+  "686": {
+    "class_type": "WanVideoBlender",
+    "inputs": {
+      "overlap_frames": 10,
+      "video_1": [
+        "625",
+        2
+      ],
+      "video_2": [
+        "722",
+        0
+      ]
+    }
+  },
+  "692": {
+    "class_type": "Display Int (rgthree)",
+    "inputs": {
+      "input": [
+        "693",
+        3
+      ],
+      "widget_0": ""
+    }
+  },
+  "693": {
+    "class_type": "GetImageSizeAndCount",
+    "inputs": {
+      "image": [
+        "626",
+        0
+      ]
+    }
+  },
+  "694": {
+    "class_type": "Display Int (rgthree)",
+    "inputs": {
+      "input": [
+        "695",
+        3
+      ],
+      "widget_0": ""
+    }
+  },
+  "695": {
+    "class_type": "GetImageSizeAndCount",
+    "inputs": {
+      "image": [
+        "681",
+        0
+      ]
+    }
+  },
+  "696": {
+    "class_type": "ImagePadKJ",
+    "inputs": {
+      "bottom": 50,
+      "extra_padding": "color",
+      "image": [
+        "575",
+        0
+      ],
+      "left": 0,
+      "pad_mode": "255,255,255",
+      "right": 0,
+      "top": 0
+    }
+  },
+  "711": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "temp",
+      "format": "video/h264-mp4",
+      "frame_rate": 16,
+      "images": [
+        "722",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "720": {
+    "class_type": "ImageResizeKJv2",
+    "inputs": {
+      "crop_position": "center",
+      "device": "cpu",
+      "divisible_by": 2,
+      "height": 512,
+      "image": [
+        "575",
+        0
+      ],
+      "keep_proportion": "crop",
+      "pad_color": "255,255,255",
+      "upscale_method": "lanczos",
+      "width": 512
+    }
+  },
+  "721": {
+    "class_type": "ColorMatchToReference",
+    "inputs": {
+      "images": [
+        "679",
+        0
+      ],
+      "match_strength": 1,
+      "reference_image": [
+        "720",
+        0
+      ]
+    }
+  },
+  "722": {
+    "class_type": "ColorMatchToReference",
+    "inputs": {
+      "images": [
+        "678",
+        0
+      ],
+      "match_strength": 1,
+      "reference_image": [
+        "723",
+        0
+      ]
+    }
+  },
+  "723": {
+    "class_type": "ImageFromBatch",
+    "inputs": {
+      "batch_index": 0,
+      "image": [
+        "743",
+        0
+      ],
+      "length": 1
+    }
+  },
+  "731": {
+    "class_type": "Florence2ModelLoader",
+    "inputs": {
+      "attention": "sdpa",
+      "convert_to_safetensors": false,
+      "model": "CogFlorence-2.2-Large",
+      "precision": "fp16"
+    }
+  },
+  "732": {
+    "class_type": "Florence2Run",
+    "inputs": {
+      "do_sample": true,
+      "fill_mask": true,
+      "florence2_model": [
+        "731",
+        0
+      ],
+      "image": [
+        "735",
+        0
+      ],
+      "keep_model_loaded": false,
+      "max_new_tokens": 1024,
+      "num_beams": 3,
+      "output_mask_select": "",
+      "seed": 657053799826615,
+      "task": "more_detailed_caption",
+      "text_input": "",
+      "widget_9": "randomize"
+    }
+  },
+  "733": {
+    "class_type": "Display Any (rgthree)",
+    "inputs": {
+      "source": [
+        "732",
+        2
+      ],
+      "widget_0": "A portrait of three naked women standing next to a swimming pool. The woman in the center stands confidently with her arms at her sides. The two women on either side of her are slightly behind her, looking directly at the camera. The pool is rectangular in shape and has a blue-tiled edge. The background is a plain, light-colored wall, and a palm tree is visible in the top right corner. The image is candid and natural, highlighting the women's natural beauty and the pool's tranquil surroundings."
+    }
+  },
+  "735": {
+    "class_type": "ExtractStartFramesForContinuations",
+    "inputs": {
+      "input_video_frames": [
+        "721",
+        0
+      ],
+      "num_frames": 1
+    }
+  },
+  "736": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "612",
+        1
+      ],
+      "text": [
+        "732",
+        2
+      ]
+    }
+  },
+  "742": {
+    "class_type": "WanVaceToVideo",
+    "inputs": {
+      "batch_size": 832,
+      "control_video": [
+        "756",
+        0
+      ],
+      "height": [
+        "20",
+        0
+      ],
+      "length": [
+        "21",
+        0
+      ],
+      "negative": [
+        "16",
+        0
+      ],
+      "positive": [
+        "15",
+        0
+      ],
+      "reference_image": [
+        "696",
+        0
+      ],
+      "strength": 480,
+      "vae": [
+        "14",
+        0
+      ],
+      "widget_2": 1,
+      "widget_3": 1,
+      "widget_4": 1.0000000000000002,
+      "width": [
+        "19",
+        0
+      ]
+    }
+  },
+  "743": {
+    "class_type": "VideoContinuationGenerator",
+    "inputs": {
+      "control_images": [
+        "757",
+        0
+      ],
+      "empty_frame_fill_level": 10,
+      "how_to_use_control_images": 0.5,
+      "how_to_use_inpaint_masks": "start_sequence_at_beginning_and_prioritise_input_frames",
+      "input_video_frames": [
+        "56",
+        0
+      ],
+      "overlap_frames": 65,
+      "total_output_frames": [
+        "659",
+        0
+      ],
+      "widget_4": "start_sequence_after_overlap_frames_and_prioritise_input_frames"
+    }
+  },
+  "746": {
+    "class_type": "WanVaceToVideo",
+    "inputs": {
+      "batch_size": 832,
+      "control_video": [
+        "743",
+        0
+      ],
+      "height": [
+        "20",
+        0
+      ],
+      "length": [
+        "659",
+        0
+      ],
+      "negative": [
+        "16",
+        0
+      ],
+      "positive": [
+        "736",
+        0
+      ],
+      "reference_image": [
+        "696",
+        0
+      ],
+      "strength": 480,
+      "vae": [
+        "14",
+        0
+      ],
+      "widget_2": 81,
+      "widget_3": 1,
+      "widget_4": 1.0000000000000002,
+      "width": [
+        "19",
+        0
+      ]
+    }
+  },
+  "753": {
+    "class_type": "TorchCompileModelWanVideoV2",
+    "inputs": {
+      "backend": "inductor",
+      "compile_transformer_blocks_only": true,
+      "dynamic": false,
+      "dynamo_cache_size_limit": 64,
+      "fullgraph": false,
+      "mode": "default",
+      "model": [
+        "611",
+        0
+      ]
+    }
+  },
+  "756": {
+    "class_type": "DWPreprocessor",
+    "inputs": {
+      "bbox_detector": "yolox_l.onnx",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "detect_hand": "enable",
+      "image": [
+        "181",
+        0
+      ],
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "resolution": 512,
+      "scale_stick_for_xinsr_cn": "disable"
+    }
+  },
+  "757": {
+    "class_type": "DWPreprocessor",
+    "inputs": {
+      "bbox_detector": "yolox_l.onnx",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "detect_hand": "enable",
+      "image": [
+        "643",
+        0
+      ],
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "resolution": 512,
+      "scale_stick_for_xinsr_cn": "disable"
+    }
+  },
+  "91": {
+    "class_type": "VHS_VideoInfo",
+    "inputs": {
+      "video_info": [
+        "681",
+        3
+      ]
+    }
+  },
+  "92": {
+    "class_type": "ImageResizeKJv2",
+    "inputs": {
+      "crop_position": "center",
+      "device": "cpu",
+      "divisible_by": 2,
+      "height": [
+        "20",
+        0
+      ],
+      "image": [
+        "681",
+        0
+      ],
+      "keep_proportion": "resize",
+      "pad_color": "0, 0, 0",
+      "upscale_method": "nearest-exact",
+      "width": [
+        "19",
+        0
+      ]
+    }
+  },
+  "98": {
+    "class_type": "LayerUtility: PurgeVRAM",
+    "inputs": {
+      "anything": [
+        "678",
+        0
+      ],
+      "purge_cache": false,
+      "purge_models": true
+    }
+  }
+}

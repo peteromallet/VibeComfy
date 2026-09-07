@@ -1,0 +1,31 @@
+{
+  "28": {
+    "class_type": "Rodin3D_Regular",
+    "inputs": {
+      "Images": [
+        "49",
+        0
+      ],
+      "widget_0": 0,
+      "widget_1": "PBR",
+      "widget_2": "200K-Triangle"
+    }
+  },
+  "49": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "56": {
+    "class_type": "Preview3D",
+    "inputs": {
+      "model_file": [
+        "28",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": ""
+    }
+  }
+}
