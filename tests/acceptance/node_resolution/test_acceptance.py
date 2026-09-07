@@ -545,6 +545,8 @@ def test_b7_install_robustness(tmp_path: Path):
                 return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
             if call[:4] == ["git", "-C", call[2], "status"]:
                 return subprocess.CompletedProcess(call, 0, stdout=" M file.py\n" if self.dirty else "", stderr="")
+            if call[:5] == ["git", "-C", call[2], "config", "--get"] and call[5:] == ["remote.origin.url"]:
+                return subprocess.CompletedProcess(call, 0, stdout="https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git\n", stderr="")
             if call[:4] == ["git", "-C", call[2], "rev-parse"]:
                 return subprocess.CompletedProcess(call, 0, stdout="forcehead\n", stderr="")
             raise AssertionError(f"unexpected subprocess call: {call!r}")

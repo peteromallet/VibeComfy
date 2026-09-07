@@ -61,5 +61,6 @@ def test_run_checks_reports_stub_inventory_and_state_check() -> None:
     assert report.schema_cache_class_count > 0
     assert isinstance(report.pack_file_count, int)
     assert report.pack_file_count > 0
-    assert "kjnodes" in report.stub_pack_inventory
+    legacy = next(check for check in report.checks if check.name == "legacy_file_presence")
+    assert "vibecomfy/nodes/comfyui_kjnodes.py" in legacy.details["missing"]
     assert any(check.name == "legacy_file_presence" and check.status == "state" for check in report.checks)

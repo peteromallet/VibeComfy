@@ -12,8 +12,10 @@ from vibecomfy.commands.inspect import _cmd_inspect
 from vibecomfy.commands.port import _cmd_port_convert
 from vibecomfy.commands.workflows import _cmd_workflows_list
 from vibecomfy.registry.ready import workflow_from_ready
+from vibecomfy.registry.ready_template import bind_output
 from vibecomfy.runtime.session import RunResult, _run_metadata
-from vibecomfy.workflow import VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow_bundle import load_bundle
 
 
 def _read_json(capsys: pytest.CaptureFixture[str]) -> object:
@@ -205,21 +207,8 @@ def test_acceptance_dry_run_ready_conversion_reports_strict_evidence_without_wri
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _write_port_node_index(tmp_path)
-    workflow_path = tmp_path / "workflow.json"
+    workflow_path = (Path(__file__).resolve().parents[1] / "ready_templates" / "smoke" / "empty_image_red.py").resolve()
     target = tmp_path / "ready_templates" / "image" / "candidate.py"
-    workflow_path.write_text(
-        json.dumps(
-            {
-                "1": {"class_type": "LoadImage", "inputs": {"image": "input.png"}},
-                "2": {
-                    "class_type": "SaveImage",
-                    "inputs": {"images": ["1", 0], "filename_prefix": "out/agent_acceptance"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
     monkeypatch.chdir(tmp_path)
 
     code = _cmd_port_convert(
@@ -262,28 +251,45 @@ def test_acceptance_run_metadata_artifact_manifest_lookup_without_runtime(tmp_pa
     clip.write_bytes(b"video")
 
     workflow = VibeWorkflow("agent-acceptance", WorkflowSource("agent-acceptance"))
-    workflow.outputs.extend(
-        [
-            VibeOutput(
-                node_id="9",
-                output_type="SaveImage",
-                name="preview",
-                artifact_kind="image",
-                filename_prefix="previews/preview",
-            ),
-            VibeOutput(
-                node_id="10",
-                output_type="SaveVideo",
-                name="clip",
-                artifact_kind="video",
-                filename_prefix="clips/clip",
-            ),
-        ]
+    image = workflow.node("LoadImage", _id="1", image="input.png")
+    save_image = workflow.node(
+        "SaveImage", _id="2", filename_prefix="previews/preview"
     )
+    video = workflow.node("CreateVideo", _id="3", fps=30.0)
+    save_video = workflow.node(
+        "SaveVideo",
+        _id="4",
+        filename_prefix="clips/clip",
+        format="auto",
+        codec="auto",
+    )
+    workflow.connect(image.out("IMAGE"), f"{save_image.id}.images")
+    workflow.connect(image.out("IMAGE"), f"{video.id}.images")
+    workflow.connect(video.out("VIDEO"), f"{save_video.id}.video")
+    workflow.finalize_metadata()
+    bind_output(
+        workflow,
+        save_image.id,
+        output_type="SaveImage",
+        name="preview",
+        artifact_kind="image",
+        filename_prefix="previews/preview",
+    )
+    bind_output(
+        workflow,
+        save_video.id,
+        output_type="SaveVideo",
+        name="clip",
+        artifact_kind="video",
+        filename_prefix="clips/clip",
+    )
+
+    bundle = load_bundle(workflow)
+    record = bundle.compile()
     metadata = _run_metadata(
         run_id="run-agent-acceptance",
-        workflow=workflow,
-        api_dict={},
+        bundle=bundle,
+        record=record,
         queued={"prompt_id": "prompt-agent-acceptance"},
         outputs=[str(preview), str(clip)],
         runtime="embedded",

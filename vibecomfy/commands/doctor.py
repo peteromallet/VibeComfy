@@ -12,6 +12,7 @@ from typing import Any
 
 from vibecomfy._git_utils import git_head
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.workflow_bundle import WorkflowReconciliationError
 from vibecomfy.commands._model_entries import model_entries_for_workflow
 from vibecomfy.commands._output import emit
 from vibecomfy.contracts import build_contract
@@ -75,6 +76,18 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         return 1
     try:
         _approved_record = bundle.compile(schema_provider=schema_provider)
+    except WorkflowReconciliationError as exc:
+        from vibecomfy.schema.ensure_capture import format_template_gap
+
+        payload = {
+            "status": "error",
+            "layer": "Schema reconciliation",
+            "errors": [str(exc)],
+            "missing_classes": list(exc.missing_classes),
+            "recommended_command": format_template_gap(args.path, exc.missing_classes),
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
+        return 1
     except Exception as exc:
         print("Layer: Python scratchpad import/build")
         print(f"Error: {type(exc).__name__}: {exc}")

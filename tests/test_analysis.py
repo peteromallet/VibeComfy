@@ -130,16 +130,7 @@ def test_unconnected_reports_without_and_with_schema() -> None:
 
 
 def test_analyze_info_cli_smoke_returns_output(tmp_path: Path) -> None:
-    fixture = tmp_path / "workflow.json"
-    fixture.write_text(
-        json.dumps(
-            {
-                "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hello"}},
-                "2": {"class_type": "SaveImage", "inputs": {"images": ["1", 0]}},
-            }
-        ),
-        encoding="utf-8",
-    )
+    fixture = "smoke/empty_image_red"
 
     result = subprocess.run(
         [sys.executable, "-m", "vibecomfy.cli", "analyze", "info", str(fixture)],
@@ -154,18 +145,7 @@ def test_analyze_info_cli_smoke_returns_output(tmp_path: Path) -> None:
 
 
 def test_analyze_names_cli_reports_role_based_preview(tmp_path: Path) -> None:
-    fixture = tmp_path / "workflow.json"
-    fixture.write_text(
-        json.dumps(
-            {
-                "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hello"}},
-                "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
-                "3": {"class_type": "KSampler", "inputs": {"positive": ["1", 0], "negative": ["2", 0], "seed": 7}},
-                "4": {"class_type": "SaveImage", "inputs": {"images": ["3", 0]}},
-            }
-        ),
-        encoding="utf-8",
-    )
+    fixture = "image/z_image"
 
     text_result = subprocess.run(
         [sys.executable, "-m", "vibecomfy.cli", "analyze", "names", str(fixture), "--strategy", "role-based"],
@@ -187,6 +167,9 @@ def test_analyze_names_cli_reports_role_based_preview(tmp_path: Path) -> None:
     assert "terminal, no rename" in text_result.stdout
     assert json_result.returncode == 0, json_result.stderr
     payload = json.loads(json_result.stdout)
-    assert payload["summary"]["node_count"] == 4
-    assert payload["rows"][0]["proposed_name"] == "positive_text"
-    assert payload["rows"][0]["reason"] == "PUBLIC_INPUTS['prompt']"
+    from vibecomfy.registry.ready import workflow_from_ready
+
+    workflow = workflow_from_ready(fixture)
+    assert payload["summary"]["node_count"] == len(workflow.nodes)
+    prompt_row = next(row for row in payload["rows"] if row["reason"] == "PUBLIC_INPUTS['prompt']")
+    assert prompt_row["proposed_name"] == "positive_text"

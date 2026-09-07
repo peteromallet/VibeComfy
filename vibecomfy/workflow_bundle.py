@@ -39,6 +39,20 @@ class WorkflowBundleError(ValueError):
     """Raised when a bundle cannot be loaded or fails a closed boundary."""
 
 
+class WorkflowReconciliationError(WorkflowBundleError):
+    """A canonical graph cannot compile until its missing classes are resolved."""
+
+    def __init__(self, missing_classes: tuple[str, ...]) -> None:
+        self._missing_classes = tuple(sorted(set(missing_classes)))
+        super().__init__(
+            "workflow contains unresolved class types: " + ", ".join(self._missing_classes)
+        )
+
+    @property
+    def missing_classes(self) -> tuple[str, ...]:
+        return self._missing_classes
+
+
 class WorkflowAuthorityError(WorkflowBundleError):
     """Raised when compatibility evidence reaches a canonical consumer."""
 
@@ -1043,9 +1057,7 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
             f"local node-pack reconciliation failed: {type(exc).__name__}: {exc}"
         ) from exc
     if missing_classes:
-        raise WorkflowBundleError(
-            "workflow contains unresolved class types: " + ", ".join(missing_classes)
-        )
+        raise WorkflowReconciliationError(tuple(missing_classes))
 
     metadata = getattr(workflow, "metadata", {})
     reconciliation = metadata.get("reconciliation") if isinstance(metadata, Mapping) else None
