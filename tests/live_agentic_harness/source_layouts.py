@@ -129,15 +129,26 @@ def resolve_corpus_record_path(workflow_path: str | Path, *, root: Path | None =
         return None
 
     parts = rel.parts
+    name = path.name
+    tracked_corpus = root / "tests" / "fixtures" / "live_agentic_corpus" / "corpus" / name
+    tracked_flat = root / "tests" / "fixtures" / "live_agentic_corpus" / name
     if len(parts) >= 3 and parts[0] == "external_workflows" and parts[1] == "corpus":
-        return path
+        if tracked_corpus.is_file():
+            return tracked_corpus
+        if tracked_flat.is_file():
+            return tracked_flat
+        return path if path.is_file() else None
     if (
-        len(parts) >= 4
+        len(parts) >= 3
         and parts[0] == "tests"
         and parts[1] == "fixtures"
         and parts[2] == "live_agentic_corpus"
     ):
-        candidate = root / "external_workflows" / "corpus" / path.name
+        if path.is_file():
+            return path
+        if tracked_corpus.is_file():
+            return tracked_corpus
+        candidate = root / "external_workflows" / "corpus" / name
         return candidate if candidate.is_file() else None
     return None
 

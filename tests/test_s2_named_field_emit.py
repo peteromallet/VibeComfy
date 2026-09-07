@@ -13,14 +13,22 @@ from pathlib import Path
 
 import pytest
 
+from tests.live_agentic_harness.source_layouts import resolve_corpus_record_path
 from vibecomfy.ingest.normalize import from_api, normalize_to_api
 from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import get_authoring_schema_provider
 
 
+def _corpus_path(path: str) -> Path:
+    resolved = resolve_corpus_record_path(path)
+    if resolved is None or not resolved.is_file():
+        raise FileNotFoundError(path)
+    return resolved
+
+
 def _wf_from_corpus(path: str):
-    raw = json.loads(Path(path).read_text())
+    raw = json.loads(_corpus_path(path).read_text())
     api = normalize_to_api(copy.deepcopy(raw), use_comfy_converter=False)
     return from_api(api)
 
@@ -64,8 +72,8 @@ def test_emit_uses_named_field_for_moonvalley():
 
 def test_emit_uses_named_field_for_reactor():
     import pytest as _pytest
-    p = Path("external_workflows/corpus/74a15e1f27bb96d5.json")
-    if not p.exists():
+    p = resolve_corpus_record_path("external_workflows/corpus/74a15e1f27bb96d5.json")
+    if p is None or not p.is_file():
         _pytest.skip("corpus 74a15e not in checkout — ReActor fixture missing in this worktree")
     wf = _wf_from_corpus("external_workflows/corpus/74a15e1f27bb96d5.json")
     src = emit_agent_edit_python(wf)
@@ -100,7 +108,7 @@ def test_widget_n_is_rejected_with_named_hint():
     import copy, json
     from pathlib import Path
     from vibecomfy.ingest.normalize import normalize_to_api, from_api
-    raw = json.loads(Path("external_workflows/corpus/8800a945cff8d090.json").read_text())
+    raw = json.loads(_corpus_path("external_workflows/corpus/8800a945cff8d090.json").read_text())
     api = normalize_to_api(copy.deepcopy(raw), use_comfy_converter=False)
     wf = from_api(api)
     node = wf.nodes["2"]
