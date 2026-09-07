@@ -680,8 +680,12 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
                 raise WorkflowBundleError(f"known node {uid!r} contains rejected metadata; reconcile the node metadata")
         entry: dict[str, Any] = {}
         for key in ("id", "pos", "size", "color", "bgcolor", "title"):
-            if key in node:
-                entry[key] = copy.deepcopy(node[key])
+            if key not in node:
+                continue
+            value = node[key]
+            if key in {"color", "bgcolor", "title"} and not isinstance(value, str):
+                continue
+            entry[key] = copy.deepcopy(value)
         if "order" in node:
             entry["z_order"] = copy.deepcopy(node["order"])
         elif "z_order" in node:
@@ -735,8 +739,12 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
         if bounds is not None:
             item["bounds"] = copy.deepcopy(bounds)
         for key in ("title", "color"):
-            if key in group:
-                item[key] = copy.deepcopy(group[key])
+            if key not in group:
+                continue
+            value = group[key]
+            if not isinstance(value, str):
+                continue
+            item[key] = copy.deepcopy(value)
         item["z_order"] = copy.deepcopy(group.get("order", group.get("z_order", group_index)))
         groups.append(item)
     canvas: dict[str, Any] = {}
