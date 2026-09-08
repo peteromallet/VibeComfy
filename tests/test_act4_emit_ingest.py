@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,8 +16,20 @@ from vibecomfy.porting.widget_shape_fence import (
     WidgetShapeReason,
     decide_widget_shape,
 )
-from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.schema.provider import (
+    InputSpec,
+    NodeSchema,
+    ObjectInfoIndexSchemaProvider,
+    OutputSpec,
+)
+from vibecomfy.workflow import (
+    RawWidgetPayload,
+    VibeEdge,
+    VibeNode,
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowSource,
+)
 
 
 def _parse(code: str):
@@ -122,6 +135,105 @@ def test_ingest_round_trip_original_schema_less_links() -> None:
         guard_original_ui=ui,
     )
     assert len(emitted["links"]) == 4
+
+
+def test_original_ui_compiles_declared_dynamic_splitter_outputs_before_edit() -> None:
+    """Gate B compiles the witnessed node-58 slots before any compositor edit."""
+    original_ui = {
+        "last_node_id": 58,
+        "last_link_id": 4,
+        "nodes": [
+            {
+                "id": 58,
+                "type": "ImageBatchSplitter //Inspire",
+                "inputs": [],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": None, "slot_index": 0},
+                    *(
+                        {
+                            "name": f"IMAGE_{slot}",
+                            "type": "IMAGE",
+                            "links": [slot],
+                            "slot_index": slot,
+                        }
+                        for slot in range(1, 5)
+                    ),
+                ],
+                "properties": {"vibecomfy_uid": "58"},
+                "widgets_values": [4],
+            },
+            {
+                "id": 55,
+                "type": "ImageGridComposite2x2",
+                "inputs": [
+                    {
+                        "name": f"image{slot}",
+                        "type": "IMAGE",
+                        "link": slot,
+                    }
+                    for slot in range(1, 5)
+                ],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": None, "slot_index": 0}
+                ],
+                "properties": {"vibecomfy_uid": "55"},
+                "widgets_values": [],
+            },
+        ],
+        "links": [
+            [slot, 58, slot, 55, slot - 1, "IMAGE"]
+            for slot in range(1, 5)
+        ],
+        "groups": [],
+        "version": 0.4,
+    }
+
+    workflow, _ui = ingest_workflow_and_ui(
+        original_ui,
+        schema_provider=ObjectInfoIndexSchemaProvider(
+            Path(__file__).parents[1]
+            / "vibecomfy"
+            / "porting"
+            / "cache"
+            / "object_info"
+        ),
+    )
+
+    assert workflow.nodes["58"].native_output_names == [
+        "IMAGE",
+        "IMAGE_1",
+        "IMAGE_2",
+        "IMAGE_3",
+        "IMAGE_4",
+    ]
+    assert workflow.compile("api")["55"]["inputs"] == {
+        f"image{slot}": ["58", slot]
+        for slot in range(1, 5)
+    }
+
+
+def test_dynamic_splitter_output_is_not_inferred_from_link_endpoints() -> None:
+    workflow = VibeWorkflow(
+        "dynamic-output-negative",
+        WorkflowSource("dynamic-output-negative"),
+    )
+    workflow.nodes["58"] = VibeNode(
+        "58",
+        "ImageBatchSplitter //Inspire",
+        uid="splitter",
+        metadata={"output_names": ["IMAGE"]},
+    )
+    workflow.nodes["55"] = VibeNode(
+        "55",
+        "ImageGridComposite2x2",
+        uid="compositor",
+        inputs={"image1": None},
+        native_input_names=["image1"],
+    )
+    workflow.edges.append(VibeEdge("58", "1", "55", "image1"))
+
+    with pytest.raises(WorkflowCompileError, match="outside or a hole"):
+        workflow.compile("api")
 
 
 def test_duplicate_input_name_emit_imagescale_width() -> None:

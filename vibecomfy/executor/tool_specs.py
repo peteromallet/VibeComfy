@@ -577,7 +577,13 @@ def _node_schema_handler(
     session: Any, args: Mapping[str, Any], budget_payload: Any
 ) -> ToolResult:
     mod = importlib.import_module("vibecomfy.executor.lookup_tools")
-    provider = getattr(session, "schema_provider", None)
+    # Lookup evidence may consult the session's ingress-bound advisory
+    # delegate so an actual provider outage stays distinguishable from an
+    # authoritative frozen-snapshot miss. Admission remains pinned below to
+    # the immutable snapshot and cannot be widened by this lookup.
+    provider = getattr(session, "_advisory_schema_provider", None)
+    if provider is None:
+        provider = getattr(session, "schema_provider", None)
     # RRSYN-5 / RR1-FIX-REV: ALWAYS label lookups against the turn's frozen
     # admission snapshot when the session carries one; without frozen
     # authority the lookup result is labeled unknown-to-current-admission

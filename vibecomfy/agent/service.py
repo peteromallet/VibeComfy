@@ -259,13 +259,40 @@ def run_headless(
     from vibecomfy.comfy_nodes.agent.executor_response import (  # noqa: PLC0415
         serialize_executor_result,
     )
+    from vibecomfy.errors import VibeComfyError  # noqa: PLC0415
     from vibecomfy.executor.core import run_executor  # noqa: PLC0415
 
-    result = run_executor(
-        executor_request,
-        classify_only=request.dry_run,
-        additive=request.additive,
-    )
+    try:
+        result = run_executor(
+            executor_request,
+            classify_only=request.dry_run,
+            additive=request.additive,
+        )
+    except VibeComfyError as exc:
+        error = str(exc)
+        response = {
+            "ok": False,
+            "error": error,
+            "error_type": type(exc).__name__,
+        }
+        artifacts = _synthesize_artifacts(
+            request=request,
+            result=None,
+            response=response,
+            output_dir=output_dir,
+            status="executor_failure",
+            readiness=readiness,
+            entrypoint=entrypoint,
+        )
+        return HeadlessAgentResult(
+            status="executor_failure",
+            ok=False,
+            response=response,
+            artifacts=artifacts,
+            readiness=readiness,
+            error=error,
+            request=request,
+        )
     response = serialize_executor_result(result)
     typed_ambiguity = _typed_ambiguity_from_result(result)
     plan = getattr(getattr(result, "report", None), "plan", None)

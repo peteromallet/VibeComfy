@@ -208,6 +208,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         value_default_context: ValueDefaultContext | None = None,
         initial_workflow: VibeWorkflow | None = None,
         workflow_snapshot: Any | None = None,
+        interaction_mode: str | None = None,
     ) -> None:
         # raw_ui_json is door input only: the named ingest builds the retained
         # IR once.  The ingest snapshot is deep-frozen emit prior_ui furniture,
@@ -216,6 +217,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
+        # Request-declared interaction permission.  This is transported from
+        # executor_classification; it is never derived from the task text.
+        self.interaction_mode = interaction_mode
         supplied_provider = schema_provider or get_schema_provider("auto")
         # Once a provider exposes an ingress snapshot, pin this session to a
         # provider reconstructed from that exact immutable snapshot.  This
@@ -223,15 +227,31 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         # live provider or observing a newer ambient generation.
         from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
 
-        # Keep the ingress-bound live delegate only as advisory diagnostic
-        # context.  The retained/frozen provider below remains the sole
-        # schema authority; the interpreter uses this reference only to tell
-        # a late live-only class apart from an ordinary invented constructor.
+        # Capture the catalog at session construction.  It may complete an
+        # incomplete ingress snapshot for a touched class, but a class that
+        # appears in the live delegate later in the turn is not authority.
+        frozen_catalog = None
+        frozen_catalog_error: str | None = None
+        schemas = getattr(supplied_provider, "schemas", None)
+        if callable(schemas):
+            try:
+                candidate_catalog = schemas()
+            except Exception as exc:
+                candidate_catalog = None
+                frozen_catalog_error = f"{type(exc).__name__}: {exc}"
+            if isinstance(candidate_catalog, Mapping):
+                # Session authority is a point-in-time capture. NodeSchema is
+                # frozen only at the dataclass shell; its input/output
+                # containers can still be mutable, so a shallow dict copy
+                # would allow a provider mutation after ingress to authorize
+                # a field that was never present in the captured catalog.
+                frozen_catalog = deepcopy(dict(candidate_catalog))
         self._advisory_schema_provider = supplied_provider
         supplied_snapshot = getattr(supplied_provider, "snapshot", None)
         if isinstance(supplied_snapshot, SchemaSnapshot):
             self.schema_provider = FrozenSchemaSnapshotProvider(supplied_snapshot)
-            self.schema_provider._advisory_schema_provider = supplied_provider
+            self.schema_provider._frozen_schema_catalog = frozen_catalog
+            self.schema_provider._frozen_schema_catalog_error = frozen_catalog_error
         else:
             self.schema_provider = supplied_provider
         self.caps: frozenset[str] = frozenset(str(cap) for cap in caps)
@@ -522,6 +542,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         workflow: VibeWorkflow | None = None,
         *,
         ops: tuple[Any, ...] | list[Any] | None = None,
+        schema_provider: Any = None,
     ) -> dict[str, Any]:
         """Emit the current IR to UI JSON. This is the only working-graph projector."""
         from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui
@@ -532,7 +553,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         prior_ui = _unfreeze(self._ingest_ui)
         emitted = emit_ui_json(
             target,
-            schema_provider=self.schema_provider,
+            schema_provider=schema_provider or self.schema_provider,
             include_virtual_wires=True,
             prior_ui_payload=prior_ui,
         )
@@ -766,13 +787,16 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             # evaluator report as Python/preview.  There is no live-provider
             # validation fallback: without frozen authority the shared
             # evaluator returns a typed rejection and nothing can publish.
-            from vibecomfy.porting.edit._interpret import _interpret_ops
+            from vibecomfy.porting.edit._interpret import interpret
 
-            typed_report = _interpret_ops(
+            typed_report = interpret(
                 pre,
                 batch,
                 schema_provider=self.schema_provider,
                 value_default_context=self.value_default_context,
+            )
+            interpretation_schema_provider = (
+                typed_report.schema_provider or self.schema_provider
             )
             if not typed_report.ok:
                 reason = (
@@ -798,7 +822,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             # Keep the evaluator/apply gate on ordinary canonical IR values;
             # detach only at publication so immutable report containers never
             # become inputs to replay/deepcopy machinery.
-            canonical_ops = tuple(diff(pre, post, schema_provider=self.schema_provider))
+            canonical_ops = tuple(
+                diff(pre, post, schema_provider=interpretation_schema_provider)
+            )
             if not canonical_ops:
                 # The shared evaluator has already classified and reported
                 # every occurrence. An all-noop typed batch has no candidate
@@ -825,7 +851,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 pre,
                 post,
                 landed_ops=canonical_ops,
-                schema_provider=self.schema_provider,
+                schema_provider=interpretation_schema_provider,
                 value_default_context=self.value_default_context,
             )
             if not gate.ok or not gate.apply_eligible:
@@ -844,7 +870,9 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                     revision=self._revision,
                 )
 
-            baseline_ui = self._emit_working_snapshot(pre, ops=())
+            baseline_ui = self._emit_working_snapshot(
+                pre, ops=(), schema_provider=interpretation_schema_provider
+            )
             # The returned candidate is the complete post-transaction graph,
             # not a graph containing only this batch's attribution.  Pinning
             # with just ``canonical_ops`` would restore earlier accepted edits
@@ -855,7 +883,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
             # to the snapshot emitted after commit and keeps candidate/UI
             # equality stable across a durable threaded continuation.
             accepted_ops = tuple(self.landed_ops) + canonical_ops
-            candidate_ui = self._emit_working_snapshot(post, ops=accepted_ops)
+            candidate_ui = self._emit_working_snapshot(
+                post,
+                ops=accepted_ops,
+                schema_provider=interpretation_schema_provider,
+            )
             self._authorize_emitted_list_values(
                 baseline_ui, candidate_ui, pre, accepted_ops
             )
@@ -881,6 +913,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 )
 
             self.workflow = post
+            self.schema_provider = interpretation_schema_provider
             self.value_default_context = typed_report.value_default_context
             self._history.append((pre, frozen_canonical_ops, frozen_canonical_ops))
             self.landed_ops.extend(frozen_canonical_ops)

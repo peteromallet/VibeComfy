@@ -11,6 +11,7 @@ import copy
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -161,6 +162,243 @@ def _append_uidless_node_and_edge(
 
 def _append_duplicate_edge(workflow) -> None:
     workflow.edges.append(copy.deepcopy(workflow.edges[0]))
+
+
+def test_interpret_freezes_catalog_provider_without_snapshot() -> None:
+    """Local/live providers expose schemas() but no frozen snapshot.
+
+    interpret(pre, Δ) used to fail missing_schema_authority, so the intent
+    judge treated representable edits as apply failures.
+    """
+    inner = _SchemaProvider()
+
+    class CatalogOnly:
+        def schemas(self):
+            return inner.schemas()
+
+        def get_schema(self, class_type):
+            return inner.get_schema(class_type)
+
+    result = _interpret(
+        _fixture(),
+        parse_edit_delta(
+            [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+        ),
+        provider=CatalogOnly(),
+    )
+    codes = [diag.code for diag in result.diagnostics]
+    assert "missing_schema_authority" not in codes
+    assert result.ok is True
+
+
+class _IncompleteFrozenCatalog:
+    def __init__(
+        self,
+        *,
+        omitted: tuple[str, ...],
+        additions: dict[str, NodeSchema] | None = None,
+    ) -> None:
+        inner = _SchemaProvider()
+        catalog = inner.schemas()
+        catalog.update(additions or {})
+        self._catalog = catalog
+        retained = {
+            class_type: schema
+            for class_type, schema in catalog.items()
+            if class_type not in omitted
+        }
+        self.snapshot = capture_schema_snapshot(
+            class_types=tuple(catalog),
+            request_snapshot={
+                "schemas": {
+                    class_type: schema_payload_from_node_schema(class_type, schema)
+                    for class_type, schema in retained.items()
+                },
+                "missing_classes": list(omitted),
+            },
+            node_classes={
+                "1": "CheckpointLoaderSimple",
+                "2": "CLIPTextEncode",
+                "3": "CLIPTextEncode",
+                "4": "EmptyLatentImage",
+                "5": "KSampler",
+                "6": "VAEDecode",
+                "7": "SaveImage",
+            },
+        )
+
+    def schemas(self):
+        return dict(self._catalog)
+
+    def get_schema(self, class_type):
+        return self._catalog.get(class_type)
+
+
+def test_interpret_enriches_incomplete_snapshot_for_touched_existing_class_and_replay(
+) -> None:
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _IncompleteFrozenCatalog(omitted=("KSampler",))
+    pre = from_ui(
+        dict(_fixture()), schema_provider=provider, use_comfy_converter=False
+    )
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+
+    result = interpret(pre, delta, schema_provider=provider)
+    replayed = interpret(
+        pre, result.landed_ops, schema_provider=result.schema_provider
+    )
+
+    assert result.ok is True
+    assert replayed.ok is True
+    assert (
+        result.schema_provider.snapshot.content_digest
+        == replayed.schema_provider.snapshot.content_digest
+    )
+    assert not any(
+        diag.code == "missing_touched_schema" for diag in result.diagnostics
+    )
+    assert _node_by_uid(replayed.workflow, "5").inputs["steps"] == 42
+    session = EditSession(_fixture(), schema_provider=provider)
+    batch = session.apply_batch("ksampler.steps = 43\n")
+    assert batch.ok is True
+    assert batch.apply_eligible is True
+    assert "KSampler" in session.schema_provider.snapshot.schemas
+    typed_session = EditSession(_fixture(), schema_provider=provider)
+    typed = typed_session.apply_ops(delta, expected_revision=0)
+    assert typed.ok is True
+    assert "KSampler" in typed_session.schema_provider.snapshot.schemas
+
+
+def test_final_candidate_publication_replays_with_session_admission_witness() -> None:
+    """Final admission must persist the same enriched snapshot as apply."""
+    from vibecomfy.comfy_nodes.agent.edit_batch_repl import _publish_session_candidate
+    from vibecomfy.ingest.snapshot import snapshot_of
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _IncompleteFrozenCatalog(omitted=("KSampler",))
+    pre = from_ui(dict(_fixture()), schema_provider=provider, use_comfy_converter=False)
+    retained_workflow = snapshot_of(pre)
+    assert retained_workflow is not None
+    session = EditSession(
+        _fixture(),
+        schema_provider=provider,
+        initial_workflow=pre,
+        workflow_snapshot=retained_workflow,
+    )
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+    applied = session.apply_ops(delta, expected_revision=0)
+    assert applied.ok is True
+    session.render()
+    state = SimpleNamespace(
+        schema_snapshot=provider.snapshot,
+        admission_schema_snapshot=None,
+        schema_provider=provider,
+        workflow_snapshot=retained_workflow,
+        prior_store=None,
+        guard_original_ui=_fixture(),
+        graph=_fixture(),
+        edited_workflow=None,
+    )
+
+    _publish_session_candidate(state, session)
+
+    assert "KSampler" in state.schema_snapshot.schemas
+    assert (
+        state.schema_snapshot.content_digest
+        == session.schema_provider.snapshot.content_digest
+        == state.admission_schema_snapshot.content_digest
+    )
+    replayed = interpret(pre, delta, schema_provider=state.schema_provider)
+    assert replayed.ok is True
+    assert not any(
+        diagnostic.code == "missing_touched_schema"
+        for diagnostic in replayed.diagnostics
+    )
+
+
+def test_interpret_enriches_incomplete_snapshot_for_added_catalog_class_and_replay(
+) -> None:
+    from vibecomfy.porting.edit.session import EditSession
+
+    class_type = "GenericCatalogImageSink"
+    provider = _IncompleteFrozenCatalog(
+        omitted=(class_type,),
+        additions={
+            class_type: NodeSchema(
+                class_type=class_type,
+                pack="test",
+                inputs={
+                    "images": InputSpec(type="IMAGE", required=True),
+                    "label": InputSpec(type="STRING"),
+                },
+                outputs=[],
+            )
+        },
+    )
+    pre = from_ui(
+        dict(_fixture()), schema_provider=provider, use_comfy_converter=False
+    )
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "add_node",
+                "scope_path": "",
+                "class_type": class_type,
+                "fields": {"label": "result"},
+                "inputs": {"images": ["", "6", "IMAGE"]},
+            }
+        ]
+    )
+
+    result = interpret(pre, delta, schema_provider=provider)
+    replayed = interpret(
+        pre, result.landed_ops, schema_provider=result.schema_provider
+    )
+
+    assert result.ok is True
+    assert replayed.ok is True
+    assert (
+        result.schema_provider.snapshot.content_digest
+        == replayed.schema_provider.snapshot.content_digest
+    )
+    assert not any(
+        diag.code == "missing_touched_schema" for diag in result.diagnostics
+    )
+    assert any(node.class_type == class_type for node in replayed.workflow.nodes.values())
+    session = EditSession(_fixture(), schema_provider=provider)
+    batch = session.apply_batch(
+        "sink = node('GenericCatalogImageSink', "
+        "images=vaedecode.IMAGE, label='result')\n"
+    )
+    assert batch.ok is True
+    assert batch.apply_eligible is True
+    assert class_type in session.schema_provider.snapshot.schemas
+    typed_session = EditSession(_fixture(), schema_provider=provider)
+    typed = typed_session.apply_ops(delta, expected_revision=0)
+    assert typed.ok is True
+    assert class_type in typed_session.schema_provider.snapshot.schemas
+
+
+def test_interpret_keeps_missing_touched_schema_when_snapshot_and_catalog_lack_class() -> None:
+    full = _SchemaProvider()
+    pre = from_ui(
+        dict(_fixture()), schema_provider=full, use_comfy_converter=False
+    )
+    provider = _IncompleteFrozenCatalog(omitted=("KSampler",))
+    provider._catalog.pop("KSampler")
+    delta = parse_edit_delta(
+        [{"op": "set_node_field", "target": ["", "5", "steps"], "value": 42}]
+    )
+
+    result = interpret(pre, delta, schema_provider=provider)
+
+    assert result.ok is False
+    assert any(diag.code == "missing_touched_schema" for diag in result.diagnostics)
 
 
 def test_interpret_rejects_unknown_target_without_mutating_original() -> None:

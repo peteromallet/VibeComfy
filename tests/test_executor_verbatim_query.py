@@ -187,9 +187,11 @@ def test_threaded_plan_goals_carry_verbatim_query_only() -> None:
     assert request.query == "Research how VACE preprocessing works first, then explain it"
 
 
-def test_threaded_route_open_envelope_except_declared_non_edit_contract() -> None:
-    """Shape-inferred route coercion stays banned; declared answer_only is
-    transported as the inspect lane. Typed-refusal contracts stay adapt.
+def test_threaded_route_open_envelope_including_declared_non_edit_contract() -> None:
+    """Threaded always opens one execute conversation.
+
+    ``answer_only`` is prompt context constraining mutation, not a reason to
+    replace the research-capable conversation with the inspect reply lane.
     """
     ordinary = _request(graph={"nodes": {}, "links": []})
     answer_only = _request(
@@ -210,10 +212,11 @@ def test_threaded_route_open_envelope_except_declared_non_edit_contract() -> Non
     assert "graph is attached" in ordinary_plan.plan_summary
 
     plan = executor_threaded._threaded_plan(answer_only)
-    assert plan.effective_route == "inspect"
-    assert plan.implement is False and plan.research is False
-    assert plan.intent != "edit"
-    assert "answer_only" in plan.plan_summary
+    assert plan.effective_route == "adapt"
+    assert plan.implement is True and plan.research is True
+    assert plan.research_goal == answer_only.query
+    assert plan.change_goal == answer_only.query
+    assert "answer_only: respond without editing" in plan.plan_summary
 
 def test_classify_prompt_carries_interaction_mode_as_context() -> None:
     """RR1-FIX-REV2 F9: interaction_mode travels to the staged classifier as

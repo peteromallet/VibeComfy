@@ -37,27 +37,75 @@ def _is_idempotent_rewire_batch(operations: tuple[EditOp, ...]) -> bool:
     )
 
 
-def _unexpected_value_changes(pre: Any, post: Any, ops: tuple[EditOp, ...]) -> tuple[dict[str, Any], ...]:
+def _unexpected_value_changes(
+    pre: Any,
+    post: Any,
+    ops: tuple[EditOp, ...],
+    *,
+    schema_provider: Any = None,
+) -> tuple[dict[str, Any], ...]:
     """Return list/dict/scalar field mutations not claimed by canonical ops."""
     from vibecomfy.porting.edit.ops import AddNodeOp, RemoveNodeOp, SetNodeFieldOp
 
     allowed: set[tuple[str, str]] = set()
     removed: set[str] = set()
     added: set[str] = set()
+    pre_nodes = {
+        str(getattr(node, "uid", "")): node
+        for node in (getattr(pre, "nodes", {}) or {}).values()
+    }
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
-            allowed.add((str(op.target.uid), str(op.target.field_path)))
-            if op.target.field_path == "widgets_values":
-                allowed.update(
-                    (str(op.target.uid), name)
-                    for name in ("widgets_values", *[f"widget_{index}" for index in range(64)])
+            uid = str(op.target.uid)
+            field_path = str(op.target.field_path)
+            allowed.add((uid, field_path))
+            node = pre_nodes.get(uid)
+            if node is not None and schema_provider is not None:
+                from vibecomfy.schema import schema_for
+
+                schema = schema_for(
+                    schema_provider, str(getattr(node, "class_type", ""))
                 )
+                schema_inputs = getattr(schema, "inputs", {}) or {}
+                widget_order = tuple(
+                    getattr(schema, "widget_input_order", ()) or ()
+                )
+                positions = tuple(
+                    index
+                    for index, name in enumerate(widget_order)
+                    if name == field_path
+                )
+                positional_field = (
+                    f"widget_{positions[0]}"
+                    if field_path in schema_inputs and len(positions) == 1
+                    else None
+                )
+                # A canonical schema field may still live in the retained
+                # positional ingress carrier. Attribute only that one proven
+                # carrier; never bless every widget_N alias or derive a field
+                # name from its numeric index.
+                if positional_field is not None and (
+                    positional_field in (getattr(node, "widgets", {}) or {})
+                    or positional_field in (getattr(node, "inputs", {}) or {})
+                ):
+                    allowed.add((uid, positional_field))
+            if op.target.field_path == "widgets_values":
+                positional_carriers = {
+                    str(name)
+                    for channel in (
+                        getattr(node, "inputs", {}) or {},
+                        getattr(node, "widgets", {}) or {},
+                    )
+                    for name in channel
+                    if str(name).startswith("widget_")
+                    and str(name).removeprefix("widget_").isdigit()
+                }
+                allowed.update((uid, name) for name in positional_carriers)
         elif isinstance(op, AddNodeOp) and op.uid:
             added.add(str(op.uid))
         elif isinstance(op, RemoveNodeOp):
             removed.add(str(op.target.uid))
     changes: list[dict[str, Any]] = []
-    pre_nodes = {str(getattr(node, "uid", "")): node for node in (getattr(pre, "nodes", {}) or {}).values()}
     post_nodes = {str(getattr(node, "uid", "")): node for node in (getattr(post, "nodes", {}) or {}).values()}
     for uid in sorted(set(pre_nodes) & set(post_nodes)):
         before = pre_nodes[uid]
@@ -113,6 +161,9 @@ class _ParseExecuteMixin:
                 cas_old=cas_old,
                 name_hints=self._transient_name_index,
                 value_default_context=self.value_default_context,
+            )
+            interpretation_schema_provider = (
+                interpreted.schema_provider or self.schema_provider
             )
             landed_ops = tuple(interpreted.landed_ops)
             frozen_landed_ops = _freeze_operation_tuple(landed_ops)
@@ -212,7 +263,7 @@ class _ParseExecuteMixin:
                     interpreted.workflow,
                     delta=code,
                     landed_ops=landed_ops,
-                    schema_provider=self.schema_provider,
+                    schema_provider=interpretation_schema_provider,
                     name_hints=self._transient_name_index,
                     value_default_context=self.value_default_context,
                 )
@@ -290,7 +341,12 @@ class _ParseExecuteMixin:
                         landed_ops=(),
                         apply_eligible=False,
                     )
-                unexpected = _unexpected_value_changes(pre_ir, interpreted.workflow, landed_ops)
+                unexpected = _unexpected_value_changes(
+                    pre_ir,
+                    interpreted.workflow,
+                    landed_ops,
+                    schema_provider=interpretation_schema_provider,
+                )
                 if unexpected:
                     evidence = _diag(
                         "unattributed_value_change",
@@ -345,6 +401,10 @@ class _ParseExecuteMixin:
                 )
             if landed_ops:
                 self.workflow = interpreted.workflow
+                # Persist the exact immutable schema generation that admitted
+                # this batch. Apply replay, later history replay, and receipt
+                # construction must not reconstruct it from a live catalog.
+                self.schema_provider = interpretation_schema_provider
                 self.value_default_context = interpreted.value_default_context
                 # The accepted batch IS the Δ.  Each history entry records
                 # (wf_i, source, landed_ops) — the Python-surface source AND
@@ -566,6 +626,7 @@ class _ParseExecuteMixin:
             "transient_uid_index": dict(getattr(self, "_transient_uid_index", {})),
             "unbound_names": set(self.unbound_names),
             "value_default_context": self.value_default_context,
+            "schema_provider": self.schema_provider,
             "workflow": (
                 _cow_workflow_copy(workflow) if workflow is not None else None
             ),
@@ -586,6 +647,7 @@ class _ParseExecuteMixin:
         self._transient_uid_index = dict(snapshot.get("transient_uid_index", {}))
         self.unbound_names = set(snapshot["unbound_names"])
         self.value_default_context = snapshot["value_default_context"]
+        self.schema_provider = snapshot["schema_provider"]
         self.workflow = snapshot["workflow"]
         if "history" in snapshot:
             self._history = list(snapshot["history"])

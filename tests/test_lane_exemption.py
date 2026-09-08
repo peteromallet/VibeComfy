@@ -80,7 +80,7 @@ def test_d813fe_typed_refusal_stays_implement_capable() -> None:
     assert plan.intent == "edit"
 
 
-def test_explain_answer_only_without_typed_refusal_uses_inspect() -> None:
+def test_explain_answer_only_without_typed_refusal_uses_open_execute_envelope() -> None:
     request = ExecutorRequest(
         query="what could be causing the black frames in this workflow?",
         graph={"1": {"class_type": "KSampler", "inputs": {}}},
@@ -89,8 +89,10 @@ def test_explain_answer_only_without_typed_refusal_uses_inspect() -> None:
     )
     plan = _threaded_plan(request)
     assert typed_refusal_contract(request) is False
-    assert plan.effective_route == "inspect"
-    assert plan.implement is False
+    assert plan.effective_route == "adapt"
+    assert plan.implement is True
+    assert plan.research is True
+    assert "answer_only: respond without editing" in plan.plan_summary
 
 
 def test_673197_staged_respond_is_lifted_to_inspect() -> None:
@@ -170,7 +172,7 @@ def test_inspect_does_not_fabricate_absence_when_lookup_unavailable() -> None:
     )
 
 
-def test_inspect_lane_attaches_promoted_outcome_on_executor_result() -> None:
+def test_threaded_answer_only_named_absence_still_uses_open_conversation() -> None:
     inspect_request = ExecutorRequest(
         query="Replace the SEGS detector with GroundingDINO",
         graph={"1": {"class_type": "UltralyticsDetectorProvider", "inputs": {}}},
@@ -178,46 +180,52 @@ def test_inspect_lane_attaches_promoted_outcome_on_executor_result() -> None:
         expect_graph_changed=False,
     )
 
-    def lookup(class_type: str) -> object | None:
-        return None if class_type == "GroundingDINO" else object()
+    seen: dict[str, Any] = {}
 
-    def run_inspect_reply(*_a: Any, **_k: Any) -> str:
-        return "GroundingDINO is not authorable here."
+    def run_implement(
+        request: ExecutorRequest,
+        _spec: AgentSpecShape,
+        **kwargs: Any,
+    ) -> ImplementationResult:
+        seen["request"] = request
+        seen["plan"] = kwargs["plan"]
+        return ImplementationResult(
+            message="GroundingDINO needs outside research.",
+            durable_response={"graph_unchanged": True},
+        )
+
+    def resolve_spec(
+        _profile: str | None, phase: str
+    ) -> AgentSpecShape:
+        seen["phase"] = phase
+        return AgentSpecShape("hermes", "model", "medium")
 
     kernel = ThreadedKernel(
-        resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
-        run_implement=lambda *a, **k: pytest.fail("inspect lane must not implement"),
+        resolve_spec=resolve_spec,
+        run_implement=run_implement,
         emit_phase=lambda *args, **kwargs: None,
         enforce_reply_grounding=lambda reply, **kwargs: reply,
         accepted_delta_ops=lambda implementation: (),
         implementation_landed_edit=lambda implementation: False,
         no_candidate_reason=lambda implementation: None,
-        run_inspect_reply=run_inspect_reply,
+        run_inspect_reply=lambda *a, **k: pytest.fail(
+            "threaded answer_only must not use inspect reply"
+        ),
     )
 
-    import vibecomfy.executor.threaded as threaded_mod
-
-    original = threaded_mod._default_schema_lookup
-    threaded_mod._default_schema_lookup = lookup
-    try:
-        result = run_threaded_executor(
-            inspect_request,
-            kernel=kernel,
-            host_ports=_ports(),
-            executor_id="executor-inspect-blocker",
-        )
-    finally:
-        threaded_mod._default_schema_lookup = original
+    result = run_threaded_executor(
+        inspect_request,
+        kernel=kernel,
+        host_ports=_ports(),
+        executor_id="executor-answer-only",
+    )
 
     assert result.ok is True
-    assert result.graph is None
-    impl = result.report.implementation
-    assert impl is not None
-    durable = dict(impl.durable_response or {})
-    assert list(durable["report"]["authoring_blocker"]["missing_runtime_classes"]) == ["GroundingDINO"]
-    envelope = result.to_dict()
-    assert envelope["outcome"]["kind"] == "requires_custom_nodes"
-    assert envelope["outcome"]["missing_classes"] == ["GroundingDINO"]
+    assert seen["phase"] == "execute"
+    assert seen["request"].interaction_mode == "answer_only"
+    assert seen["plan"].effective_route == "adapt"
+    assert seen["plan"].research is True
+    assert seen["plan"].implement is True
 
 
 def test_adapter_exempts_expected_no_candidate_from_answer_only() -> None:

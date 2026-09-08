@@ -881,6 +881,8 @@ def build_agent_research_messages(
     evidence_digest: str,
     route: str,
     research_brief: str = "",
+    remaining_decision_turns: int | None = None,
+    unresolved_decision: str | None = None,
 ) -> list[dict[str, str]]:
     """System + user messages for one agent research decision turn.
 
@@ -892,8 +894,12 @@ def build_agent_research_messages(
     :func:`build_research_brief`; the narrow ``question`` remains the
     question-before-search marker.  The system prompt documents the
     research-phase tool catalog, the call/finish action contract, the
-    downstream consumer of the synthesis, and the per-turn budget display;
-    the agent chooses every tool call.
+    downstream consumer of the synthesis, and the per-turn enough-check
+    context.  ``remaining_decision_turns`` is the host-enforced ceiling
+    including this turn, while ``unresolved_decision`` names the question the
+    agent must decide is still blocking.  These are context for the agent's
+    judgment, never a deterministic finish rule; the agent chooses every tool
+    call and owns the enough-check.
     """
     catalog = tool_catalog_docs(PHASE_RESEARCH, allowed_names=RESEARCH_ALLOWED_TOOLS)
     system = (
@@ -926,9 +932,22 @@ def build_agent_research_messages(
         "evidence IDs you actually used.\n"
         "- Record genuine uncertainty instead of guessing, and name the "
         "tradeoffs you found.\n"
-        "- Finish when the evidence answers the question with acceptable "
-        "certainty; do not over-search. The digest shows your time left — "
-        "watch it and leave room to finish with a synthesis.\n"
+        "- You own the enough-check on every turn: decide whether the stated "
+        "unresolved decision still blocks the next stage. Finish when the "
+        "available evidence answers it with acceptable certainty; do not "
+        "over-search. The remaining decision-turn budget is a ceiling, not a "
+        "target, so leave room for a synthesis.\n"
+        "- A Hivemind `unavailable` result (including "
+        "`hivemind_statement_timeout`) is an outage, not proof that a subject "
+        "or node class is absent from the corpus; implementation checks the "
+        "local inventory with `node_schema(node_class)`.\n"
+        "- On adapt routes, implementation has `node_schema(node_class)` for "
+        "local schema questions such as node availability, input/widget names, "
+        "allowed values, and ranges. Do not spend research turns trying to "
+        "prove facts that this implementation tool can resolve. When only a "
+        "local schema/widget question remains, it no longer blocks research: "
+        "you may record that handoff and finish once you judge the research "
+        "question no longer blocking.\n"
         "- Before finishing, SELF-CHECK that your synthesis answers the "
         "original question with concrete substance: for an adapt request that "
         "means exact class types and roles, wiring/socket/terminal pattern, "
@@ -948,8 +967,16 @@ def build_agent_research_messages(
         '{"action": "finish", "conclusion": string, "evidence_ids": [string, ...], '
         '"uncertainty": string} — the evidence answers the question.'
     )
+    open_decision = _clean_text(unresolved_decision) or _clean_text(question)
+    budget = (
+        "reported in the evidence digest"
+        if remaining_decision_turns is None
+        else str(max(0, int(remaining_decision_turns)))
+    )
     user_lines = [
         f"Research question: {question}",
+        f"Unresolved decision: {open_decision}",
+        f"Remaining decision-turn budget (including this turn): {budget}",
         f"Route: {route}",
     ]
     brief = _clean_text(research_brief)
@@ -1486,6 +1513,7 @@ def run_agent_research_stage(
     session_id: str | None = None,
     request_identity: str | Mapping[str, Any] | None = None,
     baseline_identity: str | Mapping[str, Any] | None = None,
+    prior_ledger: EvidenceLedger | None = None,
 ) -> tuple[AgentResearchTrace, EvidencePack]:
     """Run the C1 agent-owned tool-calling research loop.
 
@@ -1542,7 +1570,23 @@ def run_agent_research_stage(
     ledger_entries: list[EvidenceLedgerEntry] = []
     warnings: list[str] = []
     iterations: list[AgentResearchIteration] = []
-    tool_call_digests: list[dict[str, Any]] = []
+    # A bounded feedback re-entry receives the prior compact ledger before
+    # its first decision turn.  These are context, not calls consumed by this
+    # leg: the caller separately passes the remaining ``max_tool_calls``.
+    tool_call_digests: list[dict[str, Any]] = [
+        {
+            "tool": entry.decision,
+            "status": entry.tool_status or "recorded",
+            "query": "",
+            "evidence_ids": list(entry.evidence_ids),
+            "conclusion": entry.conclusion,
+        }
+        for entry in (
+            prior_ledger.entries
+            if isinstance(prior_ledger, EvidenceLedger)
+            else ()
+        )
+    ]
     # P1-c: count EXECUTED agent-chosen tool calls (not refusal/premature
     # digest entries) so a finish with zero research activity is detectable.
     tool_calls_made = 0
@@ -1788,6 +1832,8 @@ def run_agent_research_stage(
                 evidence_digest=digest,
                 route=route,
                 research_brief=research_brief,
+                remaining_decision_turns=max(0, turn_limit - turns_taken),
+                unresolved_decision=current_question,
             )
             decision, decision_retries = _run_decision_turn_with_retry(
                 judge_fn,
@@ -2192,6 +2238,9 @@ def run_agent_research_stage(
             "deadline_seconds": float(deadline_seconds),
             "turns_used": turns_taken,
             "deadline_reached": stop_reason == "deadline",
+            "tool_calls_used": tool_calls_made,
+            "tool_call_limit": tool_call_limit,
+            "tool_calls_remaining": max(0, tool_call_limit - tool_calls_made),
         },
     )
     pack = EvidencePack(artifacts=artifacts, ledger=EvidenceLedger(entries=ledger_entries))

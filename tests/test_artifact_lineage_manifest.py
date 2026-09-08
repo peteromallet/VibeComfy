@@ -261,6 +261,52 @@ def test_builder_never_raises_on_garbage_durable(monkeypatch) -> None:
     assert "digest" not in rows["candidate"]
 
 
+class TestSignedLineageSerializationIntegrity:
+    """Signed manifest bytes survive public non-applyable projection intact."""
+
+    def test_noop_serializer_does_not_prune_signed_candidate_matches(self) -> None:
+        from vibecomfy.comfy_nodes.agent.executor_response import (
+            serialize_executor_result,
+        )
+
+        rows = [fallback_row(kind, _fallback_reason(kind)) for kind in LINK_KINDS]
+        replay_index = LINK_KINDS.index("replay_proof")
+        rows[replay_index] = primary_row(
+            "replay_proof",
+            "b" * 64,
+            detail={"replay_ok": True, "candidate_matches": False},
+        )
+        manifest = _manifest(rows=rows)
+        before = validate_artifact_lineage(manifest)
+
+        serialized = serialize_executor_result(
+            {
+                "ok": True,
+                "route": "adapt",
+                "outcome": {"kind": "noop"},
+                "report": {"executor": {"artifact_lineage": manifest}},
+            }
+        )
+        retained = serialized["report"]["executor"]["artifact_lineage"]
+        replay = next(row for row in retained["rows"] if row["kind"] == "replay_proof")
+
+        assert before == (True, None)
+        assert replay["detail"]["candidate_matches"] is False
+        assert validate_artifact_lineage(retained) == (True, None)
+
+    def test_report_lineage_projection_cannot_mutate_retained_manifest(self) -> None:
+        from vibecomfy.executor.contracts import Report
+
+        manifest = _manifest()
+        report = Report(artifact_lineage=manifest)
+        first = report.to_dict()["executor"]["artifact_lineage"]
+        first["rows"][0]["reason"] = "projection-mutated"
+        second = report.to_dict()["executor"]["artifact_lineage"]
+
+        assert second["rows"][0]["reason"] != "projection-mutated"
+        assert validate_artifact_lineage(second) == (True, None)
+
+
 # ── assessor-side checks ─────────────────────────────────────────────────────
 
 

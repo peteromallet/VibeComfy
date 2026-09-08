@@ -14,8 +14,11 @@ from vibecomfy.porting.edit import (
     lower_edit_tool_call,
 )
 from vibecomfy.porting.edit.apply_gate import editable_signature
+from vibecomfy.ingest.normalize import from_ui
 from vibecomfy.schema import (
     FrozenSchemaSnapshotProvider,
+    InputSpec,
+    NodeSchema,
     capture_schema_snapshot,
     schema_payload_from_node_schema,
 )
@@ -51,6 +54,150 @@ def _session() -> EditSession:
         node_classes={str(node["id"]): str(node["type"]) for node in graph["nodes"]},
     )
     return EditSession(graph, schema_provider=FrozenSchemaSnapshotProvider(snapshot))
+
+
+def _positional_scalar_session(
+    *,
+    class_type: str,
+    fields: tuple[tuple[str, InputSpec, object], ...],
+) -> EditSession:
+    """Retain the positional ingress IR while supplying its frozen schema."""
+    graph = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": class_type,
+                "pos": [0, 0],
+                "size": [240, 120],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": [value for _name, _spec, value in fields],
+            }
+        ],
+        "links": [],
+    }
+    schema = NodeSchema(
+        class_type=class_type,
+        pack="test",
+        inputs={name: spec for name, spec, _value in fields},
+        outputs=[],
+        widget_input_order=tuple(name for name, _spec, _value in fields),
+    )
+    snapshot = capture_schema_snapshot(
+        class_types=(class_type,),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {class_type: schema_payload_from_node_schema(class_type, schema)},
+            "missing_classes": [],
+        },
+        node_classes={"1": class_type},
+    )
+    # This is the production failure shape: import happened before the frozen
+    # schema was attached, so the retained IR has widget_N carriers. The edit
+    # operation must nevertheless retain the schema's canonical field name.
+    positional_ir = from_ui(graph, use_comfy_converter=False)
+    return EditSession(
+        graph,
+        schema_provider=FrozenSchemaSnapshotProvider(snapshot),
+        initial_workflow=positional_ir,
+    )
+
+
+_SCALAR_CASES = (
+    (
+        "SamplerCustom",
+        (
+            ("add_noise", InputSpec(type="BOOLEAN"), True),
+            ("noise_seed", InputSpec(type="INT"), 0),
+            ("control_after_generate", InputSpec(type="STRING"), "fixed"),
+            ("cfg", InputSpec(type="FLOAT"), 1.0),
+        ),
+        "add_noise",
+        False,
+        0,
+    ),
+    (
+        "SVD_img2vid_Conditioning",
+        (
+            ("width", InputSpec(type="INT"), 1024),
+            ("height", InputSpec(type="INT"), 576),
+            ("video_frames", InputSpec(type="INT"), 14),
+            ("motion_bucket_id", InputSpec(type="INT"), 127),
+            ("fps", InputSpec(type="INT"), 6),
+            ("augmentation_level", InputSpec(type="FLOAT"), 0.0),
+        ),
+        "motion_bucket_id",
+        180,
+        3,
+    ),
+)
+
+
+@pytest.mark.parametrize("door", ("python", "typed_tool"))
+@pytest.mark.parametrize(
+    ("class_type", "fields", "field", "new_value", "widget_index"),
+    _SCALAR_CASES,
+)
+def test_schema_named_scalar_edit_claims_its_positional_ingress_carrier(
+    door: str,
+    class_type: str,
+    fields: tuple[tuple[str, InputSpec, object], ...],
+    field: str,
+    new_value: object,
+    widget_index: int,
+) -> None:
+    session = _positional_scalar_session(class_type=class_type, fields=fields)
+
+    if door == "python":
+        binding = "samplercustom" if class_type == "SamplerCustom" else "svd_img2vid_conditioning"
+        result = session.apply_batch(f"{binding}.{field} = {new_value!r}")
+    else:
+        result = apply_edit_tool_call(
+            session,
+            "edit_node",
+            {"target": "1", "field": field, "value": new_value},
+            expected_revision=0,
+        )
+
+    assert result.ok is True
+    assert result.landed_ops[0].target.field_path == field
+    node = next(iter(session.workflow.nodes.values()))
+    assert node.widgets[f"widget_{widget_index}"] == new_value
+    assert session.working_ui["nodes"][0]["widgets_values"][widget_index] == new_value
+
+
+def test_schema_named_claim_does_not_cover_a_different_positional_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.porting.edit._interpret as interpret_mod
+
+    class_type, fields, field, new_value, _widget_index = _SCALAR_CASES[1]
+    session = _positional_scalar_session(class_type=class_type, fields=fields)
+    original_interpret = interpret_mod.interpret
+
+    def _tamper(*args, **kwargs):
+        report = original_interpret(*args, **kwargs)
+        report.workflow.nodes["1"].widgets["widget_0"] = 2048
+        return report
+
+    monkeypatch.setattr(interpret_mod, "interpret", _tamper)
+    result = session.apply_batch(f"svd_img2vid_conditioning.{field} = {new_value!r}")
+
+    assert result.ok is False
+    assert result.landed_ops == ()
+    diagnostic = next(
+        item for item in result.diagnostics if item.code == "unattributed_value_change"
+    )
+    assert {change["field"] for change in diagnostic.detail["changes"]} == {
+        "widget_0"
+    }
+    assert session.workflow.nodes["1"].widgets["widget_0"] == 1024
 
 
 def test_python_and_typed_tool_lower_to_same_canonical_delta_and_ir() -> None:

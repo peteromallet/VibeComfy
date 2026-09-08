@@ -231,6 +231,16 @@ class AgentEditState:
     batch_final_summary: str = ""
     batch_exit_mode: str = ""
     batch_done_summary: str = ""
+    # Explicit terminal payload from done(final_answer=..., evidence_refs=...).
+    # Unlike raw_executor_message, this is safe to publish: it is selected by
+    # the agent at the accepted terminal call rather than inferred from an
+    # earlier conversational message.
+    batch_final_answer: str = ""
+    batch_final_answer_evidence_refs: tuple[str, ...] = ()
+    # Exact classes named through the explicit terminal
+    # clarify(..., missing_classes=[...]) feedback contract. Plain clarify
+    # leaves this empty and cannot select the executor's research edge.
+    batch_implement_missing_classes_feedback: tuple[str, ...] = ()
     lint_noop_messages: tuple[str, ...] = ()
     provisional_registry_candidate_hashes: frozenset[str] = frozenset()
     # Planned custom-node dependencies classified before authoring.  Registry

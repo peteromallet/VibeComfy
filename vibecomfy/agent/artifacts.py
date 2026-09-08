@@ -19,35 +19,42 @@ LOGGER = logging.getLogger(__name__)
 
 
 _FLOW_KIND = "live_agentic_headless"
-_SENSITIVE_KEY_PARTS = frozenset({
-    "api_key",
-    "apikey",
-    "authorization",
-    "bearer",
-    "password",
-    "secret",
-    "token",
-})
-_MODEL_ARTIFACT_NAMES = frozenset({
-    "messages.jsonl",
-    "model_attempts.json",
-    "model_request.json",
-    "model_response.json",
-    "reply_request.json",
-})
-_SENSITIVE_URL_QUERY_PARTS = frozenset({
-    "api_key",
-    "apikey",
-    "api-key",
-    "auth",
-    "authorization",
-    "key",
-    "password",
-    "secret",
-    "sig",
-    "signature",
-    "token",
-})
+_SENSITIVE_KEY_PARTS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "bearer",
+        "password",
+        "secret",
+        "token",
+    }
+)
+_MODEL_ARTIFACT_NAMES = frozenset(
+    {
+        "messages.jsonl",
+        "model_attempts.json",
+        "model_request.json",
+        "model_response.json",
+        "reply_request.json",
+    }
+)
+_DURABLE_TURN_COPY_NAMESPACE = "durable_turn"
+_SENSITIVE_URL_QUERY_PARTS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "api-key",
+        "auth",
+        "authorization",
+        "key",
+        "password",
+        "secret",
+        "sig",
+        "signature",
+        "token",
+    }
+)
 _URL_QUERY_CREDENTIAL_SUBSTRINGS = ("token", "secret", "api_key", "apikey", "api-key")
 _AUTHORIZATION_HEADER_RE = re.compile(r"(?im)\bauthorization\s*:\s*[^\r\n]*")
 _EMBEDDED_URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -173,15 +180,41 @@ def _redact(value: Any, *, parent_key: str = "") -> Any:
 
 
 def _turn_dir_from_response(response: Mapping[str, Any]) -> Path | None:
-    detail = response.get("detail_json_path") or response.get("detail_json_path_resolved")
+    detail = response.get("detail_json_path") or response.get(
+        "detail_json_path_resolved"
+    )
     if isinstance(detail, str) and detail:
         return Path(detail).parent
     session_path = response.get("session_path") or response.get("session_path_resolved")
     turn_id = response.get("turn_id")
-    if isinstance(session_path, str) and session_path and isinstance(turn_id, str) and turn_id:
+    if (
+        isinstance(session_path, str)
+        and session_path
+        and isinstance(turn_id, str)
+        and turn_id
+    ):
         candidate = Path(session_path) / "turns" / turn_id
         if candidate.is_dir():
             return candidate
+    # The public child envelope intentionally omits internal session/detail
+    # paths, but its artifact references are minted by edit_batch_repl from the
+    # same durable turn.  Use them only to locate that turn for artifact
+    # transport; they do not authorize replay or candidate acceptance.
+    artifacts = response.get("artifacts")
+    if isinstance(artifacts, Mapping):
+        for key in (
+            "candidate_ui",
+            "original_ui",
+            "revision_evidence",
+            "request",
+            "messages",
+        ):
+            value = artifacts.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            parent = Path(value).parent
+            if parent.is_dir() and (parent / "response.json").is_file():
+                return parent
     return None
 
 
@@ -204,12 +237,113 @@ def _turn_dir_from_implementation_failure(report: Mapping[str, Any]) -> Path | N
     return _turn_dir_from_response(failure)
 
 
-def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
+def _path_turn_identity(turn_dir: Path) -> tuple[str, str] | None:
+    """Return ``(session_id, turn_id)`` only for ``<session>/turns/<turn>``."""
+    if turn_dir.parent.name != "turns" or not turn_dir.name:
+        return None
+    session_dir = turn_dir.parent.parent
+    if not session_dir.name:
+        return None
+    return session_dir.name, turn_dir.name
+
+
+def _copy_bound_turn_package(
+    turn_dir: Path, output_dir: Path
+) -> tuple[Path | None, list[str]]:
+    """Copy the immutable replay pair under an identity-preserving local path.
+
+    These files are operational authority, not an audit rendering: changing a
+    value during redaction would invalidate the receipt/transaction digest
+    chain. Only the bounded receipt and selected candidate transaction are
+    copied here; the redacted child response is placed beside them by
+    ``_copy_turn_artifacts`` while request/model/candidate bodies continue
+    through the redacted flat artifact path above.
+    """
+    identity = _path_turn_identity(turn_dir)
+    if identity is None:
+        return None, []
+    session_id, turn_id = identity
+    try:
+        source_response = json.loads(
+            (turn_dir / "response.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None, []
+    if not isinstance(source_response, Mapping):
+        return None, []
+    claimed_session_id = source_response.get("session_id")
+    claimed_turn_id = source_response.get("turn_id")
+    if claimed_session_id is not None and claimed_session_id != session_id:
+        return None, []
+    if claimed_turn_id is not None and claimed_turn_id != turn_id:
+        return None, []
+    candidate = source_response.get("candidate")
+    plan_hash = candidate.get("plan_hash") if isinstance(candidate, Mapping) else None
+    if not isinstance(plan_hash, str) or not plan_hash:
+        transaction = source_response.get("candidate_transaction")
+        plan_hash = (
+            transaction.get("plan_hash") if isinstance(transaction, Mapping) else None
+        )
+    if (
+        not isinstance(plan_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", plan_hash) is None
+    ):
+        return None, []
+
+    receipt_source = turn_dir / "authority" / "receipt.json"
+    transaction_source = (
+        turn_dir / "transactions" / plan_hash / "candidate_transaction.json"
+    )
+    sources = (
+        (receipt_source, Path("authority") / "receipt.json"),
+        (
+            transaction_source,
+            Path("transactions") / plan_hash / "candidate_transaction.json",
+        ),
+    )
+    loaded: list[tuple[Path, Mapping[str, Any]]] = []
+    for source, relative in sources:
+        if not source.is_file() or source.is_symlink():
+            return None, []
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None, []
+        if not isinstance(payload, Mapping):
+            return None, []
+        loaded.append((relative, payload))
+
+    local_turn = (
+        output_dir / _DURABLE_TURN_COPY_NAMESPACE / session_id / "turns" / turn_id
+    )
+    copied: list[str] = []
+    for relative, payload in loaded:
+        destination = local_turn / relative
+        _safe_write(destination, payload)
+        copied.append(str(destination.relative_to(output_dir)))
+    return local_turn, copied
+
+
+def _copy_turn_artifacts(
+    turn_dir: Path, output_dir: Path
+) -> tuple[list[str], Path | None]:
     copied: list[str] = []
     if not turn_dir.is_dir():
-        return copied
+        return copied, None
+    child_response: Any = None
     for source in sorted(turn_dir.iterdir()):
         if source.is_file() and source.suffix in {".json", ".jsonl"}:
+            # ``output_dir/response.json`` is the terminal executor envelope.
+            # The child agent-edit response remains authoritative evidence, but
+            # lives only under the identity-preserving durable_turn namespace.
+            if source.name == "response.json":
+                try:
+                    child_response = _redact(
+                        json.loads(source.read_text(encoding="utf-8"))
+                    )
+                except (OSError, json.JSONDecodeError):
+                    child_response = {"redacted_unparseable_artifact": True}
+                continue
             dest = output_dir / source.name
             try:
                 if source.suffix == ".json":
@@ -220,15 +354,87 @@ def _copy_turn_artifacts(turn_dir: Path, output_dir: Path) -> list[str]:
                     for line in source.read_text(encoding="utf-8").splitlines():
                         if not line.strip():
                             continue
-                        rendered.append(json.dumps(_redact(json.loads(line)), sort_keys=True))
-                    dest.write_text("\n".join(rendered) + ("\n" if rendered else ""), encoding="utf-8")
+                        rendered.append(
+                            json.dumps(_redact(json.loads(line)), sort_keys=True)
+                        )
+                    dest.write_text(
+                        "\n".join(rendered) + ("\n" if rendered else ""),
+                        encoding="utf-8",
+                    )
             except (OSError, json.JSONDecodeError):
                 # Never raw-copy an unparseable model artifact: it may contain a
                 # credential in malformed structured text that free-text
                 # redaction cannot classify safely. Persist no source body.
                 _safe_write(dest, {"redacted_unparseable_artifact": True})
             copied.append(str(dest.relative_to(output_dir)))
-    return copied
+    local_turn, authority_files = _copy_bound_turn_package(turn_dir, output_dir)
+    copied.extend(authority_files)
+    identity = _path_turn_identity(turn_dir)
+    if local_turn is None and identity is not None:
+        session_id, turn_id = identity
+        local_turn = (
+            output_dir
+            / _DURABLE_TURN_COPY_NAMESPACE
+            / session_id
+            / "turns"
+            / turn_id
+        )
+    if local_turn is not None and child_response is not None:
+        child_response_path = local_turn / "response.json"
+        _safe_write(child_response_path, child_response)
+        copied.append(str(child_response_path.relative_to(output_dir)))
+    return copied, local_turn
+
+
+def _point_response_at_copied_turn(
+    output_dir: Path,
+    local_turn: Path,
+) -> None:
+    """Bind the assessment envelope to local copied artifacts, not source paths."""
+    response_path = output_dir / "response.json"
+    try:
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(response, Mapping):
+        return
+    response = dict(response)
+    response["session_path_resolved"] = str(local_turn.parent.parent)
+    response["detail_json_path_resolved"] = str(local_turn / "response.json")
+    try:
+        child_response = json.loads(
+            (local_turn / "response.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        child_response = None
+    child_candidate = (
+        child_response.get("candidate")
+        if isinstance(child_response, Mapping)
+        else None
+    )
+    child_plan_hash = (
+        child_candidate.get("plan_hash")
+        if isinstance(child_candidate, Mapping)
+        else None
+    )
+    if isinstance(child_plan_hash, str) and child_plan_hash:
+        # A local pointer to the selected immutable transaction lets offline
+        # consumers bind the copied pair without replacing the executor's
+        # own candidate projection or trusting any replay boolean.
+        response["plan_hash"] = child_plan_hash
+    raw_artifacts = response.get("artifacts")
+    artifacts = dict(raw_artifacts) if isinstance(raw_artifacts, Mapping) else {}
+    original_path = output_dir / "original.ui.json"
+    candidate_path = output_dir / "candidate.ui.json"
+    final_path = output_dir / "final.ui.json"
+    if original_path.is_file():
+        artifacts["original_ui"] = str(original_path)
+    if response.get("ok") is True and candidate_path.is_file():
+        artifacts["candidate_ui"] = str(candidate_path)
+    elif final_path.is_file():
+        artifacts["candidate_ui"] = str(final_path)
+    response["artifacts"] = artifacts
+    _safe_write(response_path, response)
 
 
 def _executor_report(result: Any) -> dict[str, Any]:
@@ -259,16 +465,34 @@ def _implementation_payload_from_report(
     route = classification.get("route")
     route_text = route if isinstance(route, str) and route else ""
     if not route_text:
-        route_text = "adapt" if classification.get("research") and classification.get("implement") else (
-            "revise" if classification.get("implement") else "research"
+        route_text = (
+            "adapt"
+            if classification.get("research") and classification.get("implement")
+            else ("revise" if classification.get("implement") else "research")
         )
+
+    executor_classification = dict(classification)
+    interaction_mode = request.get("interaction_mode")
+    if isinstance(interaction_mode, str) and interaction_mode:
+        # Preserve the caller-declared permission contract in the synthesized
+        # implementation artifact as well as the live executor payload.
+        executor_classification["interaction_mode"] = interaction_mode
+    if any(
+        isinstance(request.get(key), (list, tuple)) and request.get(key)
+        for key in (
+            "allow_safe_refusal_outcome_kinds",
+            "expected_no_candidate_absent_classes",
+            "expected_no_candidate_absent_features",
+        )
+    ):
+        executor_classification["typed_refusal_contract"] = True
 
     payload: dict[str, Any] = {
         "task": request.get("query") or request.get("task") or "",
         "query": request.get("query") or request.get("task") or "",
         "route": route_text,
         "executor_route": route_text,
-        "executor_classification": dict(classification),
+        "executor_classification": executor_classification,
     }
     if "graph" in request:
         payload["graph"] = request.get("graph")
@@ -299,7 +523,12 @@ def _implementation_payload_from_report(
     if route_text in {"research", "adapt"}:
         brief = {
             key: classification[key]
-            for key in ("research_goal", "search_directions", "source_preferences", "avoid")
+            for key in (
+                "research_goal",
+                "search_directions",
+                "source_preferences",
+                "avoid",
+            )
             if classification.get(key)
         }
         if brief:
@@ -444,7 +673,9 @@ def persist_universal_ui_evidence(
             if isinstance(implementation, Mapping)
             else None
         )
-        retained = failure.get("authority_receipt") if isinstance(failure, Mapping) else None
+        retained = (
+            failure.get("authority_receipt") if isinstance(failure, Mapping) else None
+        )
         return retained if isinstance(retained, Mapping) else None
 
     def _bound_failed_candidate() -> dict[str, Any] | None:
@@ -515,9 +746,7 @@ def persist_universal_ui_evidence(
     # Original stays authoritative. A later gate may diverge after edits were
     # accepted, but candidate→final is permitted only when the terminal
     # durable accepted_batch carries those admitted operations.
-    failed_leg = (
-        response.get("ok") is False or getattr(result, "ok", True) is False
-    )
+    failed_leg = response.get("ok") is False or getattr(result, "ok", True) is False
     bound_failed_candidate = _bound_failed_candidate() if failed_leg else None
     if _route_projects_final_from_original(response):
         final = original
@@ -625,7 +854,8 @@ def synthesize_headless_artifacts(
         # is diagnosable at the artifact boundary.
         classification_payload = _redact(
             {
-                "classification_status": report.get("classification_status") or "failed",
+                "classification_status": report.get("classification_status")
+                or "failed",
                 "model_response": model_response,
             }
         )
@@ -674,8 +904,9 @@ def synthesize_headless_artifacts(
         # boundary.
         turn_dir = _turn_dir_from_implementation_failure(report)
     copied: list[str] = []
+    copied_turn_dir: Path | None = None
     if turn_dir is not None and turn_dir.is_dir():
-        copied = _copy_turn_artifacts(turn_dir, output_dir)
+        copied, copied_turn_dir = _copy_turn_artifacts(turn_dir, output_dir)
         for copied_name in copied:
             _append_manifest(manifest, copied_name)
 
@@ -686,6 +917,8 @@ def synthesize_headless_artifacts(
         output_dir=output_dir,
         manifest=manifest,
     )
+    if copied_turn_dir is not None:
+        _point_response_at_copied_turn(output_dir, copied_turn_dir)
 
     copied_set = set(copied)
     optional_model_artifacts = {
@@ -703,6 +936,7 @@ def synthesize_headless_artifacts(
         "copied_turn_artifacts": copied,
         "optional_model_artifacts": optional_model_artifacts,
         "turn_dir": str(turn_dir) if turn_dir else None,
+        "copied_turn_dir": str(copied_turn_dir) if copied_turn_dir else None,
     }
 
 

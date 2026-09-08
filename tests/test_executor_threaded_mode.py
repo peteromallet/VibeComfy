@@ -23,6 +23,7 @@ from vibecomfy.executor.profiles import AgentSpecShape, load_profile
 from vibecomfy.executor.threaded import (
     THREADED_MAX_AGENT_BATCHES,
     ThreadedKernel,
+    _threaded_plan,
     run_threaded_executor,
 )
 
@@ -425,39 +426,38 @@ def test_threaded_research_refusal_is_not_projected_as_tool_execution() -> None:
     assert research["citations"] == []
 
 
-def test_threaded_answer_only_declared_contract_uses_inspect_reply_lane() -> None:
-    """Caller-declared answer_only (explain/advice) routes inspect.
-
-    Typed-refusal contracts stay implement-capable; see
-    ``tests/test_lane_exemption.py``.
-    """
+def test_threaded_answer_only_uses_execute_envelope_without_inspect_reply() -> None:
+    """No-edit permission is prompt context inside the open conversation."""
     graph = {
         "1": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
         "2": {"class_type": "KSampler", "inputs": {"model": ["1", 0]}},
     }
     seen: dict[str, Any] = {}
 
-    def run_inspect_reply(
+    def run_implement(
         request: ExecutorRequest,
         spec: AgentSpecShape,
         **kwargs: Any,
-    ) -> str:
+    ) -> ImplementationResult:
         del spec
         seen["request"] = request
         seen["plan"] = kwargs["plan"]
-        return "The checkpoint feeds the sampler."
+        return ImplementationResult(
+            message="The checkpoint feeds the sampler.",
+            durable_response={"graph_unchanged": True},
+        )
 
     kernel = ThreadedKernel(
         resolve_spec=lambda profile, stage: AgentSpecShape("hermes", "model", "medium"),
-        run_implement=lambda *a, **k: pytest.fail(
-            "declared non-edit turn must not run the implement conversation"
-        ),
+        run_implement=run_implement,
         emit_phase=lambda *args, **kwargs: None,
         enforce_reply_grounding=lambda reply, **kwargs: reply,
         accepted_delta_ops=lambda implementation: (),
         implementation_landed_edit=lambda implementation: False,
         no_candidate_reason=lambda implementation: None,
-        run_inspect_reply=run_inspect_reply,
+        run_inspect_reply=lambda *a, **k: pytest.fail(
+            "threaded answer_only must not use the inspect reply lane"
+        ),
     )
     result = run_threaded_executor(
         ExecutorRequest(
@@ -472,10 +472,60 @@ def test_threaded_answer_only_declared_contract_uses_inspect_reply_lane() -> Non
 
     assert result.ok is True
     assert result.reply == "The checkpoint feeds the sampler."
-    assert result.graph is None
-    assert seen["plan"].effective_route == "inspect"
-    assert seen["plan"].implement is False
-    assert "answer_only" in seen["plan"].plan_summary
+    assert seen["request"].interaction_mode == "answer_only"
+    assert seen["plan"].effective_route == "adapt"
+    assert seen["plan"].implement is True
+    assert seen["plan"].research is True
+    assert "answer_only: respond without editing" in seen["plan"].plan_summary
+
+
+def test_threaded_answer_only_reaches_durable_executor_classification() -> None:
+    """The open execute conversation receives the caller's explicit mode."""
+    captured: dict[str, Any] = {}
+
+    def handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        captured.update(payload)
+        return {
+            "ok": True,
+            "message": "The graph is unchanged; here is the diagnosis.",
+            "graph_unchanged": True,
+            "outcome": {"kind": "noop"},
+        }
+
+    ports = replace(_ports(), handle_agent_edit=handle_agent_edit)
+    request = ExecutorRequest(
+        query="Why is this workflow producing dark output?",
+        graph={"nodes": [], "links": []},
+        interaction_mode="answer_only",
+        pipeline_mode="threaded",
+    )
+
+    core._run_implement(
+        request,
+        AgentSpecShape("hermes", "model", "medium"),
+        plan=_threaded_plan(request),
+        host_ports=ports,
+    )
+
+    assert captured["executor_classification"]["interaction_mode"] == "answer_only"
+    assert captured["task"] == request.query
+
+    captured.clear()
+    typed_refusal = ExecutorRequest(
+        query="Use the requested pack or explain the exact blocker.",
+        graph={"nodes": [], "links": []},
+        interaction_mode="answer_only",
+        pipeline_mode="threaded",
+        allow_safe_refusal_outcome_kinds=("requires_custom_nodes",),
+    )
+    core._run_implement(
+        typed_refusal,
+        AgentSpecShape("hermes", "model", "medium"),
+        plan=_threaded_plan(typed_refusal),
+        host_ports=ports,
+    )
+    assert captured["executor_classification"]["interaction_mode"] == "answer_only"
+    assert captured["executor_classification"]["typed_refusal_contract"] is True
 
 def _staged_research_result(*, status: str = "ok", deadline_reached: bool = False):
     """Build the staged carrier for the canonical one-fetch research scenario."""

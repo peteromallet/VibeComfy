@@ -7348,6 +7348,24 @@ def pin_untouched_ui(
                             merged["widgets_values"] = merged_widgets
                         else:
                             merged["widgets_values"] = deepcopy(candidate_widgets)
+                    elif set_fields and isinstance(node.get("widgets_values"), Mapping):
+                        # Dict-shaped widgets carry authoritative field names;
+                        # preserve untouched keys and copy only the exact
+                        # schema-admitted fields owned by this delta. No
+                        # positional inference is involved.
+                        original_widgets = original_node.get("widgets_values")
+                        merged_widgets = (
+                            deepcopy(dict(original_widgets))
+                            if isinstance(original_widgets, Mapping)
+                            else {}
+                        )
+                        candidate_widgets = node["widgets_values"]
+                        for field in set_fields:
+                            if field in candidate_widgets:
+                                merged_widgets[field] = deepcopy(
+                                    candidate_widgets[field]
+                                )
+                        merged["widgets_values"] = merged_widgets
                     # A concrete schema witness is emit furniture rather
                     # than an authored property, but a registry-hydrated
                     # candidate must retain it for the authority receipt. Do

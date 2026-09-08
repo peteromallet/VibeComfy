@@ -317,20 +317,15 @@ def _warn_metadata_ui_output_arity_disagreement(
     metadata_names: list[str],
     ui_names: list[str],
 ) -> None:
-    from vibecomfy.errors import ArityDisagreementError  # noqa: PLC0415
+    import warnings
 
-    raise ArityDisagreementError(
+    warnings.warn(
         (
             f"output arity disagreement for {node.class_type}: authored metadata declares "
             f"{len(metadata_names)} outputs but UI declares {len(ui_names)}; "
-            "refresh the node UI metadata before canonical emission."
+            "emitting the UI slots so a loaded graph is not blocked."
         ),
-        class_type=str(node.class_type),
-        snapshot_pack=None,
-        snapshot_version=None,
-        snapshot_output_count=len(metadata_names),
-        ui_output_count=len(ui_names),
-        next_action="refresh the vibecomfy.exec node UI",
+        stacklevel=2,
     )
 
 
@@ -352,14 +347,15 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
         cache_names = []
     if ui_names and metadata_names and len(ui_names) != len(metadata_names):
         _warn_metadata_ui_output_arity_disagreement(node, metadata_names, ui_names)
-    declared_names = ui_names or metadata_names
-    ui_output_count = len(declared_names) if declared_names else None
-    _node_local_arity_check(node, ui_output_count)
-    if ui_names:
-        return ui_names
-    if metadata_names:
-        return metadata_names
-    return cache_names
+    # Only UI evidence is a UI arity.  Treating schema metadata as though it
+    # were the UI count defeats reconciliation when a retained/native roster
+    # has three real slots but an older schema still declares four.
+    ui_output_count = len(ui_names) if ui_names else None
+    reconciled = _node_local_arity_check(node, ui_output_count)
+    names = ui_names or metadata_names or cache_names
+    if names and reconciled and len(names) > reconciled:
+        return list(names)[:reconciled]
+    return names
 
 
 def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
@@ -372,11 +368,12 @@ def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
     _validate_named_output_schema(node, metadata_names)
     if ui_names and metadata_names and len(ui_names) != len(metadata_names):
         _warn_metadata_ui_output_arity_disagreement(node, metadata_names, ui_names)
-    declared_names = ui_names or metadata_names
-    ui_output_count = len(declared_names) if declared_names else None
-    _node_local_arity_check(node, ui_output_count)
+    ui_output_count = len(ui_names) if ui_names else None
+    reconciled = _node_local_arity_check(node, ui_output_count)
     if ui_names:
-        return ui_names
+        return list(ui_names)[:reconciled]
+    if metadata_names and reconciled and len(metadata_names) > reconciled:
+        return list(metadata_names)[:reconciled]
     return metadata_names
 
 

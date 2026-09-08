@@ -13798,6 +13798,60 @@ def test_rendered_chat_message_uses_answer_only_noop_prose(tmp_path: Path) -> No
     assert agent["change_details"]["batch_turns"][0]["message"].startswith("This workflow")
 
 
+class TestAnswerOnlyExecutorClassification:
+    def test_open_threaded_noop_reaches_prompt_and_skips_gate_b(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Exercise classification -> prompt -> zero-op finalization offline."""
+        monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+        captured: dict[str, str] = {}
+
+        def _fake_batch_client(messages):
+            captured["system"] = messages[0]["content"]
+            captured["user"] = messages[1]["content"]
+            return {
+                "batch": "done()",
+                "message": "The sampler is receiving conditioning from the visible prompt nodes.",
+            }
+
+        from vibecomfy.porting.edit.session import EditSession
+
+        def _unexpected_gate_b(*_args, **_kwargs):
+            raise AssertionError("answer-only zero-op must not enter Gate B")
+
+        monkeypatch.setattr(EditSession, "_done_gate_b_from_ir", _unexpected_gate_b)
+
+        result = handle_agent_edit(
+            {
+                "graph": _ui_graph(),
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+                "task": "Why is this workflow producing dark output?",
+                "query": "Why is this workflow producing dark output?",
+                "route": "adapt",
+                "pipeline_mode": "threaded",
+                "executor_classification": {
+                    "route": "adapt",
+                    "task": "research_precedent",
+                    "interaction_mode": "answer_only",
+                },
+                "session_id": "answer-only-classification",
+            },
+            schema_provider=_batch_repl_provider(),
+            deepseek_client=_fake_batch_client,
+            session_root=tmp_path,
+        )
+
+        assert result["ok"] is True
+        assert result["graph_unchanged"] is True
+        assert "answer_only" in captured["system"]
+        assert "may inspect and research" in captured["system"]
+        assert "threaded research+implement surface" in captured["system"]
+        assert "Interaction mode: answer_only" in captured["user"]
+        assert "Do NOT edit, add, delete, rewire" in captured["user"]
+
+
 def test_synthesize_message_budget_exhaustion() -> None:
     """Budget exhaustion produces the expected budget message."""
     state = _make_state(

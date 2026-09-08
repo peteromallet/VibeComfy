@@ -11,12 +11,14 @@ load ComfyUI provider, runtime-capture, edit, or session internals.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -36,6 +38,8 @@ from .agent_backend import (
     snapshot_reply_request_capture,
 )
 from .agent_research_stage import (
+    MAX_RESEARCH_DECISION_TURNS,
+    MAX_RESEARCH_TOOL_CALLS,
     RESEARCH_ATTEMPT_EMPTY,
     RESEARCH_ATTEMPT_GROUNDED,
     RESEARCH_ATTEMPT_NEVER,
@@ -46,11 +50,15 @@ from .agent_research_stage import (
     form_research_question,
     run_agent_research_stage,
 )
-from .evidence_pack import EvidenceLedger, EvidenceLedgerEntry, EvidencePack
+from .evidence_pack import EvidenceArtifact, EvidenceLedger, EvidenceLedgerEntry, EvidencePack
 from .graph_inspection import inspect_graph, render_inspect_markdown
-from .stage_contracts import StageDiagnostic, StagePackage
+from .stage_contracts import (
+    ImplementMissingClassesFeedback,
+    StageDiagnostic,
+    StagePackage,
+)
 from .tool_contracts import RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS, ToolStatus
-from .prompts import build_classify_messages
+from .prompts import build_classify_messages, build_implement_feedback_research_brief
 from .contracts import (
     ClassifyDecision,
     ExecutorHostPorts,
@@ -997,6 +1005,358 @@ class AgentResearchResult:
         payload["ledger"] = self.ledger.to_dict()
         return payload
 
+
+def _implement_missing_classes_feedback(
+    result: ImplementationResult | None,
+    *,
+    round_index: int = 1,
+) -> ImplementMissingClassesFeedback | None:
+    """Validate an explicit implement-authored inventory feedback package.
+
+    Generic clarify state and public ``outcome.missing_classes`` are not
+    authority for this transition: both may be projections assembled by the
+    response layer.  The dedicated package is agent-authored, while the exact
+    lookup receipts remain independently witnessed by durable batch turns.
+    """
+    if result is None or not isinstance(result.durable_response, Mapping):
+        return None
+    durable = result.durable_response
+    raw_feedback = durable.get("implement_missing_classes_feedback")
+    if not isinstance(raw_feedback, Mapping):
+        return None
+    try:
+        feedback_payload = dict(raw_feedback)
+        feedback_payload["round_index"] = round_index
+        authored = ImplementMissingClassesFeedback.from_dict(feedback_payload)
+    except (TypeError, ValueError):
+        return None
+
+    turn_groups: list[Any] = [durable.get("batch_turns")]
+    change_details = durable.get("change_details")
+    if isinstance(change_details, Mapping):
+        turn_groups.append(change_details.get("batch_turns"))
+    receipts_by_class: dict[str, dict[str, Any]] = {}
+    for turns in turn_groups:
+        if not isinstance(turns, (list, tuple)):
+            continue
+        for turn in turns:
+            if not isinstance(turn, Mapping):
+                continue
+            statements = turn.get("statements")
+            if not isinstance(statements, (list, tuple)):
+                continue
+            for statement in statements:
+                if not isinstance(statement, Mapping):
+                    continue
+                detail = statement.get("detail")
+                if not isinstance(detail, Mapping):
+                    continue
+                witnessed = detail.get("missing_classes")
+                if not isinstance(witnessed, (list, tuple)):
+                    continue
+                try:
+                    status = ToolStatus(
+                        str(detail.get("tool_status") or ToolStatus.NO_RESULTS.value)
+                    )
+                except ValueError:
+                    status = ToolStatus.UNAVAILABLE
+                for raw_class in witnessed:
+                    class_type = (
+                        raw_class.strip() if isinstance(raw_class, str) else ""
+                    )
+                    if (
+                        class_type not in authored.missing_classes
+                        or class_type in receipts_by_class
+                    ):
+                        continue
+                    receipts_by_class[class_type] = {
+                        "node_class": class_type,
+                        "status": status.value,
+                        "source": "implement",
+                    }
+    if set(receipts_by_class) != set(authored.missing_classes):
+        return None
+    authored_statuses = {
+        str(receipt["node_class"]): str(receipt["status"])
+        for receipt in authored.lookup_receipts
+    }
+    witnessed_statuses = {
+        name: str(receipt["status"]) for name, receipt in receipts_by_class.items()
+    }
+    if authored_statuses != witnessed_statuses:
+        return None
+    return replace(
+        authored,
+        lookup_receipts=tuple(
+            receipts_by_class[name] for name in authored.missing_classes
+        ),
+    )
+
+
+def _scoped_inventory_blocker(
+    feedback: ImplementMissingClassesFeedback,
+) -> dict[str, Any]:
+    """Return an honest bounded absence statement for the current inventory."""
+    return {
+        "kind": "inventory_blocked",
+        "scope": "current_authoring_inventory",
+        "status": ToolStatus.UNAVAILABLE.value,
+        "question": feedback.question,
+        "missing_classes": list(feedback.missing_classes),
+        "lookup_receipts": [dict(item) for item in feedback.lookup_receipts],
+    }
+
+
+def _inventory_blocked_result(
+    result: ImplementationResult,
+    feedback: ImplementMissingClassesFeedback,
+) -> ImplementationResult:
+    """Project a repeated exact miss as scoped inventory evidence, not a guess."""
+    blocker = _scoped_inventory_blocker(feedback)
+    durable = (
+        dict(result.durable_response)
+        if isinstance(result.durable_response, Mapping)
+        else {}
+    )
+    report = dict(durable.get("report")) if isinstance(durable.get("report"), Mapping) else {}
+    report["authoring_blocker"] = blocker
+    durable.update(
+        {
+            "outcome": blocker,
+            "report": report,
+            "terminal_state": "no_candidate",
+            "no_candidate_reason": "missing_authoring_inventory",
+            "graph_unchanged": True,
+        }
+    )
+    message = (
+        "No graph edit was made: the exact classes needed by the implement "
+        "agent are unavailable in the current authoring inventory after one "
+        "bounded research and schema-admission retry: "
+        + ", ".join(feedback.missing_classes)
+        + "."
+    )
+    durable["message"] = message
+    return ImplementationResult(message=message, durable_response=durable)
+
+
+def _feedback_budget_exhausted_result(
+    result: ImplementationResult,
+    prior_feedback: ImplementMissingClassesFeedback,
+    current_feedback: ImplementMissingClassesFeedback | None,
+) -> ImplementationResult:
+    """Attach bounded retry evidence without changing the agent's terminal.
+
+    The round-1 package has already been independently validated against its
+    durable implement turn.  Preserve that receipt body under the same round
+    identity used by the research ledger; never promote it into the current
+    turn's blocker evidence or public outcome.
+    """
+    durable = (
+        dict(result.durable_response)
+        if isinstance(result.durable_response, Mapping)
+        else {}
+    )
+    report = (
+        dict(durable.get("report"))
+        if isinstance(durable.get("report"), Mapping)
+        else {}
+    )
+    outcome = durable.get("outcome")
+    current_question = (
+        current_feedback.question
+        if current_feedback is not None
+        else (
+            str(outcome.get("question")).strip()
+            if isinstance(outcome, Mapping)
+            and isinstance(outcome.get("question"), str)
+            and str(outcome.get("question")).strip()
+            else result.message
+        )
+    )
+    current_missing_classes = (
+        current_feedback.missing_classes
+        if current_feedback is not None
+        else ()
+    )
+    evidence_id = _feedback_evidence_id(prior_feedback)
+    budget_report = {
+        "kind": "feedback_budget_exhausted",
+        "status": "exhausted",
+        "max_reentries": 1,
+        "prior_question": prior_feedback.question,
+        "prior_missing_classes": list(prior_feedback.missing_classes),
+        "current_question": current_question,
+        "current_missing_classes": list(current_missing_classes),
+        "repeated_question": current_question == prior_feedback.question,
+        "repeated_missing_classes": (
+            current_feedback is not None
+            and current_feedback.missing_classes == prior_feedback.missing_classes
+        ),
+        "outcome_preserved": True,
+        "validated_inventory_feedback": {
+            "scope": "implement_feedback_round",
+            "question": prior_feedback.question,
+            "missing_classes": list(prior_feedback.missing_classes),
+            "lookup_receipts": [
+                dict(receipt) for receipt in prior_feedback.lookup_receipts
+            ],
+            "round_index": prior_feedback.round_index,
+            "evidence_ids": [evidence_id],
+        },
+    }
+    report["inventory_feedback_budget"] = budget_report
+    durable["report"] = report
+    diagnostics = (
+        dict(result.diagnostics)
+        if isinstance(result.diagnostics, Mapping)
+        else {}
+    )
+    diagnostics["inventory_feedback_budget"] = budget_report
+    return replace(
+        result,
+        durable_response=durable,
+        diagnostics=diagnostics,
+    )
+
+
+def _feedback_evidence_id(
+    feedback: ImplementMissingClassesFeedback,
+) -> str:
+    """Return the durable identity shared by a feedback package and ledger."""
+    return f"implement_missing_classes:{feedback.round_index}"
+
+
+def _feedback_ledger_entry(
+    feedback: ImplementMissingClassesFeedback,
+) -> tuple[EvidenceArtifact, EvidenceLedgerEntry]:
+    evidence_id = _feedback_evidence_id(feedback)
+    artifact = EvidenceArtifact(
+        evidence_id=evidence_id,
+        kind="implement_missing_classes_feedback",
+        body=feedback.to_dict(),
+        source="implement",
+    )
+    receipt_summary = ", ".join(
+        f"{receipt['node_class']}={receipt['status']}"
+        for receipt in feedback.lookup_receipts
+    )
+    return artifact, EvidenceLedgerEntry(
+        decision="implement_missing_classes_question",
+        conclusion=f"{feedback.question} Exact local receipts: {receipt_summary}.",
+        evidence_ids=(evidence_id,),
+        uncertainty="Candidate authorability must be checked by implement.",
+    )
+
+
+def _merge_feedback_research(
+    prior: AgentResearchResult | None,
+    current_trace: AgentResearchTrace,
+    current_pack: EvidencePack,
+    feedback: ImplementMissingClassesFeedback,
+) -> tuple[AgentResearchTrace, EvidencePack, dict[str, Any]]:
+    """Merge one bounded feedback leg while retaining ledger and budget."""
+    artifact, feedback_entry = _feedback_ledger_entry(feedback)
+    prior_artifacts = dict(prior.evidence_pack.artifacts) if prior is not None else {}
+    prior_entries = prior.ledger.entries if prior is not None else ()
+
+    artifacts = dict(prior_artifacts)
+    artifacts[artifact.evidence_id] = artifact
+    id_map: dict[str, str] = {}
+    for evidence_id, value in current_pack.artifacts.items():
+        target = evidence_id
+        if target in artifacts and artifacts[target] != value:
+            target = f"{evidence_id}:feedback:{feedback.round_index}"
+        id_map[evidence_id] = target
+        artifacts[target] = (
+            value
+            if target == evidence_id
+            else EvidenceArtifact(
+                evidence_id=target,
+                kind=value.kind,
+                body=value.body,
+                source=value.source,
+            )
+        )
+    current_entries = tuple(
+        EvidenceLedgerEntry(
+            decision=entry.decision,
+            conclusion=entry.conclusion,
+            evidence_ids=tuple(id_map.get(item, item) for item in entry.evidence_ids),
+            uncertainty=entry.uncertainty,
+            tool_status=entry.tool_status,
+        )
+        for entry in current_pack.ledger.entries
+    )
+    ledger = EvidenceLedger(entries=prior_entries + (feedback_entry,) + current_entries)
+
+    prior_budget = (
+        dict(prior.package.budget)
+        if prior is not None
+        and prior.package is not None
+        and isinstance(prior.package.budget, Mapping)
+        else {}
+    )
+    current_budget = (
+        dict(current_trace.budget) if isinstance(current_trace.budget, Mapping) else {}
+    )
+    total_turns = int(prior_budget.get("turns_used") or 0) + int(
+        current_budget.get("turns_used") or 0
+    )
+    prior_tool_calls = (
+        int(prior_budget.get("tool_calls_used") or 0)
+        if prior is not None
+        else 0
+    )
+    if prior is not None and "tool_calls_used" not in prior_budget:
+        prior_tool_calls = max(0, int(prior.trace.executed_tool_calls or 0))
+    current_tool_calls = int(
+        current_budget.get("tool_calls_used")
+        if "tool_calls_used" in current_budget
+        else current_trace.executed_tool_calls
+        or 0
+    )
+    total_tool_calls = prior_tool_calls + current_tool_calls
+    tool_call_limit = int(
+        prior_budget.get("tool_call_limit") or MAX_RESEARCH_TOOL_CALLS
+    )
+    original_deadline = float(
+        prior_budget.get("deadline_seconds")
+        or current_budget.get("deadline_seconds")
+        or RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
+    )
+    budget = {
+        "deadline_seconds": original_deadline,
+        "turns_used": total_turns,
+        "deadline_reached": bool(
+            prior_budget.get("deadline_reached")
+            or current_budget.get("deadline_reached")
+        ),
+        "tool_calls_used": total_tool_calls,
+        "tool_call_limit": tool_call_limit,
+        "tool_calls_remaining": max(0, tool_call_limit - total_tool_calls),
+    }
+    prior_trace = prior.trace if prior is not None else None
+    merged_trace = replace(
+        current_trace,
+        route="adapt",
+        iterations=(prior_trace.iterations if prior_trace is not None else ())
+        + current_trace.iterations,
+        elapsed_seconds=(prior_trace.elapsed_seconds if prior_trace is not None else 0.0)
+        + current_trace.elapsed_seconds,
+        executed_tool_calls=(
+            prior_trace.executed_tool_calls if prior_trace is not None else 0
+        )
+        + current_trace.executed_tool_calls,
+        evidence_artifact_count=sum(
+            1 for key in artifacts if not key.startswith("research_question")
+        ),
+        warnings=(prior_trace.warnings if prior_trace is not None else ())
+        + current_trace.warnings,
+        budget=budget,
+    )
+    return merged_trace, EvidencePack(artifacts=artifacts, ledger=ledger), budget
+
 def _source_policy_entries(
     plan: ClassifyDecision,
 ) -> tuple[tuple[EvidenceLedgerEntry, ...], tuple[dict[str, Any], ...]]:
@@ -1261,13 +1621,22 @@ def _run_agent_owned_research(
     spec: AgentSpecShape,
     *,
     plan: ClassifyDecision,
+    implement_feedback: ImplementMissingClassesFeedback | None = None,
+    prior_result: AgentResearchResult | None = None,
 ) -> AgentResearchResult:
-    route = _canonical_route_for_plan(plan)
-    question, _source_field = form_research_question(request=request, plan=plan)
+    plan_route = _canonical_route_for_plan(plan)
+    route = "adapt" if implement_feedback is not None else plan_route
+    if implement_feedback is None:
+        question, _source_field = form_research_question(request=request, plan=plan)
+    else:
+        question = implement_feedback.question
 
     brief = build_research_brief(plan=plan, request=request)
 
     brief = _research_brief_with_verbatim_query(brief, request)
+    if implement_feedback is not None:
+        feedback_brief = build_implement_feedback_research_brief(implement_feedback)
+        brief = f"{brief}\n{feedback_brief}" if brief else feedback_brief
     # B17: research checkpoint authority is request/route/baseline scoped.
     # Keep browser/live-canvas and credential concepts out of this owner; the
     # research identity is only the request content relevant to this phase.
@@ -1278,6 +1647,11 @@ def _run_agent_owned_research(
             "graph": request.graph,
             "workflow_id": request.workflow_id,
             "idempotency_key": request.idempotency_key,
+            "implement_feedback": (
+                implement_feedback.to_dict()
+                if implement_feedback is not None
+                else None
+            ),
         }
     )
     if request.expected_baseline_graph_hash_present:
@@ -1314,9 +1688,52 @@ def _run_agent_owned_research(
             configured = RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
         if configured > 0:
             deadline_seconds = configured
-    research_kwargs: dict[str, float] = {}
+    research_kwargs: dict[str, Any] = {}
     if deadline_seconds is not None:
         research_kwargs["deadline_seconds"] = deadline_seconds
+    if implement_feedback is not None:
+        prior_budget = (
+            dict(prior_result.package.budget)
+            if prior_result is not None
+            and prior_result.package is not None
+            and isinstance(prior_result.package.budget, Mapping)
+            else {}
+        )
+        turns_used = max(0, int(prior_budget.get("turns_used") or 0))
+        research_kwargs["max_turns"] = max(
+            0, MAX_RESEARCH_DECISION_TURNS - turns_used
+        )
+        original_deadline = float(
+            prior_budget.get("deadline_seconds")
+            or deadline_seconds
+            or RESEARCH_PHASE_DEADLINE_DEFAULT_SECONDS
+        )
+        already_elapsed = (
+            max(0.0, float(prior_result.trace.elapsed_seconds))
+            if prior_result is not None
+            else 0.0
+        )
+        research_kwargs["deadline_seconds"] = max(
+            0.0, original_deadline - already_elapsed
+        )
+        prior_tool_calls = (
+            max(0, int(prior_budget.get("tool_calls_used") or 0))
+            if "tool_calls_used" in prior_budget
+            else (
+                max(0, int(prior_result.trace.executed_tool_calls or 0))
+                if prior_result is not None
+                else 0
+            )
+        )
+        tool_call_limit = max(
+            prior_tool_calls,
+            int(prior_budget.get("tool_call_limit") or MAX_RESEARCH_TOOL_CALLS),
+        )
+        research_kwargs["max_tool_calls"] = max(
+            0, tool_call_limit - prior_tool_calls
+        )
+        if prior_result is not None:
+            research_kwargs["prior_ledger"] = prior_result.ledger
     try:
         trace, pack = run_agent_research_stage(
             route=route,
@@ -1334,6 +1751,9 @@ def _run_agent_owned_research(
         message = str(exc)
         optional_research_keys = (
             "deadline_seconds",
+            "max_turns",
+            "max_tool_calls",
+            "prior_ledger",
             "session_id",
             "request_identity",
             "baseline_identity",
@@ -1346,9 +1766,23 @@ def _run_agent_owned_research(
             "research_brief": brief,
             "spec": spec,
         }
-        if "deadline_seconds" not in message:
-            retry_kwargs.update(research_kwargs)
+        retry_kwargs.update(
+            {
+                key: value
+                for key, value in research_kwargs.items()
+                if key not in message
+            }
+        )
         trace, pack = run_agent_research_stage(**retry_kwargs)
+    if implement_feedback is not None:
+        trace, pack, combined_budget = _merge_feedback_research(
+            prior_result,
+            trace,
+            pack,
+            implement_feedback,
+        )
+    else:
+        combined_budget = getattr(trace, "budget", None)
     policy_entries, diagnostics = _source_policy_entries(plan)
     if policy_entries:
         pack = EvidencePack(
@@ -1376,7 +1810,7 @@ def _run_agent_owned_research(
             pack=pack,
             policy_diagnostics=diagnostics,
             research_attempt=attempt,
-            budget=getattr(trace, "budget", None),
+            budget=combined_budget,
         ),
         policy_diagnostics=diagnostics,
         decision_memo=memo,
@@ -1432,6 +1866,7 @@ def _run_implement(
     client_id: str | None = None,
     additive: bool = False,
     host_ports: ExecutorHostPorts | None = None,
+    inventory_feedback: ImplementMissingClassesFeedback | None = None,
 ) -> ImplementationResult:
     """Run the implement phase via ``handle_agent_edit``.
 
@@ -1473,6 +1908,20 @@ def _run_implement(
     effective_task = plan.effective_task
     if effective_task:
         classification["task"] = effective_task
+    if request.interaction_mode is not None:
+        # Explicit caller permission travels with the model-facing
+        # classification envelope.  The durable edit host consumes this
+        # declaration directly; it never infers permission from query text.
+        classification["interaction_mode"] = request.interaction_mode
+    if (
+        request.allow_safe_refusal_outcome_kinds
+        or request.expected_no_candidate_absent_classes
+        or request.expected_no_candidate_absent_features
+    ):
+        # Typed no-candidate contracts remain implement-capable even when an
+        # outer harness also marks the turn answer_only.  Transport the
+        # declaration explicitly; never infer this exception from query text.
+        classification["typed_refusal_contract"] = True
 
     payload: dict[str, Any] = {
         "task": request.query,
@@ -1513,7 +1962,7 @@ def _run_implement(
         payload["graph_inspection"] = graph_inspection
     research_package = getattr(research_result, "package", None)
     research_ledger = getattr(research_result, "ledger", None)
-    if executor_route == "adapt":
+    if executor_route == "adapt" or inventory_feedback is not None:
         # C01: the implement phase receives ONLY the research package's
         # compact ledger (decisions + evidence IDs); artifact bodies stay
         # server-side.  The typed StagePackage is the seam handoff; the
@@ -1523,6 +1972,8 @@ def _run_implement(
             payload["research_ledger"] = research_package.ledger.to_dict()
         elif isinstance(research_ledger, EvidenceLedger):
             payload["research_ledger"] = research_ledger.to_dict()
+    if inventory_feedback is not None:
+        payload["implement_feedback"] = inventory_feedback.to_dict()
     research_brief = _research_brief_from_plan(
         plan,
         query=request.query,
@@ -1535,7 +1986,11 @@ def _run_implement(
     if request.workflow_id:
         payload["workflow_id"] = request.workflow_id
     if request.idempotency_key:
-        payload["idempotency_key"] = request.idempotency_key
+        payload["idempotency_key"] = (
+            f"{request.idempotency_key}:inventory-feedback:{inventory_feedback.round_index}"
+            if inventory_feedback is not None
+            else request.idempotency_key
+        )
     if request.client_graph_hash:
         payload["client_graph_hash"] = request.client_graph_hash
     if request.client_structural_graph_hash:
@@ -1962,13 +2417,136 @@ def _artifact_lineage_rows(
         rows.append(fallback_row("workflow_snapshot", "no_retained_snapshot"))
 
     witness = durable_map.get("schema_witness")
+    schema_binding_fallback_detail: dict[str, str] | None = None
+    if not isinstance(witness, (str, Mapping)):
+        receipt_payload = durable_map.get("authority_receipt")
+        if isinstance(receipt_payload, Mapping):
+            witness = receipt_payload.get("schema_witness")
+    if not isinstance(witness, (str, Mapping)):
+        # The public durable envelope intentionally carries only a compact
+        # authority-receipt summary. Resolve the same persisted, cross-bound
+        # receipt/transaction pair consumed by intent judgment instead of
+        # mistaking that shallow projection for an absent admission witness.
+        detail = durable_map.get("detail_json_path_resolved") or durable_map.get(
+            "detail_json_path"
+        )
+        turn_dir = Path(detail).parent if isinstance(detail, str) and detail else None
+        if turn_dir is not None and turn_dir.is_dir():
+            source_response: Mapping[str, Any] = durable_map
+            try:
+                loaded_response = json.loads(
+                    (turn_dir / "response.json").read_text(encoding="utf-8")
+                )
+                if isinstance(loaded_response, Mapping):
+                    source_response = loaded_response
+            except (OSError, ValueError):
+                pass
+            envelope_session_id = durable_map.get("session_id")
+            envelope_turn_id = durable_map.get("turn_id")
+            candidate_payload = durable_map.get("candidate")
+            candidate_transaction = durable_map.get("candidate_transaction")
+            envelope_plan_hashes = [
+                value
+                for value in (
+                    durable_map.get("plan_hash"),
+                    (
+                        candidate_payload.get("plan_hash")
+                        if isinstance(candidate_payload, Mapping)
+                        else None
+                    ),
+                    (
+                        candidate_transaction.get("plan_hash")
+                        if isinstance(candidate_transaction, Mapping)
+                        else None
+                    ),
+                )
+                if isinstance(value, str) and value
+            ]
+            plan_hash = envelope_plan_hashes[0] if envelope_plan_hashes else None
+            path_identity = (
+                turn_dir.parents[1].name,
+                turn_dir.name,
+            ) if turn_dir.parent.name == "turns" else None
+            envelope_identity = (
+                envelope_session_id,
+                envelope_turn_id,
+            )
+            source_candidate = source_response.get("candidate")
+            source_transaction = source_response.get("candidate_transaction")
+            source_plan_hashes = [
+                value
+                for value in (
+                    source_response.get("plan_hash"),
+                    (
+                        source_candidate.get("plan_hash")
+                        if isinstance(source_candidate, Mapping)
+                        else None
+                    ),
+                    (
+                        source_transaction.get("plan_hash")
+                        if isinstance(source_transaction, Mapping)
+                        else None
+                    ),
+                )
+                if isinstance(value, str) and value
+            ]
+            binding_error: str | None = None
+            if not all(
+                isinstance(value, str) and value
+                for value in envelope_identity
+            ):
+                binding_error = "current_envelope_identity_missing"
+            elif path_identity != envelope_identity:
+                binding_error = "durable_turn_path_identity_mismatch"
+            elif not envelope_plan_hashes:
+                binding_error = "current_envelope_selected_plan_missing"
+            elif len(set(envelope_plan_hashes)) != 1:
+                binding_error = "current_envelope_selected_plan_contradiction"
+            elif any(value != plan_hash for value in source_plan_hashes):
+                binding_error = "durable_turn_response_plan_mismatch"
+            elif any(
+                isinstance(source_response.get(key), str)
+                and source_response.get(key)
+                and source_response.get(key) != durable_map.get(key)
+                for key in ("session_id", "turn_id")
+            ):
+                binding_error = "durable_turn_response_identity_mismatch"
+            if binding_error is None and isinstance(plan_hash, str):
+                try:
+                    from vibecomfy.comfy_nodes.agent._artifact_store import (  # noqa: PLC0415
+                        load_bound_candidate_replay_evidence,
+                    )
+
+                    bound, binding_error = load_bound_candidate_replay_evidence(
+                        turn_dir,
+                        session_id=envelope_session_id,
+                        turn_id=envelope_turn_id,
+                        plan_hash=plan_hash,
+                    )
+                except Exception:  # noqa: BLE001 - fallback stays explicit
+                    bound = None
+                    binding_error = "bound_replay_evidence_unavailable"
+                receipt = getattr(bound, "receipt", None)
+                bound_witness = getattr(receipt, "schema_witness", None)
+                if isinstance(bound_witness, Mapping):
+                    witness = bound_witness
+            if not isinstance(witness, (str, Mapping)) and binding_error:
+                schema_binding_fallback_detail = {
+                    "binding_error": binding_error,
+                }
     witness_digest = _hex64(witness) if isinstance(witness, str) else None
     if witness_digest is None and isinstance(witness, Mapping) and witness:
         witness_digest = canonical_lineage_digest(dict(witness))
     if witness_digest is not None:
         rows.append(primary_row("schema_snapshot", witness_digest))
     else:
-        rows.append(fallback_row("schema_snapshot", "no_schema_witness"))
+        rows.append(
+            fallback_row(
+                "schema_snapshot",
+                "no_schema_witness",
+                detail=schema_binding_fallback_detail,
+            )
+        )
 
     # ── prompt/tool contract ─────────────────────────────────────────────
     stages = ("execute",) if orchestration_mode == "threaded" else (
@@ -3365,6 +3943,87 @@ def _run_staged_executor(
                         additive=additive,
                         host_ports=ports,
                     )
+                    inventory_feedback = _implement_missing_classes_feedback(
+                        implementation_result,
+                        round_index=1,
+                    )
+                    if inventory_feedback is not None:
+                        # The implement agent explicitly authored a clarify()
+                        # after exact local schema misses.  Follow that typed
+                        # edge once; Python neither invents candidates nor
+                        # turns catalog discovery into admission.
+                        try:
+                            feedback_research_spec = _resolve_spec(
+                                request.profile, "research"
+                            )
+                        except Exception as exc:
+                            failure = ports.classify_failure("profile", exc)
+                            raise _ExecutorPhaseError(
+                                stage="profile",
+                                failure_kind=failure.kind.value,
+                                message=failure.user_facing_message,
+                                failure_envelope=failure,
+                            ) from exc
+                        _emit_executor_phase_event(
+                            request,
+                            executor_id=executor_id,
+                            phase="research",
+                            status="start",
+                            client_id=client_id,
+                        )
+                        research_result = _run_agent_owned_research(
+                            request,
+                            feedback_research_spec,
+                            plan=plan,
+                            implement_feedback=inventory_feedback,
+                            prior_result=research_result,
+                        )
+                        _emit_executor_phase_event(
+                            request,
+                            executor_id=executor_id,
+                            phase="research",
+                            status=research_result.trace.status,
+                            client_id=client_id,
+                        )
+                        _emit_executor_phase_event(
+                            request,
+                            executor_id=executor_id,
+                            phase="implement",
+                            status="start",
+                            client_id=client_id,
+                        )
+                        implementation_result = _run_implement(
+                            request,
+                            implement_spec,
+                            plan=plan,
+                            research_result=research_result,
+                            client_id=client_id,
+                            additive=additive,
+                            host_ports=ports,
+                            inventory_feedback=inventory_feedback,
+                        )
+                        repeated_feedback = _implement_missing_classes_feedback(
+                            implementation_result,
+                            round_index=2,
+                        )
+                        durable_after_reentry = implementation_result.durable_response
+                        terminal_after_reentry = (
+                            durable_after_reentry.get("outcome")
+                            if isinstance(durable_after_reentry, Mapping)
+                            else None
+                        )
+                        reentry_clarify = (
+                            isinstance(terminal_after_reentry, Mapping)
+                            and terminal_after_reentry.get("kind") == "clarify"
+                        )
+                        if repeated_feedback is not None or reentry_clarify:
+                            implementation_result = (
+                                _feedback_budget_exhausted_result(
+                                    implementation_result,
+                                    inventory_feedback,
+                                    repeated_feedback,
+                                )
+                            )
                 finally:
                     heartbeat_stop.set()
                     heartbeat_thread.join(timeout=2.0)

@@ -1704,6 +1704,167 @@ def _build_research_findings_payload(state: AgentEditState) -> dict[str, Any]:
     }
 
 
+def _implement_missing_classes_feedback_payload(
+    state: AgentEditState,
+) -> dict[str, Any] | None:
+    """Project only the agent's explicit typed feedback terminal.
+
+    The agent chooses this edge with
+    ``clarify(question, missing_classes=[...])``. Python merely verifies that
+    every exact class has a durable local lookup receipt and transports the
+    bounded package. Plain clarifications never produce this field.
+    """
+    missing_classes = tuple(
+        getattr(state, "batch_implement_missing_classes_feedback", ()) or ()
+    )
+    question = getattr(state, "user_message", None)
+    if not missing_classes or not isinstance(question, str) or not question.strip():
+        return None
+    from vibecomfy.executor.tool_contracts import ToolStatus
+
+    receipts: dict[str, dict[str, Any]] = {}
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements")
+        if not isinstance(statements, (list, tuple)):
+            continue
+        for statement in statements:
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            witnessed = detail.get("missing_classes")
+            if not isinstance(witnessed, (list, tuple)):
+                continue
+            try:
+                status = ToolStatus(
+                    str(detail.get("tool_status") or ToolStatus.NO_RESULTS.value)
+                )
+            except ValueError:
+                status = ToolStatus.UNAVAILABLE
+            for value in witnessed:
+                class_type = value.strip() if isinstance(value, str) else ""
+                if class_type in missing_classes and class_type not in receipts:
+                    receipts[class_type] = {
+                        "node_class": class_type,
+                        "status": status.value,
+                        "source": "implement",
+                    }
+    if set(receipts) != set(missing_classes):
+        return None
+    return {
+        "question": question.strip(),
+        "missing_classes": list(missing_classes),
+        "lookup_receipts": [receipts[name] for name in missing_classes],
+    }
+
+
+def _implement_blocker_evidence_payload(
+    state: AgentEditState,
+) -> dict[str, Any] | None:
+    """Serialize scoped lookup facts without selecting a terminal outcome.
+
+    The agent remains the sole author of ``clarify`` versus a typed blocker.
+    This packet records only the current question, exact class lookups, and
+    provider failures that occurred in the staged implement session.
+    """
+    if getattr(state, "batch_exit_mode", None) not in {
+        "pure_clarify",
+        "edit_clarify",
+    }:
+        return None
+    question = getattr(state, "user_message", None)
+    if not isinstance(question, str) or not question.strip():
+        return None
+
+    receipts: dict[str, dict[str, Any]] = {}
+    provider_errors: list[dict[str, Any]] = []
+    seen_errors: set[tuple[str, str, str]] = set()
+
+    def record_receipt(node_class: Any, status: Any) -> None:
+        exact_class = node_class.strip() if isinstance(node_class, str) else ""
+        exact_status = status.strip() if isinstance(status, str) else ""
+        if not exact_class or not exact_status or exact_class in receipts:
+            return
+        receipts[exact_class] = {
+            "node_class": exact_class,
+            "status": exact_status,
+            "source": "implement",
+        }
+
+    for turn in getattr(state, "batch_turns", ()) or ():
+        if not isinstance(turn, Mapping):
+            continue
+        statements = turn.get("statements")
+        if not isinstance(statements, (list, tuple)):
+            continue
+        for statement in statements:
+            if not isinstance(statement, Mapping):
+                continue
+            detail = statement.get("detail")
+            if not isinstance(detail, Mapping):
+                continue
+            status = str(detail.get("tool_status") or "").strip()
+            witnessed = detail.get("missing_classes")
+            if isinstance(witnessed, (list, tuple)):
+                for node_class in witnessed:
+                    record_receipt(node_class, status or "no_results")
+            tool_arguments = detail.get("tool_arguments")
+            if detail.get("tool_call") == "node_schema" and isinstance(
+                tool_arguments, Mapping
+            ):
+                record_receipt(tool_arguments.get("node_class"), status)
+            lookup_classes = detail.get("lookup_classes")
+            if isinstance(lookup_classes, (list, tuple)):
+                for node_class in lookup_classes:
+                    record_receipt(node_class, status)
+
+            provider_error = detail.get("provider_error")
+            if status == "unavailable" or isinstance(provider_error, Mapping):
+                error_type = (
+                    str(provider_error.get("type") or "provider_unavailable")
+                    if isinstance(provider_error, Mapping)
+                    else "provider_unavailable"
+                )
+                message = (
+                    str(provider_error.get("message") or "")
+                    if isinstance(provider_error, Mapping)
+                    else str(detail.get("tool_message") or "")
+                )
+                node_class = ""
+                if isinstance(tool_arguments, Mapping):
+                    node_class = str(tool_arguments.get("node_class") or "").strip()
+                if not node_class and isinstance(lookup_classes, (list, tuple)):
+                    node_class = next(
+                        (
+                            str(value).strip()
+                            for value in lookup_classes
+                            if str(value).strip()
+                        ),
+                        "",
+                    )
+                error_key = (node_class, error_type, message)
+                if error_key not in seen_errors:
+                    seen_errors.add(error_key)
+                    provider_errors.append(
+                        {
+                            "node_class": node_class,
+                            "status": "unavailable",
+                            "type": error_type,
+                            "message": message,
+                        }
+                    )
+
+    return {
+        "scope": "current_authoring_session",
+        "unresolved_question": question.strip(),
+        "lookup_receipts": list(receipts.values()),
+        "provider_errors": provider_errors,
+    }
+
+
 def _build_batch_repl_response(
     state: AgentEditState,
     context: TurnContext,
@@ -1894,32 +2055,50 @@ def _build_batch_repl_response(
         unresolved_schema_terminal=unresolved_schema_terminal,
     )
     change_details = _change_details_payload(state, context)
-    _prepare_narrative_artifact_paths(state)
-    try:
-        message = _narrate_final_message(
-            state,
-            context,
-            outcome=internal_outcome,
-            public_outcome=public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None,
-            apply_eligibility=response_apply_eligibility,
+    from vibecomfy.executor.contracts import FinalAnswerPayload
+
+    final_answer = None
+    if isinstance(getattr(state, "batch_final_answer", None), str) and state.batch_final_answer.strip():
+        final_answer = FinalAnswerPayload(
+            text=state.batch_final_answer,
+            evidence_refs=tuple(
+                getattr(state, "batch_final_answer_evidence_refs", ()) or ()
+            ),
         )
-        narrative_debug = _narrative_debug_fields(state)
-    except Exception as exc:
-        LOGGER.warning("Narrative synthesis failed for batch_repl response: %s", exc)
-        message = _fallback_narrative_message(
-            state,
-            outcome=internal_outcome,
-            fallback_reason="narrative_synthesis_error",
-        )
-        narrative_debug = _legacy_narrative_debug_status(
-            "narrative_synthesis_error",
-            attempted=True,
-        )
-        narrative_debug["narrative"]["error"] = {
-            "type": type(exc).__name__,
-            "message": str(exc),
+        message = final_answer.text
+        narrative_debug = {
+            "narrative": {
+                "attempted": False,
+                "selected_source": "agent_final_answer",
+            }
         }
-    _record_narrative_artifacts(state)
+    else:
+        _prepare_narrative_artifact_paths(state)
+        try:
+            message = _narrate_final_message(
+                state,
+                context,
+                outcome=internal_outcome,
+                public_outcome=public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None,
+                apply_eligibility=response_apply_eligibility,
+            )
+            narrative_debug = _narrative_debug_fields(state)
+        except Exception as exc:
+            LOGGER.warning("Narrative synthesis failed for batch_repl response: %s", exc)
+            message = _fallback_narrative_message(
+                state,
+                outcome=internal_outcome,
+                fallback_reason="narrative_synthesis_error",
+            )
+            narrative_debug = _legacy_narrative_debug_status(
+                "narrative_synthesis_error",
+                attempted=True,
+            )
+            narrative_debug["narrative"]["error"] = {
+                "type": type(exc).__name__,
+                "message": str(exc),
+            }
+        _record_narrative_artifacts(state)
     internal_outcome, public_outcome = _sync_narrated_clarify_outcome(
         message,
         internal_outcome=internal_outcome,
@@ -1982,6 +2161,9 @@ def _build_batch_repl_response(
     response.update(compatibility_fields)
     response.update(_execution_plan_response_fields(state))
     response.update(_session_artifact_response_fields(state))
+    if final_answer is not None:
+        response["final_answer"] = final_answer.to_dict()
+        response["evidence_refs"] = list(final_answer.evidence_refs)
     # T5.1 lineage: bind the retained ingest snapshot's digests into the
     # durable response so the artifact lineage manifest can link the workflow
     # snapshot without re-deriving shape from raw bytes. Additive keys only.
@@ -2031,6 +2213,25 @@ def _build_batch_repl_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
+    blocker_evidence = _implement_blocker_evidence_payload(state)
+    if blocker_evidence is not None:
+        report = (
+            dict(response.get("report"))
+            if isinstance(response.get("report"), Mapping)
+            else {}
+        )
+        report["implement_blocker_evidence"] = blocker_evidence
+        response["report"] = report
+    implement_feedback = _implement_missing_classes_feedback_payload(state)
+    if implement_feedback is not None:
+        response["implement_missing_classes_feedback"] = implement_feedback
+        outcome = response.get("outcome")
+        if isinstance(outcome, Mapping):
+            outcome = dict(outcome)
+            outcome["missing_classes"] = list(
+                implement_feedback["missing_classes"]
+            )
+            response["outcome"] = outcome
     # ── Accepted Δ ────────────────────────────────────────────────────────
     # The response's change claims (reply, report, outcome) are grounded in
     # the accepted Δ: the batch statements that landed.  ``accepted_batch``
@@ -2378,6 +2579,8 @@ __all__ = (
     "_failure_response",
     "_format_clarify_markdown_message",
     "_has_enough_grounded_facts_for_dev_narrative",
+    "_implement_blocker_evidence_payload",
+    "_implement_missing_classes_feedback_payload",
     "_layout_only_reorganise_evidence_changed",
     "_legacy_failure_response",
     "_legacy_narrative_debug_status",

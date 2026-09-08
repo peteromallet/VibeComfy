@@ -37,6 +37,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import functools
+import importlib
 import json
 import os
 import shutil
@@ -47,7 +48,7 @@ import tempfile
 import time
 import logging
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterator, Iterable, Mapping, Sequence
 
 from vibecomfy.agent.deepseek_usage import (
     add_deepseek_usage,
@@ -99,6 +100,50 @@ _HERMES_CREDENTIAL_ENV_KEYS = frozenset(
         "VIBECOMFY_HERMES_API_KEY",
     }
 )
+
+
+def _is_credential_env_key(name: str) -> bool:
+    return name in _HERMES_CREDENTIAL_ENV_KEYS or name.startswith("OPENROUTER_API_KEY_")
+
+
+def _credential_env_snapshot() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if _is_credential_env_key(key)
+    }
+
+
+def _restore_credential_env(snapshot: Mapping[str, str]) -> None:
+    for key in tuple(os.environ):
+        if _is_credential_env_key(key) and key not in snapshot:
+            os.environ.pop(key, None)
+    for key, value in snapshot.items():
+        os.environ[key] = value
+
+
+@contextlib.contextmanager
+def _preserve_parent_credentials() -> Iterator[None]:
+    """Keep parent credential env stable across Arnold import-time dotenv.
+
+    ``arnold.agent.run_agent`` calls ``load_hermes_dotenv(..., override=True)``
+    at import. A parent-side readiness probe that imports Arnold would otherwise
+    replace a process-level ``OPENROUTER_API_KEY`` with ``~/.hermes/.env``; the
+    worker then authenticates with that overwritten key and OpenRouter 401s
+    ``User not found``.
+    """
+    snapshot = _credential_env_snapshot()
+    old_home = os.environ.get("HERMES_HOME")
+    with tempfile.TemporaryDirectory(prefix="vibecomfy-arnold-probe-") as tmp:
+        os.environ["HERMES_HOME"] = tmp
+        try:
+            yield
+        finally:
+            if old_home is None:
+                os.environ.pop("HERMES_HOME", None)
+            else:
+                os.environ["HERMES_HOME"] = old_home
+            _restore_credential_env(snapshot)
 
 # S4: chunked emit + research checkpoint + 480s infra. 506ebd shows a 400+
 # node graph blows the 240s budget in emit_ui_json before the agent can
@@ -655,9 +700,11 @@ def _runtime_model_for_route(route: str | None, model: str | None) -> str | None
     if forced_model:
         return forced_model
     if _is_real_model_override(model):
+        if normalized_route == "openrouter":
+            return _strip_provider_prefix(model, "openrouter")
         return model
     if normalized_route == "openrouter":
-        return _OPENROUTER_MODEL
+        return _strip_provider_prefix(_OPENROUTER_MODEL, "openrouter")
     if normalized_route in {"arnold", "anthropic", "openai-codex"}:
         return _ARNOLD_MODEL
     return None
@@ -1424,8 +1471,17 @@ def _run_worker_once(
                     aliases = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "HERMES_API_KEY"]
                     if native_endpoint:
                         aliases.append("DEEPSEEK_API_KEY")
+                    # Force the resolved transport key. setdefault left an
+                    # inherited OPENAI_API_KEY/HERMES_API_KEY in place; Arnold
+                    # then 401'd OpenRouter while parent readiness still saw
+                    # OPENROUTER_API_KEY.
                     for key in aliases:
-                        env.setdefault(key, hermes_key)
+                        env[key] = hermes_key
+                    if not native_endpoint:
+                        # Adapter dotenv hydrates DEEPSEEK_API_KEY into the
+                        # parent; Arnold then authenticates the OpenRouter
+                        # call with that native key ("User not found" 401).
+                        env.pop("DEEPSEEK_API_KEY", None)
             else:
                 for key in tuple(env):
                     if key in _HERMES_CREDENTIAL_ENV_KEYS or key.startswith(
@@ -1688,7 +1744,8 @@ def _registered_agent_ids() -> set[str]:
     raise.
     """
     try:
-        import arnold.agent as _agent_mod
+        with _preserve_parent_credentials():
+            import arnold.agent as _agent_mod
     except ImportError:
         return set()
     dispatcher = getattr(_agent_mod, "_default", None)
@@ -1701,6 +1758,22 @@ def _registered_agent_ids() -> set[str]:
 def _adapter_registered(agent_id: str) -> bool:
     """True when *agent_id* has an adapter registered in the default dispatcher."""
     return agent_id in _registered_agent_ids()
+
+
+def _arnold_worker_importable() -> bool:
+    """True when this interpreter can import the worker backend.
+
+    OpenRouter readiness used to green-light on ``OPENROUTER_API_KEY`` alone.
+    The Hermes worker then died on ``No module named 'arnold'`` after the
+    parent had already claimed ``ready: true``. Probe the backend the worker
+    actually loads, not a sibling VibeComfy adapter module.
+    """
+    try:
+        with _preserve_parent_credentials():
+            importlib.import_module("arnold.pipelines.megaplan.agent.run_agent")
+    except ImportError:
+        return False
+    return True
 
 
 def _auth_json_has_token(path: Path) -> bool:
@@ -1791,8 +1864,19 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
         else:
             resolved_model = _strip_provider_prefix(resolved_model, "openrouter")
         credential_name = "DEEPSEEK_API_KEY" if transport == "native" else "OPENROUTER_API_KEY"
+        worker_importable = _arnold_worker_importable()
+        ready = bool(key) and worker_importable
+        if not key:
+            reason = f"No {credential_name} in environment or ~/.hermes/.env."
+        elif not worker_importable:
+            reason = (
+                "Arnold agent runtime is not importable in this interpreter; "
+                "install the vibecomfy[agent] extra."
+            )
+        else:
+            reason = f"{credential_name} resolved; ready to run agent-edit turns."
         return {
-            "ready": bool(key),
+            "ready": ready,
             "backend": backend,
             "route": "openrouter",
             "transport": transport,
@@ -1801,11 +1885,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
             "credential_present": bool(key),
             "openrouter_key_present": transport == "openrouter" and bool(key),
             "deepseek_key_present": transport == "native" and bool(key),
-            "reason": (
-                f"{credential_name} resolved; ready to run agent-edit turns."
-                if key
-                else f"No {credential_name} in environment or ~/.hermes/.env."
-            ),
+            "reason": reason,
         }
 
     if requested == "openai-codex":
@@ -1908,7 +1988,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
             if transport == "native"
             else _resolve_openrouter_key()
         )
-        if _adapter_registered("hermes") and key:
+        if _adapter_registered("hermes") and key and _arnold_worker_importable():
             resolved_model = _runtime_model_for_route("openrouter", model) or _OPENROUTER_MODEL
             base_url = _base_url_for_route(route, transport=transport)
             if transport == "native":

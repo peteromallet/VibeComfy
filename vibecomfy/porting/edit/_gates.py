@@ -86,6 +86,23 @@ class _GatesMixin:
                         ),
                     ),
                 )
+            if getattr(self, "interaction_mode", None) == "answer_only":
+                # Gate A already proves that an empty landed delta preserved
+                # the retained graph byte-for-byte.  Compiling that untouched
+                # graph adds no edit evidence and can reject a valid answer
+                # because of a pre-existing compile issue.  This exception is
+                # deliberately below the zero-op identity proof and above the
+                # ordinary Gate B call: any landed mutation still takes the
+                # fail-closed Gate B path below.
+                gate_c_summary = self._done_gate_c(ops)
+                return DoneResult(
+                    ok=True,
+                    summary=(
+                        "No edits applied — identity verified; Gate B was not "
+                        "required for this answer-only no-op. "
+                        f"Summary: {gate_c_summary}"
+                    ),
+                )
             gate_b = self._done_gate_b_from_ir(ops)
             if not gate_b.ok:
                 return gate_b

@@ -13,7 +13,7 @@ import ast
 import keyword
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
 _LOGGER = logging.getLogger(__name__)
@@ -167,6 +167,7 @@ class InterpretationResult:
     lint_result: Any = None
     occurrence_to_statement_index: Mapping[int, int] = field(default_factory=dict)
     value_default_context: Any = None
+    schema_provider: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1058,16 +1059,223 @@ def _evaluate_operation(
         )
 
 
-def _frozen_provider_for_interpret(schema_provider: Any) -> Any | None:
-    """Return only the immutable schema witness carried across ingress."""
+def _workflow_node_classes(workflow: VibeWorkflow) -> dict[str, str]:
+    classes: dict[str, str] = {}
+    for node_id, node in workflow.nodes.items():
+        class_type = str(getattr(node, "class_type", "") or "")
+        if not class_type:
+            continue
+        classes[str(node_id)] = class_type
+        uid = str(getattr(node, "uid", "") or "")
+        if uid:
+            classes[uid] = class_type
+    return classes
+
+
+def _touched_classes_for_interpret(
+    workflow: VibeWorkflow,
+    batch_source: str | Sequence[EditOp],
+    snapshot: Any,
+    *,
+    catalog: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
+    """Return the delta-bounded class closure needed before admission."""
+    node_classes = dict(getattr(snapshot, "node_classes", {}) or {})
+    node_classes.update(_workflow_node_classes(workflow))
+    touched: set[str] = set()
+    if not isinstance(batch_source, str):
+        from vibecomfy.schema.types import touched_schema_classes
+
+        catalog = {
+            "schemas": dict(getattr(snapshot, "schemas", {}) or {}),
+            "missing_classes": list(getattr(snapshot, "missing_classes", ()) or ()),
+            "node_classes": node_classes,
+        }
+        for operation in batch_source:
+            explicit_class = getattr(operation, "class_type", None)
+            if isinstance(explicit_class, str) and explicit_class:
+                touched.add(explicit_class)
+            touched.update(touched_schema_classes(operation, catalog))
+        return tuple(sorted(touched))
+
+    # Python-surface names are a deterministic projection of the current IR.
+    # Select only graph names actually present in the submitted source.  Node
+    # constructors are resolved below against the authoritative catalog.
+    try:
+        module = ast.parse(batch_source, mode="exec")
+        names = {node.id for node in ast.walk(module) if isinstance(node, ast.Name)}
+        emitted = _compute_variable_names(workflow.nodes, list(workflow.edges))
+        for node_id, name in emitted.items():
+            if name in names and str(node_id) in workflow.nodes:
+                touched.add(str(workflow.nodes[str(node_id)].class_type))
+        if catalog:
+            from vibecomfy.porting.authoring_names import (
+                constructor_aliases_for_class_types,
+            )
+
+            aliases = {
+                alias: class_type
+                for class_type, alias in constructor_aliases_for_class_types(
+                    str(class_type) for class_type in catalog
+                ).items()
+            }
+            for call in (node for node in ast.walk(module) if isinstance(node, ast.Call)):
+                if (
+                    isinstance(call.func, ast.Name)
+                    and call.func.id == "node"
+                    and call.args
+                ):
+                    raw = call.args[0]
+                    if isinstance(raw, ast.Constant) and isinstance(raw.value, str):
+                        touched.add(raw.value)
+                    continue
+                constructor = None
+                if isinstance(call.func, ast.Name):
+                    constructor = call.func.id
+                elif (
+                    isinstance(call.func, ast.Attribute)
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "vibecomfy"
+                ):
+                    constructor = call.func.attr
+                if constructor in catalog:
+                    touched.add(str(constructor))
+                elif constructor in aliases:
+                    touched.add(aliases[str(constructor)])
+    except (SyntaxError, AttributeError, KeyError, TypeError, ValueError):
+        pass
+    return tuple(sorted(touched))
+
+
+def _frozen_provider_for_interpret(
+    schema_provider: Any,
+    *,
+    pre_workflow: VibeWorkflow,
+    batch_source: str | Sequence[EditOp],
+) -> Any | None:
+    """Freeze and delta-bound available catalog authority for interpretation."""
     from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
 
-    if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
-        return schema_provider
+    if schema_provider is None:
+        return None
+    frozen_provider = (
+        schema_provider
+        if isinstance(schema_provider, FrozenSchemaSnapshotProvider)
+        else None
+    )
     if isinstance(schema_provider, SchemaSnapshot):
         return FrozenSchemaSnapshotProvider(schema_provider)
     snapshot = getattr(schema_provider, "snapshot", None)
-    if isinstance(snapshot, SchemaSnapshot):
+    if not isinstance(snapshot, SchemaSnapshot):
+        snapshot = None
+
+    frozen_catalog = getattr(schema_provider, "_frozen_schema_catalog", None)
+    catalog_error = getattr(schema_provider, "_frozen_schema_catalog_error", None)
+    catalog_provider = schema_provider
+    catalog = dict(frozen_catalog) if isinstance(frozen_catalog, Mapping) else None
+    schemas = getattr(catalog_provider, "schemas", None)
+    if catalog is None and callable(schemas):
+        try:
+            catalog = schemas()
+        except Exception as exc:
+            catalog = None
+            catalog_error = f"{type(exc).__name__}: {exc}"
+    touched = (
+        _touched_classes_for_interpret(
+            pre_workflow,
+            batch_source,
+            snapshot,
+            catalog=catalog,
+        )
+        if snapshot is not None
+        else ()
+    )
+    unresolved_touched = (
+        tuple(class_type for class_type in touched if class_type not in snapshot.schemas)
+        if snapshot is not None
+        else ()
+    )
+    if unresolved_touched and isinstance(catalog_error, str) and catalog_error:
+        provider = frozen_provider or FrozenSchemaSnapshotProvider(snapshot)
+        provider._frozen_schema_catalog_error = catalog_error
+        provider._frozen_schema_catalog_issue = {
+            "code": "schema_provider_error",
+            "message": (
+                "authoritative schema catalog failed while resolving touched "
+                "class(es): " + ", ".join(unresolved_touched)
+            ),
+            "provider_error": catalog_error,
+            "class_types": unresolved_touched,
+        }
+        return provider
+    if isinstance(catalog, Mapping) and catalog:
+        from vibecomfy.schema.types import (
+            _complete_schema_snapshot_with_authoritative_catalog,
+            capture_schema_snapshot,
+            schema_payload_from_node_schema,
+        )
+
+        if snapshot is not None:
+            mismatched: list[str] = []
+            for class_type in unresolved_touched:
+                candidate = catalog.get(class_type)
+                if candidate is None:
+                    continue
+                try:
+                    payload = schema_payload_from_node_schema(class_type, candidate)
+                except Exception:
+                    mismatched.append(class_type)
+                    continue
+                if (
+                    getattr(candidate, "class_type", None) != class_type
+                    or payload.get("class_type") != class_type
+                ):
+                    mismatched.append(class_type)
+            if mismatched:
+                provider = frozen_provider or FrozenSchemaSnapshotProvider(snapshot)
+                provider._frozen_schema_catalog = dict(catalog)
+                provider._frozen_schema_catalog_issue = {
+                    "code": "schema_admission_mismatch",
+                    "message": (
+                        "authoritative catalog entries did not match their "
+                        "touched class identity: " + ", ".join(mismatched)
+                    ),
+                    "class_types": tuple(mismatched),
+                }
+                return provider
+            completed = _complete_schema_snapshot_with_authoritative_catalog(
+                snapshot,
+                catalog,
+                class_types=touched,
+                node_classes=_workflow_node_classes(pre_workflow),
+            )
+            provider = FrozenSchemaSnapshotProvider(completed)
+            provider._frozen_schema_catalog = dict(catalog)
+            return provider
+
+        payload: dict[str, Any] = {}
+        for key, value in catalog.items():
+            if value is None:
+                continue
+            try:
+                payload[str(key)] = schema_payload_from_node_schema(str(key), value)
+            except Exception:
+                continue
+        if payload:
+            provider = FrozenSchemaSnapshotProvider(
+                capture_schema_snapshot(
+                    class_types=tuple(payload),
+                    request_snapshot={
+                        "schemas": payload,
+                        "missing_classes": [],
+                    },
+                )
+            )
+            provider._frozen_schema_catalog = dict(catalog)
+            return provider
+    if frozen_provider is not None:
+        return frozen_provider
+    if snapshot is not None:
         return FrozenSchemaSnapshotProvider(snapshot)
     return None
 
@@ -1121,6 +1329,63 @@ def _missing_schema_interpretation(
     )
 
 
+def _schema_catalog_issue_interpretation(
+    pre_workflow: VibeWorkflow,
+    batch_source: str | Sequence[EditOp],
+    issue: Mapping[str, Any],
+) -> InterpretationResult:
+    """Reject a provider/mismatch failure distinctly and atomically."""
+    code = str(issue.get("code") or "schema_provider_error")
+    message = str(issue.get("message") or code)
+    diagnostic = _diag(
+        code,
+        message,
+        severity="error",
+        detail={
+            key: value
+            for key, value in issue.items()
+            if key not in {"code", "message"}
+        },
+    )
+    operations = () if isinstance(batch_source, str) else tuple(batch_source)
+    transitions = tuple(
+        OperationTransition(
+            occurrence=index,
+            submitted=operation,
+            normalized=operation,
+            outcome="rejected",
+            diagnostics=(diagnostic,),
+            lint_disposition="rejected",
+        )
+        for index, operation in enumerate(operations)
+    )
+    return InterpretationResult(
+        workflow=_cow_workflow_copy(pre_workflow),
+        statements=tuple(
+            StatementOutcome(
+                statement_index=index,
+                source=type(operation).__name__,
+                status="rejected",
+                reason=code,
+                op_kind=getattr(operation, "op", type(operation).__name__),
+                diagnostics=(diagnostic,),
+                op=operation,
+            )
+            for index, operation in enumerate(operations)
+        ),
+        ok=False,
+        diagnostics=(diagnostic,),
+        landed_ops=(),
+        preflight_ok=False,
+        transitions=transitions,
+        lint_result=_lint_result_from_transitions(transitions),
+        occurrence_to_statement_index={
+            transition.occurrence: transition.statement_index
+            for transition in transitions
+        },
+    )
+
+
 def interpret(
     pre_workflow: VibeWorkflow,
     batch_source: str | Sequence[EditOp],
@@ -1143,28 +1408,39 @@ def interpret(
         raise TypeError(
             f"interpret requires VibeWorkflow, got {type(pre_workflow).__name__}"
         )
-    provider = _frozen_provider_for_interpret(schema_provider)
+    provider = _frozen_provider_for_interpret(
+        schema_provider,
+        pre_workflow=pre_workflow,
+        batch_source=batch_source,
+    )
     if provider is None:
         return _missing_schema_interpretation(pre_workflow, batch_source)
+    catalog_issue = getattr(provider, "_frozen_schema_catalog_issue", None)
+    if isinstance(catalog_issue, Mapping):
+        return _schema_catalog_issue_interpretation(
+            pre_workflow, batch_source, catalog_issue
+        )
     if not isinstance(batch_source, str):
-        return _interpret_ops(
+        result = _interpret_ops(
             pre_workflow,
             tuple(batch_source),
             schema_provider=provider,
             value_default_context=value_default_context,
         )
-    return _interpret_source(
-        pre_workflow,
-        batch_source,
-        schema_provider=provider,
-        max_batch_bytes=max_batch_bytes,
-        max_statements=max_statements,
-        max_expanded_statements=max_expanded_statements,
-        max_for_iterations=max_for_iterations,
-        cas_old=cas_old,
-        name_hints=name_hints,
-        value_default_context=value_default_context,
-    )
+    else:
+        result = _interpret_source(
+            pre_workflow,
+            batch_source,
+            schema_provider=provider,
+            max_batch_bytes=max_batch_bytes,
+            max_statements=max_statements,
+            max_expanded_statements=max_expanded_statements,
+            max_for_iterations=max_for_iterations,
+            cas_old=cas_old,
+            name_hints=name_hints,
+            value_default_context=value_default_context,
+        )
+    return replace(result, schema_provider=provider)
 
 
 def _interpret_source(

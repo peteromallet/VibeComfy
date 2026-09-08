@@ -649,18 +649,30 @@ def _effective_implementation_task(state: AgentEditState) -> str:
     # VAEDecode"). Let the editor decide placement from the raw graph + request.
     classification = state.request_payload.get("executor_classification")
     context = ""
+    interaction_contract = ""
     if isinstance(classification, Mapping):
         context = " ".join(
             str(classification.get(key) or "")
             for key in ("intent", "route", "task")
         ).strip()
-    if not context:
+        if (
+            classification.get("interaction_mode") == "answer_only"
+            and classification.get("typed_refusal_contract") is not True
+        ):
+            interaction_contract = (
+                "Interaction mode: answer_only — answer the user's question "
+                "directly. Do NOT edit, add, delete, rewire, or change the mode "
+                "of any node; finish with a zero-edit final answer grounded in "
+                "research and inspection."
+            )
+    if not context and not interaction_contract:
         return state.task
-    return (
-        f"{state.task}\n\n"
-        "Resolved executor context:\n"
-        f"{context}"
-    )
+    sections = [state.task]
+    if context:
+        sections.append(f"Resolved executor context:\n{context}")
+    if interaction_contract:
+        sections.append(interaction_contract)
+    return "\n\n".join(sections)
 
 
 __all__ = (

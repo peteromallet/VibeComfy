@@ -429,7 +429,7 @@ def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
         admit_operations,
     )
     from vibecomfy.ingest.snapshot import WorkflowSnapshot
-    from vibecomfy.schema import SchemaSnapshotError
+    from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError
     from vibecomfy.workflow import VibeWorkflow
 
     workflow = getattr(session, "last_rendered_workflow", None)
@@ -439,7 +439,13 @@ def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
             code="missing_workflow_authority",
         )
     landed = tuple(getattr(session, "landed_ops", ()) or ())
-    retained_schema = getattr(state, "schema_snapshot", None)
+    session_schema_provider = getattr(session, "schema_provider", None)
+    session_schema = getattr(session_schema_provider, "snapshot", None)
+    retained_schema = (
+        session_schema
+        if landed and isinstance(session_schema, SchemaSnapshot)
+        else getattr(state, "schema_snapshot", None)
+    )
     retained_workflow = getattr(state, "workflow_snapshot", None)
     if retained_workflow is None:
         raise SchemaSnapshotError(
@@ -511,14 +517,20 @@ def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
             )
     from vibecomfy.schema import FrozenSchemaSnapshotProvider
 
+    published_schema_provider = FrozenSchemaSnapshotProvider(pair.schema)
     _emit_ui_json(
         workflow,
-        schema_provider=FrozenSchemaSnapshotProvider(pair.schema),
+        schema_provider=published_schema_provider,
         prior_store=state.prior_store,
         guard_original_ui=state.guard_original_ui or state.graph,
         guard_resolved_ops=getattr(session, "resolved_ops", ()),
         prior_ui_payload=state.guard_original_ui or state.graph,
     )
+    # Advance state only after final admission and presentation emission both
+    # succeed.  Receipt construction and later replay now consume the exact
+    # generation that admitted the session batch.
+    state.schema_provider = published_schema_provider
+    state.schema_snapshot = pair.schema
     state.admission_schema_snapshot = pair.schema
     state.edited_workflow = workflow
 
@@ -1056,6 +1068,21 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
     # omitted research() sources= to ("messages", "web") on the research route.
     canonical_route = deps._canonical_agent_edit_route(state.route or route)
     research_only_route = canonical_route == "research"
+    executor_classification = state.request_payload.get("executor_classification")
+    interaction_mode = (
+        executor_classification.get("interaction_mode")
+        if isinstance(executor_classification, Mapping)
+        and isinstance(executor_classification.get("interaction_mode"), str)
+        else None
+    )
+    if (
+        isinstance(executor_classification, Mapping)
+        and executor_classification.get("typed_refusal_contract") is True
+    ):
+        # A typed refusal contract must retain the mutation/clarification
+        # surface. The raw interaction_mode remains in the durable envelope,
+        # but it does not activate answer-only permission enforcement.
+        interaction_mode = None
     threaded_route = (
         state.request_payload.get("pipeline_mode") == "threaded"
         and not research_only_route
@@ -1066,6 +1093,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         value_default_context=value_default_context,
         initial_workflow=state.workflow,
         workflow_snapshot=getattr(state, "workflow_snapshot", None),
+        interaction_mode=interaction_mode,
     )
     session.research_only = research_only_route
     session.tool_phase = (
@@ -1316,6 +1344,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             if turn_number == 0
             else "",
             execution_plan_status=execution_plan_status,
+            interaction_mode=interaction_mode,
         )
         request_entry = {
             "turn_number": turn_number,
@@ -1539,6 +1568,10 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         previous_model_message = turn_result.message
         clarify_split = deps.split_terminal_clarify(turn_result.batch)
         clarify_message = clarify_split.message
+        if clarify_message is not None:
+            state.batch_implement_missing_classes_feedback = (
+                clarify_split.missing_classes
+            )
         editable_batch = clarify_split.batch if clarify_message is not None else turn_result.batch
         response_log.append(
             {
@@ -2351,6 +2384,15 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                         + deps._revision_candidate_retry_hint(state)
                     )
                     continue
+                # The terminal answer becomes durable only after done() and
+                # every candidate/revision check have accepted this exact
+                # turn. Earlier conversational prose remains debug context;
+                # it is never promoted heuristically.
+                if turn_result.final_answer is not None:
+                    state.batch_final_answer = turn_result.final_answer
+                    state.batch_final_answer_evidence_refs = tuple(
+                        turn_result.evidence_refs
+                    )
                 state.artifacts = {
                     "request": str(state.request_path),
                     "original_ui": str(state.original_ui_path),

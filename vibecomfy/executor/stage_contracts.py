@@ -150,6 +150,84 @@ class NeedsInput:
 
 
 @dataclass(frozen=True)
+class ImplementMissingClassesFeedback:
+    """Agent-authored implement question handed back to research.
+
+    The class names are exact identifiers witnessed by implement's local
+    authoring-schema lookups.  The executor may transport this package and
+    bound how often it is followed, but it must not invent a replacement,
+    broaden a class name, or interpret discovery as installation/admission.
+    """
+
+    question: str
+    missing_classes: tuple[str, ...]
+    lookup_receipts: tuple[Mapping[str, Any], ...]
+    round_index: int = 1
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "question", _required_text(self.question, "question"))
+        classes = _text_tuple(self.missing_classes, "missing_classes")
+        if not classes:
+            raise ValueError("`missing_classes` must contain at least one exact class name.")
+        object.__setattr__(self, "missing_classes", classes)
+        if not isinstance(self.lookup_receipts, (list, tuple)):
+            raise ValueError("`lookup_receipts` must be a list.")
+        receipts: list[Mapping[str, Any]] = []
+        for raw in self.lookup_receipts:
+            if not isinstance(raw, Mapping):
+                raise ValueError("Each lookup receipt must be an object.")
+            node_class = _required_text(raw.get("node_class"), "node_class")
+            if node_class not in classes:
+                raise ValueError(
+                    "Lookup receipt class must exactly match a missing class: "
+                    f"{node_class!r}."
+                )
+            status = normalize_tool_status(raw.get("status"))
+            receipt = dict(raw)
+            receipt["node_class"] = node_class
+            receipt["status"] = status.value
+            receipts.append(_freeze_json(receipt, "lookup_receipt"))
+        if not receipts:
+            raise ValueError("`lookup_receipts` must contain exact local lookup evidence.")
+        witnessed = {str(receipt["node_class"]) for receipt in receipts}
+        if witnessed != set(classes):
+            absent = sorted(set(classes) - witnessed)
+            raise ValueError(
+                "Every missing class needs an exact lookup receipt: " + ", ".join(absent)
+            )
+        object.__setattr__(self, "lookup_receipts", tuple(receipts))
+        if not isinstance(self.round_index, int) or isinstance(self.round_index, bool):
+            raise ValueError("`round_index` must be an integer.")
+        if self.round_index < 1:
+            raise ValueError("`round_index` must be at least 1.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "question": self.question,
+            "missing_classes": list(self.missing_classes),
+            "lookup_receipts": [_thaw_json(item) for item in self.lookup_receipts],
+            "round_index": self.round_index,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ImplementMissingClassesFeedback":
+        if not isinstance(payload, Mapping):
+            raise ValueError("ImplementMissingClassesFeedback must be an object.")
+        _check_keys(
+            payload,
+            required=frozenset({"question", "missing_classes", "lookup_receipts"}),
+            optional=frozenset({"round_index"}),
+            contract="ImplementMissingClassesFeedback",
+        )
+        return cls(
+            question=payload["question"],
+            missing_classes=payload["missing_classes"],
+            lookup_receipts=payload["lookup_receipts"],
+            round_index=payload.get("round_index", 1),
+        )
+
+
+@dataclass(frozen=True)
 class StagePackage:
     """Validated envelope handed from one stage to the next.
 
@@ -289,6 +367,7 @@ class StagePackage:
 
 
 __all__ = [
+    "ImplementMissingClassesFeedback",
     "NeedsInput",
     "StageDiagnostic",
     "StagePackage",

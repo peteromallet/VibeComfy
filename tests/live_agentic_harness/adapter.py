@@ -28,16 +28,17 @@ def _ensure_headless_env() -> None:
 
 
 def _load_credential_env_file(path: Path | str | None = None) -> None:
-    """Hydrate credential keys (e.g. DEEPSEEK_API_KEY) from a sibling .env.
+    """Hydrate missing credential keys from a sibling .env.
 
     The live agentic harness runs the canonical OpenRouter product route by
     default.  This file exists so a local run still finds its API keys when
-    they are not in the environment. This harness-local loader mutates only the
-    harness process and skips transport selectors. The product runtime uses a
-    separate, non-mutating resolver for ``~/.hermes/.env``.
+    they are not in the environment. Keys already present (including an
+    inherited ``DEEPSEEK_API_KEY``) are left untouched so a native DeepSeek
+    key cannot block loading ``OPENROUTER_API_KEY``. This harness-local loader
+    mutates only the harness process and skips transport selectors. The
+    product runtime uses a separate, non-mutating resolver for
+    ``~/.hermes/.env``.
     """
-    if os.environ.get("DEEPSEEK_API_KEY"):
-        return
     candidate = path or os.environ.get("BANODOCO_BRAIN_ENV")
     if candidate is None:
         home = Path.home()
@@ -270,6 +271,7 @@ def run_headless_scenario(
         "deepseek_est_cost_usd": result.response.get("deepseek_est_cost_usd"),
         "deepseek_cost_basis": result.response.get("deepseek_cost_basis"),
         "model_attempts": result.response.get("model_attempts", []),
+        "failure_kind": result.response.get("failure_kind"),
         # The comparison lane requires an explicit attestation even though
         # staged remains byte-compatible when its mode is omitted internally.
         "pipeline_mode": pipeline_mode,

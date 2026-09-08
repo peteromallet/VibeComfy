@@ -48,7 +48,7 @@ import re
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, Mapping
 
 
 def _bootstrap_repo_root() -> None:
@@ -117,6 +117,36 @@ class EmptyModelResponseError(ValueError):
     """Raised when the provider returns no model content at all."""
 
 
+def _is_auth_failure_text(text: str) -> bool:
+    """True for typed provider-auth failures, not for ordinary empty bodies."""
+    lowered = str(text or "").lower()
+    return (
+        "error code: 401" in lowered
+        or "error code: 403" in lowered
+        or "authenticationerror" in lowered
+        or "missing authentication header" in lowered
+        or "invalid api key" in lowered
+        or "invalid_api_key" in lowered
+        or "unauthorized" in lowered
+    )
+
+
+def _raise_if_failed_auth_turn(last_result: Mapping[str, Any], raw: str) -> None:
+    """Arnold 401s return ``{failed: true, error: ...}`` with empty raw_output.
+
+    Treating that as EmptyModelResponseError freezes ``empty_response`` while
+    upstream classify_failure still emits AuthError. Raise PermissionError so
+    the attempt stamp matches the envelope.
+    """
+    if not last_result.get("failed"):
+        return
+    err = str(last_result.get("error") or "")
+    if _is_auth_failure_text(err):
+        raise PermissionError(err or "provider rejected authentication")
+    if not str(raw or "").strip() and err:
+        raise RuntimeError(err)
+
+
 def _extract_json_object(text: str) -> dict:
     stripped = (text or "").strip()
     if stripped.startswith("```"):
@@ -147,8 +177,17 @@ def _raw_response_preview(text: str | None, *, limit: int = 1200) -> str | None:
 
 def _model_attempt_failure_type(exc: BaseException, raw_text: str | None) -> str:
     """Classify an observed failed call without consulting response wording."""
+    if isinstance(exc, PermissionError) or type(exc).__name__ in {
+        "AuthError",
+        "AuthenticationError",
+    }:
+        return "auth_error"
+    if _is_auth_failure_text(str(exc)):
+        return "auth_error"
     if isinstance(exc, EmptyModelResponseError):
         return "empty_response"
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return "runtime_unavailable"
     if raw_text is not None and not str(raw_text).strip():
         return "empty_response"
     if isinstance(exc, TimeoutError):
@@ -595,7 +634,9 @@ def _dispatch_turn(
         }
         if finish_reason:
             metadata["finish_reason"] = finish_reason
-        return result.raw_output or "", metadata
+        raw = result.raw_output or ""
+        _raise_if_failed_auth_turn(last_result, raw)
+        return raw, metadata
 
     # codex / claude / anything else: route through the shared default
     # dispatcher. Raises LookupError if the adapter is not registered.

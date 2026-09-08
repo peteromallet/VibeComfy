@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib
 import dataclasses
 import json
@@ -13,6 +14,7 @@ from typing import Any, Callable, Mapping
 from .audit import redact_closed_set
 from .contracts import AGENT_EDIT_TURN_CONTRACT_VERSION
 from vibecomfy.executor.contracts import (
+    FinalAnswerPayload,
     ModelAttemptEvidence,
     coerce_model_attempts,
     redact_model_preview,
@@ -60,13 +62,16 @@ _BATCH_REPL_PARSE_RETRY_PROMPT = (
     "Your previous reply was empty or unparseable for VibeComfy's batch_repl "
     "transport. Reply with one short user-facing sentence followed by exactly "
     "one ```batch fenced block. If you cannot safely edit, put "
-    'clarify("...") inside the batch block. Do not include any other markdown.'
+    'clarify("...") inside the batch block. For a completed non-edit answer, '
+    'use done(final_answer="your answer", evidence_refs=["exact-evidence-id"]). '
+    "Do not include any other markdown."
 )
 
-# T3.1 (D3 freeze): the provider batch seam retries ONLY canonical typed-empty
-# attempts, at most this many total spawns per call — de-facto value promoted
-# to a named constant. Malformed non-empty content re-raises immediately.
-_BATCH_REPL_EMPTY_ATTEMPTS = 3
+# T3.1 (D3 freeze): the provider batch seam retries only canonical typed-empty
+# attempts or nonempty replies missing the required batch fence, at most this
+# many total spawns per call. Other malformed nonempty content re-raises
+# immediately.
+_BATCH_REPL_PARSE_ATTEMPTS = 3
 
 # User-facing readiness reason shown verbatim in the agent panel when the
 # Arnold/Hermes runtime cannot be loaded. Never leak raw import tracebacks:
@@ -167,6 +172,84 @@ class AgentTurnResult:
         }
 
 
+def _final_answer_from_done(batch: str) -> tuple[str, FinalAnswerPayload | None]:
+    """Extract an explicit terminal answer and canonicalize its call to done().
+
+    ``done(final_answer=..., evidence_refs=[...])`` is transport syntax, not an
+    edit operation.  The provider consumes the payload before the batch enters
+    the edit parser, leaving the existing zero-argument ``done()`` authority
+    gate unchanged.
+    """
+    try:
+        module = ast.parse(batch or "")
+    except SyntaxError:
+        return batch, None
+    answer_call: ast.Call | None = None
+    answer_statement: ast.Expr | None = None
+    for statement in module.body:
+        if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
+            continue
+        call = statement.value
+        if not isinstance(call.func, ast.Name) or call.func.id != "done":
+            continue
+        keyword_names = {keyword.arg for keyword in call.keywords}
+        if "final_answer" not in keyword_names:
+            continue
+        if answer_call is not None:
+            raise MalformedModelJSON(
+                "Agent batch_repl response contains multiple final answers.",
+                raw_response=batch,
+                parse_reason="multiple_final_answers",
+            )
+        answer_call = call
+        answer_statement = statement
+    if answer_call is None:
+        return batch, None
+    if answer_statement is not module.body[-1]:
+        raise MalformedModelJSON(
+            "The final-answer done() call must be the last batch statement.",
+            raw_response=batch,
+            parse_reason="non_terminal_final_answer",
+        )
+    if answer_call.args:
+        raise MalformedModelJSON(
+            "done(final_answer=...) does not accept positional arguments.",
+            raw_response=batch,
+            parse_reason="invalid_final_answer_payload",
+        )
+    keywords = {keyword.arg: keyword.value for keyword in answer_call.keywords}
+    if None in keywords or set(keywords) - {"final_answer", "evidence_refs"}:
+        raise MalformedModelJSON(
+            "done(final_answer=...) accepts only final_answer and evidence_refs.",
+            raw_response=batch,
+            parse_reason="invalid_final_answer_payload",
+        )
+    try:
+        text = ast.literal_eval(keywords["final_answer"])
+        refs = ast.literal_eval(keywords["evidence_refs"]) if "evidence_refs" in keywords else []
+        payload = FinalAnswerPayload.from_mapping(
+            {"text": text, "evidence_refs": refs}
+        )
+    except (ValueError, TypeError, SyntaxError) as exc:
+        raise MalformedModelJSON(
+            f"Invalid final-answer payload: {exc}",
+            raw_response=batch,
+            parse_reason="invalid_final_answer_payload",
+        ) from exc
+
+    class _CanonicalDone(ast.NodeTransformer):
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            if node is answer_call:
+                return ast.copy_location(
+                    ast.Call(func=ast.Name(id="done", ctx=ast.Load()), args=[], keywords=[]),
+                    node,
+                )
+            return self.generic_visit(node)
+
+    normalized = ast.unparse(ast.fix_missing_locations(_CanonicalDone().visit(module)))
+    return normalized, payload
+
+
 @dataclass(frozen=True)
 class BatchTurnResult:
     batch: str
@@ -174,15 +257,39 @@ class BatchTurnResult:
     route: str
     model: str | None = None
     audit_metadata: Mapping[str, Any] | None = None
+    final_answer: str | None = None
+    evidence_refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        batch, payload = _final_answer_from_done(self.batch)
+        object.__setattr__(self, "batch", batch)
+        if payload is not None:
+            object.__setattr__(self, "final_answer", payload.text)
+            object.__setattr__(self, "evidence_refs", payload.evidence_refs)
+        elif self.final_answer is not None:
+            explicit = FinalAnswerPayload(
+                text=self.final_answer,
+                evidence_refs=tuple(self.evidence_refs),
+            )
+            object.__setattr__(self, "final_answer", explicit.text)
+            object.__setattr__(self, "evidence_refs", explicit.evidence_refs)
+        else:
+            object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "batch": self.batch,
             "message": self.message,
             "route": self.route,
             "model": self.model,
             "audit_metadata": dict(self.audit_metadata or {}),
         }
+        if self.final_answer is not None:
+            payload["final_answer"] = FinalAnswerPayload(
+                text=self.final_answer,
+                evidence_refs=self.evidence_refs,
+            ).to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -724,6 +831,7 @@ def _compact_batch_system_prompt(
     code_signature_available: bool,
     budget_remaining: int,
     max_batches: int,
+    interaction_mode: str | None = None,
 ) -> str:
     """Bound the implement prompt while retaining the shared tool/grammar contract.
 
@@ -745,9 +853,20 @@ def _compact_batch_system_prompt(
         if active_tool_phase == PHASE_THREADED
         else "Agent tool calls (no edit lands) — implement phase only:\n"
     )
+    interaction_contract = (
+        "Interaction contract: answer_only. You may inspect and research in this "
+        "same conversation, but you must not add, change, delete, rewire, or "
+        "change node modes. Put the complete user-facing answer in "
+        "`done(final_answer=\"...\", evidence_refs=[\"...\"])` with no edit "
+        "statements; cite only exact ledger IDs and use an empty list for "
+        "graph-only evidence.\n\n"
+        if interaction_mode == "answer_only"
+        else ""
+    )
     return (
         "You edit a ComfyUI canvas as live Python objects. Each node is a variable; "
         "wiring uses `.OUTPUT` from other variables.\n\n"
+        f"{interaction_contract}"
         "Two moves:\n"
         "- Add: `x = NodeType(field=val, input=other.OUTPUT)`\n"
         "- Change: `obj.attr = value`\n\n"
@@ -760,6 +879,8 @@ def _compact_batch_system_prompt(
         f"{tool_heading}{tool_catalog_docs(active_tool_phase)}\n"
         "- `python()` — view the current workflow Python\n"
         "- `done()` — commit landed edits\n"
+        "- `done(final_answer=\"...\", evidence_refs=[\"...\"])` — finalize a "
+        "substantive non-edit answer; cite only exact IDs from the evidence ledger\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
         f"{render_prompt_doc()}\n\n"
         "Known limits: use only visible fields/sockets or exact schema results; "
@@ -784,7 +905,10 @@ def _compact_batch_system_prompt(
         "supported through the typed `vibecomfy.exec` surface.\n\n"
         "Envelope: start with one user-facing prose sentence, then exactly one ```batch "
         "fence. Never respond with only a fenced block; include `done()` or a typed "
-        "`clarify(\"...\")`.\n\n"
+        "`clarify(\"...\")`. When you explicitly want the staged executor to research "
+        "exact classes proven absent by your local schema lookups, use "
+        "`clarify(\"question\", missing_classes=[\"ExactClass\"])`; use plain "
+        "`clarify(\"...\")` for user choices.\n\n"
         f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n\n"
         "Worked example (syntax only):\n"
         "```batch\nprev = PreviewImage(images=decode.IMAGE)\ndone()\n```"
@@ -810,6 +934,7 @@ def build_batch_messages(
     revision_evidence_json: str = "",
     execution_plan_status: Mapping[str, Any] | None = None,
     evidence_ledger: str = "",
+    interaction_mode: str | None = None,
 ) -> list[dict[str, str]]:
     """Build messages for the batch-REPL wire protocol.
 
@@ -825,6 +950,11 @@ def build_batch_messages(
     The system prompt describes prose + a single ```batch fenced block with
     ``done()`` and ``clarify(\"...\")`` as in-batch calls.  It does **not**
     mention JSON delta response requirements.
+
+    ``interaction_mode="answer_only"`` is an explicit caller permission
+    boundary.  It keeps the same open threaded tool surface while instructing
+    the model to finish with a zero-edit ``done()``.  Query text is never used
+    to infer this mode.
     """
     code_signature_available = "vibecomfy.exec" in (signature_catalog or "")
     if code_signature_available:
@@ -849,6 +979,16 @@ def build_batch_messages(
     # references ``mission``; research() is removed, so there is no separate
     # research mission to advertise.
     mission = "You edit a ComfyUI canvas as live Python objects.\n"
+    interaction_contract = (
+        "Interaction contract: answer_only. You may inspect and research in this "
+        "same conversation, but you must not add, change, delete, rewire, or "
+        "change node modes. Put the complete user-facing answer in "
+        "`done(final_answer=\"...\", evidence_refs=[\"...\"])` with no edit "
+        "statements; cite only exact ledger IDs and use an empty list for "
+        "graph-only evidence.\n\n"
+        if interaction_mode == "answer_only"
+        else ""
+    )
     active_tool_phase = (
         PHASE_RESEARCH
         if research_only
@@ -897,7 +1037,8 @@ def build_batch_messages(
             "You are answering a research question for a ComfyUI canvas. Gather auditable "
             "evidence with the agent tool calls:\n"
             f"{tool_catalog_docs(PHASE_RESEARCH)}\n"
-            "then call `done()`. Do not edit the graph.\n\n"
+            "then call `done(final_answer=\"...\", evidence_refs=[\"...\"])` with your "
+            "complete answer and only exact evidence IDs from the ledger. Do not edit the graph.\n\n"
             "Do not emit Add/Change statements or code-node construction.\n\n"
             "If the community evidence is thin or off-topic, search again with different "
             "terms (model name + version, or a complaint/praise phrase). When you have "
@@ -924,6 +1065,7 @@ def build_batch_messages(
 
         system = (
         mission +
+        interaction_contract +
         "Each node is a variable; wiring uses `.OUTPUT` from other variables.\n\n"
         "Two moves:\n"
         "- Add: `x = NodeType(field=val, input=other.OUTPUT)`\n"
@@ -937,11 +1079,13 @@ def build_batch_messages(
         f"{tool_budget_guidance}"
         "Prior tool output enters later turns only as ledger entries + evidence IDs, never raw bodies.\n"
         "- `python()` — view current workflow Python\n"
-        "- `done()` — commit landed edits\n\n"
+        "- `done()` — commit landed edits\n"
+        "- `done(final_answer=\"...\", evidence_refs=[\"...\"])` — finalize a "
+        "substantive non-edit answer; cite only exact IDs from the evidence ledger\n\n"
         "Output rule: name output slots, e.g. `up.IMAGE`, never bare `up`.\n\n"
         f"{render_prompt_doc()}\n"
         f"{effective_surface_rule}"
-        "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()` — ground every claim in the visible render's node ids, link ids, and widget keys/values; never invent parameters or connections.\n\n"
+        "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, put the complete answer in `done(final_answer=\"...\", evidence_refs=[\"...\"])`; use exact ledger IDs when available and an empty list when the answer relies only on visible graph facts. Ground every claim in the visible render's node ids, link ids, and widget keys/values; never invent parameters or connections.\n\n"
         "Undo abandoned edits before done().\n\n"
         "Preservation priority: treat existing nodes and branches as user-owned context and prefer the smallest add/rewire change unless the request calls for cleanup or removal. "
         "When the user says to keep a chain intact, weigh its existing nodes, fields, and internal wiring as explicit constraints.\n\n"
@@ -1021,6 +1165,9 @@ def build_batch_messages(
         "`relation=` alone is rejected.\n\n"
         "Envelope: start with one user-facing prose sentence, then exactly one ```batch fence. "
         "Never respond with only a fenced block. `clarify(\"...\")` is terminal and creates no candidate. "
+        "When you explicitly want the staged executor to research exact classes proven absent "
+        "by your local schema lookups, use `clarify(\"question\", "
+        "missing_classes=[\"ExactClass\"])`; use plain clarify for user choices. "
         "Use it only when no defensible edit is possible after graph context, precedent research, and authoring-signature checks. "
         "Prefer one valid default over asking. No extra fenced blocks before the required ```batch fence.\n\n"
         f"Budget: {budget_remaining} turn(s) remaining out of {max_batches}.\n\n"
@@ -1039,6 +1186,7 @@ def build_batch_messages(
             code_signature_available=code_signature_available,
             budget_remaining=budget_remaining,
             max_batches=max_batches,
+            interaction_mode=interaction_mode,
         )
 
     if turn_number == 0:
@@ -1969,8 +2117,12 @@ def _preserve_t31_evidence(canonical: dict[str, Any], original: Mapping[str, Any
         return canonical
 
 
-def _stamp_provider_batch_owner(row: dict[str, Any], *, retryable_empty: bool) -> dict[str, Any]:
-    """T3.1: stamp provider batch-empty layer ownership onto one attempt row.
+def _stamp_provider_batch_owner(
+    row: dict[str, Any],
+    *,
+    retryable_parse_failure: bool,
+) -> dict[str, Any]:
+    """T3.1: stamp provider batch-parse layer ownership onto one attempt row.
 
     Rows entering the provider attempt log failed the batch parse at THIS
     layer, so the provider owns their (bounded) retry decision; nesting depth 2
@@ -1980,7 +2132,7 @@ def _stamp_provider_batch_owner(row: dict[str, Any], *, retryable_empty: bool) -
     stamped["retry_owner"] = _BATCH_REPL_RETRY_OWNER
     stamped["nesting_depth"] = 2
     stamped.setdefault("retry_disposition", (
-        "retry_fresh_subprocess_same_call" if retryable_empty
+        "retry_fresh_subprocess_same_call" if retryable_parse_failure
         else "terminal_not_retried_in_loop"
     ))
     stamped.setdefault("remote_uncertainty", "response_received")
@@ -2018,9 +2170,15 @@ def _revise_failed_runtime_attempt(
             original if isinstance(original, Mapping) else {},
         )
         revised_attempts.append(canonical)
-    retryable_empty = _typed_empty_attempt(tuple(revised_attempts))
+    retryable_parse_failure = _retryable_batch_parse_failure(
+        exc,
+        tuple(revised_attempts),
+    )
     revised_attempts = [
-        _stamp_provider_batch_owner(row, retryable_empty=retryable_empty)
+        _stamp_provider_batch_owner(
+            row,
+            retryable_parse_failure=retryable_parse_failure,
+        )
         for row in revised_attempts
     ]
     try:
@@ -2046,6 +2204,17 @@ def _typed_empty_attempt(attempts: tuple[dict[str, Any], ...]) -> bool:
     if "<think>" in raw.lower() or latest.get("parse_reason") == "empty":
         return True
     return False
+
+
+def _retryable_batch_parse_failure(
+    exc: BaseException,
+    attempts: tuple[dict[str, Any], ...],
+) -> bool:
+    """Return whether the existing batch correction loop owns this failure."""
+    return (
+        getattr(exc, "parse_reason", None) == "missing_batch_fence"
+        or _typed_empty_attempt(attempts)
+    )
 
 
 def run_agent_turn_batch(
@@ -2087,13 +2256,13 @@ def run_agent_turn_batch(
         "response_contract": "batch_repl",
     }
     try:
-        # T3.1: ONE composed wall-clock budget spans every batch-empty attempt
-        # of this call, including the nested runtime worker spawns — instead of
-        # the historical 3 × (per-spawn budget) multiplication.
+        # T3.1: ONE composed wall-clock budget spans every retryable batch-parse
+        # attempt of this call, including the nested runtime worker spawns —
+        # instead of the historical 3 × (per-spawn budget) multiplication.
         from vibecomfy.comfy_nodes.agent.runtime import composed_model_call_budget
 
         with composed_model_call_budget():
-            attempts = _BATCH_REPL_EMPTY_ATTEMPTS
+            attempts = _BATCH_REPL_PARSE_ATTEMPTS
             retry_count = 0
             last_exc: MalformedModelJSON | MissingRequiredField | None = None
             current_messages = messages
@@ -2124,7 +2293,10 @@ def run_agent_turn_batch(
                     )
                     attempt_log.extend(failed_attempts)
                     last_exc = exc
-                    if attempt_index >= attempts - 1 or not _typed_empty_attempt(failed_attempts):
+                    if (
+                        attempt_index >= attempts - 1
+                        or not _retryable_batch_parse_failure(exc, failed_attempts)
+                    ):
                         raise
                     retry_count += 1
                     continue

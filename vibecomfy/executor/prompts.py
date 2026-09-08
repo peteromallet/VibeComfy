@@ -25,10 +25,40 @@ from .contracts import (
     format_task_options_for_prompt,
     parse_target_node_type,
 )
-from .stage_contracts import NeedsInput
+from .stage_contracts import ImplementMissingClassesFeedback, NeedsInput
 from .evidence_pack import project_ledger_for_prompt
 
 LOGGER = logging.getLogger(__name__)
+
+
+def build_implement_feedback_research_brief(
+    feedback: ImplementMissingClassesFeedback,
+) -> str:
+    """Render the typed implement -> research handoff without adding judgment."""
+    receipts = [
+        {
+            "node_class": receipt["node_class"],
+            "status": receipt["status"],
+            "source": receipt.get("source", "implement"),
+        }
+        for receipt in feedback.lookup_receipts
+    ]
+    return (
+        "Implement-stage authoring inventory feedback (typed):\n"
+        + json.dumps(
+            {
+                "question": feedback.question,
+                "missing_classes": list(feedback.missing_classes),
+                "lookup_receipts": receipts,
+            },
+            sort_keys=True,
+        )
+        + "\nResolve the agent-authored question with research-phase tools. "
+        "Candidate class names discovered in a catalog or precedent are leads, "
+        "not proof of installation or authorability. Preserve exact class names; "
+        "do not substitute a similar catalog name. The resumed implement stage "
+        "must verify each candidate against its authoring schema before editing."
+    )
 
 # ── classify prompt ──────────────────────────────────────────────────────────
 
@@ -92,6 +122,15 @@ _CLASSIFY_SYSTEM = (
     "route=\"research\".\n"
     "- No no-edit research through route=\"adapt\". If there is no requested "
     "graph edit after research, use route=\"research\".\n"
+    "- Any request that asks to change the attached graph keeps intent=\"edit\" "
+    "and uses route=\"revise\" or route=\"adapt\"; never route a requested "
+    "graph change to route=\"research\" or route=\"respond\". This includes "
+    "changes to a parameter, output format or output type, sampler, node, or "
+    "connection. route=\"research\" is only for a request for information or "
+    "lookup with no requested graph edit. Preserve the scope distinction: a "
+    "widget/field change, local edge, or single-node swap is route=\"revise\"; "
+    "a change that must invent architecture, introduce a multi-node pattern, "
+    "or adapt an outside workflow is route=\"adapt\".\n"
     "- Do not choose route=\"reorganise\" just because the canvas is messy, "
     "overlapping, newly edited, or could benefit from cleanup. Use "
     "route=\"reorganise\" only when the user explicitly asks to organise, "
@@ -1233,6 +1272,7 @@ __all__ = [
     "CLASSIFY_DECISION_STRONG_KEYS",
     "ReplyPayload",
     "build_classify_messages",
+    "build_implement_feedback_research_brief",
     "build_reply_messages",
     "parse_classify_response",
     "parse_reply_payload",

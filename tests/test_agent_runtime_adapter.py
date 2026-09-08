@@ -112,6 +112,7 @@ def test_openrouter_readiness_does_not_report_contract_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+    monkeypatch.setattr(runtime, "_arnold_worker_importable", lambda: True)
 
     readiness = runtime.readiness(route="openrouter", model="agent-edit")
 
@@ -120,10 +121,25 @@ def test_openrouter_readiness_does_not_report_contract_model(
     assert readiness["model"] == "deepseek/deepseek-v4-flash-0731"
 
 
+def test_openrouter_readiness_false_when_arnold_unimportable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-test")
+    monkeypatch.setattr(runtime, "_arnold_worker_importable", lambda: False)
+
+    readiness = runtime.readiness(route="openrouter", model="agent-edit")
+
+    assert readiness["ready"] is False
+    assert readiness["credential_present"] is True
+    assert "arnold" in readiness["reason"].lower()
+    assert "vibecomfy[agent]" in readiness["reason"]
+
+
 def test_hermes_route_readiness_maps_to_openrouter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+    monkeypatch.setattr(runtime, "_arnold_worker_importable", lambda: True)
 
     readiness = runtime.readiness(route="hermes", model="agent-edit")
 
@@ -391,6 +407,7 @@ def test_native_readiness_accepts_file_only_deepseek_key(
             ("DEEPSEEK_API_KEY", "deepseek-file-key"),
         ],
     )
+    monkeypatch.setattr(runtime, "_arnold_worker_importable", lambda: True)
 
     status = runtime.readiness(route="openrouter", model="agent-edit")
 
@@ -612,8 +629,48 @@ def test_explicit_worker_credentials_take_precedence_over_file_fallback(
 
     assert agent_kwargs["api_key"] == "explicit-openrouter"
     assert captured_env["OPENROUTER_API_KEY"] == "explicit-openrouter"
-    assert captured_env["OPENAI_API_KEY"] == "explicit-openai"
-    assert captured_env["HERMES_API_KEY"] == "explicit-hermes"
+    assert captured_env["OPENAI_API_KEY"] == "explicit-openrouter"
+    assert captured_env["HERMES_API_KEY"] == "explicit-openrouter"
+
+
+def test_arnold_import_probe_does_not_replace_parent_openrouter_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Readiness must not let Arnold dotenv override the process OpenRouter key.
+
+    ``arnold.agent.run_agent`` loads ``~/.hermes/.env`` with override=True at
+    import. The live parent probes that module to decide ready=true, then
+    resolves the worker key from ``os.environ``. If the probe leaks, classify
+    authenticates with the Hermes file key (OpenRouter 401 User not found)
+    even when OPENROUTER_API_KEY was already a working key.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-parent-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-parent-openai")
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.setenv("VIBECOMFY_TRANSPORT", "openrouter")
+
+    def fake_import(name, package=None):
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-v1-hermes-decoy"
+        os.environ["OPENAI_API_KEY"] = "sk-hermes-decoy"
+        os.environ["HERMES_API_KEY"] = "sk-hermes-decoy"
+        return object()
+
+    monkeypatch.setattr(runtime.importlib, "import_module", fake_import)
+
+    assert runtime._arnold_worker_importable() is True
+    assert os.environ["OPENROUTER_API_KEY"] == "sk-or-v1-parent-good"
+    assert os.environ["OPENAI_API_KEY"] == "sk-parent-openai"
+    assert "HERMES_API_KEY" not in os.environ
+
+    status = runtime.readiness(route="openrouter", model="agent-edit")
+    assert status["ready"] is True
+    assert os.environ["OPENROUTER_API_KEY"] == "sk-or-v1-parent-good"
+    kwargs = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="agent-edit",
+    )
+    assert kwargs["api_key"] == "sk-or-v1-parent-good"
 
 
 def test_native_transport_fails_closed_with_only_openrouter_credentials(
@@ -649,10 +706,20 @@ def test_native_transport_fails_closed_with_only_openrouter_credentials(
         )
 
 
+def test_openrouter_runtime_model_strips_provider_prefix() -> None:
+    assert (
+        runtime._runtime_model_for_route(
+            "openrouter", "openrouter:deepseek/deepseek-v4-flash-0731"
+        )
+        == "deepseek/deepseek-v4-flash-0731"
+    )
+
+
 def test_run_worker_mirrors_openrouter_key_into_backend_env_aliases(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-test-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-foreign-deepseek-key")
     captured_env: dict[str, str] = {}
 
     def fake_subprocess(command, **kwargs):
@@ -675,6 +742,7 @@ def test_run_worker_mirrors_openrouter_key_into_backend_env_aliases(
     assert captured_env["OPENROUTER_API_KEY"] == "sk-or-v1-test-key"
     assert captured_env["OPENAI_API_KEY"] == "sk-or-v1-test-key"
     assert captured_env["HERMES_API_KEY"] == "sk-or-v1-test-key"
+    assert "DEEPSEEK_API_KEY" not in captured_env
 
 
 def test_run_worker_mirrors_parent_resolved_native_deepseek_key(
@@ -1186,6 +1254,12 @@ def test_openrouter_worker_401_error_is_permission_error(
         (ValueError("must include field reply"), '{"other":"x"}', "missing_required_fields"),
         (TimeoutError("late"), None, "timeout"),
         (RuntimeError("capacity"), None, "provider_failure"),
+        (ModuleNotFoundError("No module named 'arnold'"), None, "runtime_unavailable"),
+        (ImportError("cannot import name 'AIAgent'"), None, "runtime_unavailable"),
+        (PermissionError("Error code: 401"), "", "auth_error"),
+        (PermissionError("invalid api key"), None, "auth_error"),
+        (RuntimeError("Error code: 401 - Missing Authentication header"), "", "auth_error"),
+        (worker.EmptyModelResponseError("Agent returned an empty json response."), "", "empty_response"),
     ],
 )
 def test_worker_failure_taxonomy_is_structural(
@@ -1710,3 +1784,24 @@ def test_adapter_credential_env_file_skips_transport_selecting_keys(
     assert "VIBECOMFY_TRANSPORT" not in os.environ
     assert "VIBECOMFY_OPENROUTER_BASE_URL" not in os.environ
     assert "VIBECOMFY_FORCE_MODEL" not in os.environ
+
+
+def test_adapter_credential_env_file_fills_openrouter_when_deepseek_already_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tests.live_agentic_harness import adapter
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENROUTER_API_KEY=sk-or-file\n"
+        "DEEPSEEK_API_KEY=sk-file-deepseek\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-already")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    adapter._load_credential_env_file(env_file)
+
+    assert os.environ["DEEPSEEK_API_KEY"] == "sk-already"
+    assert os.environ["OPENROUTER_API_KEY"] == "sk-or-file"

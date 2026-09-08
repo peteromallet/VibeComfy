@@ -67,6 +67,65 @@ def test_run_headless_success_writes_artifacts(
     assert flow_metadata["entrypoint"] == "test"
 
 
+def _arity_error() -> Any:
+    from vibecomfy.errors import ArityDisagreementError
+
+    return ArityDisagreementError(
+        "output arity disagreement for AnyNode: object_info declares 4 "
+        "outputs but UI declares 3",
+        class_type="AnyNode",
+        snapshot_pack=None,
+        snapshot_version=None,
+        snapshot_output_count=4,
+        ui_output_count=3,
+    )
+
+
+def _generic_vibecomfy_error() -> Any:
+    from vibecomfy.errors import VibeComfyError
+
+    return VibeComfyError("generic framework failure")
+
+
+@pytest.mark.parametrize(
+    "exc_factory",
+    [_arity_error, _generic_vibecomfy_error],
+    ids=("arity_disagreement", "generic_vibecomfy_error"),
+)
+def test_run_headless_vibecomfy_error_writes_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    exc_factory: Any,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+    svc = _import_service()
+
+    from vibecomfy.agent.contracts import HeadlessAgentRequest
+
+    output_dir = tmp_path / "out"
+    request = HeadlessAgentRequest(query="edit this graph", output_dir=output_dir)
+    raised = exc_factory()
+
+    monkeypatch.setattr(
+        svc,
+        "_check_live_readiness",
+        lambda request: {"ready": True, "route": "openrouter", "model": "model"},
+    )
+    monkeypatch.setattr(
+        "vibecomfy.executor.core.run_executor",
+        lambda *args, **kwargs: (_ for _ in ()).throw(raised),
+    )
+
+    run_result = svc.run_headless(request, entrypoint="test")
+
+    assert run_result.status == "executor_failure"
+    assert run_result.ok is False
+    assert str(raised) in (run_result.error or "")
+    assert run_result.response.get("error_type") == type(raised).__name__
+    assert (output_dir / "flow_metadata.json").is_file()
+    assert (output_dir / "response.json").is_file()
+
+
 def test_run_headless_blocked_when_not_ready(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

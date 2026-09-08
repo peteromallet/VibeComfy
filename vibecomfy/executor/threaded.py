@@ -213,12 +213,13 @@ def coerce_declared_interaction_lane(
     request: ExecutorRequest,
     plan: ClassifyDecision | None = None,
 ) -> ClassifyDecision:
-    """Honor caller-declared interaction contracts without query-text inference.
+    """Honor caller-declared contracts in the staged classified plan.
 
     Typed refusal stays implement-capable even under ``answer_only``.
-    Bare ``answer_only`` explain/advice turns take the inspect lane.
     Staged diagnostics classified as bare ``respond`` under ``answer_only``
-    are lifted to inspect.
+    are lifted to inspect. Threaded planning deliberately does not call this
+    helper: its one open conversation receives ``answer_only`` as no-edit
+    prompt context while retaining its research and inspection affordances.
     """
     if typed_refusal_contract(request):
         if plan is None or plan.effective_route in {"inspect", "respond"}:
@@ -239,13 +240,13 @@ def _threaded_plan(request: ExecutorRequest) -> ClassifyDecision:
     RR1-FIX-REV2 (F9 / §31a) removed shape-inferred purpose mapping. That
     removal stands: nothing here infers intent from query text.
 
-    Caller-DECLARED contracts are transported as data:
-    ``answer_only`` explain/advice turns route inspect (no implement).
-    Typed-refusal contracts stay implement-capable so the batch path can
-    emit ``requires_custom_nodes``. Requests without a declared contract
-    keep the open envelope.
+    Caller-declared contracts are transported as prompt data inside that
+    envelope. In particular, ``answer_only`` forbids editing without forcing
+    the reply-only inspect lane, so the agent can still choose whether outside
+    research is useful. Typed-refusal contracts likewise remain available to
+    the batch path so it can emit ``requires_custom_nodes``.
     """
-    return coerce_declared_interaction_lane(request, plan=None)
+    return _open_adapt_plan(request)
 
 
 def _graph_class_types(graph: Any) -> set[str]:
@@ -520,8 +521,10 @@ def run_threaded_executor(
         host_ports.end_model_attempt_capture(attempt_token)
         return result
 
-    inspect_only = plan.effective_route == "inspect"
-    phase = "reply" if inspect_only else "execute"
+    # Threaded deliberation always enters the single durable execute-agent
+    # conversation. ``answer_only`` is no-edit prompt context within that
+    # conversation; it must not select the staged inspect/reply kernel.
+    phase = "execute"
     try:
         spec = kernel.resolve_spec(request.profile, phase)
     except Exception as exc:
@@ -541,54 +544,6 @@ def run_threaded_executor(
         status="start",
         client_id=client_id,
     )
-    if inspect_only:
-        if kernel.run_inspect_reply is None:
-            return finish(ExecutorResult.failure(
-                kind="ValidationError",
-                stage="reply",
-                message="Threaded inspect reply kernel is unavailable.",
-                report=build_report(),
-            ))
-        try:
-            reply = kernel.run_inspect_reply(
-                bounded_request,
-                spec,
-                plan=plan,
-                host_ports=host_ports,
-            )
-        except Exception as exc:
-            kernel.emit_phase(
-                bounded_request,
-                executor_id=executor_id,
-                phase=phase,
-                status="error",
-                client_id=client_id,
-            )
-            failure_kind = str(getattr(exc, "failure_kind", "ValidationError"))
-            stage = str(getattr(exc, "stage", "reply"))
-            return finish(ExecutorResult.failure(
-                kind=failure_kind,
-                stage=stage,
-                message=str(exc),
-                report=build_report(),
-            ))
-        kernel.emit_phase(
-            bounded_request,
-            executor_id=executor_id,
-            phase=phase,
-            status="done",
-            client_id=client_id,
-        )
-        implementation = synthesize_inspect_refusal_implementation(
-            bounded_request,
-            reply=reply,
-        )
-        return finish(ExecutorResult.success(
-            report=build_report(implementation),
-            graph=None,
-            reply=reply,
-        ))
-
     try:
         implementation = kernel.run_implement(
             bounded_request,
@@ -629,6 +584,10 @@ def run_threaded_executor(
     landed = kernel.implementation_landed_edit(implementation)
     delta_ops = kernel.accepted_delta_ops(implementation)
     reason = kernel.no_candidate_reason(implementation)
+    final_answer = implementation.final_answer
+    authored_reply = (
+        final_answer.text if final_answer is not None else implementation.message
+    )
 
     from vibecomfy.executor.core import _durable_terminal_projection
 
@@ -637,7 +596,7 @@ def run_threaded_executor(
         projection = _durable_terminal_projection(
             implementation,
             request_graph=graph or request.graph,
-            reply=implementation.message,
+            reply=authored_reply,
             mode="threaded",
         )
     except Exception:
@@ -650,7 +609,7 @@ def run_threaded_executor(
                 implementation,
                 request_graph=graph or request.graph,
                 failure="threaded terminal projection failed",
-                reply=implementation.message,
+                reply=authored_reply,
                 mode="threaded",
             )
         except Exception:
@@ -676,7 +635,7 @@ def run_threaded_executor(
     # The same execute-agent conversation supplies the prose. Projection runs
     # only now, after the durable response closed, and deterministically checks
     # it against the accepted delta/final graph.
-    reply = implementation.message or (
+    reply = authored_reply or (
         "The workflow edit completed and the candidate is ready to review."
         if landed
         else "No workflow edit was applied."
@@ -727,7 +686,7 @@ def run_threaded_executor(
                     implementation,
                     request_graph=graph or request.graph,
                     failure="threaded terminal projection failed",
-                    reply=implementation.message,
+                    reply=authored_reply,
                     mode="threaded",
                 )
             except Exception:

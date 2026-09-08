@@ -92,6 +92,25 @@ def _write_probe(path: Path) -> None:
     )
 
 
+def _write_phase_heartbeat(phase: str) -> None:
+    path = os.environ.get("VIBECOMFY_PROFILER_LOG_PATH")
+    if not path:
+        return
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "event": "executor.phase.start",
+                    "phase": phase,
+                    "status": "start",
+                }
+            )
+            + "\n"
+        )
+
+
 def _spawn_stdio_holder(pid_file: Path | None, seconds: float) -> int:
     holder = subprocess.Popen(
         [sys.executable, "-c", f"import time; time.sleep({seconds!r})"],
@@ -116,10 +135,13 @@ def main() -> int:
     parser.add_argument("--write-summary", action="store_true")
     parser.add_argument("--hold-stdio", action="store_true")
     parser.add_argument("--hang-after-summary", action="store_true")
+    parser.add_argument("--phase-heartbeat", default=None)
     args = parser.parse_args()
 
     if args.probe:
         _write_probe(Path(args.probe))
+    if args.phase_heartbeat:
+        _write_phase_heartbeat(str(args.phase_heartbeat))
 
     if args.write_summary:
         out = Path(args.single_out)

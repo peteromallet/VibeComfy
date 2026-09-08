@@ -121,6 +121,8 @@ def _run_with_fixture(
         stdout_path,
         stderr_path,
         before_terminate=None,
+        first_phase_timeout=None,
+        lifecycle_path=None,
     ):  # noqa: ANN001, ANN202
         # ``run_tag`` must leave durable evidence before entering the real
         # Popen/wait path, even if the child then hangs.
@@ -170,6 +172,8 @@ def _run_with_fixture(
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             before_terminate=before_terminate,
+            first_phase_timeout=first_phase_timeout,
+            lifecycle_path=lifecycle_path,
         )
         if capture is not None:
             capture["result"] = result
@@ -189,6 +193,69 @@ def _run_with_fixture(
         progress_every=0,
         transport=transport,
     )
+
+
+def test_setup_watchdog_fails_typed_infra_before_global_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A child with no phase/model evidence cannot consume the 1200s wall."""
+    monkeypatch.setattr(runner, "DEFAULT_FIRST_PHASE_TIMEOUT", 0.2)
+    started = time.monotonic()
+
+    summary = _run_with_fixture(
+        monkeypatch,
+        tmp_path,
+        "setup-stall",
+        ["--hang-after-summary", "--hold-seconds", "60"],
+        per_scenario_timeout=2.0,
+    )
+
+    assert time.monotonic() - started < 1.5
+    [scenario] = summary["scenarios"]
+    assert scenario["failure_class"] == "infra_timeout"
+    assert scenario["score_class"] == "infra_blocked"
+    assert scenario["timeout_scope"] == "setup"
+    assert scenario["killed_before_first_attempt"] is True
+    assert scenario["model_attempts"] == []
+    assert scenario["lifecycle_checkpoint"]["event_count"] == 0
+    assert Path(scenario["lifecycle_path"]).parent.is_dir()
+
+
+@pytest.mark.parametrize("phase", ["classify", "research"])
+def test_phase_heartbeat_distinguishes_in_flight_turn_from_setup_stall(
+    tmp_path: Path,
+    monkeypatch,
+    phase: str,
+) -> None:
+    monkeypatch.setattr(runner, "DEFAULT_FIRST_PHASE_TIMEOUT", 0.2)
+    started = time.monotonic()
+
+    summary = _run_with_fixture(
+        monkeypatch,
+        tmp_path,
+        f"in-flight-{phase}",
+        [
+            "--phase-heartbeat",
+            phase,
+            "--hang-after-summary",
+            "--hold-seconds",
+            "60",
+        ],
+        per_scenario_timeout=0.7,
+    )
+
+    elapsed = time.monotonic() - started
+    assert elapsed >= 0.5
+    assert elapsed < 2.0
+    [scenario] = summary["scenarios"]
+    assert scenario["failure_class"] == "infra_timeout"
+    assert scenario["score_class"] == "infra_blocked"
+    assert scenario["timeout_scope"] == "scenario"
+    assert scenario["in_flight_phase"] == phase
+    assert scenario["killed_before_first_attempt"] is False
+    assert scenario["agent_exercised"] is True
+    assert scenario["model_attempts"] == []
 
 
 def test_valid_summary_then_exit_with_held_stdio_is_not_a_timeout(

@@ -438,9 +438,21 @@ def _candidate_carriers_are_well_formed(response: Mapping[str, Any]) -> bool:
             if (
                 len(carriers) == 1
                 and field == "candidate"
-                and response.get("ok") is True
                 and response.get("graph_unchanged") is True
-                and _explicitly_non_edit_route(response)
+                and (
+                    (
+                        response.get("ok") is True
+                        and _explicitly_non_edit_route(response)
+                    )
+                    or (
+                        response.get("ok") is False
+                        and (
+                            _non_empty_string(response.get("failure_kind"))
+                            or _non_empty_string(response.get("error"))
+                            or _non_empty_string(response.get("failure_message"))
+                        )
+                    )
+                )
             ):
                 continue
             # Presence is authoritative: an explicitly named null carrier is

@@ -20,10 +20,11 @@ Reply in exactly this format:
 
 One short sentence for the user.
 ```batch
-# one or more edit statements, or clarify("question"), or done()
+# one or more edit statements, clarify("question"),
+# clarify("question", missing_classes=["ExactClass"]), or done()
 ```
 
-If you cannot safely edit the graph, still use the same format and put your question or blocker inside `clarify("...")` in the batch block.
+If you cannot safely edit the graph, still use the same format and put your question or blocker inside `clarify("...")` in the batch block. Use `missing_classes=["ExactClass"]` only when you explicitly request staged research after exact local schema lookup misses; omit it for user-choice questions.
 The entire reply must contain exactly one opening ```batch fence and exactly one closing ``` fence. Never split statements across multiple batch blocks.
 Do not emit tool-call XML, tags such as <tool_call>, JSON tool envelopes, or markdown other than the single batch block."""
 

@@ -218,6 +218,7 @@ def _record_v2_turn(
     seed_parent_revision: str | None = None,
     workflow_id: str | None = None,
     submit_graph: dict | None = None,
+    stamp_submit_revision: bool = True,
 ):
     from tests.test_comfy_nodes_agent_backend_spine import (
         _Provider,
@@ -308,8 +309,12 @@ def _record_v2_turn(
     )
     (allocation.turn_dir / "seed.py").unlink(missing_ok=True)
     (allocation.turn_dir / "seed.vibe.json").unlink(missing_ok=True)
-    request["revision_id"] = seed.revision_id
-    request["parent_revision"] = parent_revision
+    if stamp_submit_revision:
+        request["revision_id"] = seed.revision_id
+        request["parent_revision"] = parent_revision
+    else:
+        request.pop("revision_id", None)
+        request.pop("parent_revision", None)
     (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
     immediate_response = {
         "ok": True,
@@ -346,6 +351,42 @@ def _record_v2_turn(
         plan_hash,
         immediate_response,
     )
+
+
+def test_record_idempotent_response_mints_revision_when_submit_omits_identity(
+    tmp_path,
+) -> None:
+    """Headless/live submits omit revision_id; implement apply must still stamp one.
+
+    Live ValidationError `revision identity requires revision_id and
+    parent_revision` was this path fail-closing a representable accepted_batch.
+    """
+    from vibecomfy.comfy_nodes.agent.session import (
+        _revision_identity_from_submit_request,
+    )
+
+    assert _revision_identity_from_submit_request({}) is None
+    assert _revision_identity_from_submit_request({"graph": {}}) is None
+    stamped = _revision_identity_from_submit_request(
+        {"revision_id": REVISION, "parent_revision": ""}
+    )
+    assert stamped == (REVISION, "")
+
+    sessions, session_id, turn_id, *_rest = _record_v2_turn(
+        tmp_path,
+        stamp_submit_revision=False,
+    )
+    response = json.loads(
+        (sessions / session_id / "turns" / turn_id / "response.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert response.get("ok") is not False
+    assert isinstance(response.get("revision_id"), str) and len(response["revision_id"]) == 64
+    assert "parent_revision" in response
+    transaction = response["candidate_transaction"]
+    assert transaction["revision_id"] == response["revision_id"]
+    assert transaction["bundle"]["revision_id"] == response["revision_id"]
 
 
 def test_real_session_fixture_carries_pair_identity_through_prepare_finalize(tmp_path, monkeypatch) -> None:

@@ -899,6 +899,52 @@ def test_injected_judges_never_reopen_response_json(
     assert reads == 0
 
 
+@pytest.mark.parametrize("failure_kind", ["ValidationError", "AuthError"])
+def test_typed_failed_apply_with_null_candidate_is_not_malformed(
+    tmp_path: Path,
+    failure_kind: str,
+) -> None:
+    """A refused apply is product evidence: ok=false, typed failure, candidate null."""
+    message = f"{failure_kind}: apply refused"
+    response = {
+        "ok": False,
+        "candidate": None,
+        "error": message,
+        "failure_kind": failure_kind,
+        "failure_message": message,
+        "failure_stage": "implement",
+        "graph_unchanged": True,
+        "message": message,
+        "no_candidate_reason": "implementation_failed",
+        "route": "revise",
+        "evidence": {
+            "implementation": {
+                "failure": {
+                    "failure_kind": failure_kind,
+                    "message": message,
+                    "stage": "implement",
+                }
+            }
+        },
+    }
+    (tmp_path / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    _seed_lineage(tmp_path)
+
+    assessment = assess_live_output_dir(
+        tmp_path,
+        scenario={
+            "id": "typed-failed-apply",
+            "assessment": {"expect_graph_changed": True},
+        },
+    )
+
+    checks = {issue["check"] for issue in assessment["issues"]}
+    assert "response_malformed" not in checks
+    assert assessment["verdict"] != "undetermined"
+    assert assessment["passed"] is False
+    assert "graph_changed" in checks or "no_candidate_reason" in checks
+
+
 def test_malformed_response_is_injected_as_none_without_semantic_disk_fallback(
     tmp_path: Path, monkeypatch
 ) -> None:

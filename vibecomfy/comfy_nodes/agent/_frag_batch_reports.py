@@ -407,6 +407,7 @@ _BATCH_EXIT_STUCK = "stuck"
 class TerminalClarifySplit:
     batch: str
     message: str | None
+    missing_classes: tuple[str, ...] = ()
 
 
 def _extract_clarify_message(batch: str) -> str | None:
@@ -427,10 +428,33 @@ def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
         return False
     return (
         len(call.args) == 1
-        and not call.keywords
         and isinstance(call.args[0], ast.Constant)
         and isinstance(call.args[0].value, str)
+        and _terminal_clarify_missing_classes(call) is not None
     )
+
+
+def _terminal_clarify_missing_classes(
+    call: ast.Call,
+) -> tuple[str, ...] | None:
+    """Return the explicit feedback classes, or ``None`` for invalid syntax."""
+    if not call.keywords:
+        return ()
+    if len(call.keywords) != 1 or call.keywords[0].arg != "missing_classes":
+        return None
+    value = call.keywords[0].value
+    if not isinstance(value, (ast.List, ast.Tuple)):
+        return None
+    classes: list[str] = []
+    for item in value.elts:
+        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
+            return None
+        class_type = item.value.strip()
+        if not class_type:
+            return None
+        if class_type not in classes:
+            classes.append(class_type)
+    return tuple(classes) if classes else None
 
 
 def _is_done_expr(node: ast.stmt) -> bool:
@@ -523,6 +547,8 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
     assert isinstance(call, ast.Call)
     message_node = call.args[0]
     assert isinstance(message_node, ast.Constant)
+    missing_classes = _terminal_clarify_missing_classes(call)
+    assert missing_classes is not None
     start = _offset_from_ast_position(batch, terminal.lineno, terminal.col_offset)
     editable_batch = batch[:start].rstrip()
     if editable_batch.endswith(";"):
@@ -536,7 +562,11 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         between = batch[terminal_end:trailing_start]
         if any(line.strip() and not line.lstrip().startswith("#") for line in between.splitlines()):
             return TerminalClarifySplit(batch=batch, message=None)
-    return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
+    return TerminalClarifySplit(
+        batch=editable_batch,
+        message=message_node.value,
+        missing_classes=missing_classes,
+    )
 
 
 def _batch_has_landed_edits(state: "AgentEditState") -> bool:

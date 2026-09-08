@@ -1631,6 +1631,32 @@ class TestModelFamilyBriefNudge:
         assert '"model_family"' not in all_text
 
 
+class TestResearchEnoughCheckPromptContract:
+    def test_messages_expose_budget_unresolved_decision_and_schema_handoff(self) -> None:
+        messages = stage.build_agent_research_messages(
+            question="Which consumer pattern preserves the current output?",
+            unresolved_decision="Whether a new consumer architecture is required",
+            remaining_decision_turns=3,
+            evidence_digest="Decision turns left: 3.\n(no tool evidence gathered yet)",
+            route="adapt",
+        )
+
+        system = messages[0]["content"]
+        user = messages[1]["content"]
+        assert "You own the enough-check on every turn" in system
+        assert "ceiling, not a target" in system
+        assert "`node_schema(node_class)`" in system
+        assert (
+            "node availability, input/widget names, allowed values, and ranges"
+            in system
+        )
+        assert (
+            "Unresolved decision: Whether a new consumer architecture is required"
+            in user
+        )
+        assert "Remaining decision-turn budget (including this turn): 3" in user
+
+
 class TestEmptyTitleHitWhitespaceContract:
     """R4: a Discord hit with empty title AND body (embeds, image-only
     messages) used to leak a trailing ``" | "`` into the projected search
@@ -2316,6 +2342,9 @@ class TestT41BudgetAndTypedStatuses:
             "deadline_seconds": 450.0,
             "turns_used": 3,
             "deadline_reached": False,
+            "tool_calls_used": 2,
+            "tool_call_limit": stage.MAX_RESEARCH_TOOL_CALLS,
+            "tool_calls_remaining": stage.MAX_RESEARCH_TOOL_CALLS - 2,
         }
         serialized = trace.to_dict()
         assert serialized["budget"]["deadline_seconds"] == 450.0

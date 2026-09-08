@@ -1246,6 +1246,37 @@ class TestBuildClassifyMessages:
         )
         assert "Do not send these down route=\"adapt\"" in system
 
+    def test_system_prompt_preserves_attached_graph_edit_intent(self) -> None:
+        """Requested graph changes stay on an implementing route; research is
+        reserved for information-only requests without prescribing the
+        revise-versus-adapt judgment for a particular format or node family."""
+        msgs = build_classify_messages(
+            "change the output format and replace its current saver",
+            has_graph=True,
+        )
+        system = msgs[0]["content"]
+
+        assert (
+            'Any request that asks to change the attached graph keeps intent="edit"'
+            in system
+        )
+        assert (
+            'never route a requested graph change to route="research" or '
+            'route="respond"'
+        ) in system
+        assert (
+            'route="research" is only for a request for information or lookup '
+            "with no requested graph edit"
+        ) in system
+        assert (
+            'a widget/field change, local edge, or single-node swap is '
+            'route="revise"'
+        ) in system
+        assert (
+            "a change that must invent architecture, introduce a multi-node pattern, "
+            'or adapt an outside workflow is route="adapt"'
+        ) in system
+
     def test_implement_prompt_acts_on_graph_local_evidence_when_research_fails(self) -> None:
         from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 

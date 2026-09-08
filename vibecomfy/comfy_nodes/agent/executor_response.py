@@ -82,6 +82,13 @@ def _strip_non_applyable_forbidden_fields(value: Any) -> Any:
         for key, item in value.items():
             if key in _NON_APPLYABLE_FORBIDDEN_KEYS or key.startswith("candidate_"):
                 continue
+            if key == "artifact_lineage":
+                # This is opaque, digest-authenticated evidence.  Recursing
+                # through it would apply presentation-envelope rules to signed
+                # row content (for example replay_proof.candidate_matches) and
+                # invalidate manifest_digest after the manifest was built.
+                stripped[key] = item
+                continue
             stripped[key] = _strip_non_applyable_forbidden_fields(item)
         return stripped
     if isinstance(value, list):

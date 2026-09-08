@@ -105,7 +105,11 @@ def test_threaded_dispatch_never_enters_the_staged_classifier(
     )
 
     result = executor_core.run_executor(
-        ExecutorRequest(query="edit", pipeline_mode="threaded"),
+        ExecutorRequest(
+            query="research this issue and explain it",
+            pipeline_mode="threaded",
+            interaction_mode="answer_only",
+        ),
         host_ports=host_ports(),
     )
     assert result is sentinel

@@ -190,6 +190,40 @@ def test_threaded_research_evidence_survives_public_artifact_projection(
     assert assessment["passed"] is True, assessment["issues"]
 
 
+def test_implementation_artifact_preserves_answer_only_classification(
+    tmp_path: Path,
+) -> None:
+    result = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(
+                research=True,
+                implement=True,
+                route="adapt",
+                task="answer_from_graph",
+            ),
+            implementation=ImplementationResult(message="Answered."),
+            orchestration_mode="threaded",
+        ),
+        reply="Answered.",
+    )
+    output_dir = tmp_path / "answer-only-classification"
+
+    synthesize_headless_artifacts(
+        request={
+            "query": "Explain this graph.",
+            "graph": {"nodes": [], "links": []},
+            "interaction_mode": "answer_only",
+        },
+        result=result,
+        response=result.to_dict(),
+        output_dir=output_dir,
+        status="success",
+    )
+
+    payload = _read_json(output_dir / "implementation_payload.json")
+    assert payload["executor_classification"]["interaction_mode"] == "answer_only"
+
+
 def test_headless_artifacts_redact_metadata_and_write_phase_payloads(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     request = {
@@ -348,8 +382,8 @@ def test_headless_artifacts_copy_only_real_durable_turn_files(tmp_path: Path) ->
 
     assert sorted(manifest["copied_turn_artifacts"]) == [
         "chat.json",
+        "durable_turn/session-1/turns/0001/response.json",
         "request.json",
-        "response.json",
     ]
     assert manifest["optional_model_artifacts"] == {
         "messages.jsonl": False,
@@ -362,6 +396,12 @@ def test_headless_artifacts_copy_only_real_durable_turn_files(tmp_path: Path) ->
     assert not (output_dir / "model_request.json").exists()
     assert not (output_dir / "model_response.json").exists()
     assert _read_json(output_dir / "request.json") == {"query": "real"}
+    assert _read_json(output_dir / "response.json")["detail_json_path_resolved"] == str(
+        output_dir / "durable_turn" / "session-1" / "turns" / "0001" / "response.json"
+    )
+    assert _read_json(
+        output_dir / "durable_turn" / "session-1" / "turns" / "0001" / "response.json"
+    ) == {"ok": True, "route": "inspect"}
 
 
 def test_headless_artifacts_copy_model_files_when_turn_produced_them(tmp_path: Path) -> None:

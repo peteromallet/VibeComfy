@@ -56,12 +56,79 @@ DEFAULT_PER_SCENARIO_TIMEOUT = 1200  # seconds; kills a wedged/over-slow scenari
 DEFAULT_PROGRESS_EVERY = 10
 DEFAULT_INFRA_RETRIES = 1
 MAX_INFRA_RETRIES = 1
+DEFAULT_FIRST_PHASE_TIMEOUT = 300.0
 _RETRYABLE_INFRA_CLASSES = frozenset({"infra_empty_response", "infra_timeout"})
 # T3.1/D5+D6 freeze: the harness is the SOLE timeout-retry owner (cap 1, fresh
 # attempt identity); the vocabulary matches the 480s fixture and runtime stamps.
 HARNESS_RETRY_OWNER = "harness_infrastructure"
 _SCENARIO_KILL_GRACE_SECONDS = float(os.getenv("VIBECOMFY_RUNNER_KILL_GRACE", "2"))
 REPO = Path(__file__).resolve().parents[2]
+_PROFILER_LOG_ENV = "VIBECOMFY_PROFILER_LOG_PATH"
+
+
+class _ScenarioWatchdogTimeout(subprocess.TimeoutExpired):
+    """Runner timeout carrying the durable lifecycle observed before kill."""
+
+    def __init__(
+        self,
+        *,
+        cmd: list[str],
+        timeout: float,
+        output: str,
+        stderr: str,
+        timeout_scope: str,
+        lifecycle: Mapping[str, Any],
+    ) -> None:
+        super().__init__(cmd=cmd, timeout=timeout, output=output, stderr=stderr)
+        self.timeout_scope = timeout_scope
+        self.lifecycle = dict(lifecycle)
+
+
+def _read_lifecycle_checkpoint(path: str | Path | None) -> dict[str, Any]:
+    """Summarize the append-only profiler journal without inventing attempts."""
+    checkpoint: dict[str, Any] = {
+        "phase_entered": None,
+        "model_dispatch_started": False,
+        "last_event": None,
+        "event_count": 0,
+    }
+    if path is None:
+        return checkpoint
+    journal = Path(path)
+    try:
+        lines = journal.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return checkpoint
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(event, Mapping):
+            continue
+        event_name = str(event.get("event") or "")
+        checkpoint["event_count"] += 1
+        checkpoint["last_event"] = event_name or None
+        if event_name == "executor.phase.start":
+            phase = event.get("phase")
+            if isinstance(phase, str) and phase:
+                checkpoint["phase_entered"] = phase
+        if event_name in {
+            "executor.model_turn.start",
+            "runtime.worker_subprocess.start",
+        }:
+            checkpoint["model_dispatch_started"] = True
+            phase = event.get("phase") or event.get("backend_phase")
+            if isinstance(phase, str) and phase:
+                checkpoint["phase_entered"] = phase
+    return checkpoint
+
+
+def _lifecycle_has_first_phase(checkpoint: Mapping[str, Any]) -> bool:
+    return bool(
+        checkpoint.get("phase_entered")
+        or checkpoint.get("model_dispatch_started") is True
+    )
 
 
 def _pinned_child_env(transport: str | None) -> dict[str, str]:
@@ -164,6 +231,8 @@ def _run_scenario_subprocess(
     stdout_path: str,
     stderr_path: str,
     before_terminate: Callable[[], None] | None = None,
+    first_phase_timeout: float | None = None,
+    lifecycle_path: str | None = None,
 ) -> tuple[int, str, str]:
     """Run *command* in its own process group; return (returncode, stdout, stderr).
 
@@ -186,8 +255,27 @@ def _run_scenario_subprocess(
             stderr=err_fh,
             start_new_session=True,
         )
+        started = time.monotonic()
+        timeout_scope: str | None = None
+        lifecycle: dict[str, Any] = _read_lifecycle_checkpoint(lifecycle_path)
         try:
-            proc.wait(timeout=timeout)
+            if first_phase_timeout is None:
+                proc.wait(timeout=timeout)
+            else:
+                overall_deadline = started + timeout
+                setup_deadline = started + min(max(0.0, first_phase_timeout), timeout)
+                while proc.poll() is None:
+                    now = time.monotonic()
+                    lifecycle = _read_lifecycle_checkpoint(lifecycle_path)
+                    if now >= setup_deadline and not _lifecycle_has_first_phase(lifecycle):
+                        timeout_scope = "setup"
+                        break
+                    if now >= overall_deadline:
+                        timeout_scope = "scenario"
+                        break
+                    time.sleep(min(0.1, max(0.01, overall_deadline - now)))
+                if timeout_scope is not None:
+                    raise subprocess.TimeoutExpired(command, timeout)
         except subprocess.TimeoutExpired:
             if before_terminate is not None:
                 try:
@@ -203,8 +291,14 @@ def _run_scenario_subprocess(
                 stdout_text = fh.read()
             with open(stderr_path, encoding="utf-8", errors="replace") as fh:
                 stderr_text = fh.read()
-            raise subprocess.TimeoutExpired(
-                cmd=command, timeout=timeout, output=stdout_text, stderr=stderr_text
+            lifecycle = _read_lifecycle_checkpoint(lifecycle_path)
+            raise _ScenarioWatchdogTimeout(
+                cmd=command,
+                timeout=(first_phase_timeout if timeout_scope == "setup" else timeout),
+                output=stdout_text,
+                stderr=stderr_text,
+                timeout_scope=timeout_scope or "scenario",
+                lifecycle=lifecycle,
             ) from None
     with open(stdout_path, encoding="utf-8", errors="replace") as fh:
         stdout_text = fh.read()
@@ -306,8 +400,14 @@ def _failure_summary(
     stdout_tail: str | None = None,
     stderr_tail: str | None = None,
     elapsed_s: float | None = None,
-    killed_before_first_attempt: bool = False,
+    killed_before_first_attempt: bool | None = None,
     pre_attempt_reason: str | None = None,
+    timeout_scope: str | None = None,
+    in_flight_phase: str | None = None,
+    model_dispatch_started: bool | None = None,
+    lifecycle_path: str | None = None,
+    lifecycle_checkpoint: Mapping[str, Any] | None = None,
+    agent_exercised: bool = False,
 ) -> dict[str, Any]:
     summary = {
         "scenario_id": scenario_id,
@@ -323,7 +423,7 @@ def _failure_summary(
         "failure_class": failure_class,
         "score_class": "infra_blocked" if failure_class.startswith("infra_") else "product_fail",
         "retryable_infra": failure_class in _RETRYABLE_INFRA_CLASSES,
-        "agent_exercised": False,
+        "agent_exercised": agent_exercised,
         "attempt": attempt,
         "elapsed_s": elapsed_s,
         "stdout_tail": stdout_tail,
@@ -333,10 +433,20 @@ def _failure_summary(
         "deepseek_est_cost_usd": 0.0,
         "deepseek_cost_basis": "not_available",
     }
-    if killed_before_first_attempt:
-        summary["killed_before_first_attempt"] = True
+    if killed_before_first_attempt is not None:
+        summary["killed_before_first_attempt"] = killed_before_first_attempt
     if pre_attempt_reason is not None:
         summary["pre_attempt_reason"] = pre_attempt_reason
+    if timeout_scope is not None:
+        summary["timeout_scope"] = timeout_scope
+    if in_flight_phase is not None:
+        summary["in_flight_phase"] = in_flight_phase
+    if model_dispatch_started is not None:
+        summary["model_dispatch_started"] = model_dispatch_started
+    if lifecycle_path is not None:
+        summary["lifecycle_path"] = lifecycle_path
+    if lifecycle_checkpoint is not None:
+        summary["lifecycle_checkpoint"] = dict(lifecycle_checkpoint)
     return summary
 
 
@@ -392,10 +502,11 @@ def _attempt_record(
     attempt_identity: str,
     attempt_deadline_seconds: float,
 ) -> dict[str, Any]:
+    live_ok = (summary.get("guard") or {}).get("live_agentic_success") is True
     failure_class = (
         summary.get("failure_class")
         or (summary.get("guard") or {}).get("failure_class")
-        or "product_or_assessment_failure"
+        or (None if live_ok else "product_or_assessment_failure")
     )
     # T3.1/D6 freeze: the harness is the SOLE owner that may retry a timed-out
     # scenario, exactly once, always under a NEW attempt identity (fresh tag +
@@ -429,6 +540,11 @@ def _attempt_record(
         "model_attempts": summary.get("model_attempts", []),
         "killed_before_first_attempt": summary.get("killed_before_first_attempt") is True,
         "pre_attempt_reason": summary.get("pre_attempt_reason"),
+        "timeout_scope": summary.get("timeout_scope"),
+        "in_flight_phase": summary.get("in_flight_phase"),
+        "model_dispatch_started": summary.get("model_dispatch_started"),
+        "lifecycle_path": summary.get("lifecycle_path"),
+        "lifecycle_checkpoint": summary.get("lifecycle_checkpoint"),
         "retry_ownership": {
             "owner": HARNESS_RETRY_OWNER,
             "attempt_identity": attempt_identity,
@@ -493,8 +609,23 @@ def _summary_completion_tokens(summary: dict[str, Any]) -> int | None:
     return int(value)
 
 
+def _typed_failure_kind(summary: Mapping[str, Any]) -> str | None:
+    """Return the product envelope's typed failure kind when present."""
+    kind = summary.get("failure_kind")
+    if isinstance(kind, str) and kind.strip():
+        return kind.strip()
+    guard = summary.get("guard")
+    if isinstance(guard, Mapping):
+        kind = guard.get("failure_kind")
+        if isinstance(kind, str) and kind.strip():
+            return kind.strip()
+    return None
+
+
 def _provider_infra_failure_class(summary: dict[str, Any]) -> str | None:
     """Map only canonical typed attempt evidence; never inspect response prose."""
+    if _typed_failure_kind(summary) == "AuthError":
+        return None
     attempt = _latest_failed_model_attempt(summary)
     if attempt is None:
         # Clean-exit TimeoutError: the worker stamped a typed envelope and
@@ -598,11 +729,14 @@ def _classify_retryable_infra_summary(summary: dict[str, Any]) -> dict[str, Any]
 
 
 def _is_outer_timeout_before_first_attempt(summary: Mapping[str, Any]) -> bool:
-    """True only for the runner's typed outer kill with no model attempt."""
+    """True only for a runner-owned timeout lacking terminal attempt evidence."""
     attempts = summary.get("model_attempts")
     return (
         summary.get("failure_class") == "infra_timeout"
-        and summary.get("killed_before_first_attempt") is True
+        and (
+            summary.get("timeout_scope") in {"setup", "scenario"}
+            or summary.get("killed_before_first_attempt") is True
+        )
         and isinstance(attempts, (list, tuple))
         and not attempts
     )
@@ -679,6 +813,7 @@ def _research_hang_kill_summary(summary: Mapping[str, Any] | None) -> bool:
     return bool(
         summary is not None
         and _is_outer_timeout_before_first_attempt(summary)
+        and summary.get("timeout_scope") != "setup"
         and summary.get("pre_attempt_reason") == "research_hang"
     )
 
@@ -1023,6 +1158,11 @@ def run_tag(
                         parents=True,
                         exist_ok=True,
                     )
+                    attempt_output_dir = _output_dir_for(
+                        output_base, attempt_run_tag, sid
+                    )
+                    lifecycle_path = attempt_output_dir / "runner-lifecycle.jsonl"
+                    child_env[_PROFILER_LOG_ENV] = str(lifecycle_path)
                     started = time.monotonic()
 
                     def persist_outer_timeout_marker() -> None:
@@ -1055,6 +1195,10 @@ def run_tag(
                             pre_attempt_reason=_infer_pre_attempt_reason(
                                 stderr_tail, stdout_tail
                             ),
+                            lifecycle_path=str(lifecycle_path),
+                            lifecycle_checkpoint=_read_lifecycle_checkpoint(
+                                lifecycle_path
+                            ),
                         )
                         _persist_scenario_summary(
                             partial,
@@ -1071,6 +1215,8 @@ def run_tag(
                             stdout_path=str(stdout_path),
                             stderr_path=str(stderr_path),
                             before_terminate=persist_outer_timeout_marker,
+                            first_phase_timeout=DEFAULT_FIRST_PHASE_TIMEOUT,
+                            lifecycle_path=str(lifecycle_path),
                         )
                         elapsed_s = time.monotonic() - started
                         recovered = _load_valid_summary(out_file)
@@ -1114,21 +1260,49 @@ def run_tag(
                         else:
                             stderr_tail = _timeout_tail(exc, "stderr")
                             stdout_tail = _timeout_tail(exc, "output")
+                            lifecycle = getattr(
+                                exc,
+                                "lifecycle",
+                                _read_lifecycle_checkpoint(lifecycle_path),
+                            )
+                            timeout_scope = str(
+                                getattr(exc, "timeout_scope", "scenario")
+                            )
+                            phase_entered = lifecycle.get("phase_entered")
+                            dispatch_started = (
+                                lifecycle.get("model_dispatch_started") is True
+                            )
+                            killed_before_first_attempt = not bool(
+                                phase_entered or dispatch_started
+                            )
                             final_summary = _failure_summary(
                                 sid,
                                 output_base,
                                 attempt_run_tag,
-                                f"scenario exceeded {per_scenario_timeout}s and was killed",
+                                (
+                                    "scenario child stalled before first executor phase "
+                                    f"for {DEFAULT_FIRST_PHASE_TIMEOUT}s and was killed"
+                                    if timeout_scope == "setup"
+                                    else f"scenario exceeded {per_scenario_timeout}s and was killed"
+                                ),
                                 failure_class="infra_timeout",
                                 attempt=attempt,
                                 expect_graph_changed=expect_graph_changed,
                                 stdout_tail=_trim(stdout_tail),
                                 stderr_tail=_trim(stderr_tail),
                                 elapsed_s=elapsed_s,
-                                killed_before_first_attempt=True,
+                                killed_before_first_attempt=killed_before_first_attempt,
                                 pre_attempt_reason=_infer_pre_attempt_reason(
                                     stderr_tail, stdout_tail
                                 ),
+                                timeout_scope=timeout_scope,
+                                in_flight_phase=(
+                                    str(phase_entered) if phase_entered else None
+                                ),
+                                model_dispatch_started=dispatch_started,
+                                lifecycle_path=str(lifecycle_path),
+                                lifecycle_checkpoint=lifecycle,
+                                agent_exercised=not killed_before_first_attempt,
                             )
                     except Exception as exc:  # noqa: BLE001 — isolate one failure
                         elapsed_s = time.monotonic() - started
@@ -1148,6 +1322,11 @@ def run_tag(
                         output_base=output_base,
                         tag=attempt_run_tag,
                         scenario_id=sid,
+                    )
+                    _persist_scenario_summary(
+                        final_summary,
+                        output_base,
+                        attempt_run_tag,
                     )
                     retryable_infra = _is_retryable_infra_summary(final_summary)
                     attempts.append(_attempt_record(
@@ -1190,10 +1369,14 @@ def run_tag(
                     if isinstance(final_summary.get("guard"), dict):
                         final_summary["guard"]["failure_class"] = "infra_timeout"
                         final_summary["guard"]["score_class"] = "infra_blocked"
-                final_summary.setdefault(
-                    "failure_class",
-                    attempts[-1].get("failure_class") or "product_or_assessment_failure",
-                )
+                if final_summary["guard"].get("live_agentic_success") is True:
+                    final_summary.setdefault("failure_class", None)
+                else:
+                    final_summary.setdefault(
+                        "failure_class",
+                        attempts[-1].get("failure_class")
+                        or "product_or_assessment_failure",
+                    )
                 final_summary.setdefault(
                     "score_class",
                     attempts[-1].get("score_class") or (

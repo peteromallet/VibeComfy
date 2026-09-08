@@ -46,6 +46,8 @@ MODEL_ATTEMPT_FAILURE_TYPES = frozenset({
     "missing_required_fields",
     "timeout",
     "provider_failure",
+    "runtime_unavailable",
+    "auth_error",
 })
 _MODEL_ATTEMPT_OUTCOMES = frozenset({"success", "failure"})
 _MODEL_ATTEMPT_UNKNOWN = "unknown"
@@ -1955,6 +1957,52 @@ class GraphFacts:
 
 
 @dataclass(frozen=True)
+class FinalAnswerPayload:
+    """Agent-authored terminal answer carried by the durable response.
+
+    This is deliberately distinct from incidental per-batch prose. Threaded
+    no-edit conversations project only this explicitly finalized payload, so
+    an earlier exploratory message can never be selected heuristically.
+    """
+
+    text: str
+    evidence_refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        text = self.text.strip() if isinstance(self.text, str) else ""
+        if not text:
+            raise ValueError("final answer text must be a non-empty string")
+        refs = tuple(
+            item.strip() if isinstance(item, str) else ""
+            for item in self.evidence_refs
+        )
+        if any(not item for item in refs):
+            raise ValueError("final answer evidence_refs must be non-empty strings")
+        if len(set(refs)) != len(refs):
+            raise ValueError("final answer evidence_refs must be unique")
+        object.__setattr__(self, "text", text)
+        object.__setattr__(self, "evidence_refs", refs)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "evidence_refs": list(self.evidence_refs),
+        }
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "FinalAnswerPayload":
+        if not isinstance(payload, Mapping):
+            raise ValueError("final_answer must be an object")
+        refs = payload.get("evidence_refs", ())
+        if not isinstance(refs, (list, tuple)):
+            raise ValueError("final_answer.evidence_refs must be an array")
+        return cls(
+            text=payload.get("text", ""),
+            evidence_refs=tuple(refs),
+        )
+
+
+@dataclass(frozen=True)
 class ImplementationResult:
     """Output from the implement phase (graph edit or delta).
 
@@ -2021,6 +2069,17 @@ class ImplementationResult:
             return None
         tid = dr.get("turn_id")
         return tid if isinstance(tid, str) and tid.strip() else None
+
+    @property
+    def final_answer(self) -> FinalAnswerPayload | None:
+        """Return the explicit agent-authored terminal answer, if present."""
+        dr = self.durable_response
+        if dr is None or not isinstance(dr.get("final_answer"), Mapping):
+            return None
+        try:
+            return FinalAnswerPayload.from_mapping(dr["final_answer"])
+        except ValueError:
+            return None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"message": self.message}
@@ -2108,6 +2167,16 @@ class Report:
                 self,
                 "reply_request",
                 _freeze_jsonish(dict(self.reply_request)),
+            )
+        if self.artifact_lineage is not None:
+            # The manifest digest authenticates the complete nested row list.
+            # Keep the report's source copy immutable so a consumer mutating a
+            # serialized projection cannot leave the retained digest pointing
+            # at different content.
+            object.__setattr__(
+                self,
+                "artifact_lineage",
+                _freeze_jsonish(dict(self.artifact_lineage)),
             )
 
     @property
@@ -2658,6 +2727,8 @@ _DURABLE_ENVELOPE_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "candidate_graph_hash",
     "candidate_structural_graph_hash",
     "outcome",
+    "final_answer",
+    "evidence_refs",
     "accepted_batch",
     "apply_eligibility",
     "graph_unchanged",
@@ -2955,6 +3026,7 @@ __all__ = [
     "ExecutorRequest",
     "ExecutorResult",
     "ExecutorHostPorts",
+    "FinalAnswerPayload",
     "GraphFacts",
     "HivemindRecordView",
     "ImplementationResult",

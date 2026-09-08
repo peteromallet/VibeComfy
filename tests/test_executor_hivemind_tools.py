@@ -1349,6 +1349,38 @@ class TestStatementTimeoutRetry:
         degraded = [url for url in calls if "ilike." in url and "ilike.*" not in url]
         assert len(degraded) == 2
 
+    def test_live_shaped_internal_server_error_57014_is_unavailable(self) -> None:
+        """The live service puts the timeout detail in the JSON body while
+        HTTPError.reason remains the generic ``Internal Server Error``."""
+        calls = {"n": 0}
+
+        def _live_statement_timeout(req: Any, *args: Any, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                req.full_url,
+                500,
+                "Internal Server Error",
+                {},
+                io.BytesIO(
+                    b'{"code":"57014","message":"canceling statement due to statement timeout"}'
+                ),
+            )
+
+        with patch(
+            "vibecomfy.executor.hivemind_clients.time.sleep",
+        ), patch("urllib.request.urlopen", side_effect=_live_statement_timeout):
+            result = hivemind_search(
+                "ltx",
+                filters={"source_type": "discord"},
+            )
+
+        assert calls["n"] > 1
+        assert result.status is ToolStatus.UNAVAILABLE
+        assert result.status is not ToolStatus.NO_RESULTS
+        assert result.diagnostics[0].code == "hivemind_statement_timeout"
+        assert result.evidence_ids == ()
+        assert result.result is None
+
     def test_per_scope_deadline_gives_each_scope_full_budget(self) -> None:
         """§37.3: deadlines are computed PER SCOPE — a scope that spends its
         whole budget cannot starve later scopes; each attempt is offered the

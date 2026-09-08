@@ -18,12 +18,14 @@ import json
 import re
 from collections.abc import Mapping
 from decimal import Decimal
+from types import SimpleNamespace
 from tests.live_agentic_harness.intent_judge import (
     _canonical_edit_value,
     _canonicalize_op_field_paths,
     _field_canon_context,
     _op_fingerprint,
     _resolve_field_slot,
+    _schema_provider_from_bound_evidence,
     _to_workflow_ir,
     _verify_delta_replay,
 )
@@ -174,6 +176,36 @@ def test_claimed_int_float_and_text_spellings_all_verify() -> None:
         assert result["verified"] is True, (claimed_value, result)
         assert result["mismatches"] == []
         assert result["checked"] == 1
+
+
+def test_delta_replay_uses_bound_authority_receipt_schema_witness() -> None:
+    """The assessor consumes the candidate's admitted schema generation."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import build_schema_witness
+
+    pre = _value_carrier_ui(20)
+    post = _value_carrier_ui(30)
+    admitted_provider = _frozen_provider_for(pre, post)
+    witness = build_schema_witness(
+        schema_provider=admitted_provider,
+        submit_graph=pre,
+        candidate_payload=post,
+        delta_envelope={"ops": [_set_field_op("value", "steps", 30)]},
+    )
+    bound = SimpleNamespace(
+        receipt=SimpleNamespace(schema_witness=witness),
+    )
+
+    replay_provider = _schema_provider_from_bound_evidence(bound, fallback=None)
+    result = _verify_delta_replay(
+        pre,
+        post,
+        [_set_field_op("value", "steps", 30)],
+        schema_provider=replay_provider,
+    )
+
+    assert replay_provider.snapshot.content_digest == admitted_provider.snapshot.content_digest
+    assert result["verified"] is True
+    assert result["mismatches"] == []
 
 
 def test_fingerprint_numeric_identity_across_spellings() -> None:

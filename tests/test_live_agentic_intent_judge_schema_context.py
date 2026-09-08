@@ -842,8 +842,8 @@ def test_intent_judge_grades_delta_with_replay_evidence(
     )
 
     monkeypatch.setattr(
-        "vibecomfy.schema.get_schema_provider",
-        lambda _name: _ks_schema_provider_for_sampler_uid(),
+        "vibecomfy.schema.provider.SchemaSnapshotProvider",
+        lambda: _ks_schema_provider_for_sampler_uid(),
     )
 
     seen: dict[str, object] = {}
@@ -934,8 +934,8 @@ def test_intent_judge_prompt_prioritizes_explicit_terminal_numeric_target(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "vibecomfy.schema.get_schema_provider",
-        lambda _name: _ks_schema_provider_for_sampler_uid(),
+        "vibecomfy.schema.provider.SchemaSnapshotProvider",
+        lambda: _ks_schema_provider_for_sampler_uid(),
     )
 
     seen: dict[str, object] = {}

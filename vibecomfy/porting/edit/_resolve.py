@@ -768,6 +768,12 @@ class _ResolveMixin:
                 in_graph_nodes=getattr(self, "workflow", None),
             )
         except Exception as exc:  # noqa: BLE001 - report query failures in-band
+            focus_types = kwargs.get("focus_types")
+            lookup_classes = [
+                str(value).strip()
+                for value in focus_types
+                if str(value).strip()
+            ] if isinstance(focus_types, (list, tuple)) else []
             return StatementResult(
                 statement_index=statement_index,
                 source=source,
@@ -781,7 +787,15 @@ class _ResolveMixin:
                         severity="error",
                     ),
                 ),
-                detail={"query": "search"},
+                detail={
+                    "query": "search",
+                    "tool_status": ToolStatus.UNAVAILABLE.value,
+                    "lookup_classes": lookup_classes,
+                    "provider_error": {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                },
             )
 
         output_text = str(output)
@@ -818,6 +832,7 @@ class _ResolveMixin:
             # schema provider.  Response shaping may use this only when the
             # user named the same class and the batch ends in a real choice.
             detail["missing_classes"] = missing_classes
+            detail["tool_status"] = ToolStatus.NO_RESULTS.value
         return StatementResult(
             statement_index=statement_index,
             source=source,
@@ -958,6 +973,11 @@ class _ResolveMixin:
                 "query": call_name,
                 "tool_call": call_name,
                 "tool_status": result.status.value,
+                **(
+                    {"tool_arguments": {"node_class": merged.get("node_class")}}
+                    if call_name == "node_schema"
+                    else {}
+                ),
                 "tool_code": code,
                 "tool_message": message,
                 "tool_evidence_ids": list(entry["evidence_ids"]),

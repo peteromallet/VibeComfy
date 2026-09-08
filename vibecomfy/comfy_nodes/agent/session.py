@@ -4506,6 +4506,23 @@ def _resolve_stable_workflow_id(
     return str(uuid.uuid5(_WORKFLOW_ID_NAMESPACE, seed))
 
 
+def _revision_identity_from_submit_request(
+    request_payload: Mapping[str, Any] | None,
+) -> tuple[str, str] | None:
+    """Return closed revision identity when the submit carried both fields.
+
+    Headless and live-agent submits omit ``revision_id`` / ``parent_revision``.
+    Return ``None`` so candidate issuance can mint identity at capture instead
+    of fail-closing the implement apply with ``missing_revision_identity``.
+    """
+    if not isinstance(request_payload, Mapping):
+        return None
+    try:
+        return revision_identity_from_mapping(request_payload)
+    except ContractError:
+        return None
+
+
 def _publish_response_authority(
     *,
     turn_dir: Path,
@@ -4727,15 +4744,11 @@ def record_idempotent_response(
                     authority_receipt_before,
                 )
             raise
-        try:
-            requested_revision, requested_parent = revision_identity_from_mapping(request_payload)
-        except Exception:
-            if authority_receipt_path_for_turn is not None:
-                _restore_file_bytes(
-                    authority_receipt_path_for_turn,
-                    authority_receipt_before,
-                )
-            raise
+        supplied_identity = _revision_identity_from_submit_request(request_payload)
+        if supplied_identity is None:
+            requested_revision, requested_parent = None, ""
+        else:
+            requested_revision, requested_parent = supplied_identity
         pending_bundle = None
         try:
             layout = stamped_response.get("layout_reorganisation")
@@ -4748,12 +4761,16 @@ def record_idempotent_response(
                 authority_receipt.replay.verification_kind == "layout_structural_noop"
                 or layout_prepared
             )
-            capture_parent = requested_revision if layout_only else requested_parent
+            capture_parent = (
+                requested_revision
+                if layout_only and requested_revision
+                else requested_parent
+            )
             bundle_metadata, pending_bundle = _capture_candidate_bundle(
                 graph=candidate_graph,
                 turn_dir=turn_dir,
                 workflow_id=workflow_id,
-                parent_revision=capture_parent,
+                parent_revision=capture_parent or "",
                 session_dir=session_dir_for(session_root, session_id),
                 plan_hash=candidate_plan_hash,
                 schema_witness=authority_receipt.schema_witness,
@@ -4761,13 +4778,14 @@ def record_idempotent_response(
             )
             revision_id = bundle_metadata["revision_id"]
             parent_revision = bundle_metadata["parent_revision"]
-            if layout_only:
-                if parent_revision != requested_revision:
-                    raise ValueError(
-                        "layout candidate parent must be the submitted revision"
-                    )
-            elif requested_revision != revision_id:
-                raise ValueError("captured bundle revision does not match the submitted revision")
+            if supplied_identity is not None:
+                if layout_only:
+                    if parent_revision != requested_revision:
+                        raise ValueError(
+                            "layout candidate parent must be the submitted revision"
+                        )
+                elif requested_revision != revision_id:
+                    raise ValueError("captured bundle revision does not match the submitted revision")
             eligibility = stamped_response.get("eligibility")
             if not isinstance(eligibility, Mapping):
                 eligibility = stamped_response.get("apply_eligibility")

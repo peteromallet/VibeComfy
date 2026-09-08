@@ -3385,6 +3385,19 @@ sampler = KSampler(
         assert widget is not None
         assert widget["widgets_values"][0] == 1  # original value
 
+    def test_failed_row_concat_add_leaves_name_unbound(self) -> None:
+        session = self._primitive_session()
+        result = session.apply_batch(
+            "rowConcat = SaveImage(images=src.in_, relation='right_of')\n"
+            "dst.value = rowConcat\n"
+        )
+
+        assert result.ok is False
+        assert result.landed_ops == ()
+        assert result.statements[0].diagnostics[0].code == "anchor_target_missing"
+        assert result.statements[1].diagnostics[0].code == "unbound_graph_name"
+        assert "rowConcat" not in session.uid_by_name
+
     def test_apply_batch_infers_true_splice_anchor_from_two_line_rewire(self) -> None:
         from vibecomfy.porting.edit.ops import AddNodeOp
 
@@ -4874,6 +4887,54 @@ class TestDoneGateBCompileRegion:
         assert diag.severity == "error"
         assert diag.detail["region_node_ids"] == ("1", "2")
         assert "canonical_form mismatch" in diag.detail["diffs"]
+
+    def test_answer_only_noop_skips_gate_b_after_identity_proof(self, monkeypatch):
+        """A declared answer-only no-op does not compile an untouched graph."""
+        session = self._session()
+        session.interaction_mode = "answer_only"
+        session.render()
+
+        def _unexpected_gate_b(*_args, **_kwargs):
+            raise AssertionError("Gate B must not compile an unchanged answer-only graph")
+
+        monkeypatch.setattr(session, "_done_gate_b_from_ir", _unexpected_gate_b)
+
+        result = session.done()
+
+        assert result.ok is True
+        assert "identity verified" in result.summary
+        assert "Gate B was not required" in result.summary
+
+    def test_answer_only_real_edit_still_fails_closed_at_gate_b(self, monkeypatch):
+        """The answer-only exception cannot waive proof for a landed mutation."""
+        from vibecomfy.porting.edit._session_types import DoneResult, _diag
+
+        session = self._session()
+        session.interaction_mode = "answer_only"
+        session.render()
+        batch = session.apply_batch("dest.value = sourceone.in_\n")
+        assert batch.ok is True
+
+        monkeypatch.setattr(
+            session,
+            "_done_gate_b_from_ir",
+            lambda *_args, **_kwargs: DoneResult(
+                ok=False,
+                summary="Gate B failed: forced regression witness.",
+                diagnostics=(
+                    _diag(
+                        "done_gate_b_compile_isomorphism_failed",
+                        "forced regression witness",
+                        severity="error",
+                    ),
+                ),
+            ),
+        )
+
+        result = session.done()
+
+        assert result.ok is False
+        assert result.diagnostics[0].code == "done_gate_b_compile_isomorphism_failed"
 
 
 class TestDoneProofCoverageMatrix:

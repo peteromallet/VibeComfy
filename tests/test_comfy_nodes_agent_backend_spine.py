@@ -5143,6 +5143,31 @@ def test_build_batch_messages_system_prompt_contains_privileged_calls() -> None:
     assert "clarify(" in system
 
 
+class TestAnswerOnlyBatchPrompt:
+    def test_explicit_answer_only_keeps_threaded_tools_but_forbids_edits(self) -> None:
+        messages = agent_provider.build_batch_messages(
+            task="Why is this workflow producing dark output?",
+            python_source="workflow = VibeWorkflow()",
+            tool_phase="threaded",
+            interaction_mode="answer_only",
+        )
+
+        system = messages[0]["content"]
+        assert "answer_only" in system
+        assert "may inspect and research" in system
+        assert "must not add, change, delete, rewire, or change node modes" in system
+        assert "threaded research+implement surface" in system
+
+    def test_ordinary_prompt_does_not_infer_answer_only_from_query_text(self) -> None:
+        messages = agent_provider.build_batch_messages(
+            task="Why is this workflow producing dark output?",
+            python_source="workflow = VibeWorkflow()",
+            tool_phase="threaded",
+        )
+
+        assert "answer_only" not in messages[0]["content"]
+
+
 def test_build_batch_messages_system_prompt_names_preservation_priority() -> None:
     messages = agent_provider.build_batch_messages(
         task="Convert this workflow to image-to-video",
@@ -5564,6 +5589,84 @@ def test_run_agent_turn_batch_retries_empty_content_once_then_succeeds(monkeypat
     assert "batch_repl response was empty" in metadata["batch_repl_retry"]["reason"]
 
 
+def test_run_agent_turn_batch_retries_missing_fence_then_succeeds(monkeypatch) -> None:
+    """Prose-only output gets a bounded correction turn with state intact."""
+    calls: list[dict[str, object]] = []
+    responses = iter(
+        [
+            "I'll inspect the current graph before making the edit.",
+            'Updated the output.\n\n```batch\nsaveimage.filename_prefix = "after"\ndone()\n```',
+        ]
+    )
+
+    class RetryBatchRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):
+            calls.append(kwargs)
+            return next(responses)
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: RetryBatchRuntime)
+    original_messages = [{"role": "user", "content": "update the output"}]
+
+    result = agent_provider.run_agent_turn_batch(
+        task="update output",
+        messages=original_messages,
+        route="deepseek",
+        model="deepseek-chat",
+    )
+
+    assert result.batch == 'saveimage.filename_prefix = "after"\ndone()'
+    assert result.message == "Updated the output."
+    assert len(calls) == 2
+    retry_messages = calls[1]["messages"]  # type: ignore[index]
+    assert retry_messages[:-1] == original_messages  # type: ignore[index]
+    retry_message = retry_messages[-1]  # type: ignore[index]
+    assert retry_message["role"] == "system"
+    assert "Previous response preview" in retry_message["content"]
+    assert "I'll inspect the current graph" in retry_message["content"]
+    assert "exactly one ```batch fenced block" in retry_message["content"]
+    assert 'clarify("...")' in retry_message["content"]
+    metadata = dict(result.audit_metadata or {})
+    assert metadata["batch_repl_retry"]["count"] == 1
+    assert metadata["batch_repl_retry"]["parse_reason"] == "missing_batch_fence"
+
+
+def test_run_agent_turn_batch_other_nonempty_malformed_parse_fails_closed(
+    monkeypatch,
+) -> None:
+    """Only the missing-fence contract failure widens nonempty retry policy."""
+    calls: list[dict[str, object]] = []
+
+    class MalformedBatchRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):
+            calls.append(kwargs)
+            return "nonempty malformed response"
+
+    def _raise_other_malformed(*_args, **_kwargs):
+        raise agent_provider.MalformedModelJSON(
+            "Agent response violated a different batch contract.",
+            raw_response="nonempty malformed response",
+            parse_reason="invalid_batch_contract",
+        )
+
+    monkeypatch.setattr(
+        agent_provider, "_load_arnold_runtime", lambda: MalformedBatchRuntime
+    )
+    monkeypatch.setattr(
+        agent_provider, "_normalize_batch_response", _raise_other_malformed
+    )
+
+    with pytest.raises(agent_provider.MalformedModelJSON) as raised:
+        agent_provider.run_agent_turn_batch(
+            task="update output",
+            messages=[{"role": "user", "content": "update the output"}],
+        )
+
+    assert raised.value.parse_reason == "invalid_batch_contract"
+    assert len(calls) == 1
+
+
 def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None:
     """The shipped megaplan adapter asks the worker for raw batch_repl content."""
     calls: list[dict[str, object]] = []
@@ -5873,6 +5976,7 @@ def test_runtime_readiness_reports_deepseek_key_presence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "test-key")
+    monkeypatch.setattr(runtime, "_arnold_worker_importable", lambda: True)
 
     readiness = runtime.readiness(route="deepseek", model="deepseek-chat")
     status = runtime.get_agent_status(route="deepseek", model="deepseek-chat")

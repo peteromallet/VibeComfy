@@ -96,6 +96,16 @@ remain the authoritative result. Deterministic reply grounding replaces prose
 that falsely claims an edit landed, cites nonexistent nodes, or claims beyond
 the accepted change set.
 
+Threaded no-edit answers use an explicit terminal payload:
+`done(final_answer="...", evidence_refs=["..."])`. The batch provider removes
+that transport metadata before the existing zero-argument `done()` reaches the
+edit gate, then the closed durable response records
+`final_answer = {text, evidence_refs}`. Threaded projection reads that payload
+directly. It never scans earlier conversation messages for plausible prose and
+never turns a successful answer with zero accepted operations into a refusal.
+Evidence references are exact IDs from the compact ledger; graph-only answers
+use an empty list and remain grounded by the normal graph-reply checks.
+
 No code below the orchestration seam should branch on `staged` versus
 `threaded`. If a proposed change needs a mode check in edit, replay, render,
 evidence, persistence, or UI emission, move the policy back into the driver.

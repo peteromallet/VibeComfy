@@ -581,6 +581,32 @@ def _load_persisted_pair_evidence(
     )
 
 
+def _schema_provider_from_bound_evidence(
+    evidence: Any | None,
+    fallback: Any,
+) -> Any:
+    """Use only the fully-bound receipt witness for assessor replay.
+
+    The production pair loader has already validated the candidate transaction,
+    authority receipt, and their digest bindings.  Reconstructing the provider
+    from that receipt gives ``interpret(pre, Δ)`` the exact frozen generation
+    that admitted the batch; an unrelated ambient/static catalog is not the
+    same evidence and remains only a fallback for legacy/unbound artifacts.
+    """
+    receipt = getattr(evidence, "receipt", None)
+    witness = getattr(receipt, "schema_witness", None)
+    if not isinstance(witness, Mapping):
+        return fallback
+    try:
+        from vibecomfy.comfy_nodes.agent.candidate_transaction import (  # noqa: PLC0415
+            schema_provider_from_witness,
+        )
+
+        return schema_provider_from_witness(witness)
+    except Exception:
+        return fallback
+
+
 def _landed_replay_verified(
     evidence: Any | None,
     *,
@@ -1453,11 +1479,17 @@ def judge_edit_intent(
     delta_ops = (
         delta_envelope.get("ops") if isinstance(delta_envelope, Mapping) else None
     )
-    from vibecomfy.schema import get_schema_provider  # late import: judge stays light
+    from vibecomfy.schema.provider import SchemaSnapshotProvider  # late import: judge stays light
 
     # Evidence assessment is an offline/static operation.  Never start or
     # probe a managed ComfyUI server merely to decode persisted test artifacts.
-    schema_provider = get_schema_provider("local")
+    # SchemaSnapshotProvider pins object-info cache at construction so
+    # interpret(pre, Δ) is not missing_schema_authority on a live Local provider.
+    schema_provider = SchemaSnapshotProvider()
+    schema_witness_resolution: dict[str, Any] = {
+        "status": "not_applicable",
+        "reason": "legacy_or_unbound_artifacts",
+    }
 
     # T5.2: when the run carries a typed artifact lineage manifest, the judge
     # takes the canonical path — every carrier passes the common constructor
@@ -1476,6 +1508,50 @@ def judge_edit_intent(
             if isinstance(lineage_manifest, Mapping)
             else None
         )
+        # Resolve the fully-bound persisted authority pair before lifting the
+        # UI carriers so every canonicalization/apply/replay step consumes the
+        # same schema generation that admitted the candidate.
+        bound_evidence: Any = None
+        turn_dir = _resolve_durable_turn_dir(output_dir, response)
+        if turn_dir is None:
+            schema_witness_resolution = {
+                "status": "rejected",
+                "reason": "missing_durable_turn",
+            }
+        elif not _path_identities_agree(turn_dir, response, pair_lineage):
+            schema_witness_resolution = {
+                "status": "rejected",
+                "reason": "durable_turn_identity_mismatch",
+            }
+        else:
+            bound_evidence, _binding_reason = _load_persisted_pair_evidence(
+                turn_dir,
+                response
+                if response_snapshot is not _RESPONSE_FROM_DISK
+                else _RESPONSE_FROM_DISK,
+            )
+            if bound_evidence is None:
+                schema_witness_resolution = {
+                    "status": "rejected",
+                    "reason": _binding_reason or "unbound_persisted_pair",
+                }
+            else:
+                fallback_provider = schema_provider
+                schema_provider = _schema_provider_from_bound_evidence(
+                    bound_evidence, fallback_provider
+                )
+                if schema_provider is fallback_provider:
+                    schema_witness_resolution = {
+                        "status": "rejected",
+                        "reason": "unusable_schema_witness",
+                    }
+                else:
+                    receipt = getattr(bound_evidence, "receipt", None)
+                    schema_witness_resolution = {
+                        "status": "consumed",
+                        "reason": "bound_authority_receipt",
+                        "witness_hash": getattr(receipt, "schema_witness_hash", None),
+                    }
         try:
             pre_view = canonical_semantic_view(
                 pre_ir,
@@ -1493,26 +1569,15 @@ def judge_edit_intent(
             return {
                 "pass_": None,
                 "error": f"undetermined: carrier rejected by common constructor ({exc})",
+                "metadata": {
+                    "schema_witness_resolution": schema_witness_resolution,
+                },
             }
         pre_wf = pre_view.workflow
         post_wf = post_view.workflow
 
-        # DEEP-AUDIT-FIX-2-REVISION-2: resolve the durable turn, require the
-        # path-derived identities to agree with response + canonical lineage,
-        # then load the persisted (transaction, receipt) pair through the one
-        # production loader.  The verdict upgrade below fires only after every
-        # binding — including the postcondition recomputed over THIS post_ir.
-        bound_evidence: Any = None
-        turn_dir = _resolve_durable_turn_dir(output_dir, response)
-        if turn_dir is not None and _path_identities_agree(
-            turn_dir, response, pair_lineage
-        ):
-            bound_evidence, _binding_reason = _load_persisted_pair_evidence(
-                turn_dir,
-                response
-                if response_snapshot is not _RESPONSE_FROM_DISK
-                else _RESPONSE_FROM_DISK,
-            )
+        # The verdict upgrade below fires only after every binding — including
+        # the postcondition recomputed over THIS post_ir.
         landed_verified = _landed_replay_verified(
             bound_evidence,
             assessed_post_graph=post_ir,
@@ -1545,7 +1610,10 @@ def judge_edit_intent(
                 return {
                     "pass_": None,
                     "error": "undetermined: withheld_accepted_batch (queue_validate_ok=false)",
-                    "metadata": {"verdict": "withheld_accepted_batch"},
+                    "metadata": {
+                        "verdict": "withheld_accepted_batch",
+                        "schema_witness_resolution": schema_witness_resolution,
+                    },
                 }
             pair_verdict = judge_graph_pair(
                 pre_view,
@@ -1567,13 +1635,20 @@ def judge_edit_intent(
                         "no accepted delta/candidate and the product is "
                         "unchanged; no edit exists to satisfy the intent"
                     ),
-                    "metadata": {"verdict": "no_edit", **pair_verdict.detail},
+                    "metadata": {
+                        "verdict": "no_edit",
+                        "schema_witness_resolution": schema_witness_resolution,
+                        **pair_verdict.detail,
+                    },
                 }
             if pair_verdict.outcome == "undetermined":
                 return {
                     "pass_": None,
                     "error": f"undetermined: {pair_verdict.reason}",
-                    "metadata": {"verdict_detail": dict(pair_verdict.detail)},
+                    "metadata": {
+                        "verdict_detail": dict(pair_verdict.detail),
+                        "schema_witness_resolution": schema_witness_resolution,
+                    },
                 }
             if pair_verdict.outcome == "applied_unverified":
                 # §28 fix 3: landed + replay-verified edit without an accepted
@@ -1588,6 +1663,7 @@ def judge_edit_intent(
                     "metadata": {
                         "verdict": "applied_unverified",
                         "verdict_detail": dict(pair_verdict.detail),
+                        "schema_witness_resolution": schema_witness_resolution,
                     },
                 }
             if pair_verdict.outcome == "delta_replay_mismatch":
@@ -1600,7 +1676,10 @@ def judge_edit_intent(
                         "no_orphaned_wiring": False,
                     },
                     "rationale": f"delta replay mismatch: {pair_verdict.reason}",
-                    "metadata": {"verdict_detail": dict(pair_verdict.detail)},
+                    "metadata": {
+                        "verdict_detail": dict(pair_verdict.detail),
+                        "schema_witness_resolution": schema_witness_resolution,
+                    },
                 }
             # applied_edit: grade against the authoritative accepted batch only.
             delta_ops = [dict(op) for op in accepted_ops]
@@ -1646,7 +1725,10 @@ def judge_edit_intent(
                 "no_orphaned_wiring": False,
             },
             "rationale": "canonical product has a new self-loop; apply-gate refused.",
-            "metadata": {"apply_gate": apply_gate.reason},
+            "metadata": {
+                "apply_gate": apply_gate.reason,
+                "schema_witness_resolution": schema_witness_resolution,
+            },
         }
 
     delta_replay = _verify_delta_replay(
@@ -1683,7 +1765,10 @@ def judge_edit_intent(
             },
             "rationale": "delta replay mismatch: "
             + "; ".join(delta_replay.get("mismatches") or []),
-            "metadata": {"delta_replay": delta_replay},
+            "metadata": {
+                "delta_replay": delta_replay,
+                "schema_witness_resolution": schema_witness_resolution,
+            },
         }
     outcome_fields = _outcome_field_targets(response)
     named_fields = _named_fields_for_delta(
@@ -1819,6 +1904,7 @@ def judge_edit_intent(
         "route": route,
         "model": model,
         "elapsed_ms": model_response.get("_profiling", {}).get("elapsed_ms"),
+        "schema_witness_resolution": schema_witness_resolution,
     }
     return _apply_parameter_identity_pregrade(verdict, pregrade)
 
