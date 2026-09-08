@@ -12,7 +12,7 @@ roles:
     model: gpt-5.6-sol
     reasoning: high
   reviewer_normal:
-    model: gpt-6-astra
+    model: gpt-5.6-luna
     reasoning: medium
   reviewer_xhard:
     model: gpt-5.6-sol
@@ -71,8 +71,7 @@ review_budget:
     rounds and restarts. No new allowance from renaming/repackaging or XHARD replacement. No additional implicit
     final stage.
 budget_adoption:
-  authority: Current user request to adopt current Megado defaults while preserving agreed two Astra boundaries
-    and all completed work.
+  authority: Current user correction assigns normal review to Luna medium, with Astra reserved for oracle and final review; preserve all completed work.
   historical_oracle_calls: 4
   prospective_oracle_allowance: 3
   historical_review_calls: 5
@@ -81,8 +80,7 @@ budget_adoption:
     for future work only. The current planning-only update dispatches no review or oracle. Historical final/v2 mixed
     judgments are conservatively charged to both budgets.
 binding_notes:
-  reviewer_normal: Astra medium overrides Luna default to retain the explicitly agreed Astra save/export checkpoint;
-    classification stays normal.
+  reviewer_normal: Luna medium per explicit user correction; owns the save/export completion checkpoint.
   oracle: Astra high retains the designated consequential judgment owner; not automatic review after PASS.
   final_reviewer: Astra medium default also preserves agreed final Astra checkpoint.
   other_slots: Template defaults retained. Binding edits do not switch this host or existing agents.

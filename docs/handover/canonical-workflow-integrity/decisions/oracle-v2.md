@@ -1,3 +1,5 @@
+> Superseded binding: the user subsequently assigned intermediate normal review to Luna medium. Astra is reserved for oracle and final review. See current run.yaml and status.md; historical counters remain unchanged.
+
 > Historical planning evidence, not executable product certification. Source line numbers refer to the audited baseline. Local receipt/manifest references in this note are provenance descriptions; the compact history and exact published source identity are in ../history.md and ../provenance.md.
 
 # Astra v2 delta judgment — narrow correction

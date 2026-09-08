@@ -21,3 +21,7 @@ Remaining unknowns: actual source already implements some later fixes; one opaqu
 Estimate retained: 6–8.5 core eight-hour engineer-days plus 1–2 contingency, budget7–10.5 (roughly two five-day working weeks); not agent wall-clock. No estimate threshold creates review gates.
 
 Future oracle requests use D5 onward or reuse D1–D4 for the same question. Record request and reply together here using the plan's five-question/four-field format. Completed history is in history.md. Recipient finish: validated local implementation commit/evidence report; no PR/push/merge/deploy authority inferred.
+
+## Reviewer binding correction
+
+The user corrected the normal reviewer to Luna medium. The earlier Astra normal-review binding was a coordinator interpretation, now superseded. Astra remains oracle (high) and final reviewer (medium); XHARD reviewer remains Sol high. Stage scopes, caps, historical counters, acceptance criteria, and estimate are unchanged. Historical rulings describe prior decisions and do not override this correction or current run.yaml. No new review was performed for this correction.

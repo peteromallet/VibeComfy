@@ -21,7 +21,7 @@ Use the configured role slots:
 - Coordinator: Luna medium
 - Normal worker: Luna medium
 - XHARD worker: Sol high
-- Normal reviewer: Astra medium
+- Normal reviewer: Luna medium
 - XHARD reviewer: Sol high
 - Oracle: Astra high
 - Final reviewer: Astra medium
