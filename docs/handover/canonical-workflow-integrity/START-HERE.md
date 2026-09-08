@@ -2,7 +2,7 @@
 
 Execute the existing two-segment plan; do not restart planning. This public handover contains current working source plus the portable plan. The preparer has not implemented or certified the product plan.
 
-Source snapshot: `79414f56d5135badef8268ef1d89861c9a5fbd06`. Handover branch: `handover/canonical-workflow-integrity-20260908`. Pinned skills: `c919ed5c51508d1c1678e88172ba8366e07038fb` from public poms-skills. See [provenance](./provenance.md) for intentional dirty-source inclusion and omitted logs.
+Source snapshot: `79414f56d5135badef8268ef1d89861c9a5fbd06`. Handover branch: `handover/canonical-workflow-integrity-20260908`. Pinned skills: `63825bbb191a0539c0b99832099966ee9f23e3e2` from public poms-skills. See [provenance](./provenance.md) for intentional dirty-source inclusion and omitted logs.
 
 Read in order: [goal/authority](./agent_goal.md), [North Star](./northstar.md), [configuration](./run.yaml), [plan](./plan.md), [tasks](./tasklist.md), [acceptance/evidence](./acceptance-ledger.md), [status/counters](./status.md), [history/rulings](./history.md), [dependencies](./dependencies.md). The [review packet template](./review-packet-template.md) is a template, not actual executable evidence.
 

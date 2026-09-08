@@ -1,17 +1,40 @@
 # Copy-paste delivery instruction
 
-Continue VibeComfy canonical workflow integrity from the public branch `handover/canonical-workflow-integrity-20260908` at https://github.com/peteromallet/VibeComfy.git. Its intentional current-source snapshot is `79414f56d5135badef8268ef1d89861c9a5fbd06`; the handover-doc commit descends from it. Exact inspected Megado skills: https://github.com/peteromallet/poms-skills.git at `c919ed5c51508d1c1678e88172ba8366e07038fb`.
+Implement the VibeComfy canonical workflow integrity plan using Megado.
+
+Clone both repositories into unused directories on this machine:
 
 ```sh
-git clone --branch handover/canonical-workflow-integrity-20260908 --single-branch https://github.com/peteromallet/VibeComfy.git VibeComfy-integrity
-cd VibeComfy-integrity
-git merge-base --is-ancestor 79414f56d5135badef8268ef1d89861c9a5fbd06 HEAD
+git clone --branch handover/canonical-workflow-integrity-20260908 https://github.com/peteromallet/VibeComfy.git VibeComfy-integrity
+git clone https://github.com/peteromallet/poms-skills.git poms-skills
+git -C poms-skills checkout --detach 63825bbb191a0539c0b99832099966ee9f23e3e2
 ```
 
-Read `docs/handover/canonical-workflow-integrity/START-HERE.md` and its linked pinned Megado skill/dependencies. Planning is complete; implementation evidence is NOT RUN. The user authorizes you to execute the bounded plan on an isolated local branch and return validated local commits/evidence. Activate delivery in the single run.yaml copy; retain its roles, model/reasoning bindings, review/oracle caps and historical counters. Do not restart planning or treat old planning PASS as product proof.
+Read `poms-skills/megado/SKILL.md` ([Megado](https://github.com/peteromallet/poms-skills/blob/63825bbb191a0539c0b99832099966ee9f23e3e2/megado/SKILL.md)) and follow it. You can use it directly without installing it globally. Preserve existing directories and work if either clone path is occupied.
 
-Objective: trustworthy save/reload/export preserving intended workflow content and valid drafts, then test-first Python/typed parity and accurate docs. Keep existing rule owners, transports and revision protection; no generic framework or speculative rewrite. Stage triggers/scopes/budgets come from run.yaml: save/export completion and final integrated completion/strategy, with inclusive round/restart caps and separate bounded oracle decisions. Prior spending remains in status.md/history.md; do not reset it.
+Then read `VibeComfy-integrity/docs/handover/canonical-workflow-integrity/START-HERE.md`. That directory contains the North Star, plan, tasklist, acceptance criteria, run configuration, review contract, history, and current status. The project code is included in the same branch.
 
-Check Git/Python/dev dependencies and native delegation/model access as described in dependencies.md. Luna/Astra were used by the preparer; Sol is reserved and untested here; recipient access is unverified. Report missing capabilities rather than substituting. Assemble real review packets from actual candidate/test artifacts later.
+You are authorized to execute C0 and T0–T4, run the configured tests and reviews, and return validated local commits and evidence. Activate run.yaml from planning_only to delivery as documented. Do not request another approval to begin.
 
-Finish: report implementation commit ID, criterion/test evidence, review outcomes and unresolved risks. No PR, implementation push, merge, deploy or production cutover unless separately authorized.
+Use the configured role slots:
+
+- Coordinator: Luna medium
+- Normal worker: Luna medium
+- XHARD worker: Sol high
+- Normal reviewer: Astra medium
+- XHARD reviewer: Sol high
+- Oracle: Astra high
+- Final reviewer: Astra medium
+
+Remaining review ceilings: 2 save/export completion reviews and 3 final integrated completion/strategy reviews, including correction rounds and restarts; 3 separate oracle calls. These are ceilings, not quotas. Preserve the 5 historical review calls and 4 historical oracle calls, for lifetime caps of 10 reviews and 7 oracle calls. Follow the artifact-based review contract in run.yaml and its linked template.
+
+First check repository state, Python 3.11+, development dependencies, and native delegation/model access using dependencies.md. Recipient capability is unverified; report missing access without silent substitutions. Planning is complete; implementation acceptance evidence is NOT RUN. The existing source snapshot is not certification.
+
+Preserve trustworthy save/reload/export and valid drafts, existing rule owners, transports, and revision protection. Test Python/typed parity before changing it. No generic framework, speculative rewrite, or extra review process. Implementation push, PR, merge, deployment, and production cutover remain outside the receiving authorization.
+
+Complete implementation and validation, then provide local commit IDs, criterion/test evidence, review outcomes, and unresolved blockers.
+
+Prepared baseline commits:
+
+- VibeComfy source: `79414f56d5135badef8268ef1d89861c9a5fbd06`; the handover branch adds planning documents on top.
+- poms-skills: `63825bbb191a0539c0b99832099966ee9f23e3e2`.

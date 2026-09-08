@@ -1,20 +1,20 @@
 # Pinned dependencies and recipient prerequisites
 
 Skills repository: https://github.com/peteromallet/poms-skills.git (public).
-Exact inspected and remotely fetchable skills commit: `c919ed5c51508d1c1678e88172ba8366e07038fb`.
+Exact inspected and remotely fetchable skills commit: `63825bbb191a0539c0b99832099966ee9f23e3e2`.
 The inspected local Megado/handover files match this committed content. No recipient depends on local skill paths. Existing run.yaml bindings/overrides win over defaults in the pinned skill, including the already-declared worker reasoning setting.
 
-Read [Megado](https://github.com/peteromallet/poms-skills/blob/c919ed5c51508d1c1678e88172ba8366e07038fb/megado/SKILL.md), then its [execution mechanics](https://github.com/peteromallet/poms-skills/blob/c919ed5c51508d1c1678e88172ba8366e07038fb/megado/references/execution.md) before delivery. Relevant closure is megado/SKILL.md, references/run-config.md, references/review-packets.md, references/execution.md, templates/run.yaml, templates/review-packet.md, and optional scripts/megado_run_index.py; megado-handover/SKILL.md and its assets/handover-message.md explain this package. Cloning the pinned repository supplies the referenced files. No AgentBox/cloud setup is required.
+Read [Megado](https://github.com/peteromallet/poms-skills/blob/63825bbb191a0539c0b99832099966ee9f23e3e2/megado/SKILL.md), then its [execution mechanics](https://github.com/peteromallet/poms-skills/blob/63825bbb191a0539c0b99832099966ee9f23e3e2/megado/references/execution.md) before delivery. Relevant closure is megado/SKILL.md, references/run-config.md, references/review-packets.md, references/execution.md, templates/run.yaml, templates/review-packet.md, and optional scripts/megado_run_index.py; megado-handover/SKILL.md and its assets/handover-message.md explain this package. Cloning the pinned repository supplies the referenced files. No AgentBox/cloud setup is required.
 
 ## No-overwrite fetch/install
 
 From the project checkout, choose a new sibling destination; these commands refuse an existing destination:
 
 ```sh
-SKILLS_DEST="../poms-skills-c919ed5c51508d1c1678e88172ba8366e07038fb"
+SKILLS_DEST="../poms-skills-63825bbb191a0539c0b99832099966ee9f23e3e2"
 test ! -e "$SKILLS_DEST" && test ! -L "$SKILLS_DEST" || exit 1
 git clone --no-checkout https://github.com/peteromallet/poms-skills.git "$SKILLS_DEST"
-git -C "$SKILLS_DEST" checkout --detach c919ed5c51508d1c1678e88172ba8366e07038fb
+git -C "$SKILLS_DEST" checkout --detach 63825bbb191a0539c0b99832099966ee9f23e3e2
 git -C "$SKILLS_DEST" rev-parse HEAD
 ```
 
@@ -27,7 +27,7 @@ if [ ! -e "$HOME/.codex/skills/megado" ] && [ ! -L "$HOME/.codex/skills/megado" 
 if [ ! -e "$HOME/.codex/skills/megado-handover" ] && [ ! -L "$HOME/.codex/skills/megado-handover" ]; then ln -s "$SKILLS_ABS/megado-handover" "$HOME/.codex/skills/megado-handover"; fi
 ```
 
-Direct-read fallback: read the pinned public links above without installing a skill, or read the exact files from the pinned checkout. Raw fallback: https://raw.githubusercontent.com/peteromallet/poms-skills/c919ed5c51508d1c1678e88172ba8366e07038fb/megado/SKILL.md and the same prefix plus the referenced paths. Do not replace the pin with unverified main or overwrite existing installations.
+Direct-read fallback: read the pinned public links above without installing a skill, or read the exact files from the pinned checkout. Raw fallback: https://raw.githubusercontent.com/peteromallet/poms-skills/63825bbb191a0539c0b99832099966ee9f23e3e2/megado/SKILL.md and the same prefix plus the referenced paths. Do not replace the pin with unverified main or overwrite existing installations.
 
 ## Product prerequisites
 
