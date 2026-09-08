@@ -65,6 +65,11 @@ VibeComfy preserves a workflow contract for agents. See
 [What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md) for the
 object at the center of that contract.
 
+Comfy MCP provides an agent access layer for operating ComfyUI. VibeComfy
+focuses on the authoring layer: understanding workflows, finding proven
+patterns, making complex edits, and preserving the result. See
+[VibeComfy And Comfy MCP](docs/comparisons/comfy_mcp.md).
+
 ## Getting Started
 
 Each path below is meant to be copied directly into an agent. The ComfyUI path
@@ -177,10 +182,10 @@ These are not install failures.
 
 #### `vibecomfy[comfy]` venv conflict
 
-Installing the `vibecomfy[comfy]` extra (`comfyui==0.26.0`) into a checkout
+Installing the `vibecomfy[comfy]` extra (`comfyui==0.34.0`) into a checkout
 venv, or reusing a venv that already has pip-installed comfyui, can produce a
-pip resolver conflict: `comfyui 0.26.0` wants `comfyui-frontend-package<1.46`
-while a fresh checkout pins 1.48.x. The checkout's own `comfy/` package wins
+pip resolver conflict: `comfyui 0.34.0` pins a specific
+`comfyui-frontend-package` version while a fresh checkout may pin another. The checkout's own `comfy/` package wins
 when running `main.py`, so it is benign — but keep those venvs separate.
 
 ### Use VibeComfy Directly
@@ -204,7 +209,7 @@ Edit the copied or converted Python itself: change prompts, seeds, steps, model 
 Validate the recipe with `python -m vibecomfy.cli validate recipes/my_z_image.py`.
 For converted scratchpads, validate `out/scratchpads/<name>.py` instead.
 Export the runtime API JSON with `python -m vibecomfy.cli port export recipes/my_z_image.py --to json --json`.
-If node packs are missing, use `python -m vibecomfy.cli nodes ensure <workflow>`. If model assets are missing, prefer normal `run` because it reconciles declared assets before queueing; use `fetch` only when explicitly staging authored model assets.
+If node packs are missing, use `python -m vibecomfy.cli nodes ensure --workflow <workflow>`. If a class is not in the catalog, research its authoritative pack and record it with `python -m vibecomfy.cli nodes register <workflow> <class_type> --repo <git-url> [--commit <sha>]`; this writes a workflow-local `.nodes.yaml` sidecar consumed by `nodes install-plan` and `nodes ensure`. If model assets are missing, prefer normal `run` because it reconciles declared assets before queueing; use `fetch` only when explicitly staging authored model assets.
 Summarize what changed and show me the exact API JSON fields ComfyUI will receive before any GPU run.
 ```
 
@@ -276,6 +281,7 @@ evidence; do not make compiled API JSON the reusable source of truth.
 - [What Is a VibeWorkflow?](docs/comparisons/what_is_a_vibeworkflow.md)
 - [Why Python, not JSON?](docs/comparisons/why_python_not_json.md)
 - [ComfyScript comparison](docs/comparisons/comfyscript.md)
+- [Comfy MCP comparison](docs/comparisons/comfy_mcp.md)
 
 ## Repository Layout
 

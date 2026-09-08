@@ -1,0 +1,9 @@
+{
+  "phase": "rework",
+  "batch": "a5-b12-paused-after-24",
+  "checkpoint": "batch-02-complete-systematic-regression-found",
+  "next_action": "Luna fixes queue/apply gate and GraphEvidence roots; rerun regressed canaries; resume clean batches",
+  "validation_state": "paused intentionally; five pass-to-fail regressions confirmed",
+  "last_evidence": "24 valid legs complete; four valid edits blocked by queue gate; GraphEvidence crash affects six threaded answer-only legs",
+  "head_sha": "dd96784523dfa89d64e1cec6a6df5b7206ac8572"
+}

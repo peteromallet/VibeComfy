@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from copy import deepcopy
+from typing import Any, Mapping, Sequence
 
 from vibecomfy._compile._widgets import (
     COMPILE_WIDGET_ALIAS_CLASS_TYPES,
@@ -25,6 +26,72 @@ class WidgetResolution:
     name: str | None
     source: str
     resolved: bool
+
+
+def synchronize_ui_widget_values(
+    node_payload: dict[str, Any],
+    *,
+    widget_names: Sequence[str | None] | None = None,
+    overlay: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep ComfyUI's positional and named widget representations in lockstep.
+
+    Newer ComfyUI exports may carry both ``widgets_values`` and
+    ``widgets_values_named``.  The former is positional (and may include
+    UI-only ``None`` slots), while the latter is a name → value mapping.  The
+    positional vector is the canonical emitted value domain; this helper
+    projects it onto the named mapping without changing either shape.  Dict
+    shaped VHS payloads are already name keyed and are synchronized directly.
+
+    ``overlay`` is used by the pinned/raw-node path for values that were
+    changed in the IR before emission.  Only keys already represented by the
+    captured payload are updated, so this cannot invent widget slots.
+    """
+    if not isinstance(node_payload, dict):
+        return node_payload
+    named_raw = node_payload.get("widgets_values_named")
+    legacy = node_payload.get("widgets_values")
+    if not isinstance(named_raw, Mapping):
+        return node_payload
+
+    named = dict(named_raw)
+    values_by_name: dict[str, Any] = {}
+    names = list(widget_names or ())
+    if isinstance(legacy, Mapping):
+        values_by_name.update({str(key): value for key, value in legacy.items()})
+    elif isinstance(legacy, list):
+        if not names:
+            # Named exports preserve schema order in object insertion order.
+            # This fallback is only used for schema-less payloads.
+            names = [str(key) for key in named]
+        for index, name in enumerate(names):
+            if isinstance(name, str) and index < len(legacy):
+                values_by_name[name] = legacy[index]
+    else:
+        return node_payload
+
+    if overlay:
+        for key, value in overlay.items():
+            key = str(key)
+            if key in values_by_name:
+                values_by_name[key] = value
+            if key in named:
+                named[key] = deepcopy(value)
+            if isinstance(legacy, list) and names:
+                try:
+                    index = names.index(key)
+                except ValueError:
+                    index = -1
+                if index >= 0 and index < len(legacy):
+                    legacy[index] = deepcopy(value)
+            elif isinstance(legacy, dict) and key in legacy:
+                legacy[key] = deepcopy(value)
+
+    for key in named:
+        if key in values_by_name:
+            named[key] = deepcopy(values_by_name[key])
+    node_payload["widgets_values_named"] = named
+    return node_payload
 
 
 def _input_alias_from_schema(schema: Any | None) -> list[str | None]:
@@ -203,6 +270,9 @@ def widget_names_from_schema(class_type: str, schema: Any | None) -> list[str | 
     committed = widget_names_for_class(class_type)
     if committed is not None:
         return committed
+    explicit_order = getattr(schema, "widget_input_order", None)
+    if isinstance(explicit_order, (list, tuple)) and explicit_order:
+        return [name if isinstance(name, str) else None for name in explicit_order]
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, dict):
         return []
@@ -413,4 +483,5 @@ __all__ = [
     "unresolved_widget_aliases",
     "widget_names_for_class",
     "widget_names_from_schema",
+    "synchronize_ui_widget_values",
 ]

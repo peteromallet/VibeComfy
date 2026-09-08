@@ -74,6 +74,7 @@ def fake_comfy(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
     monkeypatch.delenv("VIBECOMFY_COMFY_CONFIGURATION", raising=False)
     monkeypatch.delenv("VIBECOMFY_WARM", raising=False)
+    monkeypatch.delenv("COMFYUI_PATH", raising=False)
     return FakeComfy
 
 

@@ -71,8 +71,8 @@ def build_runtime_doctor_payload() -> dict[str, object]:
         messages.append(
             "WARNING: split-brain ComfyUI install detected: a pip `comfy` "
             "package and a checkout `comfy/` package dir are both present. "
-            "The pip comfyui==0.26.0 pins frontend<1.46 while the checkout's "
-            "requirements pin 1.48.x; the checkout comfy/ wins when running "
+            "The pip comfyui==0.34.0 pins a specific frontend while the "
+            "checkout may pin another version; the checkout comfy/ wins when running "
             "main.py. Keep their virtual environments separate."
         )
     return {

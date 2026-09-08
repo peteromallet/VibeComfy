@@ -18,7 +18,7 @@ from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workfl
 # ---------------------------------------------------------------------------
 # A ModelAsset records the download URL, expected hash, subdirectory, and
 # file size.  The framework uses this to:
-#   - Download the model on first use (``vibecomfy fetch``)
+#   - Download the model on first use (``vibecomfy models ensure``; ``fetch`` remains an alias)
 #   - Validate integrity (SHA-256)
 #   - Place it in the correct ComfyUI models/ subdirectory
 
@@ -91,4 +91,4 @@ if __name__ == "__main__":
     print(f"  Nodes: {len(wf.nodes)}")
     print(f"  Public inputs: {list(wf.inputs.keys())}")
     print("✓ Model registry entry validated — no download required.")
-    print("  Use `vibecomfy fetch` to download models when ready.")
+    print("  Use `vibecomfy models ensure <workflow>` to download models when ready.")

@@ -249,3 +249,9 @@ A deprecated shape-sniffing dispatcher still exists while callers migrate; named
 ## The one-sentence version
 
 Because raw JSON is a reconstruction problem, VibeComfy gives every workflow one honest center — three doors in, one writer out, fresh compilation always — so agents reason about a model, not a puzzle.
+
+## Related Comparisons
+
+- [VibeComfy And Comfy MCP](comfy_mcp.md): agent access versus workflow authoring.
+- [VibeComfy And ComfyScript](comfyscript.md): scripting a graph versus preserving an agent-editable workflow contract.
+- [Why Python, Not JSON?](why_python_not_json.md): why Python is the authoring surface while JSON remains the interchange format.

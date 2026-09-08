@@ -14,6 +14,10 @@ import sys
 from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.analysis.node_coverage import build_workflow_coverage
 from vibecomfy.commands._diagnostics import Diagnostic, diagnostics_to_json, diagnostics_to_text
+from vibecomfy.commands._node_ensure import (
+    merge_registered_packs,
+    register_workflow_node,
+)
 from vibecomfy.commands._output import emit
 from vibecomfy.commands._index_files import IndexReadError, print_index_error, read_index_json
 from vibecomfy.porting.workbench import load_port_source
@@ -208,25 +212,45 @@ def _cmd_nodes_install_plan(args: argparse.Namespace) -> int:
     try:
         missing_classes = node_packs_install.missing_class_types_for_workflow(workflow)
         packs, unresolved = node_packs_install.missing_packs_for_workflow(workflow)
+        packs, unresolved, install_refs = merge_registered_packs(
+            args.path, workflow, packs, unresolved
+        )
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    payload = build_nodes_install_plan_payload(args.path, missing_classes, packs, unresolved)
+    payload = build_nodes_install_plan_payload(
+        args.path, missing_classes, packs, unresolved, install_refs=install_refs
+    )
     return _print_install_plan(payload, json_output=args.json)
 
 
-def build_nodes_install_plan_payload(path: str, missing_classes, packs, unresolved) -> dict[str, object]:
+def build_nodes_install_plan_payload(
+    path: str,
+    missing_classes,
+    packs,
+    unresolved,
+    *,
+    install_refs: dict[str, dict[str, object]] | None = None,
+) -> dict[str, object]:
+    refs = install_refs or {}
+    pack_rows = []
+    for pack in packs:
+        row = {
+            "name": pack.name,
+            "repo": pack.repo,
+            "pip_packages": list(pack.pip_packages),
+            "classes": sorted(missing_classes & pack.classes),
+        }
+        ref = refs.get(pack.name)
+        if ref:
+            row["source"] = ref.get("source", "git")
+            for key in ("commit", "version"):
+                if ref.get(key) is not None:
+                    row[key] = ref[key]
+        pack_rows.append(row)
     return {
         "path": path,
-        "packs": [
-            {
-                "name": pack.name,
-                "repo": pack.repo,
-                "pip_packages": list(pack.pip_packages),
-                "classes": sorted(missing_classes & pack.classes),
-            }
-            for pack in packs
-        ],
+        "packs": pack_rows,
         "unresolved_class_types": unresolved,
         "missing_class_types": sorted(missing_classes),
     }
@@ -253,6 +277,7 @@ def _print_install_plan(payload: dict[str, object], *, json_output: bool) -> int
         print("Unmapped node classes:")
         for class_type in unresolved:
             print(f"- {class_type}")
+        print("Register researched mappings with: vibecomfy nodes register <workflow> <class_type> --repo URL")
         return 1
     return 0
 
@@ -285,6 +310,21 @@ def _cmd_nodes_lookup(args: argparse.Namespace) -> int:
         "endpoint": resolution.endpoint,
     }
     return emit(payload, json=args.json, text_renderer=lambda data: data["pack"]["slug"])
+
+
+def _cmd_nodes_register(args: argparse.Namespace) -> int:
+    try:
+        return register_workflow_node(
+            args.workflow,
+            args.class_type,
+            repo=args.repo,
+            name=getattr(args, "name", None),
+            commit=getattr(args, "commit", None),
+            version=getattr(args, "version", None),
+        )
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
 
 def _cmd_nodes_refresh_template(args: argparse.Namespace) -> int:
@@ -323,11 +363,16 @@ def _cmd_nodes_ensure(args: argparse.Namespace) -> int:
     try:
         missing_classes = node_packs_install.missing_class_types_for_workflow(workflow)
         packs, unresolved = node_packs_install.missing_packs_for_workflow(workflow)
+        packs, unresolved, install_refs = merge_registered_packs(
+            path, workflow, packs, unresolved
+        )
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     if args.dry_run:
-        payload = build_nodes_install_plan_payload(path, missing_classes, packs, unresolved)
+        payload = build_nodes_install_plan_payload(
+            path, missing_classes, packs, unresolved, install_refs=install_refs
+        )
         return _print_install_plan(payload, json_output=False)
     if not missing_classes:
         print("No missing custom node classes detected from local node_index.json.")
@@ -336,8 +381,12 @@ def _cmd_nodes_ensure(args: argparse.Namespace) -> int:
         print("Unmapped node classes:")
         for class_type in unresolved:
             print(f"- {class_type}")
+        print("Register researched mappings with: vibecomfy nodes register <workflow> <class_type> --repo URL")
         return 1
-    batch = node_packs_install.install_required_packs(packs)
+    install_kwargs: dict[str, object] = {"force": bool(getattr(args, "force", False))}
+    if install_refs:
+        install_kwargs["install_refs_by_name"] = install_refs
+    batch = node_packs_install.install_required_packs(packs, **install_kwargs)
     for result in batch.results:
         detail = f" {result.git_commit_sha}" if result.git_commit_sha else ""
         print(f"{result.name}: {result.status}{detail}")
@@ -892,6 +941,17 @@ def register(subparsers) -> None:
     nodes_lookup.add_argument("query")
     nodes_lookup.add_argument("--json", action="store_true")
     nodes_lookup.set_defaults(func=_cmd_nodes_lookup)
+    nodes_register = nodes_sub.add_parser(
+        "register",
+        help="record an agent-researched class-to-pack mapping in a workflow-local sidecar",
+    )
+    nodes_register.add_argument("workflow")
+    nodes_register.add_argument("class_type")
+    nodes_register.add_argument("--repo", required=True, help="git repository URL for the custom-node pack")
+    nodes_register.add_argument("--name", help="pack/install directory name (defaults to the repository name)")
+    nodes_register.add_argument("--commit", help="optional exact git commit to install")
+    nodes_register.add_argument("--version", help="optional git tag/version to install when no commit is supplied")
+    nodes_register.set_defaults(func=_cmd_nodes_register)
     nodes_refresh = nodes_sub.add_parser("refresh-template")
     nodes_refresh.add_argument("file")
     nodes_refresh.add_argument("--dry-run", action="store_true")
@@ -903,6 +963,7 @@ def register(subparsers) -> None:
     ensure_source.add_argument("--template")
     ensure_source.add_argument("--workflow")
     nodes_ensure.add_argument("--dry-run", action="store_true")
+    nodes_ensure.add_argument("--force", action="store_true", default=False)
     nodes_ensure.set_defaults(func=_cmd_nodes_ensure)
     nodes_lock = nodes_sub.add_parser("lock")
     nodes_lock.add_argument("--path", default="custom_nodes.lock")

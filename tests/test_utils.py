@@ -9,7 +9,16 @@ from unittest import mock
 
 import pytest
 
+import vibecomfy.utils as utils
 from vibecomfy.utils import atomic_write_json
+
+
+def test_find_repo_root_falls_back_to_installed_package_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Installed wheels remain importable when launched outside a checkout."""
+    utils.find_repo_root.cache_clear()
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+    assert utils.find_repo_root() == Path(utils.__file__).resolve().parent.parent
+    utils.find_repo_root.cache_clear()
 
 
 class TestAtomicWriteJson:

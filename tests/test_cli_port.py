@@ -116,11 +116,13 @@ def test_port_subcommand_help_is_discoverable(capsys: pytest.CaptureFixture[str]
     assert "before manual template editing or expensive RunPod validation" in check_text
     assert "--head-check-models" in check_text
     assert "--runtime-object-info" in check_text
+    assert "--offline-normalizer" in check_text
     assert "--resolve-on-demand" in check_text
     assert "turn source workflows into Python scratchpads" in convert_text
     assert "--ready-id" in convert_text
     assert "--head-check-models" in convert_text
     assert "--runtime-object-info" in convert_text
+    assert "--offline-normalizer" in convert_text
     assert "--resolve-on-demand" in convert_text
 
 
@@ -1049,6 +1051,28 @@ def test_port_export_to_ui_uses_conversion_schema_provider(
     assert out_emit.exists(), f"flat_emit.json was not written at {out_emit}"
     assert called_conversion, "_build_conversion_provider was NOT called for --to ui"
     assert not called_authoring, "_build_authoring_provider was called (should be _build_conversion_provider)"
+
+
+def test_port_check_runtime_object_info_uses_live_conversion_provider() -> None:
+    """The documented live flag must not be silently ignored by port check."""
+    from vibecomfy.commands.port import _build_authoring_provider
+    from vibecomfy.schema.provider import ConversionSchemaProvider
+
+    provider = _build_authoring_provider(
+        argparse.Namespace(
+            runtime_object_info=True,
+            server_url="http://127.0.0.1:18189",
+            object_info_cache=None,
+            no_object_info_cache=True,
+            resolve_on_demand=False,
+        )
+    )
+
+    assert isinstance(provider, ConversionSchemaProvider)
+    assert provider._enable_runtime is True
+    assert provider._runtime is not None
+    assert provider._runtime.server_url == "http://127.0.0.1:18189"
+    assert provider._runtime.cache_enabled is False
 
 
 def test_port_export_to_ui_roundtrip_pos_and_uid(

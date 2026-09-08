@@ -13,12 +13,24 @@ from typing import Any
 
 @lru_cache(maxsize=1)
 def find_repo_root() -> Path:
-    """Return the VibeComfy repository root."""
+    """Return the checkout root, or the installed package root.
+
+    The latter keeps import-time resource discovery relocatable for wheel
+    installs. Callers that specifically require repository-only tooling should
+    check for the resource they need rather than assuming a checkout exists.
+    """
     here = Path(__file__).resolve()
     for candidate in (here, *here.parents):
         if (candidate / "pyproject.toml").is_file():
             return candidate
-    raise RuntimeError("not inside vibecomfy repo")
+    # A wheel has no pyproject.toml beside the installed package. When runtime
+    # resources are bundled under ``vibecomfy/`` use that package root; without
+    # bundled resources retain the historical parent fallback for lightweight
+    # installs and harmlessly absent checkout-only paths.
+    package_root = Path(__file__).resolve().parent
+    if (package_root / "ready_templates").is_dir():
+        return package_root
+    return package_root.parent
 
 
 def repo_relative_path(path: str | Path) -> str:

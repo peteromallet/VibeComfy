@@ -7,6 +7,7 @@ import shutil
 import tarfile
 from collections import namedtuple
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -227,3 +228,45 @@ async def test_run_pod_cancellation_returns_130_and_terminates(monkeypatch: pyte
 
     assert code == 130
     assert terminated == [True]
+
+
+async def test_run_pod_detached_allows_missing_artifact_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A completed detached run without downloaded artifacts still returns its code."""
+
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    monkeypatch.setattr(
+        runpod_runner.RunPodConfig,
+        "from_env",
+        classmethod(lambda cls, **_kwargs: SimpleNamespace()),
+    )
+    monkeypatch.setattr(
+        runpod_runner,
+        "ship_and_run_detached",
+        lambda *_args, **_kwargs: asyncio.sleep(
+            0,
+            result=runpod_runner.ShipAndRunResult(
+                returncode=0,
+                pod=None,
+                artifact_root=None,
+                terminated=True,
+            ),
+        ),
+    )
+
+    def fail_if_finalized(*_args, **_kwargs):
+        raise AssertionError("artifact finalizer must not receive None")
+
+    monkeypatch.setattr(runpod_runner, "_finalize_artifacts", fail_if_finalized)
+
+    code = await runpod_runner.run_pod_detached(
+        "echo detached",
+        name_prefix="test",
+        exclude=runpod_runner.DEFAULT_UPLOAD_EXCLUDES,
+        upload_mode="tarball",
+        timeout=1,
+        poll_interval=1,
+    )
+
+    assert code == 0

@@ -26,7 +26,7 @@ from vibecomfy.porting.emitter import (
     emit_scratchpad_python,
 )
 from vibecomfy.utils import find_repo_root
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import NodeMode, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from tools.format_as_python import format_as_python
 
 
@@ -94,6 +94,74 @@ def test_emit_scratchpad_python_preserves_ids_extras_inputs_and_provenance() -> 
     assert workflow.nodes["20"].inputs["resize_type.multiple"] == 3
     assert workflow.inputs["prefix"].node_id == "20"
     assert workflow.compile("api")["20"]["inputs"]["images"] == ["10", 0]
+
+
+def test_emit_scratchpad_python_preserves_non_default_node_modes() -> None:
+    workflow = VibeWorkflow("modes", WorkflowSource("modes"))
+    workflow.nodes["1"] = VibeNode("1", "LoadImage", mode=NodeMode.BYPASSED)
+    workflow.nodes["2"] = VibeNode("2", "SaveImage", mode=NodeMode.MUTED)
+
+    text = emit_scratchpad_python(workflow, prune_dead_branches=False)
+
+    assert "_mode='bypassed'" in text
+    assert "_mode='muted'" in text
+    namespace: dict[str, object] = {"__file__": "out/scratchpads/modes.py"}
+    exec(compile(text, "scratch modes emitted", "exec"), namespace)  # noqa: S102
+    emitted = namespace["build"]()
+    assert emitted.nodes["1"].mode is NodeMode.BYPASSED
+    assert emitted.nodes["2"].mode is NodeMode.MUTED
+    assert emitted.compile("api") == {}
+
+
+def test_port_convert_scratchpad_preserves_custom_output_chain_and_disabled_preview() -> None:
+    """Scratchpads are faithful graphs, not output-name-based minimizations."""
+    workflow = VibeWorkflow("custom-output", WorkflowSource("custom-output"))
+    workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    workflow.nodes["2"] = VibeNode("2", "VendorFinalizeOutput")
+    workflow.nodes["3"] = VibeNode(
+        "3",
+        "SaveImage",
+        mode=NodeMode.BYPASSED,
+        inputs={"filename_prefix": "disabled-preview"},
+    )
+    workflow.connect("1.0", "2.images")
+
+    result = port_convert_workflow(workflow)
+
+    assert result.validation is not None
+    assert result.validation.parity_ok is True
+    assert result.validation.source_output_count == 2
+    assert result.validation.emitted_output_count == 2
+    assert "VendorFinalizeOutput" in result.text
+    assert "_mode='bypassed'" in result.text
+
+
+def test_scratchpad_emission_preserves_bypass_input_slot_order() -> None:
+    workflow = VibeWorkflow("bypass-order", WorkflowSource("bypass-order"))
+    workflow.nodes["1"] = VibeNode("1", "SourceA")
+    workflow.nodes["2"] = VibeNode("2", "SourceB")
+    workflow.nodes["3"] = VibeNode(
+        "3",
+        "BypassNode",
+        mode=NodeMode.BYPASSED,
+        metadata={
+            "_ui": {
+                "inputs": [
+                    {"name": "z_first", "type": "ANY", "link": 1},
+                    {"name": "a_second", "type": "ANY", "link": 2},
+                ]
+            }
+        },
+    )
+    workflow.nodes["4"] = VibeNode("4", "Sink")
+    workflow.connect("1.0", "3.z_first")
+    workflow.connect("2.0", "3.a_second")
+    workflow.connect("3.0", "4.value")
+
+    result = port_convert_workflow(workflow)
+
+    assert result.validation is not None
+    assert result.validation.parity_ok is True
 
 
 def test_emit_ready_template_python_has_ready_metadata_contract() -> None:

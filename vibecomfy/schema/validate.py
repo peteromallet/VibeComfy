@@ -268,7 +268,15 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
             continue
 
         for name, spec in raw_schema_inputs.items():
-            if getattr(spec, "required", False) and name not in provided_inputs and getattr(spec, "default", None) is None:
+            dynamic_children_present = _schema_dynamic_controller_has_children(
+                schema, name, provided_inputs
+            )
+            if (
+                getattr(spec, "required", False)
+                and name not in provided_inputs
+                and not dynamic_children_present
+                and getattr(spec, "default", None) is None
+            ):
                 issues.append(
                     ValidationIssue(
                         "missing_required_input",
@@ -289,7 +297,9 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                 continue
             if (
                 not _field_compatible(class_type, name, "unknown_input")
-                and not _is_dynamic_payload_input(class_type, name, payload_inputs)
+                and not _is_schema_dynamic_payload_input(
+                    schema, class_type, name, payload_inputs
+                )
             ):
                 issues.append(
                     ValidationIssue(
@@ -760,7 +770,7 @@ def propose_schema_normalization(
                     )
                 continue
             value = inputs.get(name)
-            if _is_dynamic_payload_input(class_type, name, inputs):
+            if _is_schema_dynamic_payload_input(schema, class_type, name, inputs):
                 continue
             if _preserve_linked_undeclared_input(name, value):
                 continue
@@ -868,6 +878,7 @@ def _incoming_inputs(workflow: VibeWorkflow) -> dict[str, set[str]]:
 _LTX_IMAGE_SLOT_RE = re.compile(r"^num_images\.(?:image|index|strength)_(\d+)$")
 _FIXED_SLOT_INPUT_RE = re.compile(r"^in_(\d+)$")
 _IMAGE_CONCAT_MULTI_INPUT_RE = re.compile(r"^image_(\d+)$")
+_H3_CUSTOM_KEYFRAME_INPUT_RE = re.compile(r"^keyframe_(?:image|position)_([1-9]\d*)$")
 
 
 def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
@@ -891,9 +902,76 @@ def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str
         return True
     if class_type == "LTXVAddGuide" and _has_numbered_prefix(input_name, "guide_"):
         return True
+    if class_type in {"MiniMaxH3CustomKeyframes", "MiniMaxH3CustomKeyframesMasked"}:
+        # These packs deliberately expose a dict subclass from INPUT_TYPES so
+        # ComfyUI can accept a bounded family of dynamically-added sockets.
+        # ComfyUI's object_info JSON serializes that mapping as `{}`, losing the
+        # dynamic contract.  Preserve only the two exact, numbered families the
+        # backend accepts; unrelated unknown inputs remain hard errors.
+        return _H3_CUSTOM_KEYFRAME_INPUT_RE.match(input_name) is not None
     if class_type == "SimpleCalculatorKJ":
         return input_name in _simple_calculator_variables(inputs or {})
     return False
+
+
+_SCHEMA_DYNAMIC_INPUT_TYPES = frozenset(
+    {
+        # V3 ``io.Autogrow`` and dynamic-combo inputs are represented in
+        # object_info as one controller input.  Their expanded sockets are
+        # emitted as flat dotted API keys (for example
+        # ``ref_images.ref_image_0`` and ``values.a``).
+        "COMFY_AUTOGROW_V3",
+        "COMFY_DYNAMICCOMBO_V3",
+    }
+)
+
+
+def _schema_dynamic_controller_has_children(
+    schema: Any,
+    controller: str,
+    provided_inputs: set[str],
+) -> bool:
+    """A required V3 controller is supplied by one or more dotted children."""
+    schema_inputs = getattr(schema, "inputs", {}) or {}
+    if not isinstance(schema_inputs, dict):
+        return False
+    spec = schema_inputs.get(controller)
+    input_type = str(getattr(spec, "type", "") or "").upper()
+    if input_type not in _SCHEMA_DYNAMIC_INPUT_TYPES:
+        return False
+    prefix = f"{controller}."
+    return any(name.startswith(prefix) and len(name) > len(prefix) for name in provided_inputs)
+
+
+def _is_schema_dynamic_payload_input(
+    schema: Any,
+    class_type: str,
+    input_name: str,
+    inputs: dict[str, Any] | None = None,
+) -> bool:
+    """Return whether *input_name* is an expansion of an object_info contract.
+
+    ComfyUI's V3 object_info schema declares an autogrow/dynamic-combo family
+    once (``ref_images`` or ``values``), while API prompts carry each concrete
+    slot under a flat dotted name.  Validation must use that live contract;
+    allowing arbitrary dotted names would hide typos, so only a declared
+    dynamic controller can admit an expansion.
+
+    The class-specific checks above remain for legacy/custom nodes whose
+    object_info does not expose a dynamic type.
+    """
+
+    if _is_dynamic_payload_input(class_type, input_name, inputs):
+        return True
+    if "." not in input_name:
+        return False
+    schema_inputs = getattr(schema, "inputs", {}) or {}
+    if not isinstance(schema_inputs, dict):
+        return False
+    controller, _slot = input_name.split(".", 1)
+    spec = schema_inputs.get(controller)
+    input_type = str(getattr(spec, "type", "") or "").upper()
+    return input_type in _SCHEMA_DYNAMIC_INPUT_TYPES
 
 
 def _validate_dynamic_payload_inputs(

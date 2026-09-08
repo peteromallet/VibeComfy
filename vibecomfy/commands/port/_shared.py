@@ -246,6 +246,19 @@ def _render_check(report: Any) -> str:
 def _build_conversion_provider(args: argparse.Namespace) -> ConversionSchemaProvider:
     runtime_enabled = getattr(args, "runtime_object_info", False)
     server_url: str | None = getattr(args, "server_url", None)
+    if runtime_enabled and server_url is None:
+        # Reuse the durable managed session when one is already running.  This
+        # avoids booting and tearing down a fresh Comfy process for each
+        # `port check`/`port convert` invocation while still fetching live
+        # /object_info from the executor (and preserving --no-object-info-cache
+        # as the explicit freshness escape hatch).
+        from vibecomfy.runtime.session import find_active_session
+
+        server_url = find_active_session()
+        if server_url:
+            # Keep report metadata and downstream consumers honest about which
+            # live executor supplied the schema.
+            setattr(args, "server_url", server_url)
     object_info_cache = getattr(args, "object_info_cache", None)
     if object_info_cache is None and not getattr(args, "no_object_info_cache", False):
         latest = latest_object_info_cache_path()
@@ -256,10 +269,18 @@ def _build_conversion_provider(args: argparse.Namespace) -> ConversionSchemaProv
         widget_schema=WIDGET_SCHEMA,
         enable_runtime=runtime_enabled,
         runtime_server_url=server_url,
+        runtime_cache_enabled=not getattr(args, "no_object_info_cache", False),
     )
 
 
 def _build_authoring_provider(args: argparse.Namespace):
+    # `port check --runtime-object-info` promises the same live schema evidence
+    # as `port convert`. AuthoringSchemaProvider is offline-only, so routing a
+    # runtime-enabled check through it silently ignored --server-url and made
+    # installed custom nodes appear unresolved even when the live server
+    # exposed them. Reuse the conversion provider for this explicit live lane.
+    if getattr(args, "runtime_object_info", False):
+        return _build_conversion_provider(args)
     object_info_cache = getattr(args, "object_info_cache", None)
     # Opt-in on-demand schema resolution: when the CLI flag is set, mirror the
     # VIBECOMFY_ON_DEMAND_SCHEMAS=1 env var so AuthoringSchemaProvider._build_providers

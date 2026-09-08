@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from scripts.runpod_runner import DEFAULT_UPLOAD_EXCLUDES, REMOTE_ROOT, run_pod_detached
+from vibecomfy.commands.runpod_setup import COMFYUI_H3_PIP_SPEC
 
 EXCLUDE_DIRS = set(DEFAULT_UPLOAD_EXCLUDES)
 
@@ -12,7 +13,7 @@ set -euo pipefail
 cd {REMOTE_ROOT}
 mkdir -p out/corpus_matrix output
 python3 -m pip install -e '.[dev]'
-python3 -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0' 'comfy-script[default]'
+python3 -m pip install --extra-index-url https://nodes.appmana.com/simple/ {COMFYUI_H3_PIP_SPEC!r} 'comfy-script[default]'
 python3 -m vibecomfy.cli runtime doctor
 python3 -m vibecomfy.cli runtime smoke --mode managed
 printf 'id\tstatus\tseconds\tmedia_files\tbytes\n' > out/corpus_matrix/results.tsv

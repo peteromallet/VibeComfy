@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from scripts.runpod_runner import REMOTE_ROOT, run_pod
+from vibecomfy.commands.runpod_setup import COMFYUI_H3_PIP_SPEC
 
 EXCLUDE_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "out/runs", "output"}
 
@@ -36,7 +37,7 @@ def _remote_script() -> str:
 set -u
 cd {REMOTE_ROOT}
 python3 -m pip install -e '.[dev]'
-python3 -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0' 'comfy-script[default]'
+python3 -m pip install --extra-index-url https://nodes.appmana.com/simple/ {COMFYUI_H3_PIP_SPEC!r} 'comfy-script[default]'
 python3 -m pytest -q tests
 rm -rf out output input vendor/workflow_templates custom_nodes
 git clone --depth 1 https://github.com/Comfy-Org/workflow_templates.git vendor/workflow_templates

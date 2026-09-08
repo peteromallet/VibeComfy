@@ -308,6 +308,138 @@ def test_simple_calculator_autogrow_variables_validate_required_fields() -> None
     assert [(issue.code, issue.detail["input"]) for issue in report.issues] == [("missing_dynamic_input", "b")]
 
 
+def test_object_info_v3_dynamic_families_preserve_flat_expansions() -> None:
+    """V3 autogrow slots are dotted API keys under one declared controller.
+
+    ComfyUI's object_info exposes ``ref_images``/``ref_audios`` and
+    ``ComfyMathExpression.values`` as ``COMFY_AUTOGROW_V3`` contracts.  The
+    API prompt consequently contains flat keys such as
+    ``ref_images.ref_image_0`` and ``values.a``; these are not unknown ports.
+    """
+    provider = FakeSchemaProvider(
+        {
+            "MiniMaxH3ReferenceToVideo": _schema(
+                "MiniMaxH3ReferenceToVideo",
+                {
+                    "ref_images": InputSpec("COMFY_AUTOGROW_V3"),
+                    "ref_audios": InputSpec("COMFY_AUTOGROW_V3"),
+                },
+            ),
+            "ComfyMathExpression": _schema(
+                "ComfyMathExpression",
+                {
+                    "expression": InputSpec("STRING"),
+                    "values": InputSpec("COMFY_AUTOGROW_V3", required=True),
+                },
+            ),
+        }
+    )
+    workflow = _workflow(
+        VibeNode(
+            "h3",
+            "MiniMaxH3ReferenceToVideo",
+            inputs={
+                "ref_images.ref_image_0": ["image", 0],
+                "ref_images.ref_image_1": ["image", 0],
+                "ref_audios.ref_audio_0": ["audio", 0],
+                "ref_audios.ref_audio_1": ["audio", 0],
+            },
+        ),
+        VibeNode(
+            "math",
+            "ComfyMathExpression",
+            inputs={
+                "expression": "a + b",
+                "values.a": ["a", 0],
+            },
+        ),
+    )
+
+    report = workflow.validate(schema_provider=provider)
+
+    assert report.ok
+    assert not any(issue.code == "unknown_input" for issue in report.issues)
+    assert not any(issue.code == "missing_required_input" for issue in report.issues)
+
+
+def test_object_info_v3_dynamic_families_survive_normalization() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "MiniMaxH3ReferenceToVideo": _schema(
+                "MiniMaxH3ReferenceToVideo",
+                {"ref_images": InputSpec("COMFY_AUTOGROW_V3")},
+            ),
+            "ComfyMathExpression": _schema(
+                "ComfyMathExpression",
+                {"values": InputSpec("COMFY_AUTOGROW_V3")},
+            ),
+        }
+    )
+    api = {
+        "h3": {
+            "class_type": "MiniMaxH3ReferenceToVideo",
+            "inputs": {
+                "ref_images.ref_image_0": ["image", 0],
+                "unrelated": "drop-me",
+            },
+        },
+        "math": {
+            "class_type": "ComfyMathExpression",
+            "inputs": {"values.a": ["source", 0]},
+        },
+    }
+
+    proposal = propose_schema_normalization(api, provider)
+
+    assert [(op.node_id, op.field, op.kind) for op in proposal.ops] == [
+        ("h3", "unrelated", "drop"),
+    ]
+    applied = apply_schema_normalization(api, proposal)
+    assert applied["h3"]["inputs"]["ref_images.ref_image_0"] == ["image", 0]
+    assert applied["math"]["inputs"]["values.a"] == ["source", 0]
+
+
+@pytest.mark.parametrize(
+    "class_type",
+    ["MiniMaxH3CustomKeyframes", "MiniMaxH3CustomKeyframesMasked"],
+)
+def test_h3_custom_keyframe_dynamic_sockets_survive_object_info_loss(class_type: str) -> None:
+    """Accept only the numbered socket families hidden by object_info JSON."""
+    provider = FakeSchemaProvider(
+        {
+            class_type: _schema(
+                class_type,
+                {
+                    "conditioning": InputSpec("CONDITIONING", required=True),
+                    "vae": InputSpec("VAE", required=True),
+                    "latent": InputSpec("LATENT", required=True),
+                    "keyframe_state": InputSpec("STRING", required=True),
+                },
+            )
+        }
+    )
+    api = {
+        "h3": {
+            "class_type": class_type,
+            "inputs": {
+                "conditioning": ["conditioning", 0],
+                "vae": ["vae", 0],
+                "latent": ["latent", 0],
+                "keyframe_state": '{"count":2,"positions":[1,17]}',
+                "keyframe_image_1": ["image", 0],
+                "keyframe_position_2": ["position", 0],
+                "keyframe_imgae_2": ["typo", 0],
+            },
+        }
+    }
+
+    report = validate_api_against_schema(api, provider)
+
+    assert [(issue.code, issue.detail.get("input")) for issue in report] == [
+        ("unknown_input", "keyframe_imgae_2")
+    ]
+
+
 def test_normalization_preserves_linked_fixed_slot_inputs_not_in_local_schema() -> None:
     provider = FakeSchemaProvider(
         {

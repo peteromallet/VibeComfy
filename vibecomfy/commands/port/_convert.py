@@ -57,6 +57,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         report = analyze_source(
             args.workflow,
             schema_provider=schema_provider,
+            use_comfy_converter=not getattr(args, "offline_normalizer", False),
             head_check_models=args.head_check_models,
             mode=port_mode,
         )
@@ -74,7 +75,11 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             _emit_convert_payload(payload, json_output=args.json)
             return 1
 
-        loaded = load_port_source(args.workflow, schema_provider=schema_provider)
+        loaded = load_port_source(
+            args.workflow,
+            schema_provider=schema_provider,
+            use_comfy_converter=not getattr(args, "offline_normalizer", False),
+        )
         result = port_convert_workflow(
             loaded.workflow,
             ready_id=args.ready_id,
@@ -99,7 +104,11 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         out = Path(args.out)
     elif dry_run or diff_mode:
         # Derive target from ready-template argument
-        loaded = load_port_source(args.workflow, schema_provider=schema_provider)
+        loaded = load_port_source(
+            args.workflow,
+            schema_provider=schema_provider,
+            use_comfy_converter=not getattr(args, "offline_normalizer", False),
+        )
         out = Path(loaded.source_path) if loaded.source_path else Path(args.workflow)
     else:
         print("--out is required for write mode.", file=sys.stderr)

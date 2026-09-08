@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import signal
+import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -20,6 +22,7 @@ from vibecomfy.errors import (
     MODEL_DOCTOR_NEXT_ACTION,
     ModelAssetError,
     QueueError,
+    RuntimeExecutionError,
     RuntimeStartupError,
     SchemaValidationError,
     VibeComfyError,
@@ -45,6 +48,16 @@ else:
 
 OVERRIDES_INCLUDE: set[str] = set()
 OVERRIDES_EXCLUDE: set[str] = set()
+
+# Keep startup remediation stable for CLI/agent callers.  A managed runtime
+# must own its configured port; it never silently attaches to a listener that
+# existed before the spawn attempt.
+MANAGED_PORT_CONFLICT_NEXT_ACTION = (
+    "Stop the existing process on the selected port or choose another port, then retry."
+)
+MANAGED_STARTUP_NEXT_ACTION = (
+    "Check the ComfyUI startup log, installed custom nodes, and selected port before retrying."
+)
 
 
 def _workflow_queue_failure_message(workflow: VibeWorkflow, exc: Exception) -> str:
@@ -84,15 +97,118 @@ def _node_packs_from_requirements(workflow: VibeWorkflow):
     return resolve_node_packs(class_types)
 
 
+def _node_reconciliation_hint(workflow: VibeWorkflow, class_types: list[str]) -> str:
+    """Return exact sidecar registration and ensure commands for missing nodes."""
+
+    import shlex
+
+    workflow_ref = str(getattr(getattr(workflow, "source", None), "path", None) or workflow.id)
+    lines = [f"unresolved workflow custom node classes: {', '.join(class_types)}"]
+    lines.append("research the authoritative git repository for each class, then run:")
+    for class_type in class_types:
+        lines.append(
+            f"vibecomfy nodes register {shlex.quote(workflow_ref)} "
+            f"{shlex.quote(class_type)} --repo URL_FROM_RESEARCH"
+        )
+    lines.append(f"vibecomfy nodes ensure --workflow {shlex.quote(workflow_ref)}")
+    return "\n".join(lines)
+
+
+def ensure_workflow_node_packs(workflow: VibeWorkflow, *, force: bool = False) -> bool:
+    """Install the workflow's missing packs, including local sidecar mappings.
+
+    Returns whether a pack was processed and therefore whether a caller should
+    reload a live ComfyUI runtime.  This is intentionally shared by embedded
+    and VibeComfy-managed one-shot server runs; callers with an external server
+    must not invoke it.
+    """
+
+    from vibecomfy.custom_node_refs import check_pack_pin_compatibility
+    from vibecomfy.commands._node_ensure import merge_registered_packs
+    from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
+    from vibecomfy.node_packs import read_lockfile
+
+    lockfile_entries = read_lockfile()
+    pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
+    pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
+    if pin_errors:
+        raise RuntimeError("ensure_packs: " + "; ".join(pin_errors))
+
+    try:
+        packs, unresolved = missing_packs_for_workflow(workflow)
+    except FileNotFoundError as exc:
+        packs = _node_packs_from_requirements(workflow)
+        if not packs:
+            logger.warning(
+                "ensure_packs: node index unavailable and workflow declares no custom nodes; continuing"
+            )
+            packs = []
+        else:
+            logger.warning(
+                "ensure_packs: node index unavailable; falling back to workflow requirements: %s",
+                ", ".join(pack.name for pack in packs),
+            )
+        unresolved = []
+    except ValueError as exc:
+        raise RuntimeError("ensure_packs: " + str(exc)) from exc
+
+    workflow_ref = str(getattr(getattr(workflow, "source", None), "path", None) or workflow.id)
+    packs, unresolved, install_refs = merge_registered_packs(
+        workflow_ref,
+        workflow,
+        packs,
+        unresolved,
+    )
+    if unresolved:
+        raise RuntimeError("ensure_packs: " + _node_reconciliation_hint(workflow, unresolved))
+    if not packs:
+        return False
+
+    lock_entries = {entry.name: entry for entry in lockfile_entries}
+    # An explicit sidecar ref wins over an older global lock entry.  For
+    # catalog-only packs, preserve the existing lockfile restore behaviour.
+    restore_entries = [
+        entry
+        for pack in packs
+        if pack.name not in install_refs
+        and (entry := lock_entries.get(pack.name)) is not None
+    ]
+    install_kwargs: dict[str, Any] = {
+        "force": force,
+        "restore_entries": restore_entries,
+    }
+    if install_refs:
+        install_kwargs["install_refs_by_name"] = install_refs
+    batch = install_required_packs(packs, **install_kwargs)
+    if not batch.ok:
+        errors = [
+            f"{result.name}: {result.error or result.status}"
+            for result in batch.results
+            if result.status not in {"installed", "refreshed"}
+        ]
+        if not errors and batch.preflight.error:
+            errors.append(batch.preflight.error)
+        raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
+    return True
+
+
 def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
-    from vibecomfy.model_assets import _looks_like_runtime_input, _normalise_requirement_entries, resolve_referenced_assets
+    from vibecomfy.model_assets import (
+        _looks_like_runtime_input,
+        _normalise_requirement_entries,
+        local_registry_for_workflow,
+        resolve_referenced_assets,
+    )
+    from vibecomfy.registry.models_loader import load_registry
 
     def _norm(value: str) -> str:
         return value.replace("\\", "/")
 
     raw_assets = workflow.metadata.get("model_assets", [])
     authored = _normalise_requirement_entries(raw_assets) if isinstance(raw_assets, list) else []
-    resolved, unresolved = resolve_referenced_assets(workflow)
+    local_registry = local_registry_for_workflow(workflow)
+    registry = (*local_registry, *load_registry()) if local_registry else load_registry()
+    resolved, unresolved = resolve_referenced_assets(workflow, registry=registry)
     authored_keys = {
         (_norm(entry["name"]), _norm(entry["subdir"]))
         for entry in authored
@@ -261,47 +377,8 @@ class EmbeddedSession:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
         if ensure_packs:
-            from vibecomfy.custom_node_refs import check_pack_pin_compatibility
-            from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
-            from vibecomfy.node_packs import read_lockfile
-
-            lockfile_entries = read_lockfile()
-            pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
-            pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
-            if pin_errors:
-                raise RuntimeError("ensure_packs: " + "; ".join(pin_errors))
-            # Dev convenience only; production should pre-stage nodepacks with `vibecomfy nodes ensure`.
-            try:
-                packs, _unresolved = missing_packs_for_workflow(workflow)
-            except FileNotFoundError as exc:
-                packs = _node_packs_from_requirements(workflow)
-                if not packs:
-                    logger.warning(
-                        "ensure_packs: node index unavailable and workflow declares no custom nodes; continuing"
-                    )
-                    packs = []
-                else:
-                    logger.warning(
-                        "ensure_packs: node index unavailable; falling back to workflow requirements: %s",
-                        ", ".join(pack.name for pack in packs),
-                    )
-            except ValueError as exc:
-                raise RuntimeError("ensure_packs: " + str(exc)) from exc
-            if packs:
-                lock_entries = {entry.name: entry for entry in lockfile_entries}
-                batch = install_required_packs(
-                    packs,
-                    restore_entries=[entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None],
-                )
-                if not batch.ok:
-                    errors = [
-                        f"{result.name}: {result.error or result.status}"
-                        for result in batch.results
-                        if result.status not in {"installed", "refreshed"}
-                    ]
-                    if not errors and batch.preflight.error:
-                        errors.append(batch.preflight.error)
-                    raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
+            changed = ensure_workflow_node_packs(workflow)
+            if changed:
                 await self.reload_for_nodepack_change(reason="ensure_packs")
         if ensure_models:
             policy = resolve_model_preflight_policy(mode="embedded", ensure_models=True)
@@ -711,8 +788,21 @@ async def _resolve_inflight_before_stop(session: Any, wait_for_inflight: bool) -
     session._inflight_run = None
 
 
+def session_state_root() -> Path:
+    """Return the durable managed-session registry root.
+
+    The environment override lets commands launched from different working
+    directories share one managed Comfy execution context. Relative values
+    deliberately remain relative to the caller; durable remote runners should
+    provide an absolute path.
+    """
+
+    configured = os.environ.get("VIBECOMFY_SESSION_ROOT", "").strip()
+    return Path(configured).expanduser() if configured else Path("out/sessions")
+
+
 def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
-    session_dir = Path("out/sessions") / id
+    session_dir = session_state_root() / id
     revision_path = session_dir / "source_revision"
 
     if not _session_ready(session_dir):
@@ -935,7 +1025,12 @@ def _build_schema_provider(server_url: str | None) -> Any | None:
         return None
     from vibecomfy.schema import RuntimeSchemaProvider
 
-    return RuntimeSchemaProvider(server_url=server_url)
+    # Runtime validation must describe the executor we are about to queue
+    # against. The URL-keyed object_info snapshot is useful for authoring and
+    # offline porting, but it can lag an external server's installed custom
+    # nodes (especially dynamic VHS upload choices). Fetch live evidence here;
+    # the provider still memoizes it for the lifetime of this run/session.
+    return RuntimeSchemaProvider(server_url=server_url, cache_enabled=False)
 
 
 async def _warm_schema_provider(
@@ -1282,6 +1377,9 @@ async def _wait_for_server_history(
         history = await client.history(prompt_id)
         entry = _history_entry(history, prompt_id)
         if isinstance(entry, dict):
+            execution_error = _history_execution_error(entry, prompt_id)
+            if execution_error is not None:
+                raise execution_error
             return history
         await asyncio.sleep(poll_interval_sec)
     raise TimeoutError(f"Comfy prompt {prompt_id} did not complete within {timeout_sec:.0f}s")
@@ -1296,6 +1394,88 @@ def _history_entry(history: Any, prompt_id: str | None) -> dict[str, Any] | None
         only = next(iter(history.values()))
         return only if isinstance(only, dict) else None
     return None
+
+
+def _history_execution_error(
+    entry: Mapping[str, Any], prompt_id: str | None
+) -> RuntimeExecutionError | None:
+    """Translate Comfy's completed history error status into a typed failure.
+
+    An empty ``outputs`` mapping is valid for workflows whose result is not a
+    file artifact, so output presence is deliberately not used as a success
+    criterion.  Comfy's explicit ``status_str``/message event is authoritative.
+    """
+    raw_status = entry.get("status")
+    if not isinstance(raw_status, Mapping):
+        return None
+    status = str(raw_status.get("status_str") or "").strip().lower()
+    raw_messages = raw_status.get("messages")
+    messages = raw_messages if isinstance(raw_messages, list) else []
+    failure_events = {"execution_error", "execution_failed", "error", "failed"}
+    failure_message = status in failure_events
+    node_id: str | None = None
+    traceback_text: str | None = None
+    exception_type: str | None = None
+    exception_message: str | None = None
+    for item in messages:
+        event: str | None = None
+        details: Mapping[str, Any] | None = None
+        if isinstance(item, (list, tuple)):
+            if item and item[0] is not None:
+                event = str(item[0]).strip().lower()
+            if len(item) > 1 and isinstance(item[1], Mapping):
+                details = item[1]
+        elif isinstance(item, Mapping):
+            event_value = item.get("type") or item.get("event")
+            if event_value is not None:
+                event = str(event_value).strip().lower()
+            details = item
+        if event in failure_events:
+            failure_message = True
+        if details is None:
+            continue
+        # Prefer details attached to the failure event over an earlier
+        # execution_start/progress message, which may identify a different
+        # node than the one that actually raised.
+        if event in failure_events and details.get("node_id") is not None:
+            node_id = str(details["node_id"])
+        elif node_id is None and details.get("node_id") is not None:
+            node_id = str(details["node_id"])
+        if event in failure_events and details.get("traceback"):
+            traceback_text = str(details["traceback"])
+        elif traceback_text is None and details.get("traceback"):
+            traceback_text = str(details["traceback"])
+        if event in failure_events and details.get("exception_type"):
+            exception_type = str(details["exception_type"])
+        elif exception_type is None and details.get("exception_type"):
+            exception_type = str(details["exception_type"])
+        if event in failure_events and details.get("exception_message"):
+            exception_message = str(details["exception_message"])
+        elif exception_message is None and details.get("exception_message"):
+            exception_message = str(details["exception_message"])
+    if not failure_message:
+        return None
+
+    prompt_label = str(prompt_id) if prompt_id else "<unknown>"
+    detail_parts = [f"Comfy execution failed for prompt {prompt_label}"]
+    if status:
+        detail_parts.append(f"status={status}")
+    if node_id:
+        detail_parts.append(f"node_id={node_id}")
+    if exception_type:
+        detail_parts.append(f"exception_type={exception_type}")
+    if exception_message:
+        detail_parts.append(f"exception_message={exception_message}")
+    if traceback_text:
+        detail_parts.append(f"traceback:\n{traceback_text}")
+    return RuntimeExecutionError(
+        "; ".join(detail_parts),
+        prompt_id=prompt_id,
+        status=status or None,
+        node_id=node_id,
+        traceback_text=traceback_text,
+        status_messages=messages,
+    )
 
 
 def _outputs_from_server_history(history: dict[str, Any], prompt_id: str | None) -> Any:
@@ -1388,6 +1568,16 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
         if not isinstance(parsed, dict):
             raise ValueError("VIBECOMFY_COMFY_CONFIGURATION must be a JSON object")
         values.update(parsed)
+    comfyui_path = os.environ.get("COMFYUI_PATH")
+    if comfyui_path:
+        root = Path(comfyui_path).expanduser()
+        if root.is_dir():
+            values.setdefault("base_directory", str(root.resolve()))
+            extra_from_root = root / "extra_model_paths.yaml"
+            if extra_from_root.is_file():
+                values.setdefault(
+                    "extra_model_paths_config", [str(extra_from_root.resolve())]
+                )
     extra_model_paths = Path.cwd() / "extra_model_paths.yaml"
     if extra_model_paths.is_file():
         values.setdefault("extra_model_paths_config", [str(extra_model_paths)])
@@ -1415,7 +1605,14 @@ def _embedded_configuration(workflow: VibeWorkflow) -> Configuration | None:
 
 
 def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
-    argv = [*_comfyui_command(), "serve"]
+    comfyui_root = _configured_comfyui_root(config)
+    if comfyui_root is None:
+        argv = [*_comfyui_command(), "serve"]
+    else:
+        # A source checkout is a distinct runtime authority from the optional
+        # pip ``comfyui`` package.  Run its main.py with this interpreter so a
+        # pinned checkout does not silently pull in a second ComfyUI build.
+        argv = [sys.executable, str(comfyui_root / "main.py")]
     if config.vram_policy in {"high", "low", "normal"}:
         argv.append(f"--{config.vram_policy}vram")
     if config.reserve_vram_gb is not None:
@@ -1442,6 +1639,21 @@ def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
     return tuple(argv)
 
 
+def _configured_comfyui_root(config: SessionConfig) -> Path | None:
+    """Validate and return an explicit ComfyUI source checkout, if configured."""
+
+    raw_root = config.extra.get("comfyui_root")
+    if raw_root is None:
+        return None
+    root = Path(str(raw_root)).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"configured comfyui_root is not a directory: {root}")
+    main = root / "main.py"
+    if not main.is_file():
+        raise ValueError(f"configured comfyui_root has no main.py: {root}")
+    return root
+
+
 def _env_requests_sage_attention() -> bool:
     raw = (
         os.environ.get("VIBECOMFY_ATTENTION_PROFILE")
@@ -1465,21 +1677,57 @@ async def _spawn_comfy_server(
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         log_handle = Path(log_path).open("ab", buffering=0)
     argv = _comfy_server_argv(config)
+    port = config.port or 8188
+    # Do this before spawning.  If a previous Comfy process is still listening,
+    # probing /system_stats after the spawn can falsely report the old process
+    # as ready while the new process fails its bind.  Refuse the ambiguous
+    # state and leave the pre-existing process untouched.
+    if _port_has_listener(port):
+        if log_handle:
+            log_handle.close()
+        raise RuntimeStartupError(
+            f"Managed Comfy server cannot start: port {port} is already in use; "
+            "refusing to attach to a pre-existing listener.",
+            next_action=MANAGED_PORT_CONFLICT_NEXT_ACTION,
+        )
     if log_handle:
         log_handle.write(f"[vibecomfy] launching managed Comfy server: {json.dumps(list(argv))}\n".encode())
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
+    comfyui_root = _configured_comfyui_root(config)
     process = await asyncio.create_subprocess_exec(
         *argv,
         stdout=log_handle or asyncio.subprocess.DEVNULL,
         stderr=log_handle or asyncio.subprocess.DEVNULL,
         env=env,
+        cwd=str(comfyui_root) if comfyui_root is not None else None,
     )
-    managed_url = f"http://127.0.0.1:{config.port or 8188}"
+    managed_url = f"http://127.0.0.1:{port}"
     client = ComfyClient(managed_url)
     ready_timeout_sec = int(config.extra.get("ready_timeout_sec") or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC") or 300)
     for second in range(ready_timeout_sec):
+        if process.returncode is not None:
+            exit_code = process.returncode
+            if log_handle:
+                log_handle.close()
+            raise RuntimeStartupError(
+                f"Managed Comfy server exited with code {exit_code} before becoming ready "
+                f"on port {port}; the port may be occupied or startup failed.",
+                next_action=MANAGED_STARTUP_NEXT_ACTION,
+            )
         if await client.ready():
+            # Give asyncio's child watcher a chance to observe an immediate
+            # bind/startup failure before accepting a readiness response.
+            await asyncio.sleep(0)
+            if process.returncode is not None:
+                exit_code = process.returncode
+                if log_handle:
+                    log_handle.close()
+                raise RuntimeStartupError(
+                    f"Managed Comfy server exited with code {exit_code} before becoming ready "
+                    f"on port {port}; the port may be occupied or startup failed.",
+                    next_action=MANAGED_STARTUP_NEXT_ACTION,
+                )
             break
         if log_handle and second and second % 30 == 0:
             log_handle.write(f"[vibecomfy] waiting for managed Comfy server readiness: {second}/{ready_timeout_sec}s\n".encode())
@@ -1495,9 +1743,25 @@ async def _spawn_comfy_server(
         )
         raise RuntimeStartupError(
             str(timeout),
-            next_action="Check the ComfyUI startup log, installed custom nodes, and selected port before retrying.",
+            next_action=MANAGED_STARTUP_NEXT_ACTION,
         ) from timeout
     return process, managed_url, log_handle
+
+
+def _port_has_listener(port: int, *, host: str = "127.0.0.1") -> bool:
+    """Return whether a local TCP listener already occupies *port*.
+
+    A connect probe is intentionally used instead of a bind/close probe: the
+    latter introduces a race in which another process can claim the port
+    between the probe and ComfyUI's bind.  This is a preflight guard; child
+    exit detection in :func:`_spawn_comfy_server` handles listeners that race
+    in after this check.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=0.25):
+            return True
+    except OSError:
+        return False
 
 
 def _comfyui_command() -> tuple[str, ...]:

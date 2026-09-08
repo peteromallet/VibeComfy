@@ -28,7 +28,7 @@ checkout has not installed console scripts, use the equivalent fallback:
 
 | Skill | Underlying runnable surface | Status |
 |---|---|---|
-| `vibecomfy-setup` | `vibecomfy config init/show/set-library`, `vibecomfy runtime doctor`, `vibecomfy nodes ensure`, `vibecomfy models stage`, `vibecomfy fetch` | Available. Ask whether to use installed/importable ComfyUI, the user's own ComfyUI path, or an existing server URL; ask about custom nodes/models only when local staging or embedded execution needs them. |
+| `vibecomfy-setup` | `vibecomfy config init/show/set-library`, `vibecomfy runtime doctor`, `vibecomfy nodes ensure`, `vibecomfy models stage/ensure/register`, `vibecomfy fetch` (alias) | Available. Ask whether to use installed/importable ComfyUI, the user's own ComfyUI path, or an existing server URL; ask about custom nodes/models only when local staging or embedded execution needs them. |
 | `search-comfy-workflows` | `vibecomfy search ...`; Hivemind raw HTTP | Local search and raw Hivemind HTTP are available. Astrid executor use may require a bound Astrid project. |
 | `explain-comfy-workflow` | `vibecomfy inspect`, `vibecomfy analyze info`, `vibecomfy port check`, `vibecomfy nodes spec` | Available. Answers workflow questions from evidence without editing or running unless the user asks. |
 | `reorganise-comfy-workflow` | `vibecomfy reorganise ...`; `/reorganise_comfy_workflow`; `route="reorganise"` | Available for explicit layout-only cleanup. Preview is deterministic and offline by default; apply is preview-first and refuses stale source graphs before writing the exact previewed candidate. |

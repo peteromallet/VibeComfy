@@ -193,6 +193,26 @@ def test_embedded_configuration_preserves_explicit_extra_model_paths(
     assert embedded_config.extra_model_paths_config == [str(explicit_extra_model_paths)]
 
 
+def test_embedded_configuration_uses_comfyui_path_for_base_and_extra_models(
+    fake_comfy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    comfy_root = tmp_path / "comfyui"
+    comfy_root.mkdir()
+    extra_from_root = comfy_root / "extra_model_paths.yaml"
+    extra_from_root.write_text("comfyui:\n  base_path: /volume/ComfyUI\n", encoding="utf-8")
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+    monkeypatch.delenv("VIBECOMFY_COMFY_CONFIGURATION", raising=False)
+    monkeypatch.setenv("COMFYUI_PATH", str(comfy_root))
+
+    embedded_config = _embedded_configuration_for_session(SessionConfig())
+
+    assert embedded_config is not None
+    assert embedded_config.base_directory == str(comfy_root.resolve())
+    assert embedded_config.extra_model_paths_config == [str(extra_from_root.resolve())]
+
+
 def test_session_config_from_dict_raw_hiddenswitch_mirror() -> None:
     config = SessionConfig.from_dict(
         {"reserve_vram": 12, "cache_none": True, "fp8_e4m3fn_text_enc": True}

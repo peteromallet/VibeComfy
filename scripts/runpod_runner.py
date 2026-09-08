@@ -260,14 +260,21 @@ async def run_pod_detached(
     )
 
     pod_id = getattr(result.pod, "id", None) if result.pod else None
-    _finalize_artifacts(
-        result.artifact_root,
-        pod_id=pod_id,
-        exit_code=result.returncode,
-        terminated=result.terminated,
-        remote_command=poll_command_template,
-        upload=result.upload_info,
-    )
+    # Artifact download is best-effort in the lifecycle package.  A detached
+    # run can therefore complete with ``artifact_root=None`` (for example when
+    # the remote artifact archive is unavailable).  Keep the run's return
+    # code and termination result authoritative, but do not pass ``None`` to
+    # the artifact finalizer: that used to turn an otherwise valid detached
+    # result into an unhandled ``TypeError``.
+    if result.artifact_root is not None:
+        _finalize_artifacts(
+            result.artifact_root,
+            pod_id=pod_id,
+            exit_code=result.returncode,
+            terminated=result.terminated,
+            remote_command=poll_command_template,
+            upload=result.upload_info,
+        )
     _print_detached_summary(
         pod_id=pod_id,
         exit_code=result.returncode,

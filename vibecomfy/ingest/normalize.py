@@ -770,6 +770,8 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                         "_raw_widgets",
                         _raw_widget_payload_dict(matched["widgets_values"], source="ui.widgets_values"),
                     )
+                if "widgets_values_named" in matched:
+                    slim["widgets_values_named"] = deepcopy(matched["widgets_values_named"])
                 for _f in ("mode", "flags", "color", "bgcolor"):
                     if _f in matched:
                         slim[_f] = matched[_f]
@@ -794,6 +796,8 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                         "_raw_widgets",
                         _raw_widget_payload_dict(raw_node["widgets_values"], source="ui.widgets_values"),
                     )
+                if "widgets_values_named" in raw_node:
+                    slim["widgets_values_named"] = deepcopy(raw_node["widgets_values_named"])
                 for _f in ("mode", "flags", "color", "bgcolor"):
                     if _f in raw_node:
                         slim[_f] = raw_node[_f]
@@ -1689,6 +1693,9 @@ def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: st
     schema = schema_for(schema_provider, class_type)
     if schema is None:
         return []
+    explicit_order = getattr(schema, "widget_input_order", None)
+    if isinstance(explicit_order, (list, tuple)) and explicit_order:
+        return [name if isinstance(name, str) else None for name in explicit_order]
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, dict):
         return []
@@ -1942,4 +1949,3 @@ def _resolve_subgraph_primitive(
         if _subgraph_link_origin_id(item) != node_id and _subgraph_link_target_id(item) != node_id
     ]
     return True
-

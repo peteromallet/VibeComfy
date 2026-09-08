@@ -2,30 +2,13 @@ from __future__ import annotations
 
 import argparse
 
-import vibecomfy.fetch as fetch_assets
-from vibecomfy.commands._model_entries import model_entries_for_workflow
-from vibecomfy.registry import load_workflow_reference
-from vibecomfy.schema import get_schema_provider
+from vibecomfy.commands._model_ensure import command_args as _reconcile_workflow_models
 
 
 def _cmd_fetch(args: argparse.Namespace) -> int:
-    schema_provider = get_schema_provider("auto")
-    workflow = load_workflow_reference(args.workflow, schema_provider=schema_provider, allow_scratchpad=True)
-    entries = model_entries_for_workflow(workflow, args.workflow)
-    if args.dry_run:
-        for entry in entries:
-            path = fetch_assets.local_path(entry)
-            if fetch_assets.is_present(entry):
-                print(f"present {entry['name']}")
-            else:
-                print(f"would fetch {entry['name']} -> {path}")
-        return 0
-    try:
-        fetch_assets.download_many(entries, force=args.force)
-    except RuntimeError as exc:
-        print(exc)
-        return 1
-    return 0
+    # Compatibility alias. Keep one implementation so fetch cannot drift from
+    # the workflow-scoped models ensure command.
+    return _reconcile_workflow_models(args)
 
 
 def register(subparsers) -> None:

@@ -80,7 +80,11 @@ from vibecomfy.contracts.intent_nodes import (
 from vibecomfy.identity.uid import mint_local_uid
 from vibecomfy.porting.endpoint_invariant import schema_input_sockets_for_unwired_node
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
-from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
+from vibecomfy.porting.widgets.aliases import (
+    synchronize_ui_widget_values,
+    widget_names_for_class,
+    widget_names_from_schema,
+)
 from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode, _raise_embedded_api_links
 
 # Documented default control_after_generate mode when none is retained in metadata.
@@ -1859,6 +1863,14 @@ def _emit_litegraph_node_dict(
             value_domain=value_domain,
         ),
     }
+    # Newer ComfyUI exports can carry both positional and named widget values.
+    # Keep the optional named projection synchronized after rebuilding the
+    # canonical positional vector; otherwise edits appear to succeed while the
+    # UI rehydrates the stale named value on the next load.
+    raw_ui = getattr(node, "metadata", {}).get("_ui")
+    if isinstance(raw_ui, Mapping) and isinstance(raw_ui.get("widgets_values_named"), Mapping):
+        node_dict["widgets_values_named"] = deepcopy(raw_ui["widgets_values_named"])
+        synchronize_ui_widget_values(node_dict, widget_names=widget_names)
     # Emit color / bgcolor only when non-None (litegraph convention: absent = default)
     if furniture["color"] is not None:
         node_dict["color"] = furniture["color"]
@@ -2448,6 +2460,7 @@ def _raw_ui_payload_for_pin(
     incoming_link_ids_by_input: Mapping[str, list[int]],
     outgoing_link_ids_by_slot: Mapping[int, list[int]],
     widget_overlay: Mapping[str, Any] | None = None,
+    widget_names: Sequence[str | None] | None = None,
 ) -> dict[str, Any]:
     # Stable-UID gate: a pinned raw node is only emitted under an explicit
     # canonical uid from the VibeNode. Never fall back to captured properties,
@@ -2478,6 +2491,11 @@ def _raw_ui_payload_for_pin(
         raw_values = node_dict.get("widgets_values")
         if isinstance(raw_values, dict):
             _apply_dict_row_widget_overlay(raw_values, widget_overlay)
+    synchronize_ui_widget_values(
+        node_dict,
+        widget_names=widget_names,
+        overlay=widget_overlay,
+    )
 
     # Properties gate: the copied payload must expose a dict to stamp into.
     properties = node_dict.get("properties")
@@ -3149,6 +3167,7 @@ def emit_ui_json(
                 slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
                 lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
                 outgoing_link_ids_by_slot[slot].append(lid)
+            pinned_schema = schema_cache.get(node.class_type)
             pinned = _raw_ui_payload_for_pin(
                 verdict.raw_ui_node or {},
                 node_id=node_id,
@@ -3159,6 +3178,13 @@ def emit_ui_json(
                 incoming_link_ids_by_input=incoming_link_ids_by_input,
                 outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
                 widget_overlay=_dict_row_widget_overlay(node),
+                widget_names=_widget_names_for_emission(
+                    node.class_type,
+                    pinned_schema,
+                    node=node,
+                    schema_provider=schema_provider,
+                    name_authority=name_authority,
+                ),
             )
             # The pinned raw copy comes from raw UI evidence and may lack mode;
             # stamp the same IR-authoritative mode used by compilation.

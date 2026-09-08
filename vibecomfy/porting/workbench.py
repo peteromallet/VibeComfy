@@ -240,7 +240,7 @@ def analyze_source(
         }
 
     if report.asset_candidates:
-        report.recommendations.append(f"Review model assets before RunPod validation; use `vibecomfy fetch {source} --dry-run` for URL-backed assets.")
+        report.recommendations.append(f"Review model assets before RunPod validation; use `vibecomfy models ensure {source} --dry-run` for URL-backed assets.")
     if any(issue.severity == "error" for issue in report.diagnostics):
         report.recommendations.append("Resolve error diagnostics before spending RunPod GPU time.")
 

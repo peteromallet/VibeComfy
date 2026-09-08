@@ -33,6 +33,9 @@ POD_NAME_PREFIX = "vibecomfy-layer2"
 # raises rather than silently being charged at the wrong rate.
 HOURLY_USD: dict[str, float] = {
     "NVIDIA GeForce RTX 4090": 0.69,
+    # RunPod's current catalog fixture for the 32-GB Blackwell 5090. Keep
+    # this explicit so the budget gate cannot silently price an unknown GPU.
+    "NVIDIA GeForce RTX 5090": 0.95,
     "NVIDIA RTX A6000": 0.79,
     "NVIDIA A100 80GB PCIe": 1.89,
     "NVIDIA A100-SXM4-80GB": 1.99,

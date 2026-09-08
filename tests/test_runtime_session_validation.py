@@ -77,6 +77,19 @@ def test_async_warmup_populates_cache_then_validates() -> None:
     assert api["1"]["inputs"]["ckpt_name"] == "model-a.safetensors"
 
 
+def test_runtime_execution_schema_provider_bypasses_disk_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Queue-time schema validation must use the connected server, not stale cache."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIBECOMFY_SCHEMA_VALIDATE", raising=False)
+
+    provider = session_module._build_schema_provider("http://external.test:8189")
+
+    assert provider is not None
+    assert provider.cache_enabled is False
+
+
 def test_session_caches_schema_provider_across_runs(
     fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -40,6 +40,18 @@ vibecomfy session flush default
 vibecomfy session stop default
 ```
 
+When the runtime must use a pinned ComfyUI source checkout rather than an
+installed `comfyui` package, pass its root explicitly:
+
+```bash
+vibecomfy session start --id pinned --port 8189 \
+  --comfyui-root /workspace/runtime/ComfyUI
+```
+
+This launches `<root>/main.py` with the current Python interpreter (without
+the `serve` subcommand) and uses the checkout as the process working directory.
+The option is validated before launch and is persisted in the session config.
+
 `session start` writes `pid`, `url`, and `config.json` under `out/sessions/<id>/`. `vibecomfy run --runtime auto` checks the default session before loading schemas or queueing work; if the session is alive it passes the same URL to schema discovery and execution. If no warm session is alive, `auto` uses embedded one-shot execution. `--runtime server` also reuses the active session when present, and otherwise keeps the existing one-shot managed-server behavior.
 
 Warm policy is controlled by `SessionConfig.warm_policy` and can be overridden with `VIBECOMFY_WARM`:
@@ -51,6 +63,14 @@ Warm policy is controlled by `SessionConfig.warm_policy` and can be overridden w
 The auto-flush fingerprint is pattern-based. Any node whose `class_type` contains `Loader` contributes its non-edge string-valued input slots to the fingerprint, except for future explicit exclusions. Edge references such as `["12", 0]`, seeds, prompts, and other non-loader inputs do not contribute, so seed or prompt changes do not trigger a flush.
 
 `session flush` and `ServerSession.flush()` call `POST /api/free` with `{"unload_models": true, "free_memory": true}`. In HiddenSwitch this endpoint sets queue flags; it is asynchronous and takes effect at the next prompt boundary rather than synchronously unloading models before the HTTP response returns. Embedded sessions call `Comfy.clear_cache()`.
+
+Model reconciliation stores a per-file verification receipt under
+`.vibecomfy/model-verification/` below the models root. A receipt is accepted
+only when the expected SHA-256, canonical path, and `(dev, inode, size,
+mtime_ns)` fingerprint still match, so unchanged large assets do not get
+rehashed. Use `vibecomfy models ensure WORKFLOW --force-verify` to bypass the
+receipt and stream-hash present files; `--force` retains its existing meaning
+of downloading again.
 
 Session configuration covers the model-memory and cache flags that Comfy already exposes:
 

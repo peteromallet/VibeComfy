@@ -21,11 +21,12 @@ from vibecomfy.runtime.session import (
     _session_ready,
     current_source_revision,
     find_active_session,
+    session_state_root,
 )
 
 
 def _session_dir(id_: str) -> Path:
-    return Path("out/sessions") / id_
+    return session_state_root() / id_
 
 
 def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -60,6 +61,9 @@ def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     ready_timeout_sec = getattr(args, "ready_timeout_sec", None)
     if ready_timeout_sec is not None:
         config["ready_timeout_sec"] = ready_timeout_sec
+    comfyui_root = getattr(args, "comfyui_root", None)
+    if comfyui_root is not None:
+        config["comfyui_root"] = str(comfyui_root)
     config["models_root"] = normalized_models_root()
     config["models_root_normalized"] = normalized_models_root()
     config["locality"] = "managed_local_server"
@@ -189,7 +193,7 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
 
 
 def _cmd_session_list(args: argparse.Namespace) -> int:
-    root = Path("out/sessions")
+    root = session_state_root()
     if not root.exists():
         return 0
     for session_dir in sorted(path for path in root.iterdir() if path.is_dir()):
@@ -236,6 +240,10 @@ def register(subparsers) -> None:
     start.add_argument("--input-directory")
     start.add_argument("--output-directory")
     start.add_argument("--temp-directory")
+    start.add_argument(
+        "--comfyui-root",
+        help="run the source checkout's main.py with this Python instead of `comfyui serve`",
+    )
     start.add_argument("--ready-timeout-sec", type=int)
     start.set_defaults(func=_cmd_session_start)
 

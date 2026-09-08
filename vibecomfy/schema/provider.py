@@ -4,6 +4,7 @@ import asyncio
 import ast
 import json
 import logging
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -850,17 +851,18 @@ class ConversionSchemaProvider:
 
     Precedence order (first hit wins):
 
-    1. **Committed node_index.json** - `LocalSchemaProvider` against the
+    1. **Runtime** - when explicitly enabled, the live server's object-info is
+       authoritative for both installed classes and the exact versions of
+       core/custom nodes that will execute the graph.
+    2. **Committed node_index.json** - `LocalSchemaProvider` against the
        pinned `node_index_path`.
-    2. **Provenance-matched object_info cache** - `ObjectInfoSchemaProvider`
+    3. **Provenance-matched object_info cache** - `ObjectInfoSchemaProvider`
        loaded from `object_info_cache_path` only when its fingerprint
        metadata matches the expected runtime identity.
-    3. **Source parser** - `SourceSchemaProvider` scanning installed
+    4. **Source parser** - `SourceSchemaProvider` scanning installed
        custom-node source trees under `source_roots`.
-    4. **Widget schema fallback** - positional `widget_N` -> named input
+    5. **Widget schema fallback** - positional `widget_N` -> named input
        aliases from the local `WIDGET_SCHEMA` table (lowest priority).
-    5. **Runtime** - `RuntimeSchemaProvider` is consulted *only* when
-       `enable_runtime=True` (off by default).
 
     Each `get_schema` hit records a `SchemaSourceInfo` provenance note
     via `_logger.info` so callers can attribute emission decisions.
@@ -879,6 +881,7 @@ class ConversionSchemaProvider:
         widget_schema: dict[str, list[str | None]] | None = None,
         runtime_server_url: str | None = None,
         enable_runtime: bool = False,
+        runtime_cache_enabled: bool = True,
     ) -> None:
         self._local = LocalSchemaProvider(node_index_path)
         self._source = SourceSchemaProvider(source_roots)
@@ -894,10 +897,36 @@ class ConversionSchemaProvider:
         self._widget_schema: dict[str, list[str | None]] = widget_schema or {}
         self._runtime: RuntimeSchemaProvider | None = None
         if enable_runtime:
-            self._runtime = RuntimeSchemaProvider(server_url=runtime_server_url)
+            self._runtime = RuntimeSchemaProvider(
+                server_url=runtime_server_url,
+                cache_enabled=runtime_cache_enabled,
+            )
         self._enable_runtime = enable_runtime
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
+        # An explicitly requested live schema describes the actual executor.
+        # It must precede bundled/core and committed schemas: those can lag the
+        # running ComfyUI version and otherwise reject newly added enum values
+        # or misinterpret changed widget layouts during the very check intended
+        # to validate that runtime.
+        if self._runtime is not None:
+            schema = self._runtime.get_schema(class_type)
+            if schema is not None:
+                _logger.info(
+                    "schema hit: %s provider=runtime server=%s",
+                    class_type,
+                    self._runtime.server_url,
+                )
+                return self._with_provenance(
+                    schema,
+                    SchemaSourceInfo(
+                        provider_name="runtime",
+                        server_url=self._runtime.server_url,
+                        cache_path=str(self._runtime.cache_path) if self._runtime.cache_path else None,
+                        confidence=1.0,
+                    ),
+                )
+
         builtin = _builtin_schema(class_type)
         if builtin is not None:
             return builtin
@@ -988,25 +1017,6 @@ class ConversionSchemaProvider:
                     confidence=0.3,
                 ),
             )
-
-        # 5. Runtime (only when explicitly enabled)
-        if self._runtime is not None:
-            schema = self._runtime.get_schema(class_type)
-            if schema is not None:
-                _logger.info(
-                    "schema hit: %s provider=runtime server=%s",
-                    class_type,
-                    self._runtime.server_url,
-                )
-                return self._with_provenance(
-                    schema,
-                    SchemaSourceInfo(
-                        provider_name="runtime",
-                        server_url=self._runtime.server_url,
-                        cache_path=str(self._runtime.cache_path) if self._runtime.cache_path else None,
-                        confidence=0.6,
-                    ),
-                )
 
         _logger.info("schema miss: %s (no provider had it)", class_type)
         return None
@@ -1158,6 +1168,7 @@ class ConversionSchemaProvider:
             pack=schema.pack,
             inputs=schema.inputs,
             outputs=schema.outputs,
+            widget_input_order=schema.widget_input_order,
             source_provider=info.provider_name,
             source_path=info.source_path,
             source_cache_path=info.cache_path,
@@ -1178,10 +1189,16 @@ class RuntimeSchemaProvider:
         server_url: str | None = None,
         cache_dir: str | Path = "out/cache",
         log_path: str | Path | None = None,
+        cache_enabled: bool = True,
     ) -> None:
         self.server_url = server_url
         self.cache_path = object_info_cache_path(server_url=server_url, cache_dir=cache_dir)
         self.log_path = log_path
+        # Keep the path available for provenance/reporting even when caching is
+        # disabled. The flag controls both sides of the cache boundary: a
+        # disabled provider must not read a stale snapshot or write the live
+        # response back over it.
+        self.cache_enabled = cache_enabled
         self._object_info: dict[str, Any] | None = None
         self._schemas: dict[str, NodeSchema] | None = None
         self._schemas_fully_loaded = False
@@ -1225,7 +1242,7 @@ class RuntimeSchemaProvider:
 
     def object_info(self) -> dict[str, Any]:
         if self._object_info is None:
-            cached = self._load_valid_cached_object_info()
+            cached = self._load_valid_cached_object_info() if self.cache_enabled else None
             if cached is not None:
                 self._set_object_info(cached)
             else:
@@ -1233,22 +1250,25 @@ class RuntimeSchemaProvider:
         return self._object_info
 
     async def object_info_async(self) -> dict[str, Any]:
-        cached = self._load_valid_cached_object_info()
+        cached = self._load_valid_cached_object_info() if self.cache_enabled else None
         if cached is not None:
             self._set_object_info(cached)
             return self._object_info
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
-        write_object_info_cache(
-            self.cache_path,
-            data,
-            runtime_fingerprint=runtime_fingerprint(self.server_url),
-            server_url=active_url,
-        )
+        if self.cache_enabled:
+            write_object_info_cache(
+                self.cache_path,
+                data,
+                runtime_fingerprint=runtime_fingerprint(self.server_url),
+                server_url=active_url,
+            )
         self._set_object_info(data)
         return self._object_info
 
     def _load_valid_cached_object_info(self) -> dict[str, Any] | None:
+        if not self.cache_enabled:
+            return None
         cached = load_object_info_cache(self.cache_path)
         result = validate_object_info_cache(
             cached,
@@ -1294,6 +1314,27 @@ def get_schema_provider(
         raise ValueError(f"Unknown schema provider preference: {prefer}")
     if server_url:
         return RuntimeSchemaProvider(server_url=server_url)
+    # Commands such as ``validate`` share the same auto provider.  When a
+    # managed session is already healthy, use its schema endpoint instead of
+    # treating an installed ComfyUI package as permission to boot another
+    # server on the default port.
+    try:
+        from vibecomfy.runtime.session import find_active_session
+
+        # A named managed session is an execution context, not an unrelated
+        # server. Let every schema-consuming command inherit an explicitly
+        # selected session instead of silently falling back to ``default``
+        # and attempting to boot a second Comfy process.
+        selected_session_id = os.environ.get("VIBECOMFY_SESSION_ID", "").strip()
+        active_server_url = (
+            find_active_session(selected_session_id)
+            if selected_session_id
+            else find_active_session()
+        )
+    except Exception:
+        active_server_url = None
+    if active_server_url:
+        return RuntimeSchemaProvider(server_url=active_server_url)
     if Path("node_index.json").exists():
         return LocalSchemaProvider()
     if has_comfyui_runtime():
@@ -1331,10 +1372,49 @@ def _schema_from_object_info(class_type: str, info: dict[str, Any]) -> NodeSchem
             if isinstance(group, dict):
                 for name, spec in group.items():
                     parsed_inputs[str(name)] = _parse_input_spec(spec, required=required)
+                    # Some nodes expose widgets only for a selected format.
+                    # ComfyUI nests those real prompt inputs under the
+                    # controlling widget's `formats` metadata.
+                    for conditional_name, conditional_spec in _conditional_object_info_inputs(spec).items():
+                        parsed_inputs.setdefault(conditional_name, conditional_spec)
     inputs = _order_object_info_inputs(parsed_inputs, info)
     outputs = _parse_outputs(info)
     pack = _first_string(info, "pack", "package", "category")
-    return NodeSchema(class_type=class_type, pack=pack, inputs=inputs, outputs=outputs)
+    # ``widgets_values`` is a compact positional list, unlike the formal
+    # object_info input mapping which also contains linked sockets. Preserve
+    # the runtime's explicit literal-widget order so porting cannot shift
+    # values when a custom node adds sockets or advanced controls.
+    from vibecomfy.porting.object_info.consume import compact_literal_widget_order
+
+    return NodeSchema(
+        class_type=class_type,
+        pack=pack,
+        inputs=inputs,
+        outputs=outputs,
+        widget_input_order=tuple(compact_literal_widget_order(info)),
+    )
+
+
+def _conditional_object_info_inputs(raw: Any) -> dict[str, InputSpec]:
+    """Extract conditional widget schemas nested in object_info metadata."""
+    if not isinstance(raw, (list, tuple)) or len(raw) < 2 or not isinstance(raw[1], dict):
+        return {}
+    formats = raw[1].get("formats")
+    if not isinstance(formats, dict):
+        return {}
+    result: dict[str, InputSpec] = {}
+    for branch in formats.values():
+        if not isinstance(branch, list):
+            continue
+        for entry in branch:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            name = entry[0]
+            if not isinstance(name, str) or not name:
+                continue
+            attrs = entry[2] if len(entry) > 2 and isinstance(entry[2], dict) else {}
+            result[name] = _parse_input_spec([entry[1], attrs], required=False)
+    return result
 
 
 def _provisional_schemas_from_candidates(

@@ -37,7 +37,7 @@ vibecomfy watchdog list
 ```bash
 vibecomfy nodes install-plan <workflow>
 vibecomfy nodes spec <ClassType>
-vibecomfy fetch <workflow> --dry-run
+vibecomfy models ensure <workflow> --dry-run
 vibecomfy models stage --select-phase core --dry-run
 ```
 

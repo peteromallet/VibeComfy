@@ -15,6 +15,7 @@ Decided contract (ORACLE-8, R:S7) — ONE owner, ONE timeout, ONE exception shap
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -160,6 +161,66 @@ def test_spawn_argv_includes_richer_args(monkeypatch: pytest.MonkeyPatch) -> Non
     assert argv[argv.index("--output-directory") + 1] == "/tmp/vibe-output"
     assert argv[argv.index("--temp-directory") + 1] == "/tmp/vibe-temp"
     assert argv[argv.index("--port") + 1] == "8200"
+
+
+def test_source_checkout_server_argv_uses_current_python_without_serve(
+    tmp_path,
+) -> None:
+    (tmp_path / "main.py").write_text("# pinned ComfyUI checkout\n", encoding="utf-8")
+
+    config = SessionConfig.from_dict(
+        {
+            "port": 8200,
+            "comfyui_root": str(tmp_path),
+            "input_directory": "/tmp/vibe-input",
+            "output_directory": "/tmp/vibe-output",
+        }
+    )
+
+    argv = _comfy_server_argv(config)
+
+    assert argv[:2] == (sys.executable, str(tmp_path.resolve() / "main.py"))
+    assert "serve" not in argv
+    assert argv[argv.index("--input-directory") + 1] == "/tmp/vibe-input"
+    assert argv[argv.index("--output-directory") + 1] == "/tmp/vibe-output"
+    assert argv[argv.index("--port") + 1] == "8200"
+
+
+def test_source_checkout_server_argv_rejects_missing_main(tmp_path) -> None:
+    with pytest.raises(ValueError, match="has no main.py"):
+        _comfy_server_argv(
+            SessionConfig.from_dict({"comfyui_root": str(tmp_path)})
+        )
+
+
+def test_source_checkout_spawn_uses_checkout_as_process_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    (tmp_path / "main.py").write_text("# pinned ComfyUI checkout\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*argv: str, **kwargs: object) -> FakeProcess:
+        captured["argv"] = argv
+        captured.update(kwargs)
+        return FakeProcess()
+
+    async def fake_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(session_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(session_module, "ComfyClient", lambda _url: _NotReadyClient())
+    monkeypatch.setattr(session_module.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(RuntimeStartupError):
+        asyncio.run(
+            _spawn_comfy_server(
+                SessionConfig.from_dict(
+                    {"port": 18200, "comfyui_root": str(tmp_path), "ready_timeout_sec": 1}
+                )
+            )
+        )
+
+    assert captured["cwd"] == str(tmp_path.resolve())
 
 
 def test_spawn_passes_richer_argv_to_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:

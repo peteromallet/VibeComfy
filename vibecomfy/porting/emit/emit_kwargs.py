@@ -1104,12 +1104,23 @@ def _node_kwargs(
             )
         out.append((key, _format_static_value(key, static_inputs[key])))
 
+    # Edge insertion order is semantic for bypassed ComfyUI nodes: output N is
+    # rewired to the N-th connected input.  Alphabetizing kwargs here changes
+    # that order when the emitted Python rebuilds the graph, so a bypassed
+    # sampler can unexpectedly forward (say) its guider rather than its noise.
+    # Preserve the UI slot order when available, then schema order, then the
+    # original edge/input insertion order for dynamic sockets absent from both.
     all_incoming_keys = set(incoming) | set(incoming_exprs)
-    if schema:
-        ordered_incoming = [key for key in schema if key in all_incoming_keys]
-        ordered_incoming += sorted(key for key in all_incoming_keys if key not in schema_set)
-    else:
-        ordered_incoming = sorted(all_incoming_keys)
+    ui_inputs = node_metadata.get("_ui", {}).get("inputs", [])
+    ui_input_order = [
+        str(row.get("name"))
+        for row in ui_inputs
+        if isinstance(row, Mapping) and isinstance(row.get("name"), str)
+    ] if isinstance(ui_inputs, list) else []
+    ordered_incoming: list[str] = []
+    for key in [*ui_input_order, *schema, *incoming, *incoming_exprs]:
+        if key in all_incoming_keys and key not in ordered_incoming:
+            ordered_incoming.append(key)
 
     for to_input in ordered_incoming:
         if to_input in incoming_exprs:

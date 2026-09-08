@@ -57,6 +57,7 @@ async def run(
     server_url: str | None = None,
     backend: str = "api",
     config: SessionConfig | None = None,
+    ensure_packs: bool = False,
     ensure_models: bool = False,
     shared_models_root: str | Path | None = None,
     strict_drift: bool | None = None,
@@ -72,6 +73,15 @@ async def run(
         ensure_models=ensure_models,
         shared_root=shared_models_root,
     )
+    if ensure_packs:
+        if server_url is not None:
+            raise RuntimeError(
+                "ensure_packs is only supported for a VibeComfy-managed server; "
+                "external servers must already have the required custom nodes"
+            )
+        from .session import ensure_workflow_node_packs
+
+        ensure_workflow_node_packs(workflow)
     apply_model_preflight(workflow, policy)
     async with comfy_server(server_url=server_url, log_path=log_path, config=managed_config) as active_url:
         provider = _build_schema_provider(active_url)
@@ -139,25 +149,28 @@ def run_sync(
     server_url: str | None = None,
     backend: str = "api",
     config: SessionConfig | None = None,
+    ensure_packs: bool = False,
     ensure_models: bool = False,
     shared_models_root: str | Path | None = None,
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
-    return asyncio.run(
-        run(
-            workflow,
-            server_url=server_url,
-            backend=backend,
-            config=config,
-            ensure_models=ensure_models,
-            shared_models_root=shared_models_root,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-    )
+    kwargs: dict[str, Any] = {
+        "server_url": server_url,
+        "backend": backend,
+        "config": config,
+        "ensure_models": ensure_models,
+        "shared_models_root": shared_models_root,
+        "strict_drift": strict_drift,
+        "chain_id": chain_id,
+        "parent_run_id": parent_run_id,
+    }
+    # Preserve the historical call shape for callers that do not request node
+    # reconciliation; this matters for integrations that wrap ``run``.
+    if ensure_packs:
+        kwargs["ensure_packs"] = True
+    return asyncio.run(run(workflow, **kwargs))
 
 
 async def run_embedded(

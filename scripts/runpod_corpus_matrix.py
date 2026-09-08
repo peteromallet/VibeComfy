@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.runpod_matrix_plan import build_corpus_matrix_plan, format_ready_rows, format_rows
 from scripts.runpod_runner import REMOTE_ROOT, ROOT, run_pod_detached
+from vibecomfy.commands.runpod_setup import COMFYUI_H3_PIP_SPEC
 
 EXCLUDE_DIRS = {
     ".DS_Store",
@@ -97,7 +98,7 @@ COMFY=comfyui
 $PY -m pip install --upgrade pip wheel setuptools
 $PY -m pip install -e '.[dev]'
 $PY -m pip install --prefer-binary click rich typer pydantic pydantic-settings pyyaml aiohttp yarl aiofiles aio-pika pillow scipy 'numpy<2.3' tqdm protobuf psutil ConfigArgParse safetensors einops transformers tokenizers sentencepiece 'huggingface_hub[hf_xet]>=0.32.0' opencv-python-headless 'av>=14.2.0,<16' diffusers spandrel gguf questionary ijson requests_cache universal_pathlib blake3 frozendict python-dateutil importlib_resources simpleeval jsonmerge resize-right kornia torchdiffeq torchsde open-clip-torch peft torchinfo albumentations lazy-object-proxy lazy_loader natsort humanize pebble can_ada jaxtyping ml_dtypes colour lightning vtracer skia-python 'stringzilla<4.2.0' scikit-image soundfile joblib threadpoolctl openai anthropic google-generativeai sqlalchemy alembic glfw PyOpenGL comfy_kitchen comfy-aimdo comfyui-frontend-package 'comfyui-workflow-templates>=0.9.44,<0.10' comfyui-embedded-docs 'comfyui_manager>=4.1,<5' opentelemetry-distro opentelemetry-sdk opentelemetry-exporter-otlp opentelemetry-propagator-jaeger opentelemetry-instrumentation opentelemetry-util-http opentelemetry-instrumentation-aio-pika opentelemetry-instrumentation-requests opentelemetry-instrumentation-aiohttp-server opentelemetry-instrumentation-aiohttp-client opentelemetry-instrumentation-asyncio opentelemetry-instrumentation-urllib3 opentelemetry-processor-baggage
-$PY -m pip install --extra-index-url https://nodes.appmana.com/simple/ --no-deps --force-reinstall 'comfyui==0.26.0'
+$PY -m pip install --extra-index-url https://nodes.appmana.com/simple/ --no-deps --force-reinstall {COMFYUI_H3_PIP_SPEC!r}
 if [ "{scope}" = "wan_creation_types" ] || [ "{scope}" = "wan_infinitetalk" ]; then
   $PY -m pip install --index-url https://download.pytorch.org/whl/cu124 --upgrade torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
 fi

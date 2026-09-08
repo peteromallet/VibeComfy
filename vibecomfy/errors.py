@@ -126,6 +126,30 @@ class RuntimeStartupError(VibeComfyError):
     """A managed runtime failed to start."""
 
 
+class RuntimeExecutionError(VibeComfyError):
+    """Comfy accepted a prompt but reported an execution failure."""
+
+    default_next_action = "Inspect the failing ComfyUI node and traceback before retrying."
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        prompt_id: str | None = None,
+        status: str | None = None,
+        node_id: str | None = None,
+        traceback_text: str | None = None,
+        status_messages: object | None = None,
+        next_action: str | None = None,
+    ) -> None:
+        self.prompt_id = prompt_id
+        self.status = status
+        self.node_id = node_id
+        self.traceback_text = traceback_text
+        self.status_messages = status_messages
+        super().__init__(message, next_action=next_action)
+
+
 # ---------------------------------------------------------------------------
 # Agent-facing semantic subclasses
 #
@@ -275,6 +299,7 @@ __all__ = [
     "UnknownNodeSchemaError",
     # origin/main
     "NodePackInstallError",
+    "RuntimeExecutionError",
     "RuntimeStartupError",
     "SessionBusyError",
     "SessionLifecycleError",

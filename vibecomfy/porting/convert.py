@@ -243,7 +243,7 @@ def port_convert_workflow(
     validate: bool = True,
     raw_workflow: dict[str, Any] | None = None,
     keep_virtual_wires: bool = False,
-    prune_dead_branches: bool = True,
+    prune_dead_branches: bool = False,
 ) -> PortConvertResult:
     # Capture the virtual-wire display/diagnostic sidecar before cloning, but
     # publish it to the caller only after conversion reaches its successful

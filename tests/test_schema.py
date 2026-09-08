@@ -1098,6 +1098,175 @@ def test_runtime_schema_provider_reads_cached_object_info(tmp_path) -> None:
     assert schema.outputs == [OutputSpec(type="LATENT", name="latent")]
 
 
+def test_runtime_schema_provider_validation_lookup_is_lazy(tmp_path, monkeypatch) -> None:
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {
+            "NeededNode": {"input": {"required": {"value": ["STRING", {}]}}},
+            **{
+                f"UnusedNode{index}": {"input": {"required": {"value": ["STRING", {}]}}}
+                for index in range(100)
+            },
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+    import vibecomfy.schema.provider as provider_module
+
+    original = provider_module._schema_from_object_info
+    parsed: list[str] = []
+
+    def tracked(class_type, info):
+        parsed.append(class_type)
+        return original(class_type, info)
+
+    monkeypatch.setattr(provider_module, "_schema_from_object_info", tracked)
+
+    assert schema_registry_empty(provider) is False
+    assert parsed == []
+    assert provider.get_schema("NeededNode") is not None
+    assert parsed == ["NeededNode"]
+
+
+def test_runtime_schema_provider_preserves_live_compact_widget_order(tmp_path) -> None:
+    """Raw /object_info input order must align compact widgets_values slots."""
+    from vibecomfy.porting.widgets.compact_resolver import (
+        compact_widget_names_for_node,
+        widget_value_for_field,
+    )
+
+    class_type = "MiniMaxH3StreamLiveExtensionAVToVHS"
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {
+            class_type: {
+                # This is the raw shape returned by ComfyUI /object_info.
+                "input": {
+                    "required": {
+                        "image": ["IMAGE", {}],
+                        "crf": ["BOOLEAN", {"default": True}],
+                        "crop": ["STRING", {"default": "center"}],
+                        "pix_fmt": ["INT", {"default": 19}],
+                    }
+                },
+                "input_order": {
+                    "required": ["image", "crf", "crop", "pix_fmt"]
+                },
+            }
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+
+    schema = provider.get_schema(class_type)
+    assert schema is not None
+    assert schema.widget_input_order == ("crf", "crop", "pix_fmt")
+
+    node = {
+        "id": 946,
+        "type": class_type,
+        "class_type": class_type,
+        "widgets_values": [True, "h3_poc/assembled", 19],
+    }
+    resolution = compact_widget_names_for_node(node, class_type, schema_provider=provider)
+    assert resolution.names == ("crf", "crop", "pix_fmt")
+    assert widget_value_for_field(node, "crf", schema_provider=provider) is True
+    assert widget_value_for_field(node, "crop", schema_provider=provider) == "h3_poc/assembled"
+    assert widget_value_for_field(node, "pix_fmt", schema_provider=provider) == 19
+
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    api = normalize_to_api(
+        {"nodes": [node], "links": []},
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+    assert api["946"]["inputs"] == {
+        "crf": True,
+        "crop": "h3_poc/assembled",
+        "pix_fmt": 19,
+    }
+
+
+def test_live_compact_widget_order_excludes_force_inputs_and_hidden_values(tmp_path) -> None:
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {
+            "StreamNode": {
+                "input": {
+                    "required": {
+                        "video_vae": ["VAE"],
+                        "start_mode": ["STRING", {"forceInput": True}],
+                        "input_count": ["INT", {"default": 6}],
+                        "crop": [["disabled", "center"], {"default": "disabled"}],
+                        "filename_prefix": ["STRING", {"default": "video/out"}],
+                        "pix_fmt": [["yuv420p", "lossless_ffv1"], {}],
+                        "crf": ["INT", {"default": 19}],
+                    },
+                    "optional": {
+                        "active_extensions": ["INT", {"forceInput": True}],
+                    },
+                    "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
+                },
+                "input_order": {
+                    "required": [
+                        "video_vae", "start_mode", "input_count", "crop",
+                        "filename_prefix", "pix_fmt", "crf",
+                    ],
+                    "optional": ["active_extensions"],
+                    "hidden": ["prompt", "unique_id"],
+                },
+            }
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+
+    schema = provider.get_schema("StreamNode")
+
+    assert schema is not None
+    assert schema.widget_input_order == (
+        "input_count", "crop", "filename_prefix", "pix_fmt", "crf"
+    )
+
+
+def test_runtime_schema_provider_keeps_new_resolution_selector_widget(tmp_path) -> None:
+    """A live-added advanced ``multiple`` control must not become widget_2."""
+    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+
+    class_type = "ResolutionSelector"
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {
+            class_type: {
+                "input": {
+                    "required": {
+                        "aspect_ratio": [["16:9 (Widescreen)", "1:1 (Square)"], {}],
+                        "megapixels": ["FLOAT", {"default": 1.0}],
+                        "multiple": ["INT", {"default": 16, "advanced": True}],
+                    }
+                },
+                "input_order": {
+                    "required": ["aspect_ratio", "megapixels", "multiple"]
+                },
+            }
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+
+    node = {
+        "class_type": class_type,
+        "widgets_values": ["16:9 (Widescreen)", 1.0, 16],
+    }
+    resolution = compact_widget_names_for_node(node, class_type, schema_provider=provider)
+    assert resolution.names == ("aspect_ratio", "megapixels", "multiple")
+
+
 def test_runtime_schema_provider_rejects_stale_cache_refetches_and_clears_schemas(tmp_path, monkeypatch) -> None:
     class FakeServer:
         async def __aenter__(self):
@@ -1185,6 +1354,49 @@ def test_runtime_schema_provider_async_rejects_stale_cache_and_rewrites_fresh(tm
     assert cached is not None and "AsyncFetchedNode" in cached
 
 
+def test_runtime_schema_provider_cache_disabled_fetches_live_without_read_or_write(
+    tmp_path, monkeypatch
+) -> None:
+    """The no-cache lane must bypass and preserve the URL-keyed cache file."""
+
+    class FakeServer:
+        async def __aenter__(self):
+            return "http://active-runtime.test"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def object_info(self):
+            assert self.url == "http://active-runtime.test"
+            return {"LiveNode": {"input": {"optional": {"strength": ["FLOAT", {}]}}}}
+
+    monkeypatch.setattr("vibecomfy.schema.provider.comfy_server", lambda **kwargs: FakeServer())
+    monkeypatch.setattr("vibecomfy.schema.provider.ComfyClient", FakeClient)
+
+    provider = RuntimeSchemaProvider(
+        server_url="http://runtime.test",
+        cache_dir=tmp_path,
+        cache_enabled=False,
+    )
+    write_object_info_cache(
+        provider.cache_path,
+        {"StaleNode": {"input": {"required": {"prompt": ["STRING", {}]}}}},
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+    before = provider.cache_path.read_bytes()
+
+    data = provider.object_info()
+
+    assert "LiveNode" in data
+    assert "StaleNode" not in data
+    assert provider.cache_path.read_bytes() == before
+
+
 def test_object_info_schema_provider_reads_normalized_cache_shape(tmp_path) -> None:
     cache = tmp_path / "normalized_object_info.json"
     cache.write_text(
@@ -1212,6 +1424,43 @@ def test_object_info_schema_provider_reads_normalized_cache_shape(tmp_path) -> N
     assert list(schema.inputs) == ["filename_prefix", "images"]
     assert schema.inputs["images"].type == "IMAGE"
     assert schema.outputs == [OutputSpec(type="IMAGE", name="image")]
+
+
+def test_object_info_schema_provider_flattens_conditional_format_inputs(tmp_path) -> None:
+    cache = tmp_path / "object_info.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "VideoCombine": {
+                    "input": {
+                        "required": {
+                            "format": [
+                                ["video/h264-mp4", "image/gif"],
+                                {
+                                    "formats": {
+                                        "video/h264-mp4": [
+                                            ["pix_fmt", ["yuv420p", "yuv420p10le"]],
+                                            ["crf", "INT", {"default": 19, "min": 0, "max": 100}],
+                                            ["save_metadata", "BOOLEAN", {"default": True}],
+                                        ]
+                                    }
+                                },
+                            ]
+                        }
+                    },
+                    "output": ["VHS_FILENAMES"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    schema = ObjectInfoSchemaProvider(cache).get_schema("VideoCombine")
+
+    assert schema is not None
+    assert schema.inputs["pix_fmt"].choices == ["yuv420p", "yuv420p10le"]
+    assert schema.inputs["crf"] == InputSpec("INT", required=False, default=19, min=0, max=100)
+    assert schema.inputs["save_metadata"] == InputSpec("BOOLEAN", required=False, default=True)
 
 
 def test_runtime_schema_provider_fetches_and_writes_object_info_cache(tmp_path, monkeypatch) -> None:
@@ -1521,12 +1770,45 @@ def test_get_schema_provider_auto_selection(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("vibecomfy.comfy_command.shutil.which", lambda _: None)
     monkeypatch.setattr("vibecomfy.comfy_command.importlib.util.find_spec", lambda _: None)
+    monkeypatch.setattr("vibecomfy.schema.provider.has_comfyui_runtime", lambda: False)
+    monkeypatch.setattr("vibecomfy.runtime.session.find_active_session", lambda: None)
 
     assert isinstance(get_schema_provider("auto"), LocalSchemaProvider)
     assert isinstance(get_schema_provider("auto", server_url="http://runtime.test"), RuntimeSchemaProvider)
 
     (tmp_path / "node_index.json").write_text("[]", encoding="utf-8")
     assert isinstance(get_schema_provider("auto"), LocalSchemaProvider)
+
+    monkeypatch.setattr(
+        "vibecomfy.runtime.session.find_active_session",
+        lambda: "http://127.0.0.1:18189",
+    )
+    active = get_schema_provider("auto")
+    assert isinstance(active, RuntimeSchemaProvider)
+    assert active.server_url == "http://127.0.0.1:18189"
+
+
+def test_get_schema_provider_auto_uses_selected_managed_session(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    selected: list[str] = []
+
+    def fake_find_active_session(session_id: str = "default") -> str | None:
+        selected.append(session_id)
+        return "http://127.0.0.1:8189"
+
+    monkeypatch.setenv("VIBECOMFY_SESSION_ID", "astrid-h3-poc")
+    monkeypatch.setattr(
+        "vibecomfy.runtime.session.find_active_session",
+        fake_find_active_session,
+    )
+
+    provider = get_schema_provider("auto")
+
+    assert isinstance(provider, RuntimeSchemaProvider)
+    assert provider.server_url == "http://127.0.0.1:8189"
+    assert selected == ["astrid-h3-poc"]
 
 
 # ---------------------------------------------------------------------------
@@ -1768,6 +2050,26 @@ def test_from_api_conflicting_provider_evidence() -> None:
 # ---------------------------------------------------------------------------
 # Sprint 2 T10: ConversionSchemaProvider precedence tests
 # ---------------------------------------------------------------------------
+
+
+def test_conversion_schema_provider_preserves_explicit_widget_order_provenance() -> None:
+    from vibecomfy.schema.provider import SchemaSourceInfo
+
+    schema = NodeSchema(
+        class_type="LiveWidgetNode",
+        pack="custom",
+        inputs={"value": InputSpec(type="INT")},
+        outputs=[],
+        widget_input_order=("value",),
+    )
+
+    enriched = ConversionSchemaProvider._with_provenance(
+        schema,
+        SchemaSourceInfo(provider_name="runtime", confidence=1.0),
+    )
+
+    assert enriched.widget_input_order == ("value",)
+    assert enriched.source_provider == "runtime"
 
 
 def test_conversion_schema_provider_empty_returns_none_without_network() -> None:
@@ -2016,7 +2318,7 @@ def test_conversion_schema_provider_with_runtime_enabled(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """With enable_runtime=True, runtime provider is used as last resort."""
+    """With enable_runtime=True, runtime provider supplies live schemas."""
     from vibecomfy.schema.provider import ConversionSchemaProvider
 
     # Create an empty node_index
@@ -2061,8 +2363,58 @@ def test_conversion_schema_provider_with_runtime_enabled(
     schema = provider.get_schema("RuntimeNode")
     assert schema is not None
     assert schema.source_provider == "runtime"
-    assert schema.confidence == 0.6
+    assert schema.confidence == 1.0
     assert schema.inputs["seed"].type == "INT"
+
+
+def test_conversion_schema_provider_live_runtime_precedes_stale_node_index(
+    tmp_path,
+) -> None:
+    """Explicit live validation uses the executor's schema, not stale pins."""
+    import json
+
+    from vibecomfy.schema.cache import runtime_fingerprint, write_object_info_cache
+    from vibecomfy.schema.provider import ConversionSchemaProvider
+
+    index = tmp_path / "node_index.json"
+    index.write_text(
+        json.dumps(
+            [
+                {
+                    "class_type": "ChangingNode",
+                    "inputs": {"mode": {"type": ["old"], "required": True}},
+                    "outputs": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    provider = ConversionSchemaProvider(
+        node_index_path=index,
+        source_roots=[],
+        object_info_cache_path=None,
+        widget_schema={},
+        enable_runtime=True,
+        runtime_server_url="http://runtime.test",
+    )
+    assert provider._runtime is not None
+    write_object_info_cache(
+        provider._runtime.cache_path,
+        {
+            "ChangingNode": {
+                "input": {"required": {"mode": [["old", "new"]]}},
+                "output": [],
+            }
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
+    )
+
+    schema = provider.get_schema("ChangingNode")
+
+    assert schema is not None
+    assert schema.source_provider == "runtime"
+    assert schema.inputs["mode"].choices == ["old", "new"]
 
 
 def test_conversion_schema_provider_precedence_order_is_correct(

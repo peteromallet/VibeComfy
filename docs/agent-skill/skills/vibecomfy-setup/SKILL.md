@@ -138,14 +138,14 @@ Plan before downloading:
 
 ```bash
 vibecomfy models stage --select-phase core --dry-run
-vibecomfy fetch <workflow> --dry-run
+vibecomfy models ensure <workflow> --dry-run
 ```
 
 Then install only after the user agrees:
 
 ```bash
 vibecomfy models stage --select-phase core
-vibecomfy fetch <workflow>
+vibecomfy models ensure <workflow>
 ```
 
 Skip local models:

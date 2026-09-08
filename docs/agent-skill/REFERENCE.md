@@ -93,7 +93,7 @@ vibecomfy nodes ensure --workflow <workflow>
 vibecomfy nodes ensure --template <ready_id>
 vibecomfy nodes lock
 vibecomfy nodes restore
-vibecomfy fetch <workflow> --dry-run
+vibecomfy models ensure <workflow> --dry-run
 vibecomfy models stage --select-phase core --dry-run
 ```
 

@@ -32,13 +32,13 @@ comfy = [
   # extra is not installed. The package is published on AppMana's Python index;
   # pip callers must pass --extra-index-url https://nodes.appmana.com/simple/.
   #
-  # Frontend pin conflict: comfyui 0.26.0 pins comfyui-frontend-package<1.46
-  # while a fresh ComfyUI checkout tracks a 1.48.x frontend. Installing this
+  # Frontend pin conflict: pip comfyui 0.34.0 pins a specific frontend version
+  # while a fresh ComfyUI checkout may track another frontend. Installing this
   # extra into a checkout venv can therefore surface a pip resolver conflict; it
   # is benign because the checkout's own comfy/ package wins when running
   # main.py, but keep checkout venvs and [comfy]-extra venvs separate. See the
   # "Use VibeComfy Inside ComfyUI" section of the README.
-  "comfyui==0.26.0",
+  "comfyui==0.34.0",
 ]
 png = [
   # Optional image-ingest hook (M2 Step 11): read a ComfyUI workflow chunk
@@ -59,11 +59,14 @@ agent = [
 ]
 runpod-local = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1",
+  # VibeComfy's RunPod wrapper uses the detached/artifact APIs introduced in
+  # lifecycle 0.3.0. Pin the public main commit until that version is tagged,
+  # rather than resolving the older v0.1.1 API by accident.
+  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@69a8bb8492ff4330930be72cd391198544b30d12",
 ]
 runpod-launch = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1",
+  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@69a8bb8492ff4330930be72cd391198544b30d12",
 ]
 intent = [
   # Optional extra for the intent-oracle gate (S3).  anthropic is needed for
@@ -92,6 +95,13 @@ artifacts = [
 exclude = [
   "/vibecomfy/comfy_nodes/web_dist/**",
 ]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Ready templates are runtime package data, not only checkout fixtures. Keep
+# them available to installed CLI users resolving ready IDs outside the repo.
+"ready_templates" = "vibecomfy/ready_templates"
+# Be explicit about the model registry because runtime reconciliation reads it.
+"vibecomfy/registry/models.yaml" = "vibecomfy/registry/models.yaml"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

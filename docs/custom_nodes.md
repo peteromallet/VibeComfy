@@ -20,6 +20,15 @@ Custom-node handling is now a catalog-backed workflow, not just a doc note.
 
 - `vibecomfy doctor <workflow-or-scratchpad>` reports unknown classes and suggests known packs.
 - `vibecomfy nodes install-plan <workflow-or-scratchpad>` prints the custom-node repos and pip packages needed for a workflow.
+- `vibecomfy nodes register <workflow> <class_type> --repo <git-url>` records an
+  agent-researched mapping for a class the catalog cannot resolve.  The mapping
+  is stored beside the workflow as `<workflow>.nodes.yaml`; add `--commit` (or
+  `--version`) when the source must be pinned.
+- `vibecomfy nodes install-plan <workflow-or-scratchpad>` and
+  `vibecomfy nodes ensure --workflow <workflow-or-scratchpad>` consume those
+  workflow-local mappings before reporting a class as unresolved.  `ensure`
+  passes the mapping to the existing batch installer, which writes the resolved
+  checkout to `custom_nodes.lock` after installation.
 - Ready templates declare `READY_REQUIREMENTS["custom_nodes"]`; `python -m tools.refresh_template_index` exposes that static evidence to downstream tooling.
 - `scripts/runpod_matrix_remote.py` carries compatibility patches for known stale workflow class names, such as older Video-Depth-Anything nodes that now map to Kijai's `DepthAnything_V2` pack.
 

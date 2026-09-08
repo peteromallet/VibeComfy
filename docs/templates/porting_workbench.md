@@ -30,12 +30,20 @@ There is one promotion path for durable templates: source workflow -> `port chec
 | Diagnose runtime readiness and suggested fixes | `python -m vibecomfy.cli doctor <workflow>` |
 | See custom-node packs to install | `python -m vibecomfy.cli nodes install-plan <workflow>` |
 | Reconcile and fetch final runtime model assets | `python -m vibecomfy.cli run <workflow> --runtime embedded` |
-| Fetch authored model asset metadata only | `python -m vibecomfy.cli fetch <workflow>` |
+| Reconcile final workflow model assets | `python -m vibecomfy.cli models ensure <workflow>` (`fetch` is a compatibility alias) |
 | Check model URLs without downloading bodies | `python -m vibecomfy.cli port check <workflow> --head-check-models --json` |
 
 `--head-check-models` is opt-in. It performs HEAD requests only, follows redirects, records status codes, and does not download model bodies. Keep normal `run`, `doctor`, `validate`, and `fetch` behavior offline unless you intentionally ask for URL checks.
 
 Embedded `run` reconciles model assets by default. It inspects the final built workflow after scratchpad patches, resolves model-picker values such as `ckpt_name`, `vae_name`, `unet_name`, and `lora_name` through authored `model_assets` and `vibecomfy/registry/models.yaml`, downloads/stages resolved files, and fails before queueing if a referenced asset cannot be resolved. Use `--no-ensure-models` only for compile-only work where downloads are intentionally disabled.
+
+For an unknown filename, research the authoritative URL and pins outside
+VibeComfy, then record the deterministic mapping with
+`vibecomfy models register <workflow> <filename> --url <url> --target-path <subdir>/<filename>`.
+This writes an adjacent `<workflow>.models.yaml` sidecar used by both
+`models ensure` and `run`; VibeComfy does not search the internet. Explicit
+remote runs remain opt-in: use `run --ensure-models --shared-models-root
+<path>` when the remote server can see that shared root.
 
 ## What `port check` Reports
 
@@ -167,7 +175,7 @@ Run this order while porting:
 
 1. `port check <workflow> --json`
 2. `nodes install-plan <workflow>` when unresolved runtime classes appear
-3. `fetch <workflow>` when declared models are missing
+3. `models ensure <workflow>` when declared or registry-resolved models are missing
 4. `port convert <workflow> --out out/scratchpads/<id>.py --json`
 5. `validate out/scratchpads/<id>.py`
 6. `doctor out/scratchpads/<id>.py`

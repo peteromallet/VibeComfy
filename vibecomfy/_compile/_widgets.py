@@ -921,6 +921,9 @@ def widget_names_from_schema(class_type: str, schema: Any | None) -> list[str | 
     committed = widget_names_for_class(class_type)
     if committed is not None:
         return committed
+    explicit_order = getattr(schema, "widget_input_order", None)
+    if isinstance(explicit_order, (list, tuple)) and explicit_order:
+        return [name if isinstance(name, str) else None for name in explicit_order]
     return _input_alias_from_schema(schema)
 
 

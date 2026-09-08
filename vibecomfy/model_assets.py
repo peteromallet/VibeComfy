@@ -144,6 +144,25 @@ def resolve_referenced_assets(
     return resolved, unresolved
 
 
+def local_registry_for_workflow(workflow: VibeWorkflow):
+    """Load an optional workflow-local model sidecar.
+
+    The sidecar is intentionally adjacent to a file-backed workflow (for
+    example ``my_workflow.models.yaml`` next to ``my_workflow.py``). It is a
+    deterministic handoff for agent-researched URLs, not a model search path.
+    """
+
+    source_path = getattr(getattr(workflow, "source", None), "path", None)
+    if not source_path:
+        return ()
+    sidecar = Path(source_path).with_suffix(".models.yaml")
+    if not sidecar.is_file():
+        return ()
+    from vibecomfy.registry.models_loader import load_registry
+
+    return load_registry(sidecar)
+
+
 def _literal_eval_with_constants(node: ast.AST, constants: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Name) and node.id in constants:
         return constants[node.id]

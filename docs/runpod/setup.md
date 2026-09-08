@@ -61,7 +61,10 @@ What the script does:
 - Launches a RunPod pod with the configured storage.
 - Waits for SSH and checks `nvidia-smi -L`.
 - Uploads the local VibeComfy repo, excluding `.venv`, `.git`, `out`, `output`, `vendor`, `.desloppify`, `.megaplan`, and run logs.
-- Installs VibeComfy, HiddenSwitch ComfyUI, and ComfyScript.
+- Installs VibeComfy, HiddenSwitch ComfyUI 0.34.0, and ComfyScript. This is the
+  first published AppMana pip package in the available index with both native
+  MiniMax H3 nodes and the per-token video/audio denoise-mask support from
+  ComfyUI PR #15375. The older 0.26.0 pin has no native H3 implementation.
 - Runs tests.
 - Indexes official templates, external examples, custom-node examples, and runtime nodes.
 - Starts managed runtime smoke.
@@ -70,6 +73,21 @@ What the script does:
 - Terminates the launched pod in `finally`.
 
 The cheap smoke exists only to prove launch, upload, runtime startup, Python ready-template execution, artifact download, and termination. Production validation should execute model-backed Python ready templates from `ready_templates/`, not raw JSON fixtures.
+
+### MiniMax H3 runtime pin
+
+The CLI acceptance/setup scripts share the `COMFYUI_H3_PIP_SPEC` contract from
+`vibecomfy.commands.runpod_setup` and install `comfyui==0.34.0` from the
+AppMana index. The audit of published packages found:
+
+- 0.30.0: first package containing `MiniMaxH3ReferenceToVideo`.
+- 0.34.0: first package containing the merged per-token video/audio denoise
+  masks needed for latent continuation (`comfy/ldm/minimax/model.py` and
+  `comfy/model_base.py`, corresponding to PR #15375).
+
+Use `python scripts/runpod_acceptance.py` or `python scripts/runpod_validate.py`
+to exercise this exact CLI installation path. No raw Python imports from a
+ComfyUI checkout are required for the H3 runtime.
 
 Use `runpod_acceptance.py` when the question is whether the package works end to
 end across representations and runtime modes. Use `runpod_validate.py` only for

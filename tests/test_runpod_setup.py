@@ -6,6 +6,21 @@ from vibecomfy.commands import runpod_setup
 from vibecomfy.registry.models_loader import canonical_filename, load_registry
 
 
+def test_h3_cli_uses_comfyui_release_with_av_denoise_masks() -> None:
+    assert runpod_setup.COMFYUI_H3_PIP_SPEC == "comfyui==0.34.0"
+    repo_root = Path(__file__).resolve().parents[1]
+    for relative in (
+        "scripts/runpod_acceptance.py",
+        "scripts/runpod_validate.py",
+        "scripts/runpod_model_matrix.py",
+        "scripts/runpod_corpus_matrix.py",
+    ):
+        source = (repo_root / relative).read_text(encoding="utf-8")
+        assert "comfyui==0.26.0" not in source
+    acceptance = (repo_root / "scripts/runpod_acceptance.py").read_text(encoding="utf-8")
+    assert "__COMFYUI_H3_PIP_SPEC__" in acceptance
+
+
 def test_baseline_registry_includes_sd15_fp16() -> None:
     entries = load_registry()
 

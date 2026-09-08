@@ -474,6 +474,13 @@ def reconciled_object_info_widget_order(entry: dict[str, Any]) -> list[str | Non
     """
     raw_order = entry.get("object_info_widget_order")
     if not isinstance(raw_order, list):
+        # Live ComfyUI /object_info responses use the raw ``input`` and
+        # ``input_order`` keys.  Normalized cache entries add the compact
+        # ``object_info_widget_order`` field, but live schema resolution must
+        # not silently lose its widget order just because it has not passed
+        # through the cache serializer yet.
+        raw_order = _raw_object_info_input_order(entry)
+    if not raw_order:
         return []
     raw: list[str | None] = [name if isinstance(name, str) else None for name in raw_order]
     input_specs = {name: spec for name, spec in _iter_input_specs(entry)}
@@ -543,7 +550,10 @@ def compact_literal_widget_order(entry: dict[str, Any]) -> list[str]:
             names.append(name)
             continue
         spec = input_specs.get(name)
-        if spec is not None and not _input_spec_is_widget_value(spec):
+        # Raw input_order also contains hidden values and forceInput sockets;
+        # neither occupies a widgets_values slot. Unknown names are therefore
+        # not safe to treat as literal widgets.
+        if spec is None or not _input_spec_is_widget_value(spec):
             continue
         names.append(name)
     return names
@@ -551,6 +561,9 @@ def compact_literal_widget_order(entry: dict[str, Any]) -> list[str]:
 
 def _input_spec_is_widget_value(spec: list[Any]) -> bool:
     if not spec:
+        return False
+    attrs = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
+    if attrs.get("forceInput") is True:
         return False
     head = spec[0]
     if isinstance(head, list):
@@ -743,9 +756,15 @@ def list_classes() -> list[str]:
 def _iter_input_specs(entry: dict[str, Any]) -> list[tuple[str, list[Any]]]:
     inputs = entry.get("inputs")
     if not isinstance(inputs, dict):
+        # ``input`` is the key returned by the live ComfyUI endpoint; the
+        # serializer renames it to ``inputs`` for durable cache entries.
+        inputs = entry.get("input")
+    if not isinstance(inputs, dict):
         return []
     ordered = entry.get("input_order_all")
     names: list[str] = [str(name) for name in ordered] if isinstance(ordered, list) else []
+    if not names:
+        names = _raw_object_info_input_order(entry)
     by_name: dict[str, list[Any]] = {}
     for section in ("required", "optional"):
         values = inputs.get(section)
@@ -759,6 +778,31 @@ def _iter_input_specs(entry: dict[str, Any]) -> list[tuple[str, list[Any]]]:
     if not names:
         names = sorted(by_name)
     return [(name, by_name[name]) for name in names if name in by_name]
+
+
+def _raw_object_info_input_order(entry: dict[str, Any]) -> list[str]:
+    """Return the full ordered input roster from raw or normalized object_info."""
+    input_order = entry.get("input_order")
+    if isinstance(input_order, dict):
+        names: list[str] = []
+        for section in ("required", "optional", "hidden"):
+            values = input_order.get(section)
+            if isinstance(values, list):
+                names.extend(str(name) for name in values if isinstance(name, str) and name)
+        if names:
+            return names
+
+    inputs = entry.get("input")
+    if not isinstance(inputs, dict):
+        inputs = entry.get("inputs")
+    if isinstance(inputs, dict):
+        names = []
+        for section in ("required", "optional", "hidden"):
+            values = inputs.get(section)
+            if isinstance(values, dict):
+                names.extend(str(name) for name in values if isinstance(name, str) and name)
+        return names
+    return []
 
 
 def _normalize_input_type(value: Any) -> str:

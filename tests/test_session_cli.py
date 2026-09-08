@@ -180,6 +180,27 @@ def test_session_cli_start_without_memory_profile_leaves_config_unchanged(
     assert "memory_profile" not in config
 
 
+def test_session_cli_start_passes_source_comfyui_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session_cmd, "normalized_models_root", lambda: "/tmp/models")
+    args = argparse.Namespace(
+        id="pinned",
+        port=8189,
+        vram_policy="auto",
+        reserve_vram_gb=None,
+        cache_policy="smart",
+        warm_policy="auto",
+        disable_smart_memory=False,
+        memory_profile=None,
+        comfyui_root=str(tmp_path),
+    )
+
+    config = session_cmd._config_from_args(args)
+
+    assert config["comfyui_root"] == str(tmp_path)
+
+
 def test_session_cli_start_timeout_terminates_daemon_and_records_argv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -261,6 +282,23 @@ def test_find_active_session_returns_url_or_cleans_stale_files(
     assert not (session_dir / "pid").exists()
     assert not (session_dir / "url").exists()
     assert not (session_dir / "config.json").exists()
+
+
+def test_find_active_session_uses_explicit_session_state_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = tmp_path / "shared-session-registry"
+    session_dir = registry / "astrid-h3-poc"
+    session_dir.mkdir(parents=True)
+    (session_dir / "pid").write_text("4242", encoding="utf-8")
+    (session_dir / "url").write_text("http://127.0.0.1:8189", encoding="utf-8")
+    (session_dir / "config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("VIBECOMFY_SESSION_ROOT", str(registry))
+    monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
+    monkeypatch.setattr(session_module.os, "kill", lambda _pid, _sig: None)
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+
+    assert find_active_session("astrid-h3-poc") == "http://127.0.0.1:8189"
 
 
 def test_find_active_session_healthy_daemon_survives_source_revision_mismatch(

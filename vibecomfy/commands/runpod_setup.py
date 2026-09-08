@@ -58,6 +58,11 @@ LTX_NODE_PACKS = (
     "rgthree-comfy",
 )
 
+# The pip-installable ComfyUI package first exposed MiniMax H3 in 0.30.0.
+# Per-token video/audio denoise masks (the continuation primitive) first land
+# in the 0.34.0 package, so all CLI RunPod setup paths use this one contract.
+COMFYUI_H3_PIP_SPEC = "comfyui==0.34.0"
+
 
 @dataclass(frozen=True)
 class ParkedNodePack:

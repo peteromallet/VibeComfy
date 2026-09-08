@@ -677,3 +677,75 @@ models:
       - node_pack: wan_wrapper
         path: 'diffusion_models/MelBandRoformer\MelBandRoformer_fp16.safetensors'
     tags: [phase:wan_wrapper]
+
+  - id: minimax_h3_ref2va_diffusion
+    source:
+      kind: url
+      url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
+    min_size: 20_970_379_616
+    targets:
+      - node_pack: comfy_core
+        path: diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
+    notes: MiniMax H3 continuation POC diffusion model.
+    sha256: 9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779
+    size_bytes: 20_970_379_616
+
+  - id: minimax_h3_ref2va_diffusion_blackwell_nvfp4
+    source:
+      kind: url
+      url: https://huggingface.co/lilcheaty/MiniMax-H3-NVFP4/resolve/8c5abfed61e1b6a170240792b65253fba1a65b7b/minimax_h3_ref2va_pruned_nvfp4.safetensors
+    min_size: 12_528_636_800
+    targets:
+      - node_pack: comfy_core
+        path: diffusion_models/minimax_h3_ref2va_pruned_nvfp4.safetensors
+    notes: MiniMax H3 native Blackwell low-VRAM Ref2VA diffusion model.
+    sha256: c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac
+    size_bytes: 12_528_636_800
+
+  - id: minimax_h3_qwen3vl_text_encoder
+    source:
+      kind: url
+      url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+    min_size: 15_687_142_551
+    targets:
+      - node_pack: comfy_core
+        path: text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+    notes: MiniMax H3 continuation POC Qwen3-VL text encoder.
+    sha256: 35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6
+    size_bytes: 15_687_142_551
+
+  - id: minimax_h3_video_vae
+    source:
+      kind: url
+      url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors
+    min_size: 5_207_808_496
+    targets:
+      - node_pack: comfy_core
+        path: vae/minimax_h3_video_vae_fp16.safetensors
+    notes: MiniMax H3 continuation POC video VAE.
+    sha256: 7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522
+    size_bytes: 5_207_808_496
+
+  - id: minimax_h3_audio_vae
+    source:
+      kind: url
+      url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors
+    min_size: 605_254_808
+    targets:
+      - node_pack: comfy_core
+        path: vae/minimax_h3_audio_vae_fp32.safetensors
+    notes: MiniMax H3 continuation POC audio VAE.
+    sha256: 8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48
+    size_bytes: 605_254_808
+
+  - id: minimax_h3_fl2v_turbo_8step_lora
+    source:
+      kind: url
+      url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+    min_size: 1_956_193_000
+    targets:
+      - node_pack: comfy_core
+        path: loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+    notes: MiniMax H3 continuation POC first/last-frame turbo LoRA.
+    sha256: 2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e
+    size_bytes: 1_956_193_000

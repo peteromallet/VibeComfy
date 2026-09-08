@@ -104,7 +104,7 @@ Run metadata keeps the legacy `outputs` list as resolved artifact paths. It also
 - `port`
 - `extra`: raw HiddenSwitch configuration keys not represented by typed fields
 
-`EmbeddedSession` holds one `Comfy()` context across multiple `run()` calls. `ServerSession` holds one `comfyui serve` subprocess and uses HTTP for readiness, prompt queueing, and explicit flush.
+`EmbeddedSession` holds one `Comfy()` context across multiple `run()` calls. `ServerSession` holds one managed Comfy subprocess and uses HTTP for readiness, prompt queueing, and explicit flush. The CLI `session start --comfyui-root PATH` form runs a pinned source checkout directly, avoiding an unrelated pip `comfyui` installation.
 
 ## Runtime Spawn Contract
 
@@ -113,12 +113,14 @@ contract, and ONE exception shape.
 
 **Sole owner — `vibecomfy/runtime/session.py`:**
 
-- `_comfy_server_argv(config)` — the richer argv builder. Beyond the shared vram/cache/reserve
+- `_comfy_server_argv(config)` — the richer argv builder. By default it launches `comfyui serve`;
+  when `extra["comfyui_root"]` is configured, it launches that checkout's `main.py` with the
+  current Python interpreter and uses the checkout as the subprocess working directory. Beyond the shared vram/cache/reserve
   flags it adds `--use-sage-attention` (from `extra["use_sage_attention"]` or the
   `VIBECOMFY_ATTENTION_PROFILE` / `REIGH_VIBECOMFY_ATTENTION_PROFILE` env), the I/O directory
   args `--input-directory`, `--output-directory`, `--temp-directory` (from
   `extra["input_directory"]` / `output_directory` / `temp_directory`), and `--port`.
-- `_spawn_comfy_server(config, log_path=None)` — spawns `comfyui serve` with that argv and polls
+- `_spawn_comfy_server(config, log_path=None)` — spawns the configured Comfy command with that argv and polls
   the readiness probe (`/system_stats`) under a **configurable timeout**:
 
   ```text

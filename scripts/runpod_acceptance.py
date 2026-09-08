@@ -83,6 +83,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.runpod_runner import DEFAULT_UPLOAD_EXCLUDES, REMOTE_ROOT, run_pod_detached
+from vibecomfy.commands.runpod_setup import COMFYUI_H3_PIP_SPEC
 
 
 # external_workflows/ ships ~1 GiB of unrelated workflow JSON that the acceptance
@@ -197,7 +198,7 @@ trap finish EXIT
 log "installing package and ComfyUI runtime dependencies"
 "$PY" -m pip install --upgrade pip wheel setuptools
 "$PY" -m pip install -e '.[dev]'
-"$PY" -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0' 'comfy-script[default]'
+"$PY" -m pip install --extra-index-url https://nodes.appmana.com/simple/ '__COMFYUI_H3_PIP_SPEC__' 'comfy-script[default]'
 
 run_step runtime_doctor setup out/corpus_matrix/runtime_doctor.json "$PY" -m vibecomfy.cli runtime doctor --json
 cp out/corpus_matrix/logs/runtime_doctor.log out/corpus_matrix/runtime_doctor.json
@@ -325,6 +326,7 @@ cat "$RESULTS"
         .replace("__REMOTE_ROOT__", REMOTE_ROOT)
         .replace("__MODEL_TEMPLATE_EXPORT__", model_template_export)
         .replace("__MODEL_PHASE_EXPORT__", model_phase_export)
+        .replace("__COMFYUI_H3_PIP_SPEC__", COMFYUI_H3_PIP_SPEC)
     )
 
 

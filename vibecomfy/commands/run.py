@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.commands._node_ensure import registered_node_packs_for_workflow
 from vibecomfy.registry.library import load_workflow_reference
 from vibecomfy.runtime.model_policy import (
     apply_model_preflight,
@@ -15,6 +16,8 @@ from vibecomfy.runtime.model_policy import (
 from vibecomfy.runtime.run import run_embedded_sync, run_sync
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, apply_memory_profile_override, find_active_session
 from vibecomfy.schema import get_schema_provider
+from vibecomfy.errors import ModelAssetError
+from vibecomfy.commands._model_ensure import model_reconciliation_hint
 
 
 _OVERRIDE_HINTS = {
@@ -47,7 +50,7 @@ def _override_unwired_message(workflow_id: str, flag: str, override: str) -> str
 
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
-        ensure_packs = bool(getattr(args, "ensure_packs", False))
+        requested_ensure_packs = bool(getattr(args, "ensure_packs", False))
         ensure_models_flag = getattr(args, "ensure_models", None)
         ensure_models_requested = ensure_models_flag is True
         ensure_models_disabled = ensure_models_flag is False
@@ -74,6 +77,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except SyntaxError as exc:
             print(f"run failed: SyntaxError: {exc}", file=sys.stderr)
             return 1
+        has_local_node_registration = bool(
+            registered_node_packs_for_workflow(args.path, workflow=workflow)
+        )
+        # A workflow-local registration is an explicit authoring decision. It
+        # may be realized automatically only by an embedded run or a new
+        # VibeComfy-managed one-shot server. An existing/explicit server is a
+        # separate environment and must never receive an implicit code install.
+        new_managed_server = (
+            args.server_url is None
+            and session_url is None
+            and args.runtime in {"auto", "server"}
+        )
+        ensure_packs = requested_ensure_packs or (
+            has_local_node_registration
+            and (args.runtime == "embedded" or new_managed_server)
+        )
         if args.prompt is not None:
             if workflow.inputs.get("prompt") is None:
                 print(_override_unwired_message(workflow.id, "--prompt", "prompt"), file=sys.stderr)
@@ -108,7 +127,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 result = _run_embedded_command(workflow, backend=args.backend, config=override_config, ensure_packs=ensure_packs, ensure_models=ensure_models)
         elif args.runtime == "auto":
             if session_url:
-                if ensure_packs:
+                if requested_ensure_packs:
                     print("run failed: --ensure-packs is only supported for embedded runtime", file=sys.stderr)
                     return 2
                 ensure_models = _server_ensure_models_enabled(
@@ -137,8 +156,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 else:
                     result = _run_embedded_command(workflow, backend=args.backend, config=override_config, ensure_packs=ensure_packs, ensure_models=ensure_models)
         elif args.runtime == "server":
-            if ensure_packs:
-                print("run failed: --ensure-packs is only supported for embedded runtime", file=sys.stderr)
+            if requested_ensure_packs and (args.server_url is not None or session_url is not None):
+                print(
+                    "run failed: --ensure-packs is only supported for embedded or new managed runtime; "
+                    "external/active servers must already have the required custom nodes",
+                    file=sys.stderr,
+                )
                 return 2
             ensure_models = _server_ensure_models_enabled(
                 ensure_models_requested=ensure_models_requested,
@@ -157,6 +180,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     workflow,
                     server_url=session_url,
                     backend=args.backend,
+                    ensure_packs=ensure_packs,
                     ensure_models=ensure_models,
                     shared_models_root=shared_root,
                 )
@@ -166,6 +190,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     server_url=session_url,
                     backend=args.backend,
                     config=override_config,
+                    ensure_packs=ensure_packs,
                     ensure_models=ensure_models,
                     shared_models_root=shared_root,
                 )
@@ -173,7 +198,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(f"unknown runtime: {args.runtime}", file=sys.stderr)
             return 2
     except (OSError, RuntimeError, ValueError) as exc:
-        print(f"run failed: {exc}", file=sys.stderr)
+        detail = str(exc)
+        if isinstance(exc, ModelAssetError) and detail.startswith("unresolved workflow model assets:"):
+            shared_root = getattr(args, "shared_models_root", None)
+            detail = model_reconciliation_hint(str(args.path), exc, shared_root=shared_root)
+        print(f"run failed: {detail}", file=sys.stderr)
         return 1
     print(f"run_id: {result.run_id}")
     print(f"prompt_id: {result.prompt_id}")
@@ -208,12 +237,15 @@ def _run_server_command(
     server_url: str | None,
     backend: str,
     config: SessionConfig | None = None,
+    ensure_packs: bool = False,
     ensure_models: bool = False,
     shared_models_root: str | None = None,
 ):
     kwargs: dict[str, Any] = {"server_url": server_url, "backend": backend}
     if config is not None:
         kwargs["config"] = config
+    if ensure_packs:
+        kwargs["ensure_packs"] = True
     if ensure_models:
         kwargs["ensure_models"] = True
     if shared_models_root is not None:

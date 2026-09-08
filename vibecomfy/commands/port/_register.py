@@ -45,6 +45,11 @@ def register(subparsers) -> None:
         help="Opt in to live /object_info schema evidence from a running ComfyUI server.",
     )
     check.add_argument(
+        "--offline-normalizer",
+        action="store_true",
+        help="Build VibeWorkflow IR with VibeComfy's offline UI normalizer instead of importing the optional pip ComfyUI converter.",
+    )
+    check.add_argument(
         "--object-info-cache",
         help="Use a captured ComfyUI /object_info JSON file as offline schema evidence. Defaults to the newest out/cache/object_info*.json when present.",
     )
@@ -92,6 +97,11 @@ def register(subparsers) -> None:
         "--runtime-object-info",
         action="store_true",
         help="Opt in to live /object_info schema evidence from a running ComfyUI server.",
+    )
+    convert.add_argument(
+        "--offline-normalizer",
+        action="store_true",
+        help="Build VibeWorkflow IR with VibeComfy's offline UI normalizer instead of importing the optional pip ComfyUI converter.",
     )
     convert.add_argument(
         "--object-info-cache",

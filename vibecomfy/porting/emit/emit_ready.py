@@ -1250,7 +1250,12 @@ def _emit_build_function(
                 out_lines.append(single_line)
         else:
             _uid_str = f", _uid={node.uid!r}" if node.uid else ""
-            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}"
+            from vibecomfy.workflow import mode_to_litegraph  # noqa: PLC0415
+
+            litegraph_mode = mode_to_litegraph(getattr(node, "mode", 0))
+            mode_label = {2: "muted", 4: "bypassed"}.get(litegraph_mode)
+            _mode_str = f", _mode={mode_label!r}" if mode_label is not None else ""
+            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}{_mode_str}"
             if not kwargs:
                 out_lines.append(f"{head})")
             else:
@@ -1704,6 +1709,7 @@ def _node(
     _extras: dict | None = None,
     _outputs: tuple[str, ...] | None = None,
     _uid: str | None = None,
+    _mode: str | int | None = None,
     **kwargs,
 ):
     """Create a node, preserving the original node id from the source workflow.
@@ -1713,11 +1719,14 @@ def _node(
     They are applied to the new node post-construction.
     """
     from vibecomfy.handles import Handle
+    from vibecomfy.workflow import litegraph_to_mode
     builder = wf.node(class_type, **kwargs)
     if _uid:
         builder.node.uid = _uid
     if _outputs is not None:
         builder.node.metadata["output_names"] = list(_outputs)
+    if _mode is not None:
+        builder.node.mode = litegraph_to_mode(_mode)
     if _extras:
         for key, value in _extras.items():
             if isinstance(value, Handle):

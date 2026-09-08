@@ -41,6 +41,7 @@ def build_port_check_payload(args: argparse.Namespace) -> tuple[dict[str, Any], 
     report = analyze_source(
         args.workflow,
         schema_provider=schema_provider,
+        use_comfy_converter=not getattr(args, "offline_normalizer", False),
         head_check_models=args.head_check_models,
         mode=port_mode,
     )
