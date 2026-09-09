@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Version mismatch: use the correct LTX23_audio_vae_bf16.safetensors with matching loader node and fully updated ComfyUI/KJNodes ('something is not updated').",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

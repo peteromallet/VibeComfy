@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-8108",
+ "query": "Workflow loading aborted due to error reloading workflow data ('Loading aborted due to error reloading workflow data') with 'ChatGPT Plus' node and art-venture/Impact-Pack custom nodes.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_8108_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Stale custom nodes: updating comfyui-art-venture, ComfyUI-Impact-Pack and ComfyUI-VideoHelperSuite (git pull + pip install -r requirements.txt) fixed it for the OP and another user.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "FLUX (ChatGPT Plus / art-venture)",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/8108",
+  "provenance_source": "github-closed",
+  "github_issue": 8108,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "flux (chatgpt plus / art-venture)"
+  ],
+  "solution_confirmed": true
+ }
+}

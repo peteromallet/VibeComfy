@@ -1,0 +1,40 @@
+{
+ "id": "gh-ltxv-image-to-video-669",
+ "query": "LTX-2.3 videos degraded to muddy, structureless output after dependency churn; intermittent 'ghost' recovery. Root cause: running without the required distill LoRA and with xformers installed (should not be used with these nodes).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "aging",
+  "age_months": 2,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/669",
+  "provenance_source": "github-open",
+  "github_issue": 669,
+  "workflow_source": "official-template",
+  "failure_class": "wrong-setting",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

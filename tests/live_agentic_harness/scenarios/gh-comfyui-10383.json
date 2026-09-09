@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Missing custom node: maintainer pointed to https://github.com/visualbruno/ComfyUI-Hunyuan3d-2-1 ; Comfy team also shipped improved error messaging in frontend v1.39.5 that names the missing node type.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

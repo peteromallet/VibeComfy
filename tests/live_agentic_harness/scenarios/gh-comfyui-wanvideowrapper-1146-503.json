@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1146-503",
+ "query": "Multitalk/InfiniteTalk workflow fails: tensors on cuda:0 vs cpu device mismatch during sampling, after a wrapper update.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1146_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "kijai fixed the regression in the wrapper (\"fixed now I think\"); OP confirmed thanks. Note: second-run pixel-soup was a separate residual issue.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan MultiTalk/InfiniteTalk",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1146",
+  "provenance_source": "github-closed",
+  "github_issue": 1146,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan multitalk/infinitetalk"
+  ],
+  "solution_confirmed": true
+ }
+}

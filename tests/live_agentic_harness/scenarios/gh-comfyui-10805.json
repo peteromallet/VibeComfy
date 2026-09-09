@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Community diagnosis: xformers incompatible with installed torch; recommend torch built for CUDA 13 (2.9.1+), compile xformers and SageAttention from source, update NVIDIA driver to 580+. Not OP-confirmed in thread.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

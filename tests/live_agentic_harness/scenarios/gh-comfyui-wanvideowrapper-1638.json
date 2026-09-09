@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1638",
+ "query": "User wants a Wan 2.2 14B T2V workflow; adapting the I2V example manually produced a variety of errors.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1638_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Convert the I2V workflow: delete/disable LoadImage and WanVideo Image2Video Encode nodes, replace sampler image_embeds with WanVideo Empty Embeds, switch model/loras to T2V versions. OP confirmed it works without error.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan 2.2 T2V 14B",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1638",
+  "provenance_source": "github-closed",
+  "github_issue": 1638,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan 2.2 t2v 14b"
+  ],
+  "solution_confirmed": true
+ }
+}

@@ -1,5 +1,5 @@
 {
- "id": "gh-workflow_templates-871",
+ "id": "gh-workflow-templates-871",
  "query": "LTX 2.3 image-to-video template (video_ltx2_3_ia2v.json) outputs corrupted latent-noise/glitch video from the first frame on RTX 5090 with latest ComfyUI; persists across prompts, VAE settings, resolutions, and custom node sets, with no log errors.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/video_ltx2_3_ia2v.json",
  "apply": true,
@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Maintainer (comfyui-wiki) asked whether sage attention or other launch args were enabled; OP said no and the thread died. No diagnosis of the suspected VAE mismatch / precision / RTX 50-series issue.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

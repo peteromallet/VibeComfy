@@ -1,5 +1,5 @@
 {
- "id": "gh-workflow_templates-858",
+ "id": "gh-workflow-templates-858",
  "query": "templates/api_google_nano_banana2_image_edit.json references node type GeminiNanoBanana2V2 which no longer exists on Comfy Cloud (only GeminiNanoBanana2), failing validation for everyone ('unknown node type(s)'), and its widgets_values are in the old V2 order so a mere rename still fails value_not_in_list checks.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_google_nano_banana2_image_edit.json",
  "apply": true,
@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Reporter (from comfy_cloud MCP smoke test) provided full diagnosis and two concrete fixes: republish the template against the current GeminiNanoBanana2 node schema (prompt, model, seed, aspect_ratio, resolution, response_modalities, thinking_level) or reinstate GeminiNanoBanana2V2 on cloud. No maintainer response; nothing confirmed fixed.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

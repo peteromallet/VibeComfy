@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-7309",
+ "query": "Loading many workflows pops 'Invalid workflow against zod schema' errors (Invalid semantic version at nodes[..].properties.ver; later aux_id format errors) on every page switch. Workflows still run but the modal is constant noise.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_7309_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Confirmed workaround: Settings > disable 'workflow validation'. Root cause: frontend PR #2751 added semantic-version/aux_id regex validation flagging non-semver node pack 'ver' fields; fix merged in ComfyUI frontend.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "general",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/7309",
+  "provenance_source": "github-closed",
+  "github_issue": 7309,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "general"
+  ],
+  "solution_confirmed": true
+ }
+}

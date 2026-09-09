@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "OP-confirmed (issue body): switch back to sdpa attention for wan2.2 video; flicker fully disappears. No maintainer reply, so treat as known trade-off of SageAttention quantization.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

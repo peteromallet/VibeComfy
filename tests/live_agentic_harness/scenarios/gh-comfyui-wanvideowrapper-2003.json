@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-2003",
+ "query": "Wan2.2 I2V A14B workflow with two-pass HIGH/LOW samplers crashes in WanVideoImageToVideoEncode: VAE expects 36 channels but input has 68 \u2014 classic wrong-VAE symptom (68 = 36+32 extra latents from end_image/extra channels path).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/template_purz_wan22_animate_auto_character_replace.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenter chenxluo gives the definitive cause: use the Wan2.1 VAE, not the Wan2.2 VAE from the ComfyUI repo, citing the identical issue #1281. Not OP-confirmed in thread.",
+  "quality": "Diagnosis identifies correct root cause; fix directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/2003",
+  "provenance_source": "github"
+ }
+}

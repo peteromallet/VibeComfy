@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1338",
+ "query": "No documentation for the WanVideoAddLucyEditLatents node: users can't wire Lucy Edit into a Wan 2.2 5B WanVideoWrapper workflow and get shape errors ('shape [3072, 3072] is invalid for input of size 26214400', 'Expected size 30 but got size 60').",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1338_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Confirmed: community-shared full workflow (attached JSON) works; the shape/size-mismatch errors came from the FastWan low-step LoRA \u2014 disabling the LoRA (and raising steps to ~50) makes Lucy Edit run fine.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan-LucyEdit",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1338",
+  "provenance_source": "github-closed",
+  "github_issue": 1338,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan-lucyedit"
+  ],
+  "solution_confirmed": true
+ }
+}

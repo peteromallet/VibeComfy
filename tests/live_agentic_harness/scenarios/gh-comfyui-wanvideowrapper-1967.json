@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1967",
+ "query": "Connecting a reference image to the start_ref_image pin of WanVideo Animate Embeds (wanvideo_WanAnimate_example_01.json) raises: WanVideoAnimateEmbeds.process() got an unexpected keyword argument 'start_ref_image'.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1967_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "The saved workflow contained an outdated copy of the WanVideo Animate Embeds node. Running 'Fix node (recreate)' refreshed the node to the current definition and the stale start_ref_image pin disappeared. Confirmed by the reporter; closed.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan2.2 Animate",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1967",
+  "provenance_source": "github-closed",
+  "github_issue": 1967,
+  "workflow_source": "repo-example",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan2.2 animate"
+  ],
+  "solution_confirmed": true
+ }
+}

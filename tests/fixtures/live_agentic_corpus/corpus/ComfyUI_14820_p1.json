@@ -1,0 +1,442 @@
+{
+ "id": "71f52791-9eda-4b20-90c1-067f1a89a3a7",
+ "revision": 0,
+ "last_node_id": 8,
+ "last_link_id": 11,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "EmptyLatentImage",
+   "pos": [
+    2396.6288399201585,
+    1503.9532038722798
+   ],
+   "size": [
+    315,
+    106
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "slot_index": 0,
+     "links": [
+      9
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "EmptyLatentImage"
+   },
+   "widgets_values": [
+    512,
+    512,
+    1
+   ]
+  },
+  {
+   "id": 2,
+   "type": "PreviewImage",
+   "pos": [
+    3389.5219063264085,
+    1086.6548029933736
+   ],
+   "size": [
+    140,
+    26
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 1
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 3,
+   "type": "VAEDecode",
+   "pos": [
+    3132.6288399201585,
+    1082.9532038722798
+   ],
+   "size": [
+    210,
+    46
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "samples",
+     "type": "LATENT",
+     "link": 2
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 3
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "slot_index": 0,
+     "links": [
+      1
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAEDecode"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 5,
+   "type": "CLIPTextEncode",
+   "pos": [
+    2336.6288399201585,
+    1283.9532038722798
+   ],
+   "size": [
+    425.27801513671875,
+    180.6060791015625
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 4
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      8
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    ""
+   ]
+  },
+  {
+   "id": 6,
+   "type": "CLIPTextEncode",
+   "pos": [
+    2338.6288399201585,
+    1080.9532038722798
+   ],
+   "size": [
+    422.84503173828125,
+    164.31304931640625
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 5
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      7
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    ""
+   ]
+  },
+  {
+   "id": 7,
+   "type": "KSampler",
+   "pos": [
+    2786.6288399201585,
+    1080.9532038722798
+   ],
+   "size": [
+    315,
+    262
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 11
+    },
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 7
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 8
+    },
+    {
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 9
+    }
+   ],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "slot_index": 0,
+     "links": [
+      2
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    156680208700286,
+    "fixed",
+    20,
+    8,
+    "euler",
+    "normal",
+    1
+   ]
+  },
+  {
+   "id": 8,
+   "type": "UNetSelfAttentionMultiply",
+   "pos": [
+    1604.750273997241,
+    1438.4968864962932
+   ],
+   "size": [
+    270.7500061035156,
+    130
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 10
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      11
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UNetSelfAttentionMultiply"
+   },
+   "widgets_values": [
+    1,
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "id": 4,
+   "type": "CheckpointLoaderSimple",
+   "pos": [
+    1182.431979833713,
+    1304.0587326243663
+   ],
+   "size": [
+    315,
+    98
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      10
+     ]
+    },
+    {
+     "name": "CLIP",
+     "type": "CLIP",
+     "slot_index": 1,
+     "links": [
+      4,
+      5
+     ]
+    },
+    {
+     "name": "VAE",
+     "type": "VAE",
+     "slot_index": 2,
+     "links": [
+      3
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CheckpointLoaderSimple",
+    "models": [
+     {
+      "name": "v1-5-pruned-emaonly-fp16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly-fp16.safetensors?download=true",
+      "directory": "checkpoints"
+     }
+    ]
+   },
+   "widgets_values": [
+    "CommonCanvas-S-C/commoncanvas_s_c.safetensors"
+   ]
+  }
+ ],
+ "links": [
+  [
+   1,
+   3,
+   0,
+   2,
+   0,
+   "IMAGE"
+  ],
+  [
+   2,
+   7,
+   0,
+   3,
+   0,
+   "LATENT"
+  ],
+  [
+   3,
+   4,
+   2,
+   3,
+   1,
+   "VAE"
+  ],
+  [
+   4,
+   4,
+   1,
+   5,
+   0,
+   "CLIP"
+  ],
+  [
+   5,
+   4,
+   1,
+   6,
+   0,
+   "CLIP"
+  ],
+  [
+   7,
+   6,
+   0,
+   7,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   8,
+   5,
+   0,
+   7,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   9,
+   1,
+   0,
+   7,
+   3,
+   "LATENT"
+  ],
+  [
+   10,
+   4,
+   0,
+   8,
+   0,
+   "MODEL"
+  ],
+  [
+   11,
+   8,
+   0,
+   7,
+   0,
+   "MODEL"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.9229599817707994,
+   "offset": [
+    -852.4723630835008,
+    -999.0828585427124
+   ]
+  },
+  "frontendVersion": "1.45.20"
+ },
+ "version": 0.4
+}

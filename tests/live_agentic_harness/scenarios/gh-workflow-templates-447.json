@@ -1,5 +1,5 @@
 {
- "id": "gh-workflow_templates-447",
+ "id": "gh-workflow-templates-447",
  "query": "video_wan2_2_14B_animate template opens with 2 missing nodes ('Cannot execute because a node is missing the class_type property'); ComfyUI-Manager shows nothing to install and restarts don't help. A second user (Watermelon6093) reports the same.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/image_to_video_wan.json",
  "apply": true,
@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Maintainer (comfyui-wiki): 'This model support requires custom nodes. Please follow the note in the guide to install the custom nodes.' Users report the Manager finds no such nodes (same family as #422), so no confirmed install path.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

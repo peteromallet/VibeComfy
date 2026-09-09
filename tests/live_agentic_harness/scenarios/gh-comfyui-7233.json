@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-7233",
+ "query": "Same workflow and parameters produce different results in ComfyUI Desktop vs local install (sd/FLUX-ish smZ CLIP workflow), reproducibility complaint.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_7233_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "ComfyUI v0.3.12 made ancestral sampling more deterministic, changing results across versions; version mismatch between the two installs explains the difference (confirmed by maintainer with release link).",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "SD (smZ CLIP)",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/7233",
+  "provenance_source": "github-closed",
+  "github_issue": 7233,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "sd (smz clip)"
+  ],
+  "solution_confirmed": true
+ }
+}

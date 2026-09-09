@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-7699",
+ "query": "RTX 5090 user: ComfyUI pauses/hangs when running native Wan2.1 720p_fp16 workflows (FramePack example attached); 480p_bf16 and 720p_fp8 models run fine.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_7699_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Confirmed: the user solved it by increasing system memory \u2014 the fp16 model run was RAM-bound, not a GPU bug.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/7699",
+  "provenance_source": "github-closed",
+  "github_issue": 7699,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": true
+ }
+}

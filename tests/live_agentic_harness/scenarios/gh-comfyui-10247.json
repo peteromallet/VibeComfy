@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Fixed in ComfyUI Desktop v0.5.1 (core v0.3.64); OP confirmed 'v0.5.1(core v.0.3.64) fixed the issue.'",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

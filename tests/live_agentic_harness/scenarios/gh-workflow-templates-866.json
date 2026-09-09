@@ -1,0 +1,40 @@
+{
+ "id": "gh-workflow-templates-866",
+ "query": "image_hidream_o1_dev template produces a grey image (or pure noise for others, incl. fp8/mxfp8 variants; edit mode broken) even with default prompts and correct model placement. Root cause: the ImageScaleToTotalPixels node in the template is bypassed, corrupting the image path.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/image_hidream_o1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenter smithian123 (2026-05-19): un-bypassing the ImageScaleToTotalPixels node fixed the grey output. Affects anyone who runs the template as shipped since the node ships bypassed.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/866",
+  "provenance_source": "github"
+ }
+}

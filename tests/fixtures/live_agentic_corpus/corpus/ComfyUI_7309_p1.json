@@ -1,0 +1,736 @@
+{
+ "last_node_id": 84,
+ "last_link_id": 310,
+ "nodes": [
+  {
+   "id": 74,
+   "type": "VAEDecode",
+   "pos": [
+    1591.5029296875,
+    1193.3114013671875
+   ],
+   "size": [
+    210,
+    46
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "samples",
+     "type": "LATENT",
+     "link": 292
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 293
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      294
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "VAEDecode"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 20,
+   "type": "SaveImage",
+   "pos": [
+    1598.6141357421875,
+    1346.9281005859375
+   ],
+   "size": [
+    479.7315368652344,
+    673.8284912109375
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 294
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "ComfyUI"
+   ]
+  },
+  {
+   "id": 73,
+   "type": "KSampler",
+   "pos": [
+    1188.62158203125,
+    1196.2684326171875
+   ],
+   "size": [
+    315,
+    262
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 288
+    },
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 297
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 298
+    },
+    {
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 302
+    }
+   ],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      292
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    85424746204869,
+    "fixed",
+    25,
+    8,
+    "dpmpp_2m",
+    "karras",
+    0.85
+   ]
+  },
+  {
+   "id": 64,
+   "type": "EmptyLatentImage",
+   "pos": [
+    1193.8690185546875,
+    1517.9827880859375
+   ],
+   "size": [
+    315,
+    106
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      302
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "EmptyLatentImage"
+   },
+   "widgets_values": [
+    832,
+    1216,
+    1
+   ]
+  },
+  {
+   "id": 61,
+   "type": "CLIPTextEncode",
+   "pos": [
+    717.4150390625,
+    1479.946533203125
+   ],
+   "size": [
+    413.71246337890625,
+    78
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 271
+    },
+    {
+     "name": "text",
+     "type": "STRING",
+     "widget": {
+      "name": "text"
+     },
+     "link": 309
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "links": [
+      298
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    ""
+   ],
+   "color": "#322",
+   "bgcolor": "#533"
+  },
+  {
+   "id": 82,
+   "type": "easy negative",
+   "pos": [
+    -168.3624725341797,
+    1468.6884765625
+   ],
+   "size": [
+    400,
+    200
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "negative",
+     "type": "STRING",
+     "links": [
+      308
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfyui-easy-use",
+    "ver": "3e84b8cd77719341adc71b08b5789bdb07b1a543",
+    "Node name for S&R": "easy negative"
+   },
+   "widgets_values": [
+    ""
+   ],
+   "color": "#322",
+   "bgcolor": "#533"
+  },
+  {
+   "id": 84,
+   "type": "Text Concatenate",
+   "pos": [
+    280.586669921875,
+    1468.6807861328125
+   ],
+   "size": [
+    405.3855895996094,
+    238
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "text_a",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_a"
+     },
+     "link": 308
+    },
+    {
+     "name": "text_b",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_b"
+     },
+     "link": 305
+    },
+    {
+     "name": "text_c",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_c"
+     },
+     "link": null
+    },
+    {
+     "name": "text_d",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_d"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "STRING",
+     "type": "STRING",
+     "links": [
+      309
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "was-node-suite-comfyui",
+    "ver": "9ae952b1b435d2bd846bfe6516919b5a8b9201aa",
+    "Node name for S&R": "Text Concatenate"
+   },
+   "widgets_values": [
+    ", ",
+    "true",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "color": "#322",
+   "bgcolor": "#533"
+  },
+  {
+   "id": 60,
+   "type": "CLIPTextEncode",
+   "pos": [
+    713.489013671875,
+    1196.923828125
+   ],
+   "size": [
+    419.5941467285156,
+    78
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 270
+    },
+    {
+     "name": "text",
+     "type": "STRING",
+     "widget": {
+      "name": "text"
+     },
+     "link": 310
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "links": [
+      297
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    "Disney style, Pixar animation, character design, renderman, cozy lighting, biggish, jolly human pixar character, stylized, 3D-rendered cartoon figure with a warm and friendly expression. smooth textures, and vibrant colors. A bearded man with a cheerful expression, wide eyes, and rosy cheeks.\n\n\nClothing:\nA red beanie with a pom-pom on top.\nA thick, blue long-sleeved shirt.\nBlue suspenders attached to his pants.\nA brown belt with a golden buckle.\nand beige pants tucked into sturdy brown boots.\n\n"
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 77,
+   "type": "Text Concatenate",
+   "pos": [
+    273.5819091796875,
+    1202.20068359375
+   ],
+   "size": [
+    413.6051025390625,
+    238
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "text_a",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_a"
+     },
+     "link": 307
+    },
+    {
+     "name": "text_b",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_b"
+     },
+     "link": 306
+    },
+    {
+     "name": "text_c",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_c"
+     },
+     "link": null
+    },
+    {
+     "name": "text_d",
+     "type": "STRING",
+     "shape": 7,
+     "widget": {
+      "name": "text_d"
+     },
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "STRING",
+     "type": "STRING",
+     "links": [
+      310
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "was-node-suite-comfyui",
+    "ver": "9ae952b1b435d2bd846bfe6516919b5a8b9201aa",
+    "Node name for S&R": "Text Concatenate"
+   },
+   "widgets_values": [
+    ", ",
+    "true",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 83,
+   "type": "easy positive",
+   "pos": [
+    -163.08404541015625,
+    1204.713623046875
+   ],
+   "size": [
+    400,
+    200
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "positive",
+     "type": "STRING",
+     "links": [
+      307
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfyui-easy-use",
+    "ver": "3e84b8cd77719341adc71b08b5789bdb07b1a543",
+    "Node name for S&R": "easy positive"
+   },
+   "widgets_values": [
+    "A robot in the cave "
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 59,
+   "type": "CheckpointLoaderSimple",
+   "pos": [
+    -528.547607421875,
+    1216.5780029296875
+   ],
+   "size": [
+    315,
+    98
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      288
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "CLIP",
+     "type": "CLIP",
+     "links": [
+      270,
+      271
+     ],
+     "slot_index": 1
+    },
+    {
+     "name": "VAE",
+     "type": "VAE",
+     "links": [
+      293
+     ],
+     "slot_index": 2
+    }
+   ],
+   "properties": {
+    "cnr_id": "comfy-core",
+    "ver": "unknown",
+    "Node name for S&R": "CheckpointLoaderSimple"
+   },
+   "widgets_values": [
+    "juggernautXL_juggXIByRundiffusion.safetensors"
+   ]
+  },
+  {
+   "id": 81,
+   "type": "Prompt Multiple Styles Selector",
+   "pos": [
+    -164.54925537109375,
+    1729.5374755859375
+   ],
+   "size": [
+    390.5999755859375,
+    150
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "positive_string",
+     "type": "STRING",
+     "links": [
+      306
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "negative_string",
+     "type": "STRING",
+     "links": [
+      305
+     ],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "cnr_id": "was-node-suite-comfyui",
+    "ver": "9ae952b1b435d2bd846bfe6516919b5a8b9201aa",
+    "Node name for S&R": "Prompt Multiple Styles Selector"
+   },
+   "widgets_values": [
+    "Photography | Long exposure",
+    "Photography | Flower",
+    "Painting | Fantasy Art",
+    "No Style"
+   ]
+  }
+ ],
+ "links": [
+  [
+   270,
+   59,
+   1,
+   60,
+   0,
+   "CLIP"
+  ],
+  [
+   271,
+   59,
+   1,
+   61,
+   0,
+   "CLIP"
+  ],
+  [
+   288,
+   59,
+   0,
+   73,
+   0,
+   "MODEL"
+  ],
+  [
+   292,
+   73,
+   0,
+   74,
+   0,
+   "LATENT"
+  ],
+  [
+   293,
+   59,
+   2,
+   74,
+   1,
+   "VAE"
+  ],
+  [
+   294,
+   74,
+   0,
+   20,
+   0,
+   "IMAGE"
+  ],
+  [
+   297,
+   60,
+   0,
+   73,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   298,
+   61,
+   0,
+   73,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   302,
+   64,
+   0,
+   73,
+   3,
+   "LATENT"
+  ],
+  [
+   305,
+   81,
+   1,
+   84,
+   1,
+   "STRING"
+  ],
+  [
+   306,
+   81,
+   0,
+   77,
+   1,
+   "STRING"
+  ],
+  [
+   307,
+   83,
+   0,
+   77,
+   0,
+   "STRING"
+  ],
+  [
+   308,
+   82,
+   0,
+   84,
+   0,
+   "STRING"
+  ],
+  [
+   309,
+   84,
+   0,
+   61,
+   1,
+   "STRING"
+  ],
+  [
+   310,
+   77,
+   0,
+   60,
+   1,
+   "STRING"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.735328044169798,
+   "offset": [
+    1021.2767398821873,
+    -736.2034956884537
+   ]
+  },
+  "groupNodes": {}
+ },
+ "version": 0.4
+}

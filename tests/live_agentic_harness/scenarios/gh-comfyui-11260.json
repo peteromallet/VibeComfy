@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "OP confirmed workaround: repeatedly query the API and manually install every missing node package until import succeeds; issue transferred to frontend (ComfyUI_frontend#7427) to show workflow with missing nodes.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

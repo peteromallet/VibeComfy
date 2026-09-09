@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1146",
+ "query": "Wan 2.2 I2V workflow suddenly errors 'Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu!' (workflow + log attached).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1146_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Confirmed: caused by a recent wrapper regression; OP confirmed reverting to commit f36fa45 fixed it, and kijai merged a fix shortly after ('It's like whack-a-mole these days, fixed now I think').",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1146",
+  "provenance_source": "github-closed",
+  "github_issue": 1146,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": true
+ }
+}

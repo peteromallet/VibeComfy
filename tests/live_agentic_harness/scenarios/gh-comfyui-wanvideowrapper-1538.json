@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1538",
+ "query": "Running the bundled example workflow wanvideo_T2V_14B_lynx_example_01.json crashes at WanVideoSampler with UnboundLocalError: cannot access local variable 'bias' where it is not associated with a value (custom_linear.py line 100, via lynx/modules.py to_k_ip).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1538_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Bug in custom_linear.py forward where bias was referenced before assignment for Lynx IP-attention paths. kijai (owner): 'Should be fixed now in last commit'; user confirmed the fix. Solution: update ComfyUI-WanVideoWrapper to latest commit.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan2.1 (Lynx face IP)",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1538",
+  "provenance_source": "github-closed",
+  "github_issue": 1538,
+  "workflow_source": "repo-example",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan2.1 (lynx face ip)"
+  ],
+  "solution_confirmed": true
+ }
+}

@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "molbal's fork (github.com/molbal/ComfyUI-GGUF) loads MiniMax-H3 GGUFs incl. Unsloth quants \u2014 OP alish119 confirmed it 'works excellently' after fixing his own error (pixel count must be a multiple of 32) and using the 'Unet Loader (Dynamic VRAM)' node inside the comfy.org subgraph workflow (molbal comment + OP confirmation).",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

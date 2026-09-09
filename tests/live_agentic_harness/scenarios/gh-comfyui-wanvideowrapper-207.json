@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-207",
+ "query": "The WanVideo control example workflow errors right at inference start: tensors must have same number of dimensions, after a node update.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_207_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan 2.1 Fun-Control/VACE",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/207",
+  "provenance_source": "github-closed",
+  "github_issue": 207,
+  "workflow_source": "inline-block",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan 2.1 fun-control/vace"
+  ],
+  "solution_confirmed": true
+ }
+}

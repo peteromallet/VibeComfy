@@ -1,0 +1,40 @@
+{
+ "id": "gh-audio-minimax-music-3-391",
+ "query": "MiniMax H3 generation with the int8-QK/per-channel-FP8-PV Sage kernel (_sageattn_int8_fp8_nhd) loses the GPU at the Windows driver level (nvlddmkm, requires reboot) on RTX 5060 Ti; a single-variable control shows native attention succeeds at higher VRAM/power, isolating the failure to the kernel.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP-confirmed workaround (comment by leimuxiao, 2 clean 260s runs): keep int8-QK, demote V from per-channel FP8 to plain FP16 and call the sm80 kernel _qattn_sm80.qk_int8_sv_f16_accum_f32_attn instead of the sm89 fp8-PV kernel \u2014 no GPU loss, still ~21% faster than native. FP8-PV on this path remains broken upstream.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/thu-ml/SageAttention/issues/391",
+  "provenance_source": "github-open",
+  "github_issue": 391,
+  "workflow_source": "official-template",
+  "failure_class": "software-bug",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": true
+ }
+}

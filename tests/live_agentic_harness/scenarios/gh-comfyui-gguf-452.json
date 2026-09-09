@@ -1,6 +1,6 @@
 {
- "id": "gh-workflow_templates-330",
- "query": "Flux 2 template fails validation before execution: EmptyFlux2LatentImage width/height and Flux2Scheduler width/steps arrive as None ('Failed to convert an input value to a INT value'), suggesting unprompted/unpopulated widget values in the shipped template.",
+ "id": "gh-comfyui-gguf-452",
+ "query": "Ideogram-4 with unsloth Qwen3-VL GGUF text encoder unsupported; qwen3vl TE GGUFs load as wrong model type (Flux2TEModel_) and vision/mmproj path needs explicit support.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
  "apply": true,
  "network": true,
@@ -9,8 +9,8 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Maintainer (comfyui-wiki) asked for a screenshot/workflow and whether ComfyUI is on the latest version; OP re-posted the same error; thread ended unresolved.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "outcome": "m8rr commits (a963418, 249624c, c7fb703 on his fork) add qwen3vl TE + vision support via mmproj file; fxd0h notes the official qwen3vl_8b_fp8_scaled safetensors through standard CLIPLoader is enough to run Ideogram-4 end to end, making a GGUF TE optional. No maintainer/OP confirmation on mainline.",
+  "quality": "Diagnosis identifies correct root cause; fix directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -34,7 +34,7 @@
   "grade_mode": "rubric",
   "solution_confirmed": false,
   "workflow_source": "official-template",
-  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/330",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/452",
   "provenance_source": "github"
  }
 }

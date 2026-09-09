@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Commenter smithian123 (2026-05-19): un-bypassing the ImageScaleToTotalPixels node fixed the grey output. Affects anyone who runs the template as shipped since the node ships bypassed.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

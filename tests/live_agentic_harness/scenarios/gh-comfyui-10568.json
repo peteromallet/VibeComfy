@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Maintainer confirmed the 5-frames-keep-1 design ('That's how the model works') and that latest git comfyui is required; user g4zz4tr0n found length must be >= 33 frames for good results.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-8040",
+ "query": "MMAudio workflow fails with TypeError: Cannot set property 'displayValue' of undefined when loading the workflow with VHS nodes.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_8040_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Caused by a VHS (VideoHelperSuite) bug; fixed upstream in ComfyUI-VideoHelperSuite (issue #472). Updating VHS resolves it.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "MMAudio",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/8040",
+  "provenance_source": "github-closed",
+  "github_issue": 8040,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "mmaudio"
+  ],
+  "solution_confirmed": true
+ }
+}

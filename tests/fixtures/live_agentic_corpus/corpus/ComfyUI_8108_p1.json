@@ -1,0 +1,341 @@
+{
+ "last_node_id": 9,
+ "last_link_id": 8,
+ "nodes": [
+  {
+   "id": 2,
+   "type": "ChatGPT Plus",
+   "pos": [
+    -1163.5960693359375,
+    807.4478149414062
+   ],
+   "size": [
+    315,
+    146
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image1",
+     "type": "IMAGE",
+     "link": 1,
+     "shape": 7,
+     "label": "image1"
+    },
+    {
+     "name": "image2",
+     "type": "IMAGE",
+     "link": null,
+     "shape": 7,
+     "label": "image2"
+    },
+    {
+     "name": "image_urls",
+     "type": "STRING",
+     "link": 7,
+     "widget": {
+      "name": "image_urls"
+     },
+     "shape": 7,
+     "label": "image_urls"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "links": [
+      2,
+      8
+     ],
+     "slot_index": 0,
+     "label": "image",
+     "shape": 6
+    },
+    {
+     "name": "image_url",
+     "type": "STRING",
+     "links": [
+      3
+     ],
+     "slot_index": 1,
+     "label": "image_url"
+    },
+    {
+     "name": "text",
+     "type": "STRING",
+     "links": [
+      4
+     ],
+     "slot_index": 2,
+     "label": "text"
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ChatGPT Plus"
+   },
+   "widgets_values": [
+    "gpt-4o-image",
+    "\u5e2e\u6211\u628a\u56fe\u7247\u4e2d\u4eba\u7269\u7684\u4e0a\u8863\u6539\u6210\u68d5\u8272",
+    "",
+    [
+     false,
+     true
+    ]
+   ]
+  },
+  {
+   "id": 5,
+   "type": "easy showAnything",
+   "pos": [
+    -784.65966796875,
+    895.5468139648438
+   ],
+   "size": [
+    301.01361083984375,
+    149.0091094970703
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "anything",
+     "type": "*",
+     "link": 4,
+     "shape": 7,
+     "label": "anything"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "output",
+     "type": "*",
+     "links": null,
+     "label": "output"
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "easy showAnything"
+   },
+   "widgets_values": [
+    ""
+   ]
+  },
+  {
+   "id": 3,
+   "type": "PreviewImage",
+   "pos": [
+    -452.610595703125,
+    808.1176147460938
+   ],
+   "size": [
+    315.4209899902344,
+    337.11328125
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 2,
+     "label": "images"
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 9,
+   "type": "easy showTensorShape",
+   "pos": [
+    -777.4262084960938,
+    732.399658203125
+   ],
+   "size": [
+    289.21356201171875,
+    76
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "tensor",
+     "type": "*",
+     "link": 8,
+     "label": "tensor"
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "easy showTensorShape"
+   },
+   "widgets_values": [
+    "1,1024,1024,3"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "LoadImageFromUrl",
+   "pos": [
+    -107.24446105957031,
+    832.0280151367188
+   ],
+   "size": [
+    240.2889404296875,
+    415.8485107421875
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "STRING",
+     "link": 3,
+     "widget": {
+      "name": "image"
+     },
+     "shape": 7,
+     "label": "image"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "shape": 6,
+     "label": "images"
+    },
+    {
+     "name": "masks",
+     "type": "MASK",
+     "links": null,
+     "shape": 6,
+     "label": "masks"
+    },
+    {
+     "name": "has_image",
+     "type": "BOOLEAN",
+     "links": null,
+     "label": "has_image"
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImageFromUrl"
+   },
+   "widgets_values": {
+    "image": "",
+    "keep_alpha_channel": false,
+    "output_mode": false,
+    "choose image to upload": "image"
+   }
+  },
+  {
+   "id": 1,
+   "type": "LoadImage",
+   "pos": [
+    -1439.37646484375,
+    809.5714111328125
+   ],
+   "size": [
+    244.63735961914062,
+    371.368896484375
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      1
+     ],
+     "slot_index": 0,
+     "label": "IMAGE"
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": null,
+     "label": "MASK"
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImage"
+   },
+   "widgets_values": [
+    "000000079656-09.jpg",
+    "image"
+   ]
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   2,
+   0,
+   "IMAGE"
+  ],
+  [
+   2,
+   2,
+   0,
+   3,
+   0,
+   "IMAGE"
+  ],
+  [
+   3,
+   2,
+   1,
+   4,
+   0,
+   "STRING"
+  ],
+  [
+   4,
+   2,
+   2,
+   5,
+   0,
+   "*"
+  ],
+  [
+   8,
+   2,
+   0,
+   9,
+   0,
+   "*"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.9646149645000006,
+   "offset": [
+    1534.0912169774651,
+    -493.74986421222115
+   ]
+  },
+  "ue_links": [],
+  "VHS_latentpreview": false,
+  "VHS_latentpreviewrate": 0
+ },
+ "version": 0.4
+}

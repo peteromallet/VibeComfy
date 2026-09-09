@@ -1,0 +1,40 @@
+{
+ "id": "gh-audio-minimax-music-3-15445",
+ "query": "Official MiniMax H3 workflow doubles in runtime (12 -> 25+ min) after the 0.31 update on 5080/5090/H200/5060Ti; VRAM underused, disk thrashing each gen.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15445",
+  "provenance_source": "github-open",
+  "github_issue": 15445,
+  "workflow_source": "official-template",
+  "failure_class": "version-regression",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": true
+ }
+}

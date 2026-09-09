@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-9078",
+ "query": "Using the official inpainting example workflow, the generated image ignores the prompt; tried both VAE Encode (for Inpaint) and SetLatentNoiseMask approaches (two workflow PNGs attached).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_9078_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Proposed only: commenter recommends LanPaint (https://github.com/scraed/LanPaint) for prompt-adherent inpainting; no maintainer fix \u2014 quality of inpaint masking, not a bug.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "SD-inpaint",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/9078",
+  "provenance_source": "github-closed",
+  "github_issue": 9078,
+  "workflow_source": "png-embedded",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "sd-inpaint"
+  ],
+  "solution_confirmed": false
+ }
+}

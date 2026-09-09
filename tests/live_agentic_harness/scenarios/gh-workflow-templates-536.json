@@ -1,5 +1,5 @@
 {
- "id": "gh-workflow_templates-536",
+ "id": "gh-workflow-templates-536",
  "query": "audio_ace_step_1_5_checkpoint template loads with missing core nodes (EmptyAceStep1.5LatentAudio, TextEncodeAceStepAudio1.5 \u2014 shipped with ComfyUI 0.11.1); ACE custom nodes also crash get_object_info because ACE-Step model dirs don't exist. A second user hit the same on every ACE 1.5 template with a Desktop build reporting no updates available.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/audio_ace_step1_5_xl_base.json",
  "apply": true,
@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Maintainer (comfyui-wiki) said 'Please update your comfyui first' \u2014 the missing nodes are core nodes added in ComfyUI 0.11.1. OP never confirmed; dhosein remains stuck because their Desktop install reports no update available.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

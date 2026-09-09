@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-6534",
+ "query": "Official Flux LoRA training workflow crashes with NameError/undefined 'Version' when FluxTrainLoop checks the torch version. Multiple users reproduce on ComfyUI 0.3.13 / torch 2.5.1.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_6534_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "3dluvr diagnosed the bug inside comfyui-fluxtrainer: 'Version' is undefined and comparing versions as strings is meaningless; the check should be plain torch.__version__ >= \"2.4.0\". ltdrdata (member) redirected the issue to kijai/ComfyUI-FluxTrainer. Proposed-only (never merged in this repo).",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "Flux (FluxTrainer)",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/6534",
+  "provenance_source": "github-closed",
+  "github_issue": 6534,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "flux (fluxtrainer)"
+  ],
+  "solution_confirmed": false
+ }
+}

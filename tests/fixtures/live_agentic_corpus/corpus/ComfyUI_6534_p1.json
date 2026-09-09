@@ -1,0 +1,1421 @@
+{
+ "last_node_id": 138,
+ "last_link_id": 251,
+ "nodes": [
+  {
+   "id": 70,
+   "type": "VisualizeLoss",
+   "pos": [
+    5586,
+    -246
+   ],
+   "size": [
+    254.40000915527344,
+    198
+   ],
+   "flags": {},
+   "order": 24,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 248
+    }
+   ],
+   "outputs": [
+    {
+     "name": "plot",
+     "type": "IMAGE",
+     "links": [
+      138
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "loss_list",
+     "type": "FLOAT",
+     "links": null,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VisualizeLoss"
+   },
+   "widgets_values": [
+    "ggplot",
+    1000,
+    true,
+    768,
+    512,
+    false
+   ]
+  },
+  {
+   "id": 90,
+   "type": "SaveImage",
+   "pos": [
+    5877,
+    -60
+   ],
+   "size": [
+    574.23046875,
+    414.46881103515625
+   ],
+   "flags": {},
+   "order": 25,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 138
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "flux_lora_loss_plot"
+   ]
+  },
+  {
+   "id": 105,
+   "type": "Display Any (rgthree)",
+   "pos": [
+    483,
+    -811
+   ],
+   "size": [
+    1073.7608642578125,
+    492.8503112792969
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "source",
+     "type": "*",
+     "link": 183,
+     "dir": 3
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "Display Any (rgthree)"
+   },
+   "widgets_values": [
+    "Namespace(console_log_level=None, console_log_file=None, console_log_simple=False, v2=False, v_parameterization=False, pretrained_model_name_or_path='D:\\\\ComfyUI\\\\ComfyUI_windows_portable\\\\ComfyUI\\\\models\\\\unet\\\\flux1-dev-fp8.safetensors', tokenizer_cache_dir=None, train_data_dir=None, cache_info=False, shuffle_caption=False, caption_separator=',', caption_extension='.caption', caption_extention=None, keep_tokens=0, keep_tokens_separator='', secondary_separator=None, enable_wildcard=False, caption_prefix=None, caption_suffix=None, color_aug=False, flip_aug=False, face_crop_aug_range=None, random_crop=False, debug_dataset=False, resolution=None, cache_latents=True, vae_batch_size=1, cache_latents_to_disk=True, enable_bucket=False, min_bucket_reso=256, max_bucket_reso=1024, bucket_reso_steps=64, bucket_no_upscale=False, token_warmup_min=1, token_warmup_step=0.0, alpha_mask=False, dataset_class=None, caption_dropout_rate=0.0, caption_dropout_every_n_epochs=0, caption_tag_dropout_rate=0.0, reg_data_dir=None, in_json=None, dataset_repeats=1, output_dir='D:\\\\ComfyUI\\\\for_Training\\\\Israel_Katz\\\\512', output_name='israel_katz_v2_rank64_bf16', huggingface_repo_id=None, huggingface_repo_type=None, huggingface_path_in_repo=None, huggingface_token=None, huggingface_repo_visibility=None, save_state_to_huggingface=False, resume_from_huggingface=False, async_upload=False, save_precision='bf16', save_every_n_epochs=None, save_every_n_steps=None, save_n_epoch_ratio=None, save_last_n_epochs=None, save_last_n_epochs_state=None, save_last_n_steps=None, save_last_n_steps_state=None, save_state=False, save_state_on_train_end=False, resume=None, train_batch_size=1, max_token_length=None, mem_eff_attn=True, torch_compile=False, dynamo_backend='inductor', xformers=False, sdpa=False, vae=None, max_train_steps=2000, max_train_epochs=None, max_data_loader_n_workers=0, persistent_data_loader_workers=False, seed=42, gradient_checkpointing=True, gradient_accumulation_steps=1, mixed_precision='bf16', full_fp16=False, full_bf16=True, fp8_base=True, fp8_dtype='e4m3', ddp_timeout=None, ddp_gradient_as_bucket_view=False, ddp_static_graph=False, clip_skip=None, logging_dir=None, log_with=None, log_prefix=None, log_tracker_name=None, wandb_run_name=None, log_tracker_config=None, wandb_api_key=None, log_config=False, noise_offset=None, noise_offset_random_strength=False, multires_noise_iterations=None, ip_noise_gamma=None, ip_noise_gamma_random_strength=False, multires_noise_discount=0.3, adaptive_noise_scale=None, zero_terminal_snr=False, min_timestep=None, max_timestep=None, loss_type='l2', huber_schedule='snr', huber_c=0.1, lowram=False, highvram=False, sample_every_n_steps=None, sample_at_first=False, sample_every_n_epochs=None, sample_prompts=[''], sample_sampler='ddim', config_file=None, output_config=False, metadata_title=None, metadata_author=None, metadata_description=None, metadata_license=None, metadata_tags=None, prior_loss_weight=1.0, conditioning_data_dir=None, masked_loss=False, deepspeed=False, zero_stage=2, offload_optimizer_device=None, offload_optimizer_nvme_path=None, offload_param_device=None, offload_param_nvme_path=None, zero3_init_flag=False, zero3_save_16bit_model=False, fp16_master_weights_and_gradients=False, optimizer_type='adafactor', use_8bit_adam=False, use_lion_optimizer=False, learning_rate=0.0004, max_grad_norm=1.0, optimizer_args=['relative_step=False', 'scale_parameter=False', 'warmup_init=False', 'clip_threshold=1.0'], lr_scheduler_type='', lr_scheduler_args=None, lr_scheduler='constant', lr_warmup_steps=0, lr_decay_steps=0, lr_scheduler_num_cycles=1, lr_scheduler_power=1.0, fused_backward_pass=False, lr_scheduler_timescale=None, lr_scheduler_min_lr_ratio=None, dataset_config='[[datasets]]\\nresolution = [ 512, 512,]\\nbatch_size = 1\\nenable_bucket = true\\nbucket_no_upscale = false\\nmin_bucket_reso = 256\\nmax_bucket_reso = 1024\\n[[datasets.subsets]]\\nimage_dir = \"D:\\\\\\\\ComfyUI\\\\\\\\for_Training\\\\\\\\Israel_Katz\\\\\\\\512\"\\nclass_tokens = \"israelkatz555\"\\nnum_repeats = 1\\n\\n\\n[general]\\nshuffle_caption = false\\ncaption_extension = \".txt\"\\nkeep_tokens_separator = \"|||\"\\ncaption_dropout_rate = 0.0\\ncolor_aug = false\\nflip_aug = false\\n', min_snr_gamma=5.0, scale_v_pred_loss_like_noise_pred=False, v_pred_like_loss=None, debiased_estimation_loss=False, weighted_captions=False, cpu_offload_checkpointing=False, no_metadata=False, save_model_as='safetensors', unet_lr=None, text_encoder_lr=None, fp8_base_unet=False, network_weights=None, network_module='.networks.lora_flux', network_dim=64, network_alpha=64.0, network_dropout=None, network_args=[], network_train_unet_only=True, network_train_text_encoder_only=False, training_comment=None, dim_from_weights=False, scale_weight_norms=None, base_weights=None, base_weights_multiplier=None, no_half_vae=False, skip_until_initial_step=False, initial_epoch=None, initial_step=None, num_cpu_threads_per_process=1, clip_l='D:\\\\ComfyUI\\\\ComfyUI_windows_portable\\\\ComfyUI\\\\models\\\\clip\\\\clip_l.safetensors', t5xxl='D:\\\\ComfyUI\\\\ComfyUI_windows_portable\\\\ComfyUI\\\\models\\\\clip\\\\t5xxl_fp16.safetensors', ae='D:\\\\ComfyUI\\\\ComfyUI_windows_portable\\\\ComfyUI\\\\models\\\\vae\\\\ae.safetensors', t5xxl_max_token_length=512, disable_mmap_load_safetensors=False, split_mode=False, spda=True, apply_t5_attn_mask=True, cache_text_encoder_outputs=True, weighting_scheme='logit_normal', logit_mean=0.0, logit_std=1.0, mode_scale=1.29, timestep_sampling='shift', sigmoid_scale=1.0, model_prediction_type='raw', guidance_scale=1.0, discrete_flow_shift=3.1582000000000003, cache_text_encoder_outputs_to_disk=True)"
+   ]
+  },
+  {
+   "id": 113,
+   "type": "Note",
+   "pos": [
+    -732,
+    63
+   ],
+   "size": [
+    462.68292236328125,
+    79.98078918457031
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {
+    "text": ""
+   },
+   "widgets_values": [
+    "For multiresolution training, input same source directory with different dataset resolution. From what I hear, Flux likes multiple resolutions.\n\nFor single resolution training, just add single dataset."
+   ],
+   "color": "#432",
+   "bgcolor": "#653"
+  },
+  {
+   "id": 115,
+   "type": "Note",
+   "pos": [
+    248.60342407226562,
+    -89.88011932373047
+   ],
+   "size": [
+    462.68292236328125,
+    79.98078918457031
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {
+    "text": ""
+   },
+   "widgets_values": [
+    "You can use same models as you use for inference in Comfy. When fp8_base is enabled, the model is downcasted to torch.float_e4m3fn on initialize, meaning if you load fp8 model here it should also be in same format."
+   ],
+   "color": "#432",
+   "bgcolor": "#653"
+  },
+  {
+   "id": 131,
+   "type": "Note",
+   "pos": [
+    478,
+    -884
+   ],
+   "size": [
+    210,
+    58
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {
+    "text": ""
+   },
+   "widgets_values": [
+    "sanity check that all the args are chosen correctly"
+   ],
+   "color": "#432",
+   "bgcolor": "#653"
+  },
+  {
+   "id": 116,
+   "type": "Note",
+   "pos": [
+    776,
+    -111
+   ],
+   "size": [
+    308.08209228515625,
+    78.06562805175781
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {
+    "text": ""
+   },
+   "widgets_values": [
+    "Validation sampling settings are set here for all the sampler nodes."
+   ],
+   "color": "#432",
+   "bgcolor": "#653"
+  },
+  {
+   "id": 14,
+   "type": "FluxTrainSave",
+   "pos": [
+    1988,
+    256
+   ],
+   "size": [
+    393,
+    122
+   ],
+   "flags": {},
+   "order": 12,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 218
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      243
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "lora_path",
+     "type": "STRING",
+     "links": [],
+     "slot_index": 1,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 2,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainSave"
+   },
+   "widgets_values": [
+    false,
+    false
+   ]
+  },
+  {
+   "id": 47,
+   "type": "FluxTrainSave",
+   "pos": [
+    3114,
+    323
+   ],
+   "size": [
+    393,
+    122
+   ],
+   "flags": {},
+   "order": 16,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 222
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      245
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "lora_path",
+     "type": "STRING",
+     "links": null,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 2,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainSave"
+   },
+   "widgets_values": [
+    false,
+    false
+   ]
+  },
+  {
+   "id": 62,
+   "type": "FluxTrainSave",
+   "pos": [
+    4202,
+    331
+   ],
+   "size": [
+    393,
+    122
+   ],
+   "flags": {},
+   "order": 20,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 224
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      246
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "lora_path",
+     "type": "STRING",
+     "links": null,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 2,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainSave"
+   },
+   "widgets_values": [
+    false,
+    false
+   ]
+  },
+  {
+   "id": 134,
+   "type": "FluxTrainSave",
+   "pos": [
+    5275,
+    328
+   ],
+   "size": [
+    393,
+    122
+   ],
+   "flags": {},
+   "order": 23,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 232
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      248
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "lora_path",
+     "type": "STRING",
+     "links": null,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 2,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainSave"
+   },
+   "widgets_values": [
+    false,
+    false
+   ]
+  },
+  {
+   "id": 97,
+   "type": "VisualizeLoss",
+   "pos": [
+    1700,
+    -650
+   ],
+   "size": [
+    303.6300048828125,
+    198
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 162
+    }
+   ],
+   "outputs": [
+    {
+     "name": "plot",
+     "type": "IMAGE",
+     "links": [
+      161
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "loss_list",
+     "type": "FLOAT",
+     "links": null,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VisualizeLoss"
+   },
+   "widgets_values": [
+    "seaborn-v0_8-dark-palette",
+    100,
+    true,
+    768,
+    512,
+    false
+   ]
+  },
+  {
+   "id": 99,
+   "type": "VisualizeLoss",
+   "pos": [
+    2950,
+    -650
+   ],
+   "size": [
+    254.40000915527344,
+    198
+   ],
+   "flags": {},
+   "order": 15,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 164
+    }
+   ],
+   "outputs": [
+    {
+     "name": "plot",
+     "type": "IMAGE",
+     "links": [
+      163
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "loss_list",
+     "type": "FLOAT",
+     "links": null,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VisualizeLoss"
+   },
+   "widgets_values": [
+    "seaborn-v0_8-dark-palette",
+    100,
+    true,
+    768,
+    512,
+    false
+   ]
+  },
+  {
+   "id": 101,
+   "type": "VisualizeLoss",
+   "pos": [
+    4090,
+    -650
+   ],
+   "size": [
+    254.40000915527344,
+    198
+   ],
+   "flags": {},
+   "order": 19,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 166
+    }
+   ],
+   "outputs": [
+    {
+     "name": "plot",
+     "type": "IMAGE",
+     "links": [
+      165
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "loss_list",
+     "type": "FLOAT",
+     "links": null,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VisualizeLoss"
+   },
+   "widgets_values": [
+    "seaborn-v0_8-dark-palette",
+    100,
+    true,
+    768,
+    512,
+    false
+   ]
+  },
+  {
+   "id": 98,
+   "type": "SaveImage",
+   "pos": [
+    1680,
+    -340
+   ],
+   "size": [
+    645.9608764648438,
+    439.37261962890625
+   ],
+   "flags": {},
+   "order": 13,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 161
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "flux_lora_loss_plot"
+   ]
+  },
+  {
+   "id": 100,
+   "type": "SaveImage",
+   "pos": [
+    2990,
+    -340
+   ],
+   "size": [
+    574.23046875,
+    414.46881103515625
+   ],
+   "flags": {},
+   "order": 17,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 163
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "flux_lora_loss_plot"
+   ]
+  },
+  {
+   "id": 102,
+   "type": "SaveImage",
+   "pos": [
+    4080,
+    -340
+   ],
+   "size": [
+    574.23046875,
+    414.46881103515625
+   ],
+   "flags": {},
+   "order": 21,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 165
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "flux_lora_loss_plot"
+   ]
+  },
+  {
+   "id": 137,
+   "type": "TrainDatasetGeneralConfig",
+   "pos": [
+    -1122,
+    203
+   ],
+   "size": [
+    316.3266296386719,
+    202
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "dataset_general",
+     "type": "JSON",
+     "links": [
+      239
+     ],
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TrainDatasetGeneralConfig"
+   },
+   "widgets_values": [
+    false,
+    false,
+    false,
+    0,
+    false,
+    false,
+    ".txt"
+   ]
+  },
+  {
+   "id": 138,
+   "type": "OptimizerConfigAdafactor",
+   "pos": [
+    274.8564147949219,
+    506.66943359375
+   ],
+   "size": [
+    400,
+    316
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "optimizer_settings",
+     "type": "ARGS",
+     "links": [
+      242
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "OptimizerConfigAdafactor"
+   },
+   "widgets_values": [
+    1,
+    "constant",
+    0,
+    1,
+    1,
+    false,
+    false,
+    false,
+    1,
+    5,
+    ""
+   ]
+  },
+  {
+   "id": 107,
+   "type": "InitFluxLoRATraining",
+   "pos": [
+    783,
+    326
+   ],
+   "size": [
+    477.3700866699219,
+    918
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "flux_models",
+     "type": "TRAIN_FLUX_MODELS",
+     "link": 238
+    },
+    {
+     "name": "dataset",
+     "type": "JSON",
+     "link": 241
+    },
+    {
+     "name": "optimizer_settings",
+     "type": "ARGS",
+     "link": 242
+    },
+    {
+     "name": "resume_args",
+     "type": "ARGS",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "block_args",
+     "type": "ARGS",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "loss_args",
+     "type": "ARGS",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "network_config",
+     "type": "NETWORK_CONFIG",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      181
+     ],
+     "shape": 3
+    },
+    {
+     "name": "epochs_count",
+     "type": "INT",
+     "links": [],
+     "shape": 3
+    },
+    {
+     "name": "args",
+     "type": "KOHYA_ARGS",
+     "links": [
+      183
+     ],
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "InitFluxLoRATraining"
+   },
+   "widgets_values": [
+    "kushmaro_v1",
+    "D:\\ComfyUI\\for_Training\\Dani Kushmaro\\512",
+    64,
+    64,
+    0.0004,
+    500,
+    true,
+    "disk",
+    "disk",
+    false,
+    "logit_normal",
+    0,
+    1,
+    1.29,
+    "shift",
+    1,
+    "raw",
+    1,
+    3.1582000000000003,
+    false,
+    true,
+    "bf16",
+    "bf16",
+    "sdpa",
+    "",
+    "",
+    "disabled",
+    0,
+    0,
+    "enabled"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "FluxTrainLoop",
+   "pos": [
+    1519,
+    256
+   ],
+   "size": [
+    393,
+    78
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 181
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      162,
+      218
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 1,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainLoop"
+   },
+   "widgets_values": [
+    125
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 44,
+   "type": "FluxTrainLoop",
+   "pos": [
+    2630,
+    330
+   ],
+   "size": [
+    393,
+    78
+   ],
+   "flags": {},
+   "order": 14,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 243
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      164,
+      222
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 1,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainLoop"
+   },
+   "widgets_values": [
+    125
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 59,
+   "type": "FluxTrainLoop",
+   "pos": [
+    3700,
+    330
+   ],
+   "size": [
+    393,
+    78
+   ],
+   "flags": {},
+   "order": 18,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 245
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      166,
+      224
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 1,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainLoop"
+   },
+   "widgets_values": [
+    125
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 64,
+   "type": "FluxTrainLoop",
+   "pos": [
+    4770,
+    330
+   ],
+   "size": [
+    393,
+    78
+   ],
+   "flags": {},
+   "order": 22,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "link": 246
+    }
+   ],
+   "outputs": [
+    {
+     "name": "network_trainer",
+     "type": "NETWORKTRAINER",
+     "links": [
+      232
+     ],
+     "slot_index": 0,
+     "shape": 3
+    },
+    {
+     "name": "steps",
+     "type": "INT",
+     "links": [],
+     "slot_index": 1,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainLoop"
+   },
+   "widgets_values": [
+    125
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 136,
+   "type": "FluxTrainModelSelect",
+   "pos": [
+    251.60342407226562,
+    45.11988067626953
+   ],
+   "size": [
+    427.607421875,
+    137.3937225341797
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "lora_path",
+     "type": "STRING",
+     "link": null,
+     "widget": {
+      "name": "lora_path"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "name": "flux_models",
+     "type": "TRAIN_FLUX_MODELS",
+     "links": [
+      238
+     ],
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "FluxTrainModelSelect"
+   },
+   "widgets_values": [
+    "flux1-dev-fp8.safetensors",
+    "ae.safetensors",
+    "clip_l.safetensors",
+    "t5xxl_fp16.safetensors",
+    ""
+   ]
+  },
+  {
+   "id": 109,
+   "type": "TrainDatasetAdd",
+   "pos": [
+    -556.7533569335938,
+    223.95628356933594
+   ],
+   "size": [
+    281.5897521972656,
+    338
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "dataset_config",
+     "type": "JSON",
+     "link": 239
+    },
+    {
+     "name": "regularization",
+     "type": "JSON",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "dataset",
+     "type": "JSON",
+     "links": [
+      241
+     ],
+     "slot_index": 0,
+     "shape": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "TrainDatasetAdd"
+   },
+   "widgets_values": [
+    512,
+    512,
+    1,
+    "D:\\ComfyUI\\for_Training\\Dani Kushmaro\\512",
+    "",
+    true,
+    false,
+    1,
+    256,
+    1024
+   ]
+  }
+ ],
+ "links": [
+  [
+   138,
+   70,
+   0,
+   90,
+   0,
+   "IMAGE"
+  ],
+  [
+   161,
+   97,
+   0,
+   98,
+   0,
+   "IMAGE"
+  ],
+  [
+   162,
+   4,
+   0,
+   97,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   163,
+   99,
+   0,
+   100,
+   0,
+   "IMAGE"
+  ],
+  [
+   164,
+   44,
+   0,
+   99,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   165,
+   101,
+   0,
+   102,
+   0,
+   "IMAGE"
+  ],
+  [
+   166,
+   59,
+   0,
+   101,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   181,
+   107,
+   0,
+   4,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   183,
+   107,
+   2,
+   105,
+   0,
+   "*"
+  ],
+  [
+   218,
+   4,
+   0,
+   14,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   222,
+   44,
+   0,
+   47,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   224,
+   59,
+   0,
+   62,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   232,
+   64,
+   0,
+   134,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   238,
+   136,
+   0,
+   107,
+   0,
+   "TRAIN_FLUX_MODELS"
+  ],
+  [
+   239,
+   137,
+   0,
+   109,
+   0,
+   "JSON"
+  ],
+  [
+   241,
+   109,
+   0,
+   107,
+   1,
+   "JSON"
+  ],
+  [
+   242,
+   138,
+   0,
+   107,
+   2,
+   "ARGS"
+  ],
+  [
+   243,
+   14,
+   0,
+   44,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   245,
+   47,
+   0,
+   59,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   246,
+   62,
+   0,
+   64,
+   0,
+   "NETWORKTRAINER"
+  ],
+  [
+   248,
+   134,
+   0,
+   70,
+   0,
+   "NETWORKTRAINER"
+  ]
+ ],
+ "groups": [
+  {
+   "id": 1,
+   "title": "Train_01",
+   "bounding": [
+    1439,
+    120,
+    1107,
+    975
+   ],
+   "color": "#3f789e",
+   "font_size": 24,
+   "flags": {}
+  },
+  {
+   "id": 2,
+   "title": "Settings and init",
+   "bounding": [
+    195,
+    -187,
+    1223,
+    1511
+   ],
+   "color": "#b06634",
+   "font_size": 24,
+   "flags": {}
+  },
+  {
+   "id": 3,
+   "title": "Train_02",
+   "bounding": [
+    2602,
+    124,
+    1046,
+    975
+   ],
+   "color": "#3f789e",
+   "font_size": 24,
+   "flags": {}
+  },
+  {
+   "id": 4,
+   "title": "Train_03",
+   "bounding": [
+    3681,
+    128,
+    1047,
+    986
+   ],
+   "color": "#3f789e",
+   "font_size": 24,
+   "flags": {}
+  },
+  {
+   "id": 5,
+   "title": "Train_04",
+   "bounding": [
+    4753,
+    127,
+    996,
+    989
+   ],
+   "color": "#3f789e",
+   "font_size": 24,
+   "flags": {}
+  },
+  {
+   "id": 6,
+   "title": "Dataset",
+   "bounding": [
+    -1190,
+    -151,
+    1362,
+    851
+   ],
+   "color": "#3f789e",
+   "font_size": 24,
+   "flags": {}
+  }
+ ],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.8769226950000005,
+   "offset": [
+    -3387.892121070144,
+    -199.77464844242158
+   ]
+  },
+  "node_versions": {
+   "ComfyUI-FluxTrainer": "998968f5ff6bee792ffd64c6d47111af5187fc00",
+   "comfy-core": "v0.3.9",
+   "rgthree-comfy": "5d771b8b56a343c24a26e8cea1f0c87c3d58102f"
+  },
+  "ue_links": []
+ },
+ "version": 0.4
+}

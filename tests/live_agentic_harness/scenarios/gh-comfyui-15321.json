@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15321",
+ "query": "Official MiniMax H3 (local) i2v template workflow fails at CLIPLoader with RuntimeError: shape [25600, 2560] is invalid for input of size 47448148.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_15321_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnosed: the ComfyUI Desktop shared-model resolution picked a corrupted/mismatched text encoder file (qwen3vl nvfp4 awq in text_encoders instead of the proper minimax_h3 diffusion file); placing correct models fixes it.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "MiniMax H3",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15321",
+  "provenance_source": "github-closed",
+  "github_issue": 15321,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax h3"
+  ],
+  "solution_confirmed": true
+ }
+}

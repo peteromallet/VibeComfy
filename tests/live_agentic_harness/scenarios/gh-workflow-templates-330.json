@@ -1,0 +1,40 @@
+{
+ "id": "gh-workflow-templates-330",
+ "query": "Flux 2 template fails validation before execution: EmptyFlux2LatentImage width/height and Flux2Scheduler width/steps arrive as None ('Failed to convert an input value to a INT value'), suggesting unprompted/unpopulated widget values in the shipped template.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki) asked for a screenshot/workflow and whether ComfyUI is on the latest version; OP re-posted the same error; thread ended unresolved.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/330",
+  "provenance_source": "github"
+ }
+}

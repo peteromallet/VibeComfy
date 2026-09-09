@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Lower the IC-LoRA strength from 1.0 to 0.5 (value used in the official example workflow); OP confirmed this fixed the texture bleed.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

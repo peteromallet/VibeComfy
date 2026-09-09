@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-15470",
+ "query": "Local standard H3 Ref2v workflow produces no reference audio (occasional click) and random lip motion while the same inputs via the H3 API work perfectly, with and without turbo LoRA.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose and fix.",
+  "quality": "Diagnosis identifies correct root cause; fix directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15470",
+  "provenance_source": "github"
+ }
+}

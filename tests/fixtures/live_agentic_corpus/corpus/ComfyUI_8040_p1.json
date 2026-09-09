@@ -1,0 +1,514 @@
+{
+ "last_node_id": 106,
+ "last_link_id": 176,
+ "nodes": [
+  {
+   "id": 92,
+   "type": "MMAudioSampler",
+   "pos": [
+    2322.641845703125,
+    -222.64015197753906
+   ],
+   "size": [
+    411.29339599609375,
+    354
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "mmaudio_model",
+     "type": "MMAUDIO_MODEL",
+     "link": 152
+    },
+    {
+     "name": "feature_utils",
+     "type": "MMAUDIO_FEATUREUTILS",
+     "link": 166
+    },
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 170,
+     "shape": 7
+    },
+    {
+     "name": "duration",
+     "type": "FLOAT",
+     "link": 175,
+     "widget": {
+      "name": "duration"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "name": "audio",
+     "type": "AUDIO",
+     "links": [
+      163,
+      171
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MMAudioSampler"
+   },
+   "widgets_values": [
+    3,
+    25,
+    4.5,
+    7,
+    "fixed",
+    "",
+    "",
+    false,
+    true
+   ]
+  },
+  {
+   "id": 98,
+   "type": "PreviewAudio",
+   "pos": [
+    2835.40087890625,
+    -351.83074951171875
+   ],
+   "size": [
+    315,
+    76
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "audio",
+     "type": "AUDIO",
+     "link": 163
+    }
+   ],
+   "outputs": [],
+   "properties": {
+    "Node name for S&R": "PreviewAudio"
+   },
+   "widgets_values": [
+    null
+   ]
+  },
+  {
+   "id": 97,
+   "type": "VHS_VideoCombine",
+   "pos": [
+    2805.75927734375,
+    -169.37237548828125
+   ],
+   "size": [
+    648.7454223632812,
+    1325.99267578125
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 161
+    },
+    {
+     "name": "audio",
+     "type": "AUDIO",
+     "link": 171,
+     "shape": 7
+    },
+    {
+     "name": "meta_batch",
+     "type": "VHS_BatchManager",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "frame_rate",
+     "type": "FLOAT",
+     "link": 176,
+     "widget": {
+      "name": "frame_rate"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "name": "Filenames",
+     "type": "VHS_FILENAMES",
+     "links": null
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VHS_VideoCombine"
+   },
+   "widgets_values": {
+    "frame_rate": 24,
+    "loop_count": 0,
+    "filename_prefix": "MMaudio",
+    "format": "video/h264-mp4",
+    "pix_fmt": "yuv420p",
+    "crf": 19,
+    "save_metadata": true,
+    "pingpong": false,
+    "save_output": false,
+    "videopreview": {
+     "hidden": false,
+     "paused": false,
+     "params": {
+      "filename": "MMaudio_00019-audio.mp4",
+      "subfolder": "",
+      "type": "temp",
+      "format": "video/h264-mp4",
+      "frame_rate": 16
+     },
+     "muted": false
+    }
+   }
+  },
+  {
+   "id": 102,
+   "type": "MMAudioFeatureUtilsLoader",
+   "pos": [
+    1577.2188720703125,
+    -68.85494232177734
+   ],
+   "size": [
+    487.2332763671875,
+    154
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "bigvgan_vocoder_model",
+     "type": "VOCODER_MODEL",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "mmaudio_featureutils",
+     "type": "MMAUDIO_FEATUREUTILS",
+     "links": [
+      166
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MMAudioFeatureUtilsLoader"
+   },
+   "widgets_values": [
+    "mmaudio_vae_44k_fp16.safetensors",
+    "mmaudio_synchformer_fp16.safetensors",
+    "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+    "44k",
+    "fp16"
+   ]
+  },
+  {
+   "id": 85,
+   "type": "MMAudioModelLoader",
+   "pos": [
+    1642.6138916015625,
+    -228.39370727539062
+   ],
+   "size": [
+    438.219970703125,
+    83.87998962402344
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "mmaudio_model",
+     "type": "MMAUDIO_MODEL",
+     "links": [
+      152
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MMAudioModelLoader"
+   },
+   "widgets_values": [
+    "mmaudio_large_44k_v2_fp16.safetensors",
+    "fp16"
+   ]
+  },
+  {
+   "id": 105,
+   "type": "VHS_VideoInfo",
+   "pos": [
+    2028.3045654296875,
+    236.1528778076172
+   ],
+   "size": [
+    262,
+    206
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "video_info",
+     "type": "VHS_VIDEOINFO",
+     "link": 172
+    }
+   ],
+   "outputs": [
+    {
+     "name": "source_fps\ud83d\udfe8",
+     "type": "FLOAT",
+     "links": null
+    },
+    {
+     "name": "source_frame_count\ud83d\udfe8",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "name": "source_duration\ud83d\udfe8",
+     "type": "FLOAT",
+     "links": null
+    },
+    {
+     "name": "source_width\ud83d\udfe8",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "name": "source_height\ud83d\udfe8",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "name": "loaded_fps\ud83d\udfe6",
+     "type": "FLOAT",
+     "links": [
+      176
+     ],
+     "slot_index": 5
+    },
+    {
+     "name": "loaded_frame_count\ud83d\udfe6",
+     "type": "INT",
+     "links": null,
+     "slot_index": 6
+    },
+    {
+     "name": "loaded_duration\ud83d\udfe6",
+     "type": "FLOAT",
+     "links": [
+      175
+     ],
+     "slot_index": 7
+    },
+    {
+     "name": "loaded_width\ud83d\udfe6",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "name": "loaded_height\ud83d\udfe6",
+     "type": "INT",
+     "links": null
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VHS_VideoInfo"
+   },
+   "widgets_values": {}
+  },
+  {
+   "id": 91,
+   "type": "VHS_LoadVideo",
+   "pos": [
+    1559.9124755859375,
+    174.70217895507812
+   ],
+   "size": [
+    417.6617736816406,
+    912.2588500976562
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "meta_batch",
+     "type": "VHS_BatchManager",
+     "link": null,
+     "shape": 7
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": null,
+     "shape": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      161,
+      170
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "frame_count",
+     "type": "INT",
+     "links": null
+    },
+    {
+     "name": "audio",
+     "type": "AUDIO",
+     "links": null
+    },
+    {
+     "name": "video_info",
+     "type": "VHS_VIDEOINFO",
+     "links": [
+      172
+     ],
+     "slot_index": 3
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VHS_LoadVideo"
+   },
+   "widgets_values": {
+    "video": "CogVideoX_1_5_I2V_00092.mp4",
+    "force_rate": 0,
+    "force_size": "Disabled",
+    "custom_width": 512,
+    "custom_height": 512,
+    "frame_load_cap": 0,
+    "skip_first_frames": 0,
+    "select_every_nth": 1,
+    "choose video to upload": "image",
+    "videopreview": {
+     "hidden": false,
+     "paused": false,
+     "params": {
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "force_rate": 0,
+      "filename": "CogVideoX_1_5_I2V_00092.mp4",
+      "type": "input",
+      "format": "video/mp4",
+      "select_every_nth": 1
+     },
+     "muted": false
+    }
+   }
+  }
+ ],
+ "links": [
+  [
+   152,
+   85,
+   0,
+   92,
+   0,
+   "MMAUDIO_MODEL"
+  ],
+  [
+   161,
+   91,
+   0,
+   97,
+   0,
+   "IMAGE"
+  ],
+  [
+   163,
+   92,
+   0,
+   98,
+   0,
+   "AUDIO"
+  ],
+  [
+   166,
+   102,
+   0,
+   92,
+   1,
+   "MMAUDIO_FEATUREUTILS"
+  ],
+  [
+   170,
+   91,
+   0,
+   92,
+   2,
+   "IMAGE"
+  ],
+  [
+   171,
+   92,
+   0,
+   97,
+   1,
+   "AUDIO"
+  ],
+  [
+   172,
+   91,
+   3,
+   105,
+   0,
+   "VHS_VIDEOINFO"
+  ],
+  [
+   175,
+   105,
+   7,
+   92,
+   3,
+   "FLOAT"
+  ],
+  [
+   176,
+   105,
+   5,
+   97,
+   4,
+   "FLOAT"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.6830134553650706,
+   "offset": [
+    -1061.593768518744,
+    451.0850929624773
+   ]
+  }
+ },
+ "version": 0.4
+}

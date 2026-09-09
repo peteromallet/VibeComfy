@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "OP-confirmed workaround: disable async offload and pinned memory, fall back to subquadratic cross-attention (launch flags --disable-async-offload --disable-pinned-memory --use-quad-cross-attention). Maintainer tracked the async-offload code path.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

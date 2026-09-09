@@ -1,0 +1,40 @@
+{
+ "id": "gh-ltxv-image-to-video-537",
+ "query": "On ComfyUI 0.28.0 the node pack fails to load with `cannot import name 'interleaved_freqs_cis'` \u2014 core RoPE refactor removed the function the pack imports.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "GlamoramaAttack (twice in related threads): `git pull` the custom node and it works again \u2014 the repo landed the 0.28 compatibility fix (PR #532); the suggested kornia==0.6.12 downgrade in-thread is unrelated to this error.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/537",
+  "provenance_source": "github-open",
+  "github_issue": 537,
+  "workflow_source": "official-template",
+  "failure_class": "version-regression",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

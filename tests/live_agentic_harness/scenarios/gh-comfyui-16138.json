@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Closed as completed (regression fixed in later core release); no explicit workaround comment in thread. Stream/disable switches were the requested fix.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",

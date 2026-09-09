@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Root cause in ComfyUI-GGUF, not KJNodes: fix in city96/ComfyUI-GGUF PR #357; OP confirmed 'ran smooth' after applying.",
-  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
