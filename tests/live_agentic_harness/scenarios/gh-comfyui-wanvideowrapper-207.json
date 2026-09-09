@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan 2.1 Fun-Control/VACE",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/207",
@@ -30,19 +30,10 @@
   "workflow_source": "inline-block",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan 2.1 fun-control/vace"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "version-drift",
-   "trivial",
-   "stale-workflow"
-  ],
-  "update_trap": true,
-  "hidden_requirement": "Tests whether the solver identifies a wrapper regression introduced by a node update and checks upstream for the maintainer's fix commit",
-  "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "solution_confirmed": true
  }
 }

@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-548",
+ "query": "LTX 2.5 CLIP Text Encode (negative prompt) crashes with 'not enough values to unpack (expected 4, got 1)' inside comfy/sd1_clip.py \u2014 ComfyUI core too old for the LTX 2.5 text encoder.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenters say updating ComfyUI to 0.32.0 fixes it ('update ComfyUI version: 0.32.0' by Seung-Do, echoed by Joker2020-cmd); no explicit OP confirmation.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 3,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/548",
+  "provenance_source": "github-open",
+  "github_issue": 548,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

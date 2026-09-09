@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-754",
+ "query": "Wan2.2 Image to Video (Subgraph) template fails on Apple Silicon with TypeError: Float8_e4m3fn has no MPS backend support. The template ships fp8 quantized weights, which macOS/MPS cannot execute - platform limitation, not a workflow wiring error.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki) gave the definitive cause: macOS does not support Float8_e4m3fn model weights ('Apple just doesn't support it'); suggested trying GGUF-quantized weights, noting most open-source video models perform poorly on Mac anyway. OP accepted, said the ticket can be closed as 'force majeure'.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/754",
+  "provenance_source": "github-open",
+  "github_issue": 754,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": true
+ }
+}

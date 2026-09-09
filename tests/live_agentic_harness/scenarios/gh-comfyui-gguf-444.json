@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-gguf-444",
+ "query": "ComfyUI-GGUF 2.0.0 on Windows: GGUFModelPatcher.unpatch_model with unpatch_weights=True touches GGUF mmap'd raw tensor memory during cache cleanup \u2192 access-violation crash (regression from 2.0.0 refactor; 1.1.6 had the fix).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP gives definitive cause + one-line fix: pass unpatch_weights=False to super().unpatch_model(device_to, unpatch_weights=False) so the base patcher never touches mmap weight memory; model still unloads normally, no crash (OP-verified).",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/444",
+  "provenance_source": "github-open",
+  "github_issue": 444,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

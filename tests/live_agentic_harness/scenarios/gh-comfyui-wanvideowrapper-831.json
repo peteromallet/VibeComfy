@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan (Uni3C + radial attention)",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/831",
@@ -30,20 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan (uni3c + radial attention)"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "version-drift",
-   "gpu-only",
-   "outcome-ambiguous",
-   "env-specific"
-  ],
-  "update_trap": true,
-  "hidden_requirement": "Tests whether the solver isolates the attention-backend conflict to the Uni3C controlnet loader specifically (sdpa there, sage on the model loader is fine) instead of blindly switching every attention setting or blaming Triton/radial-attention install.",
-  "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "solution_confirmed": true
  }
 }

@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan-Move",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1745",
@@ -30,18 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan-move"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "version-drift",
-   "trivial"
-  ],
-  "update_trap": true,
-  "hidden_requirement": "tests whether solver traces a frame-count mismatch (81 vs 241) in WanMove Tracks back to a SplineEditor (KJNodes) bug rather than the Draw Tracks node",
-  "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "solution_confirmed": true
  }
 }

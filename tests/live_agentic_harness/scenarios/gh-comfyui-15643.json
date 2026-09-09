@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15643",
+ "query": "LTX 2.5 lip sync: the LTX 2.3 pattern (audio encode -> latent mask -> audio latent) no longer produces synced mouth movement; modality/CFG/mask tweaks don't help.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "UCHIJ (C3) ported the 2.3 lipsync nodes to a native-node LTX 2.5 workflow that works: https://github.com/UCHIJ/LTX2.5-LipSync. Not confirmed by OP.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "audio+video",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15643",
+  "provenance_source": "github-open",
+  "github_issue": 15643,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

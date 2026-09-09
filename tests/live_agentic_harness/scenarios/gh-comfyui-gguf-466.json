@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-gguf-466",
+ "query": "Request for JoyAI Image Edit GGUF support; the linked vantagewithai GGUF already carries 'wan' in its model name so existing nodes handle it.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "m8rr comment: the vantagewithai JoyAI GGUF uses 'wan' in its model name and 'works without needing any code changes' \u2014 no OP confirmation in thread.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/466",
+  "provenance_source": "github-open",
+  "github_issue": 466,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false
+ }
+}

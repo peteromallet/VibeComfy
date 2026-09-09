@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-444",
+ "query": "Official LTX-2.3 T2V/I2V two-stage distilled workflow produces 'mosaic/flickering screen' artifacts despite up-to-date ComfyUI and node pack.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "raffetazarius suggests using the v1.1 LTX-2.3 upscaler since v1.0 had a known issue; unconfirmed by OP.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/444",
+  "provenance_source": "github-open",
+  "github_issue": 444,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

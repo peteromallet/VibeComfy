@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "kijai diagnosed the conflict with Anything-Anywhere nodes; removing those nodes fixed the error. OP confirmed \"that fixed it\".",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan 2.2",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/950",
@@ -30,18 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan 2.2"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "version-drift",
-   "trivial"
-  ],
-  "update_trap": false,
-  "hidden_requirement": "Tests whether the solver blames the correct third-party pack (Anything-Anywhere hooking node metadata) instead of the WanVideoWrapper or ComfyUI v0.3.48 itself.",
-  "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "solution_confirmed": true
  }
 }

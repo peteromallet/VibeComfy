@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Confirmed: community-shared full workflow (attached JSON) works; the shape/size-mismatch errors came from the FastWan low-step LoRA \u2014 disabling the LoRA (and raising steps to ~50) makes Lucy Edit run fine.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan-LucyEdit",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1338",
@@ -30,19 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan-lucyedit"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "solution-too-specific",
-   "information-poor",
-   "visual-judgment"
-  ],
-  "update_trap": false,
-  "hidden_requirement": "tests whether solver isolates a conflicting FastWan low-step LoRA (shape [3072,3072] vs 26214400) as the cause rather than blaming the undocumented Lucy Edit node wiring",
-  "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "solution_confirmed": true
  }
 }

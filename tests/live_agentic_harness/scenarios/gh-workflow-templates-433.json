@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-433",
+ "query": "image_z_image_turbo template with GGUF quants on Apple MPS (M4 MacBook Air 16GB): Q4_K/Q5_K quants produce noisy/black output while identical models work on NVIDIA; only Q3 runs reliably on macOS. Matches the MPS k-quant failure in #442.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_z_image.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki) linked #442 and stated the cause: GGUF models with 'k' in the quant naming cause this on MPS; suggested using other GGUF versions (e.g. non-k quant / Q3). OP never confirmed the swap worked.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "rubric",
+  "model_family": "Z-Image",
+  "tech_freshness": "current",
+  "age_months": 5,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/433",
+  "provenance_source": "github-open",
+  "github_issue": 433,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "z-image"
+  ],
+  "solution_confirmed": false
+ }
+}

@@ -1,0 +1,39 @@
+{
+ "id": "gh-sageattention-383",
+ "query": "API contract mismatch inside SageAttention: per_channel_fp8 pads kv_len to 64 but the sm90 kernels require padding to CTA_K=128, so any downstream caller using the memory-efficient direct path (e.g. KJNodes MiniMax H3 patch) aborts when kv_len % 128 is in [65,127].",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Workaround: pad V to a multiple of 128 before per_channel_fp8, exactly as core.py's top-level sageattn_qk_int8_pv_fp8_cuda_sm90 already does (lines ~972-980). OP suggests fixing per_channel_fp8 to pad to 128 or adding a pad_to argument; KJNodes PR #729 filed; nothing merged upstream.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "rubric",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 10,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/thu-ml/SageAttention/issues/383",
+  "provenance_source": "github-open",
+  "github_issue": 383,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false
+ }
+}

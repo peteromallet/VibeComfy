@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-341",
+ "query": "Flux 2 template process is OS-killed ('Killed', no Python error) while loading Flux2 on AMD Strix Halo ROCm unified memory \u2014 an OOM-kill during model load; all other workflows run. Reproduces every time on this hardware.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_flux1_dev_uso_reference_image_gen.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki) asked for the GPU info screenshot; OP posted a link; thread ended with no diagnosis or fix.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 2,
+  "grade_mode": "weak",
+  "model_family": "Flux",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/341",
+  "provenance_source": "github-open",
+  "github_issue": 341,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "flux"
+  ],
+  "solution_confirmed": false
+ }
+}

@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15427",
+ "query": "One-line report of a Sampler RuntimeError on 0.31 with H3; empty log section, no error text ever shared (kijai asked for it).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "aifaceless14-spec (C2): 'swap for easy cache, works really well' (screenshot) - unconfirmed, and the actual error was never posted.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 3,
+  "grade_mode": "weak",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "niche",
+  "nodes_type": "unclear",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15427",
+  "provenance_source": "github-open",
+  "github_issue": 15427,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false
+ }
+}

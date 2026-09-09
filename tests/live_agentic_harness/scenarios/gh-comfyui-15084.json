@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15084",
+ "query": "Krea2 Turbo int8_convrot UNet on RX 9070 XT (gfx1201, ROCm 7.2) samples cleanly but decodes to black/NaN; fp8_scaled works; suspected quantized-kernel defect on ROCm.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_flux1_dev_uso_reference_image_gen.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "Flux",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15084",
+  "provenance_source": "github-open",
+  "github_issue": 15084,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "flux"
+  ],
+  "solution_confirmed": false
+ }
+}

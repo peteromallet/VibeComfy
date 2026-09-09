@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-553",
+ "query": "LTX IC Lora Loader (Model Only) shows as unknown/missing because the whole ComfyUI-LTXVideo pack fails to import: kornia 0.8.x no longer re-exports `pad` from kornia.geometry.transform.pyramid, killing pyramid_blending.py at import time.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Community fix (posted by OP Magenta-6 from Gemini diagnosis, referencing #494): remove `pad` from the kornia import block in pyramid_blending.py and add `from torch.nn.functional import pad`. OP confirmed 'THIS FIXED THE PROBLEM', and two later commenters confirm; caveat: re-appears after node updates until PR merges.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "aging",
+  "age_months": 15,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/553",
+  "provenance_source": "github-open",
+  "github_issue": 553,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

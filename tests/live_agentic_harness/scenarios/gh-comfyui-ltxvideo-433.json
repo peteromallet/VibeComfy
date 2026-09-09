@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-433",
+ "query": "ComfyUI Desktop LTX 2.3 hits fal.ai 'insufficient funds' error with cloud switched off; user asks how to remove the stored fal.ai API key from their PC \u2014 account/billing and local key management, not a workflow fault.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_z_image.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose and fix.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "rubric",
+  "model_family": "Z-Image",
+  "tech_freshness": "current",
+  "age_months": 5,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/433",
+  "provenance_source": "github-open",
+  "github_issue": 433,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "z-image"
+  ],
+  "solution_confirmed": false
+ }
+}

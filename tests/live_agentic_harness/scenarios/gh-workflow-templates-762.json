@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-762",
+ "query": "Mostly feature requests (acceleration nodes, VRAM cleanup, muter nodes, ConditioningZeroOut for CFG=1) plus a user-specific report of hangs at the final VAEDecode with 9B+LoRA and a duplicate save-prompt traced to ResizeImageMaskNode conflicting with the user's install/plugins.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_flux1_dev_uso_reference_image_gen.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenter Eva-033 worked around the save-prompt symptom by swapping the native ResizeImageMaskNode for MaskResize from ComfyUI Essentials (requires installing a custom-node pack; not confirmed by OP and not a template change). The VAEDecode hang itself was never resolved.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 3,
+  "grade_mode": "weak",
+  "model_family": "Flux",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "niche",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/762",
+  "provenance_source": "github-open",
+  "github_issue": 762,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "flux"
+  ],
+  "solution_confirmed": false
+ }
+}

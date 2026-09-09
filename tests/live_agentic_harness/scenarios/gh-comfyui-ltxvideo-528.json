@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-528",
+ "query": "LTXVHDRDecodePostprocess fails with cv2.error: OpenCV 5.0 'could not find a writer for the specified extension' in cv::imwrite_.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "AlbanSolaya: OpenCV >=5.0 breaks it; downgrade with `pip install opencv-python==4.14.0.94`. No OP confirmation.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/528",
+  "provenance_source": "github-open",
+  "github_issue": 528,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

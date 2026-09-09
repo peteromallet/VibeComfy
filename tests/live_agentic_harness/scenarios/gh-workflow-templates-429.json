@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-429",
+ "query": "04_hunyuan_3d_2.1 template throws 'not enough values to unpack (expected 2, got 1)' inside common_ksampler on the FIRST run only; clicking run again succeeds with no changes. Deterministic first-execution failure in the sampler path, not an OOM error.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_3d_hunyuan3d-v2.1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki) speculated insufficient VRAM ('It might be because you do not have enough VRAM', screenshot attached) \u2014 unconfirmed and inconsistent with the unpack traceback. Practical workaround: run the prompt twice.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "multi",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 3,
+  "grade_mode": "rubric",
+  "model_family": "Hunyuan",
+  "tech_freshness": "current",
+  "age_months": 7,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/429",
+  "provenance_source": "github-open",
+  "github_issue": 429,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "hunyuan"
+  ],
+  "solution_confirmed": false
+ }
+}

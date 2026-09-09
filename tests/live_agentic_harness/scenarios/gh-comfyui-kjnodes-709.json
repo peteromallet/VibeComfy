@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-kjnodes-709",
+ "query": "'RuntimeError: sageattention is not new enough version or could not determine CUDA architecture, cannot apply LTX2 Memory Efficient Sage Attention Patch' \u2014 sageattention 3.x/1.x doesn't satisfy the node's version requirement.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenter kschen202115 (2026-08-11): install a sageattention 2.2.0 Blackwell sm120 build (HuggingFace sanjxz/sageattention-2.2.0-blackwell-sm120a); the node needs 2.2, not 3.x. Unconfirmed by OP.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "aging",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/709",
+  "provenance_source": "github-open",
+  "github_issue": 709,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

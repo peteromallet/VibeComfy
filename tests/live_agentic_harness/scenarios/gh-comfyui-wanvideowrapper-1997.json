@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1997",
+ "query": "WanAnimate + WanVideoAnimateEmbeds with bg_images connected + context options crashes: image_cond[:, c] IndexError at nodes_sampler.py:1903 because provided bg_images is encoded at raw length instead of num_frames-num_refs.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 5,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1997",
+  "provenance_source": "github-open",
+  "github_issue": 1997,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false
+ }
+}

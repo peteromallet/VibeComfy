@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15666",
+ "query": "--reserve-vram is not enforced during model load/init (VRAM exceeds capacity-reserved on a 5090 with H3 t2v); only applied afterward.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer rattus128 (C0): legacy semantic - reserve only bounds runtime activations; the dynamic-VRAM flag --vram-headroom/--vram-extra-headroom is the intended mechanism. OP (C1/C3) reports that flag still doesn't cap load-time usage; no dev follow-up.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15666",
+  "provenance_source": "github-open",
+  "github_issue": 15666,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false
+ }
+}

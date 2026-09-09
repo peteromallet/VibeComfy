@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-15261",
+ "query": "Identical official H3 ref2video run is 2.3x faster on 5070 Ti than 4080 (both 16GB + 64GB RAM); user asks why.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "TheLeastMost (C0): H3 offloads to RAM, so memory bandwidth (GDDR7) and PCIe 5.0 dominate, not compute. rattus128 (C2): profile with Nvidia Nsight to spot PCIe/RAM gaps. Explanation only; OP never re-benchmarked.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15261",
+  "provenance_source": "github-open",
+  "github_issue": 15261,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false
+ }
+}

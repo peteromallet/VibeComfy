@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Z-Image Turbo / Qwen3-4B",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/385",
@@ -30,18 +30,10 @@
   "workflow_source": "inline-block",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "z-image turbo / qwen3-4b"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "version-drift",
-   "gpu-only"
-  ],
-  "update_trap": false,
-  "hidden_requirement": "Tests whether the solver can trace a dtype error to the GGUF loader's index handling and know that PyTorch gather indexes should be int64",
-  "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "solution_confirmed": true
  }
 }

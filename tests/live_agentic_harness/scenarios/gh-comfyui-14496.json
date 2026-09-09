@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-14496",
+ "query": "Qwen-Image-Edit model init intermittently takes ~180s (30% of runs) on a 4090; 'Model Initializing' stall with no error.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image-qwen_image_edit_2511_lora_inflation.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP (C3): self-diagnosed that model init needs fast disk reads - below ~1GB/s causes the stall. hccx666 (C4) adds a Linux 7.0.2 kernel regression report (suggest 7.0.1). Nothing conclusively fixed.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "Qwen",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14496",
+  "provenance_source": "github-open",
+  "github_issue": 14496,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "qwen"
+  ],
+  "solution_confirmed": false
+ }
+}

@@ -1,7 +1,7 @@
 {
  "id": "gh-comfyui-11260",
- "query": "After a fresh ComfyUI install, importing a workflow JSON or PNG shows a success message but nothing is rendered when custom nodes are missing; user cannot tell which node packs are absent. Via API the error surfaces as invalid_prompt 'node RIFE VFI does not exist'.",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_files.json",
+ "query": "After a fresh ComfyUI install, exported API-format workflows cannot be loaded when nodes are missing; error message is misleading and UI does not show which nodes are missing.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_p1.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,42 +9,31 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "OP confirmed workaround: repeatedly query the API and manually install every missing node package until import succeeds; issue transferred to frontend (ComfyUI_frontend#7427) to show workflow with missing nodes.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "outcome": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "unclear",
-  "query_type": "diagnose",
-  "abstraction": "high",
-  "complexity": "medium",
-  "manifest_complexity": 3,
-  "task_type": "unclear",
-  "requires_custom_nodes": false,
-  "techniques": [
-   "video-interpolation (RIFE VFI)"
-  ],
-  "difficulty_1to10": 5,
-  "answer_confidence_1to10": null,
-  "tech_freshness": "current",
-  "age_months": null,
-  "solution_specificity": null,
-  "generalizability": "common",
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
   "grade_mode": "strict",
-  "solution_confirmed": true,
-  "workflow_source": "json-attachment",
+  "model_family": "Hunyuan Video",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/11260",
   "provenance_source": "github-closed",
-  "pitfalls": [
-   "version-drift",
-   "env-specific",
-   "solution-too-specific",
-   "outcome-ambiguous"
+  "github_issue": 11260,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "hunyuan video"
   ],
-  "update_trap": false,
-  "hidden_requirement": "tests whether solver discovers that the UI silently drops missing custom nodes on import and uses the API (invalid_prompt: 'node RIFE VFI does not exist') to enumerate what to install",
-  "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "solution_confirmed": true
  }
 }

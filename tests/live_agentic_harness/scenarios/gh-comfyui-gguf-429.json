@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-gguf-429",
+ "query": "Automated 'Crovia' bot-generated README checklist/spam (license, training-data wording suggestions); no workflow defect and no user problem.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_3d_hunyuan3d-v2.1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose and fix.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "multi",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 3,
+  "grade_mode": "rubric",
+  "model_family": "Hunyuan",
+  "tech_freshness": "current",
+  "age_months": 7,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/429",
+  "provenance_source": "github-open",
+  "github_issue": 429,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "hunyuan"
+  ],
+  "solution_confirmed": false
+ }
+}

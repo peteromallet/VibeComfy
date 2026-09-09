@@ -1,7 +1,7 @@
 {
  "id": "gh-comfyui-10247",
- "query": "LTXV workflow fails after updating ComfyUI Desktop to v0.5.0 (core v0.3.63): LTXVBaseSampler errors with 'LTXVPreprocess' object has no attribute 'preprocess'. Reproduced on macOS, Windows and Ubuntu desktop builds; reinstalling LTXV nodes from Manager did not help.",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10247_attached.json",
+ "query": "After updating ComfyUI desktop to v0.5.0 (core v0.3.63), LTXV workflow fails: \"LTXVBaseSampler 'LTXVPreprocess' object has no attribute 'preprocess'\".",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10247_p1.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,41 +9,31 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Fixed in ComfyUI Desktop v0.5.1 (core v0.3.64); OP confirmed 'v0.5.1(core v.0.3.64) fixed the issue.'",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "outcome": "Confirmed by OP: ComfyUI desktop v0.5.1 (core v0.3.64) fixed the LTXV node incompatibility.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "unclear",
-  "query_type": "diagnose",
-  "abstraction": "high",
-  "complexity": "low",
-  "manifest_complexity": 1,
-  "task_type": "unclear",
-  "requires_custom_nodes": false,
-  "techniques": [
-   "LTXV"
-  ],
+  "modality": "video",
   "difficulty_1to10": 2,
-  "answer_confidence_1to10": null,
-  "tech_freshness": "current",
-  "age_months": null,
-  "solution_specificity": null,
-  "generalizability": "common",
+  "answer_confidence_1to10": 9,
   "grade_mode": "strict",
-  "solution_confirmed": true,
-  "workflow_source": "json-attachment",
+  "model_family": "LTXV",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/10247",
   "provenance_source": "github-closed",
-  "pitfalls": [
-   "version-drift",
-   "trivial",
-   "stale-workflow"
+  "github_issue": 10247,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltxv"
   ],
-  "update_trap": true,
-  "hidden_requirement": "tests whether solver attributes an AttributeError inside LTXVPreprocess to a Desktop build bug and upgrades to v0.5.1 rather than reinstalling custom nodes",
-  "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "solution_confirmed": true
  }
 }

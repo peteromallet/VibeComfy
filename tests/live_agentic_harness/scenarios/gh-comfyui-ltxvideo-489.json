@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-489",
+ "query": "LTX 2.3 template's 'Models Links' node omits the required Gemma text encoder download and lists an unused 'abliterated' lora \u2014 anyone following the template's links hits a missing text encoder.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "soonyigkka says the docs misplace the file (put gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors in text_encoders, with screenshot); OP disputes it's a text encoder (size check); unresolved \u2014 grab the Gemma text encoder separately from Comfy-Org/ltx-2.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/489",
+  "provenance_source": "github-open",
+  "github_issue": 489,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

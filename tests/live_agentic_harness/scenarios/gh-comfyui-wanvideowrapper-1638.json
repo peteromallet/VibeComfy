@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Convert the I2V workflow: delete/disable LoadImage and WanVideo Image2Video Encode nodes, replace sampler image_embeds with WanVideo Empty Embeds, switch model/loras to T2V versions. OP confirmed it works without error.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan 2.2 T2V 14B",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1638",
@@ -30,18 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan 2.2 t2v 14b"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "outcome-ambiguous",
-   "solution-too-specific"
-  ],
-  "update_trap": false,
-  "hidden_requirement": "tests whether solver can correctly convert an I2V WanVideoWrapper graph to T2V (drop LoadImage + Image2VideoEncode, swap in WanVideoEmptyEmbeds, switch models/loras)",
-  "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "solution_confirmed": true
  }
 }

@@ -10,7 +10,7 @@
  },
  "desired": {
   "outcome": "Confirmed workarounds: clear Triton caches (~/.triton and %TEMP%/torchinductor_<user>) as kijai instructs, and/or revert to wrapper 1.3.6 (14.5GB vs 23.1GB VRAM measured); blockswap itself was working fine \u2014 log line removed in refactor.",
-  "quality": "Diagnosis identifies the correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
@@ -20,8 +20,8 @@
   "answer_confidence_1to10": 9,
   "grade_mode": "strict",
   "model_family": "Wan",
-  "tech_freshness": "current",
-  "age_months": 6,
+  "tech_freshness": "aging",
+  "age_months": 12,
   "generalizability": "common",
   "nodes_type": "custom-nodes",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1644",
@@ -30,19 +30,10 @@
   "workflow_source": "attachment",
   "query_type": "diagnose",
   "abstraction": "high",
-  "requires_custom_nodes": false,
+  "requires_custom_nodes": true,
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true,
-  "pitfalls": [
-   "env-specific",
-   "unreproducible",
-   "version-drift"
-  ],
-  "update_trap": false,
-  "hidden_requirement": "tests whether solver attributes a VRAM regression to stale Triton/inductor caches (and knows the exact cache paths) rather than blockswap misconfiguration",
-  "eval_value": "medium",
-  "recommended_grade_mode": "multi-sample"
+  "solution_confirmed": true
  }
 }

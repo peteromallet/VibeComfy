@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-544",
+ "query": "Several LTX nodes error after install \u2014 pack import failure after a ComfyUI update (same class as #538 interleaved_freqs_cis break), so nodes fail to register.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Danny-707 links the #538 fix (remove/reinstall or git pull the node pack) and peterducan-hub confirms it worked; OP separately confirmed a clean 'ComfyUI easy install' fixed it.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/544",
+  "provenance_source": "github-open",
+  "github_issue": 544,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

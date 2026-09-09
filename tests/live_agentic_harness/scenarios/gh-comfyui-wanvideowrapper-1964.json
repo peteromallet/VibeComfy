@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1964",
+ "query": "Request to implement DreamID-Omni (dreamOmini) in the wrapper; feature request, no workflow problem or error.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Community analysis (railep): DreamID-Omni is an Ovi variant (same layers, fp32 vs bf16; mmaudio + Wan 2.2 5B) so the existing Ovi workflow should run it; maintainer (kijai, quoted) stated he won't update the wrapper anymore, focusing on Comfy core \u2014 so no wrapper support is coming.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "weak",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "niche",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1964",
+  "provenance_source": "github-open",
+  "github_issue": 1964,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false
+ }
+}

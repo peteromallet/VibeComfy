@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-2034",
+ "query": "Feature request to add Bernini and SCAIL-2 node support; no workflow problem or error. No official response.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Unofficial workaround: tdrminglin commented a fork with Bernini support (https://github.com/tdrminglin/ComfyUI-WanVideoWrapper); another user asked for an example workflow, none shared, no maintainer involvement.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "weak",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "niche",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/2034",
+  "provenance_source": "github-open",
+  "github_issue": 2034,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false
+ }
+}

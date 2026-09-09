@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-538",
+ "query": "After a ComfyUI update, the pack fails to import: `cannot import name 'interleaved_freqs_cis' from 'comfy.ldm.lightricks.model'` \u2014 ComfyUI refactored RoPE helpers (merged into freqs_cis_matrix) and older node-pack code no longer imports.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Fixed by updating ComfyUI-LTXVideo via git pull to get the compatibility fix (PR #532) \u2014 GlamoramaAttack confirms 'everything should work again'; interim: clean manual reinstall (Dunc4n1dah0) or hand-edit embeddings_connector.py to use freqs_cis_matrix (screwballl).",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/538",
+  "provenance_source": "github-open",
+  "github_issue": 538,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

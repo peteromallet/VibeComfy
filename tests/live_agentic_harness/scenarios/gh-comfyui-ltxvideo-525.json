@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-525",
+ "query": "On kornia >= 0.8.3 the pack fails to import (`cannot import name 'pad'`) because kornia no longer re-exports torch's pad from the pyramid module.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP's one-line shim (`pad = F.pad`, drop pad from kornia import) and pinning kornia==0.8.2 (maoper11) both confirmed working by later commenters in #494/#517.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "aging",
+  "age_months": 4,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/525",
+  "provenance_source": "github-open",
+  "github_issue": 525,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true
+ }
+}

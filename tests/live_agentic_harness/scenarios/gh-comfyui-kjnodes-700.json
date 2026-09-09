@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-kjnodes-700",
+ "query": "After ComfyUI PR #15063 the LTX latent upscaler is a ModelPatcherDynamic, but LTX2SamplingPreviewOverride still calls .to(device)/direct module ops on it, raising AttributeError before the first sampling step.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP-documented workaround: disconnect the latent_upscale_model input from LTX2SamplingPreviewOverride (native LTXVLatentUpsampler still works). Proper fix requires KJNodes to use the patcher API; not yet landed.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/700",
+  "provenance_source": "github-open",
+  "github_issue": 700,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

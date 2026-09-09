@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-13139",
+ "query": "With dynamic VRAM, 2-pass Qwen-Image-Edit unloads all models between samplers and after the run (RAM flushed), doubling generation time vs --disable-dynamic-vram.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image-qwen_image_edit_2511_lora_inflation.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Workaround --disable-dynamic-vram confirmed working by Kozatiju (C5) and others, but rattus128 only reproduced/asked for logs and the flag is slated for removal; underlying reload behavior not fixed.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "Qwen",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/13139",
+  "provenance_source": "github-open",
+  "github_issue": 13139,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "qwen"
+  ],
+  "solution_confirmed": false
+ }
+}

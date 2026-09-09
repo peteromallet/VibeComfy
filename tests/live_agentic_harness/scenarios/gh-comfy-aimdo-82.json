@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfy-aimdo-82",
+ "query": "With --enable-dynamic-vram on ROCm/Windows (RX 7900 XT), MiniMaxH3 INT4 convrot_w4a4 quantized model outputs a completely gray image (0.4.11 runs 10 steps in <1s, 0.4.13 computes but still gray), and the GGUF build of the same arch fills VRAM and hangs before step 1. Low-level HostBuffer->VBAR roundtrip verified OK; suspect QuantizedTensor geometry handling in ModelPatcherDynamic.load and detour-hook interference with the legacy load path.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "No confirmed fix. Maintainer 0xDELUXA could not reproduce on RDNA4/Windows ROCm 10.1 + torch 2.14, asked OP to retest, and suggested W4A8 or int8_convrot are better quantization choices than GGUF/W4A4 (comment, unconfirmed by OP).",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/comfy-aimdo/issues/82",
+  "provenance_source": "github-open",
+  "github_issue": 82,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false
+ }
+}

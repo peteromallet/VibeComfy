@@ -1,0 +1,39 @@
+{
+ "id": "gh-workflow-templates-339",
+ "query": "Freshly-installed template fails at CLIPLoader: 'size mismatch for Llama2 state_dict' (Qwen3-shaped 2560-hidden weights loaded into a Llama arch) \u2014 hits a wave of users on older ComfyUI builds that can't load the new text-encoder weights.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image-qwen_image_edit_2511_lora_inflation.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Fix per affected users (not OP/maintainer): fully update the ComfyUI backend+frontend \u2014 diverHansun confirmed updating to latest solved it, seanntxj fixed it by force-updating via command line instead of ComfyUI-Manager (one user still broken on 0.3.76 after Manager update). diverHansun links the official comfyui-wiki update guide.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "rubric",
+  "model_family": "Qwen",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/339",
+  "provenance_source": "github-open",
+  "github_issue": 339,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "qwen"
+  ],
+  "solution_confirmed": false
+ }
+}

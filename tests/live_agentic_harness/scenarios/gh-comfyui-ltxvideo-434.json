@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-434",
+ "query": "Long (30s) i2v generations show severe artifacts in the last few frames of the video.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Gilles-61 suggests deleting all text in the negative prompt box inside the subgraph and regenerating; unconfirmed by OP.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/434",
+  "provenance_source": "github-open",
+  "github_issue": 434,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}

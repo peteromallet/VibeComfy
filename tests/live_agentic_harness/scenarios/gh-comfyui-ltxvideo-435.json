@@ -1,0 +1,39 @@
+{
+ "id": "gh-comfyui-ltxvideo-435",
+ "query": "Request for an optimized example workflow for the full LTX-2.3 Dev (non-distilled) model \u2014 no concrete defect; thread is discussion of settings.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "jamesk9526 shares working Dev settings: KSamplerSelect gradient_estimation, ManualSigmas 0.909375/0.725/0.421875/0.0, LTXVScheduler 20 steps (max_shift 2.05, base_shift 0.95), distilled lora only in the second-stage upscale \u2014 anecdotal, no official workflow provided.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 3,
+  "grade_mode": "weak",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/435",
+  "provenance_source": "github-open",
+  "github_issue": 435,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false
+ }
+}
