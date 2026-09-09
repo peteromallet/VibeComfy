@@ -69,3 +69,7 @@ Meaningful prompt, model, source, mask and interval controls are permitted as na
 ## Handover source resolution — 2026-09-09
 
 The current source closure check found all 12 relevant dirty edit/revision paths and six untracked tests byte-identical to origin/main 20975e25. No source patch is required. The only differing tracked converter file removes an existing diagnostic and is not adopted. See provenance.md. This resolves the earlier dirty-overlay uncertainty; the recipient starts from the pinned committed source, checks its own custody/environment in C0, and need not recover the original machine's checkout. Original local bytes remain untouched. Pythonic requirements remain included; omitting the obsolete source patch does not omit that work.
+
+## Latest Astra sense-check requirements
+
+Apply the two mandatory evidence clarifications in [the acceptance ledger](acceptance-ledger.md#astra-sense-check-acceptance-clarification--2026-09-09): E0 maps the existing ingress owners and establishes cross-entrypoint baseline; E1 corrects only demonstrated shared-owner/emission defects; T3 adds the focused regressions to Q5; E2 saves/reloads and exports the edited H3 graph, asserts presentation/subgraph structure and records inspection of the exact rendered graph and whole Python file. A nested-definition source edit is a recommended optional test choice within existing I8/I9. No added task family or review stage.

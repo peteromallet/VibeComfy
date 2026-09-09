@@ -43,3 +43,23 @@ Each real packet includes one row per scoped I ID with command, inputs/environme
 I8/I9 apply to the whole generated authoring file, not just build(). Moving the replay tail into a large CUSTODY dictionary is not acceptance. The one deterministic custody declaration contains only bindings/IDs and necessary schema/provenance/exceptional reference facts; it contains no runtime input/widget values, whole-node snapshots, graph edge arrays, raw UI payload or serialized source graph. Required native-port facts must not be repeated in ordinary calls and again in custody. Generated source has no post-construction wf.nodes[...] input/widget/metadata/native-field replay; the existing internal finalization mechanism may apply verified custody without generating such a tail.
 
 Meaningful prompt, model, source, mask and interval controls are permitted as named values. A JSON-valued node input is not itself a defect; repeating it in constructor literals and later restoration is. Each runtime value has one authoritative expression, shared by references where reused. E0/E1 AST and declaration-content assertions prove this distinction; E2/I10 opens the actual whole H3 file and rejects merely relocating the old clutter. No arbitrary line/byte limit or new serialization/storage service is introduced. D1's return condition remains if necessary custody cannot be preserved under this contract.
+
+## Astra sense-check acceptance clarification — 2026-09-09
+
+These two in-scope evidence requirements close the explicitly requested clean-Python/elegant-ingestion end state. They add no architecture, task family, product authorization or review stage. All remain NOT RUN / MISSING.
+
+### I10 / E2 — inspect the exact visible result
+
+After editing and rebuilding the actual generated H3 file, save/reload it and materialize/export its UI graph through the normal public boundary. Record the exact Python, exported graph and presentation-sidecar identities. Assert the expected nodes, effective links, public ports, supported subgraph/instance representation and preserved presentation fields by stable identity; account explicitly for supported native expansion and normalization. Inspect the whole generated Python and the graph rendered from that exact exported artifact, including its subgraph/boundary detail, and retain a screenshot or rendered view plus a short criterion-linked inspection finding. Reject unreadable replay/custody clutter, missing or misbound ports, unintended flattening of a supported authored structure, or lost presentation. Use an already available viewer/rendering path; no UI redesign, runtime provisioning or GPU output-quality claim. Missing visual evidence remains MISSING, not PASS.
+
+### I7 / I9 — prove one ingestion owner
+
+Record a short source-backed call-path map for the existing CLI conversion, SDK onboarding and canvas capture entrypoints, naming the common normalization/schema-authority, emitter and publication owners and the legitimate wrapper differences. Exercise the same supported draft fixture and one malformed boundary/schema fixture through those real entrypoints. Compare admitted semantics, identity/native-port custody and semantic refusal reason, allowing different report formatting and explicitly optional presentation persistence. The normal H3 conversion must consume that same owner path without an H3-only bypass or restoration patch. A shared output formatter alone is not proof of shared ingestion. Reuse existing owners; no global ingestion migration or new facade is required.
+
+Use a malformed authority/boundary case, not a missing model: draft persistence must remain independent of runtime readiness. E0 records the owner map/baseline, E1 fixes only demonstrated owner splits, and T3 executes the cross-entrypoint regression through Q5.
+
+### Optional I8 / I9 test selection — edit inside a nested definition
+
+Extend the existing depth-two/repeated-instance subgraph fixture with a real edit to a constructor/default in the emitted nested definition, then reload and re-emit the edited file. Assert the expected effective change, retained per-instance overrides, untouched sibling/scoped UIDs, interface and boundary bindings, fanout and output slots, and API/GraphBuilder parity. Apply the whole-file clean-source/custody checks inside generated definition helpers as well as build(). Keep malformed-boundary refusal coverage. Public-argument overrides alone do not satisfy this source-edit case.
+
+The nested-definition fixture is an optional strong test choice within existing I8/I9, not an additional blocker; other adequate evidence can satisfy the existing contract. E2 produces the required I10 presentation and inspection evidence.
