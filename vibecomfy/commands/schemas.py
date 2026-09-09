@@ -131,6 +131,20 @@ def _extract_class_types_from_template(template_path: str | Path) -> list[str]:
     return class_types
 
 
+def _extract_class_types_from_source_json(source_path: str | Path) -> list[str]:
+    """Discover class types from a ComfyUI UI JSON without importing it."""
+    raw = json_module.loads(Path(source_path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("workflow source must be a JSON object")
+    from vibecomfy.ingest.native_subgraph import expand_native_subgraphs
+    expanded = expand_native_subgraphs(raw)
+    classes: list[str] = []
+    for node in expanded.get("nodes", []):
+        if isinstance(node, dict) and isinstance(node.get("type"), str):
+            classes.append(node["type"])
+    return classes
+
+
 # ---------------------------------------------------------------------------
 # subcommand: refresh
 # ---------------------------------------------------------------------------
@@ -1035,7 +1049,10 @@ def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
                 print(str(exc), file=__import__("sys").stderr)
             return 1
     else:
-        class_types = _extract_class_types_from_template(source_path)
+        if source_path.suffix.lower() == ".json":
+            class_types = _extract_class_types_from_source_json(source_path)
+        else:
+            class_types = _extract_class_types_from_template(source_path)
 
     unique = sorted(set(class_types))
 

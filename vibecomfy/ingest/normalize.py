@@ -2311,6 +2311,14 @@ def from_ui(
 ) -> VibeWorkflow:
     """Ingest a LiteGraph list-nodes graph into a :class:`VibeWorkflow`."""
     raw = deepcopy(raw)
+    native_source = raw
+    from vibecomfy.ingest.native_subgraph import expand_native_subgraphs
+    try:
+        raw = expand_native_subgraphs(raw)
+    except Exception as exc:
+        if type(exc).__name__ == "NativeSubgraphError":
+            raise ValueError(f"unsupported_boundary_encoding: {exc}") from exc
+        raise
     api = _ui_graph_to_api(
         raw,
         schema_provider=schema_provider,
@@ -2329,6 +2337,10 @@ def from_ui(
     # produced by the converter drops them, so carry them across from the raw
     # graph here (fail-closed: a non-list groups is rejected).
     workflow.groups = _vibe_groups(raw.get("groups"))
+    if "_native_subgraph_provenance" in raw:
+        workflow.metadata["_native_subgraph_provenance"] = deepcopy(raw["_native_subgraph_provenance"])
+        workflow.metadata["_native_subgraph_diagnostics"] = deepcopy(raw.get("_native_subgraph_diagnostics", []))
+        workflow.metadata["_native_subgraph_source"] = native_source
     # Subgraph signatures are part of π_edit.  Copy them onto the IR BEFORE
     # the door fingerprint is captured so a later definitions-only edit is
     # distinguishable from the ingest snapshot.

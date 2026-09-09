@@ -11,6 +11,7 @@ load ComfyUI provider, runtime-capture, edit, or session internals.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -754,8 +755,20 @@ def _classify_parse_is_retryable(exc: BaseException) -> bool:
         return True
     if not isinstance(exc, ValueError):
         return False
-    if isinstance(getattr(exc, "worker_result", None), Mapping):
-        return True
+    worker_result = getattr(exc, "worker_result", None)
+    if isinstance(worker_result, Mapping):
+        # A worker process/result publication failure is not a schema-repair
+        # case.  Retrying it here could replay a remote model call whose
+        # completion state is unknown; only typed content/parse failures may
+        # consume the single repair slot.
+        worker_error_type = str(worker_result.get("error_type") or "")
+        if worker_error_type in {
+            "JSONDecodeError",
+            "MalformedModelJSON",
+            "MissingRequiredField",
+            "ValueError",
+        }:
+            return True
     from vibecomfy.executor.agent_backend import _downstream_failure_type
 
     raw = getattr(exc, "raw_response_preview", None)
@@ -791,6 +804,15 @@ def _run_classify(
     deliberation.
     """
     try:
+        # Keep a private, immutable-by-convention snapshot for the bounded
+        # schema-repair attempt.  Providers are allowed to normalize/mutate
+        # message containers, and retrying from those mutated objects can
+        # silently change the user's request (notably on the staged path).
+        original_query = request.query
+        original_session_context = (
+            copy.deepcopy(session_context) if isinstance(session_context, dict) else None
+        )
+        original_messages: list[dict[str, Any]] | None = None
         # Build enriched messages when session context carries actual data
         # for reference resolution (M3).  Otherwise, let run_classify_turn
         # build them from the default parameters.
@@ -822,17 +844,18 @@ def _run_classify(
             or session_context.get("latest_candidate")
             or session_context.get("prior_route")
         ):
-            classify_kwargs["messages"] = build_classify_messages(
-                request.query,
+                original_messages = build_classify_messages(
+                    original_query,
                 has_graph=request.graph is not None,
                 graph_summary=graph_summary,
-                session_context=session_context,
+                session_context=copy.deepcopy(original_session_context),
                 expect_graph_changed=expect_graph_changed,
-                interaction_mode=request.interaction_mode,
-            )
+                    interaction_mode=request.interaction_mode,
+                )
+                classify_kwargs["messages"] = copy.deepcopy(original_messages)
 
         try:
-            plan = run_classify_turn(request.query, **classify_kwargs)
+            plan = run_classify_turn(original_query, **classify_kwargs)
         except Exception as first_exc:
             if isinstance(first_exc, _ExecutorPhaseError) or not _classify_parse_is_retryable(
                 first_exc
@@ -844,22 +867,24 @@ def _run_classify(
             # judgment-owned success path.
             return plan
         retry_kwargs = dict(classify_kwargs)
-        base_messages = retry_kwargs.get("messages")
+        base_messages = original_messages
         if not isinstance(base_messages, list):
             base_messages = build_classify_messages(
-                request.query,
+                original_query,
                 has_graph=request.graph is not None,
                 graph_summary=graph_summary,
-                session_context=session_context if isinstance(session_context, dict) else None,
+                session_context=copy.deepcopy(original_session_context),
                 expect_graph_changed=expect_graph_changed,
                 interaction_mode=request.interaction_mode,
             )
+        else:
+            base_messages = copy.deepcopy(base_messages)
         retry_content = _CLASSIFY_JSON_NUDGE
         retry_kwargs["messages"] = [
             *base_messages,
             {"role": "user", "content": retry_content},
         ]
-        return run_classify_turn(request.query, **retry_kwargs)
+        return run_classify_turn(original_query, **retry_kwargs)
     except _ExecutorPhaseError:
         raise
     except Exception as exc:

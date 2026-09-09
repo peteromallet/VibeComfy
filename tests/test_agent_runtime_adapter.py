@@ -916,6 +916,44 @@ def test_run_worker_preserves_stdout_stderr_tail_on_error(
     assert result["worker_stderr_tail"] == "HTTP/1.1 402 Payment Required"
 
 
+def test_worker_result_missing_is_typed_and_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def missing_result(*args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal calls
+        calls += 1
+        return 1, "provider completed", "worker crashed"
+
+    monkeypatch.setattr(runtime, "_run_worker_subprocess", missing_result)
+    with pytest.raises(runtime.AgentWorkerProcessError) as raised:
+        runtime._run_worker_once(
+            {},
+            None,
+            "hello",
+            response_contract="text",
+            agent_id="test",
+        )
+
+    error = raised.value
+    assert calls == 1
+    assert error.error_type == "AgentWorkerProcessError"
+    assert error.returncode == 1
+    assert error.worker_result["error_type"] == "AgentWorkerProcessError"
+    assert error.worker_result["worker_stderr_tail"] == "worker crashed"
+
+
+def test_worker_result_publication_leaves_no_partial_temp_file(tmp_path: Path) -> None:
+    destination = tmp_path / "result.json"
+    worker._write_result_atomic(destination, {"content": "complete"})
+
+    assert json.loads(destination.read_text(encoding="utf-8")) == {
+        "content": "complete"
+    }
+    assert list(tmp_path.glob(".result.json.*.tmp")) == []
+
+
 def test_worker_redacts_provider_secret_from_result_and_profiler_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

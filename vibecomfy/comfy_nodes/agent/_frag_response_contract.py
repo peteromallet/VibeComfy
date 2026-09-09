@@ -2045,13 +2045,34 @@ def _build_batch_repl_response(
         promote_requires_custom_nodes_outcome,
     )
 
+    # Validate the explicit typed refusal package before projecting it.  A
+    # ``requires_custom_nodes`` spelling without matching local lookup
+    # receipts is intentionally left as ordinary clarification; this keeps
+    # malformed/unwitnessed model output distinct from dropped evidence.
+    implement_feedback = _implement_missing_classes_feedback_payload(state)
+    explicit_refusal = (
+        getattr(state, "batch_terminal_refusal_kind", "")
+        == "requires_custom_nodes"
+        and state.batch_exit_mode in {
+            _BATCH_EXIT_PURE_CLARIFY,
+            _BATCH_EXIT_EDIT_CLARIFY,
+        }
+    )
+    typed_refusal_classes = (
+        implement_feedback["missing_classes"]
+        if explicit_refusal and implement_feedback is not None
+        else ()
+    )
     # ADJUDICATION-4 seam 3: ``outcome.missing_classes`` is a PROJECTION of
     # the named-class blocker — missing_runtime_classes_from_report reads it
     # exclusively from report.authoring_blocker.missing_runtime_classes, so
     # the public field can never become an independent assertion.
     public_outcome = promote_requires_custom_nodes_outcome(
         public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
+        missing_classes=(
+            typed_refusal_classes
+            or missing_runtime_classes_from_report(state.report)
+        ),
         unresolved_schema_terminal=unresolved_schema_terminal,
     )
     change_details = _change_details_payload(state, context)
@@ -2117,7 +2138,10 @@ def _build_batch_repl_response(
 
     public_outcome = promote_requires_custom_nodes_outcome(
         public_outcome,
-        missing_classes=missing_runtime_classes_from_report(state.report),
+        missing_classes=(
+            typed_refusal_classes
+            or missing_runtime_classes_from_report(state.report)
+        ),
         unresolved_schema_terminal=unresolved_schema_terminal,
     )
     gate_snapshot = context.gate_snapshot()
@@ -2222,7 +2246,6 @@ def _build_batch_repl_response(
         )
         report["implement_blocker_evidence"] = blocker_evidence
         response["report"] = report
-    implement_feedback = _implement_missing_classes_feedback_payload(state)
     if implement_feedback is not None:
         response["implement_missing_classes_feedback"] = implement_feedback
         outcome = response.get("outcome")

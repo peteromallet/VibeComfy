@@ -47,6 +47,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any, Mapping
 
@@ -111,6 +112,40 @@ def _request_secret_values(request: dict[str, Any]) -> tuple[str, ...]:
             if value:
                 values.add(value)
     return tuple(values)
+
+
+def _write_result_atomic(
+    path: str | os.PathLike[str], payload: Mapping[str, Any]
+) -> None:
+    """Publish one complete result without exposing truncated JSON.
+
+    ``result.json`` is the worker's commit point.  Keep the temporary beside
+    the destination so ``os.replace`` is atomic on the same filesystem.
+    """
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as fh:
+            temporary = fh.name
+            json.dump(payload, fh)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
 
 
 class EmptyModelResponseError(ValueError):
@@ -808,8 +843,7 @@ def main() -> int:
     }
     out = redact_secrets(out, secret_values)
 
-    with open(result_path, "w", encoding="utf-8") as fh:
-        json.dump(out, fh)
+    _write_result_atomic(result_path, out)
     return 0
 
 

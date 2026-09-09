@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
+from vibecomfy.local_library import Slot, resolve
 from vibecomfy.runtime.eval import eval_node_sync
 from vibecomfy.runtime.run import smoke_runtime_sync
 
@@ -54,6 +55,29 @@ def _checkout_comfy_dir_present() -> bool:
 
 
 def build_runtime_doctor_payload() -> dict[str, object]:
+    comfy_root, comfy_models = _detected_comfy_install()
+    custom_nodes = resolve(Slot.custom_nodes)
+    models = resolve(Slot.models)
+    embedded_ready = comfy_root is not None and _is_comfy_root(comfy_root)
+    local_library = {
+        "custom_nodes": _slot_payload(custom_nodes),
+        "models": _slot_payload(models),
+    }
+    if embedded_ready:
+        embedded = {
+            "status": "ready",
+            "comfy_root": str(comfy_root),
+            "models_root": str(comfy_models) if comfy_models else None,
+            "reason": "ComfyUI checkout contains server.py and nodes.py",
+        }
+    else:
+        embedded = {
+            "status": "not_ready",
+            "comfy_root": str(comfy_root) if comfy_root else None,
+            "models_root": str(comfy_models) if comfy_models else None,
+            "reason": "No local ComfyUI root with server.py and nodes.py was detected",
+            "next_action": "Set COMFYUI_PATH to a ComfyUI checkout or use --runtime server --server-url URL",
+        }
     messages = [
         "runtime modes: embedded, managed, external",
         "default `vibecomfy run` mode: auto",
@@ -61,6 +85,7 @@ def build_runtime_doctor_payload() -> dict[str, object]:
         "use `vibecomfy run --runtime server` for one-shot managed HTTP server mode",
         "use `vibecomfy run --runtime server --server-url URL` for external HTTP server mode",
     ]
+    messages.extend(_readiness_messages(embedded, local_library))
     if _pip_comfy_package_importable() and _checkout_comfy_dir_present():
         messages.append(
             "WARNING: split-brain ComfyUI install detected: a pip `comfy` "
@@ -71,10 +96,62 @@ def build_runtime_doctor_payload() -> dict[str, object]:
         )
     return {
         "status": "ok",
+        "readiness_status": "ready" if embedded_ready else "not_ready",
         "runtime_modes": ["embedded", "managed", "external"],
         "default_run_mode": "auto",
+        "local_library": local_library,
+        "readiness": {
+            "embedded": embedded,
+            "managed": {
+                "status": "ready" if embedded_ready else "not_ready",
+                "reason": "Managed mode uses the same local ComfyUI root as embedded mode",
+            },
+            "external": {
+                "status": "unverified",
+                "reason": "No external server URL was supplied; doctor does not claim a remote server is reachable",
+                "next_action": "Run with --server-url URL or use `vibecomfy run --runtime server --server-url URL`",
+            },
+        },
         "messages": messages,
     }
+
+
+def _detected_comfy_install() -> tuple[Path | None, Path | None]:
+    """Detect a local checkout without importing ComfyUI modules."""
+    from vibecomfy.local_library import detect_comfy_install
+
+    root, models = detect_comfy_install()
+    if root is not None and not _is_comfy_root(root):
+        return None, None
+    return root, models
+
+
+def _is_comfy_root(root: Path) -> bool:
+    return (root / "server.py").is_file() and (root / "nodes.py").is_file()
+
+
+def _slot_payload(slot) -> dict[str, object]:
+    return {
+        "state": slot.state.name.lower(),
+        "path": str(slot.path) if slot.path is not None else None,
+        "exists": bool(slot.path and slot.path.is_dir()),
+        "source": slot.source,
+    }
+
+
+def _readiness_messages(embedded: dict[str, object], library: dict[str, object]) -> list[str]:
+    messages: list[str] = []
+    if embedded["status"] == "ready":
+        messages.append(f"embedded readiness: ready (ComfyUI root: {embedded['comfy_root']})")
+    else:
+        messages.append("embedded readiness: NOT READY (no local ComfyUI root with server.py and nodes.py)")
+        messages.append("configure COMFYUI_PATH or provide an external server URL; configured model/node libraries do not make embedded runtime ready")
+    for name, value in library.items():
+        state = value["state"]
+        exists = value["exists"]
+        messages.append(f"{name} library: {state}, {'present' if exists else 'missing'}")
+    messages.append("external readiness: UNVERIFIED (supply a server URL to test/use an external ComfyUI server)")
+    return messages
 
 
 def _cmd_runtime_smoke(args: argparse.Namespace) -> int:

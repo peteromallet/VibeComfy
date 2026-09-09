@@ -41,7 +41,16 @@ class _SchemaProvider(FrozenSchemaSnapshotProvider):
             "CLIPTextEncode": NodeSchema(
                 class_type="CLIPTextEncode",
                 pack="core",
-                inputs={"text": InputSpec(type="STRING", required=True), "clip": InputSpec(type="CLIP", required=True)},
+                inputs={
+                    "text": InputSpec(type="STRING", required=True),
+                    "clip": InputSpec(type="CLIP", required=True),
+                    # Replay-fidelity tests below add synthetic literal fields
+                    # to this node. Keep their schema witness explicit now
+                    # that canvas/compiled presence alone is not authoring
+                    # authority.
+                    "literal_aggregate": InputSpec(type="JSON"),
+                    "literal_scalar": InputSpec(type="JSON"),
+                },
                 outputs=[OutputSpec(type="CONDITIONING", name="CONDITIONING")],
             ),
             "EmptyLatentImage": NodeSchema(

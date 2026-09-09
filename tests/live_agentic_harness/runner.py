@@ -251,8 +251,10 @@ def _run_scenario_subprocess(
             command,
             cwd=cwd,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=out_fh,
             stderr=err_fh,
+            close_fds=True,
             start_new_session=True,
         )
         started = time.monotonic()

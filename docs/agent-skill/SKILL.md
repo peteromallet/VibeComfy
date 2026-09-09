@@ -26,6 +26,9 @@ The operating path is:
 discover -> load_bundle -> edit/compose -> validate -> compile("api") -> run -> collect outputs
 ```
 
+For a reusable source-to-Python onboarding path, including provenance and honest
+import/runtime blockers, see [workflow onboarding](../guides/workflow-onboarding.md).
+
 ## First Moves
 
 Work from the repo root. Prefer the `vibecomfy ...` console entrypoint; if an editable checkout has no console script, use `python -m vibecomfy.cli ...`.

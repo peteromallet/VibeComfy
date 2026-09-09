@@ -1569,6 +1569,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
         clarify_split = deps.split_terminal_clarify(turn_result.batch)
         clarify_message = clarify_split.message
         if clarify_message is not None:
+            state.batch_terminal_refusal_kind = (
+                clarify_split.refusal_kind or "clarify"
+            )
             state.batch_implement_missing_classes_feedback = (
                 clarify_split.missing_classes
             )

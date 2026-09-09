@@ -408,6 +408,10 @@ class TerminalClarifySplit:
     batch: str
     message: str | None
     missing_classes: tuple[str, ...] = ()
+    # ``requires_custom_nodes`` is an agent-authored refusal spelling.  It is
+    # carried separately so the response layer can require matching lookup
+    # receipts before projecting the public typed outcome.
+    refusal_kind: str | None = None
 
 
 def _extract_clarify_message(batch: str) -> str | None:
@@ -424,7 +428,10 @@ def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
     if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
         return False
     call = node.value
-    if not isinstance(call.func, ast.Name) or call.func.id != "clarify":
+    if not isinstance(call.func, ast.Name) or call.func.id not in {
+        "clarify",
+        "requires_custom_nodes",
+    }:
         return False
     return (
         len(call.args) == 1
@@ -473,7 +480,7 @@ def _contains_clarify_call(node: ast.AST) -> bool:
     return any(
         isinstance(child, ast.Call)
         and isinstance(child.func, ast.Name)
-        and child.func.id == "clarify"
+        and child.func.id in {"clarify", "requires_custom_nodes"}
         for child in ast.walk(node)
     )
 
@@ -566,6 +573,9 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         batch=editable_batch,
         message=message_node.value,
         missing_classes=missing_classes,
+        refusal_kind=(
+            call.func.id if isinstance(call.func, ast.Name) else None
+        ),
     )
 
 

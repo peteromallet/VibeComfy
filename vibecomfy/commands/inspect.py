@@ -15,6 +15,7 @@ from vibecomfy.workflow import ValidationReport
 
 
 from vibecomfy.ingest.normalize import door_nodes
+from vibecomfy.porting.import_errors import native_boundary_recovery
 def _status_from_report(report: ValidationReport) -> str:
     # Inspect intentionally exposes validation only as runnable/unsupported status.
     return "runnable" if report.ok else "unsupported"
@@ -55,6 +56,19 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         workflow = bundle.workflow
         _approved_record = bundle.compile(schema_provider=schema_provider)
     except Exception as exc:
+        recovery = native_boundary_recovery(exc, args.workflow)
+        if recovery is not None:
+            if args.json:
+                print(json.dumps({"status": "blocked", "report": recovery}, indent=2, sort_keys=True))
+            else:
+                print(
+                    "inspect blocked by native recursive subgraph boundaries: "
+                    f"{recovery['message']}\n"
+                    f"- {recovery['recovery']['inspect_source']}\n"
+                    f"- then run {recovery['recovery']['port_after_resolution']}",
+                    file=__import__("sys").stderr,
+                )
+            return 1
         print(f"inspect failed: {type(exc).__name__}: {exc}", file=__import__("sys").stderr)
         return 1
     applicable_patches = [

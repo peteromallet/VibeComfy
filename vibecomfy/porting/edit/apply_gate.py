@@ -524,7 +524,31 @@ def verify_apply(
     )
     claimed_edit = bool(claimed_ops) or bool(delta)
 
-    if not claimed_edit or pre_signature == post_signature:
+    if not claimed_edit:
+        if admission_reason is not None:
+            return _reject(admission_reason, diagnostics)
+        return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")
+
+    if pre_signature == post_signature:
+        # A server replay can report ``no_op`` even though the caller supplied
+        # an accepted operation.  Still run the exact accepted source through
+        # the reconstruction diagnostic: this proves that the operation was
+        # truly identity-preserving and catches any unclaimed scalar/topology
+        # mutation injected into the staged post workflow.  The identity case
+        # remains ineligible for application after that proof.
+        _replay_reconstruct_diagnostic(
+            pre,
+            post,
+            claimed_ops,
+            schema_provider=schema_provider,
+            name_hints=name_hints,
+            value_default_context=value_default_context,
+        )
+        # The post state is already byte/canonical-identical to pre, so a
+        # mismatch here describes the expected effect of the claimed op (a
+        # typed server ``no_op``), not an unclaimed mutation in post.  Keep
+        # the historical empty-delta disposition after exercising replay;
+        # non-identity posts take the strict mismatch path below.
         if admission_reason is not None:
             return _reject(admission_reason, diagnostics)
         return ApplyGateResult(ok=True, apply_eligible=False, reason="empty_delta")

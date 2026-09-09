@@ -62,7 +62,9 @@ _BATCH_REPL_PARSE_RETRY_PROMPT = (
     "Your previous reply was empty or unparseable for VibeComfy's batch_repl "
     "transport. Reply with one short user-facing sentence followed by exactly "
     "one ```batch fenced block. If you cannot safely edit, put "
-    'clarify("...") inside the batch block. For a completed non-edit answer, '
+    'clarify("...") inside the batch block, or use '
+    'requires_custom_nodes("...", missing_classes=["ExactClass"]) only when '
+    "matching exact local lookup receipts exist. For a completed non-edit answer, "
     'use done(final_answer="your answer", evidence_refs=["exact-evidence-id"]). '
     "Do not include any other markdown."
 )

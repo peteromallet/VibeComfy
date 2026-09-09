@@ -16,6 +16,7 @@ from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._output import emit, jsonable
 from vibecomfy.commands.analyze_names import analyze_names
 from vibecomfy.porting.workbench import load_port_source
+from vibecomfy.porting.import_errors import native_boundary_recovery
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import VibeWorkflow
 
@@ -34,7 +35,23 @@ def _load_workflow(value: str) -> VibeWorkflow:
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
-    workflow = _load_workflow(args.workflow)
+    try:
+        workflow = _load_workflow(args.workflow)
+    except Exception as exc:
+        recovery = native_boundary_recovery(exc, args.workflow)
+        if recovery is not None:
+            if getattr(args, "json", False):
+                print(json.dumps({"status": "blocked", "report": recovery}, indent=2, sort_keys=True))
+            else:
+                print(
+                    "analyze info blocked by native recursive subgraph boundaries: "
+                    f"{recovery['message']}\n"
+                    f"- {recovery['recovery']['inspect_source']}\n"
+                    f"- then run {recovery['recovery']['port_after_resolution']}",
+                    file=__import__("sys").stderr,
+                )
+            return 1
+        raise
     return _emit(graph.analyze(workflow), _selected_format(args), text=_format_info)
 
 

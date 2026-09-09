@@ -957,6 +957,140 @@ def test_rc14_classify_malformed_json_retries_once(monkeypatch) -> None:
     assert decision.intent == "respond"
 
 
+def test_rc14_classify_schema_retry_uses_original_request_context(monkeypatch) -> None:
+    """A provider mutation cannot leak into the one bounded repair attempt."""
+    from types import SimpleNamespace
+
+    from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
+    from vibecomfy.executor.core import _CLASSIFY_JSON_NUDGE, _run_classify
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_classify(query, **kwargs):  # noqa: ANN001, ANN202
+        calls.append((query, kwargs))
+        if len(calls) == 1:
+            messages = kwargs["messages"]
+            messages[0]["content"] = "provider-mutated-system"
+            messages.append({"role": "assistant", "content": "drift"})
+            exc = ValueError("not valid JSON")
+            exc.raw_response_preview = "{not json"
+            raise exc
+        return ClassifyDecision(intent="respond", route="inspect", reply=True)
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_classify_turn", fake_classify)
+    decision = _run_classify(
+        ExecutorRequest(query="what is lossless on the webp node?"),
+        SimpleNamespace(agent="openrouter", model="x", effort="low"),
+        session_context={"recent_messages": [{"role": "user", "text": "prior"}]},
+    )
+
+    assert decision.intent == "respond"
+    assert len(calls) == 2
+    assert calls[0][0] == calls[1][0] == "what is lossless on the webp node?"
+    retry_messages = calls[1][1]["messages"]
+    assert len(retry_messages) == 3
+    assert retry_messages[0]["content"] != "provider-mutated-system"
+    assert retry_messages[-1]["content"] == _CLASSIFY_JSON_NUDGE
+
+
+def test_r9_worker_process_failure_does_not_consume_schema_retry() -> None:
+    from vibecomfy.comfy_nodes.agent.runtime import AgentWorkerProcessError
+    from vibecomfy.executor.core import _classify_parse_is_retryable
+
+    failure = AgentWorkerProcessError(
+        "worker exited before publishing result",
+        returncode=1,
+    )
+    assert _classify_parse_is_retryable(failure) is False
+
+
+def test_r9_typed_custom_node_refusal_requires_matching_receipts() -> None:
+    from vibecomfy.comfy_nodes.agent._frag_batch_reports import split_terminal_clarify
+
+    typed = split_terminal_clarify(
+        'requires_custom_nodes("Install the missing node", '
+        'missing_classes=["Hotshot"])'
+    )
+    assert typed.refusal_kind == "requires_custom_nodes"
+    assert typed.missing_classes == ("Hotshot",)
+
+    malformed = split_terminal_clarify(
+        'requires_custom_nodes("Install the missing node", '
+        'missing_classes=[Hotshot])'
+    )
+    assert malformed.message is None
+
+
+def test_r9_typed_custom_node_refusal_projects_only_with_receipts() -> None:
+    from tests.test_comfy_nodes_agent_edit import _make_state
+    from vibecomfy.comfy_nodes.agent._frag_response_contract import (
+        _build_batch_repl_response,
+    )
+    from vibecomfy.comfy_nodes.agent._frag_state import TurnContext
+
+    state = _make_state(
+        task="Install Hotshot for image generation",
+        request_payload={"query": "Install Hotshot for image generation"},
+        route="adapt",
+        user_message="Install Hotshot",
+        graph={"nodes": [], "links": []},
+        ui_payload={"nodes": [], "links": []},
+        batch_exit_mode="pure_clarify",
+        batch_turns=[
+            {
+                "statements": [
+                    {
+                        "detail": {
+                            "missing_classes": ["Hotshot"],
+                            "tool_status": "no_results",
+                        }
+                    }
+                ]
+            }
+        ],
+        report={},
+    )
+    state.batch_terminal_refusal_kind = "requires_custom_nodes"
+    state.batch_implement_missing_classes_feedback = ("Hotshot",)
+
+    response = _build_batch_repl_response(
+        state,
+        TurnContext(session_id="r9-typed-refusal", turn_id="0001"),
+    )
+
+    assert response["outcome"]["kind"] == "requires_custom_nodes"
+    assert response["outcome"]["missing_classes"] == ["Hotshot"]
+
+
+def test_r9_typed_custom_node_refusal_without_receipt_stays_clarify() -> None:
+    from tests.test_comfy_nodes_agent_edit import _make_state
+    from vibecomfy.comfy_nodes.agent._frag_response_contract import (
+        _build_batch_repl_response,
+    )
+    from vibecomfy.comfy_nodes.agent._frag_state import TurnContext
+
+    state = _make_state(
+        task="Install Hotshot",
+        request_payload={"query": "Install Hotshot"},
+        route="adapt",
+        user_message="Install Hotshot",
+        graph={"nodes": [], "links": []},
+        ui_payload={"nodes": [], "links": []},
+        batch_exit_mode="pure_clarify",
+        batch_turns=[],
+        report={},
+    )
+    state.batch_terminal_refusal_kind = "requires_custom_nodes"
+    state.batch_implement_missing_classes_feedback = ("Hotshot",)
+
+    response = _build_batch_repl_response(
+        state,
+        TurnContext(session_id="r9-unwitnessed-refusal", turn_id="0001"),
+    )
+
+    assert response["outcome"]["kind"] == "clarify"
+
+
 def test_rc14_classify_timeout_is_not_retried(monkeypatch) -> None:
     from types import SimpleNamespace
 

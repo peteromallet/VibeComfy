@@ -298,9 +298,13 @@ def _schema(class_type: str, outputs: list[OutputSpec] | None = None) -> NodeSch
 
 def _load_image_schema(*, output_name: str = "image") -> NodeSchema:
     """Explicit fixture for LoadImage's committed IMAGE+MASK ABI."""
-    return _schema(
-        "LoadImage",
-        [OutputSpec("IMAGE", output_name), OutputSpec("MASK", "mask")],
+    return NodeSchema(
+        class_type="LoadImage",
+        pack=None,
+        inputs={"image": InputSpec("STRING")},
+        outputs=[OutputSpec("IMAGE", output_name), OutputSpec("MASK", "mask")],
+        source_provider="test",
+        confidence=1.0,
     )
 
 

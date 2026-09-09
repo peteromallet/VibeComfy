@@ -102,6 +102,31 @@ _HERMES_CREDENTIAL_ENV_KEYS = frozenset(
 )
 
 
+class AgentWorkerProcessError(RuntimeError):
+    """A worker process ended without publishing a usable result envelope.
+
+    This is deliberately distinct from provider/content errors: the worker
+    call is not replayed by the adapter because its remote side effects are
+    unknown.  The harness may classify/retry the outer scenario under its
+    existing fresh-attempt policy.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        returncode: int,
+        stdout_tail: str = "",
+        stderr_tail: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+        self.stdout_tail = stdout_tail
+        self.stderr_tail = stderr_tail
+        self.error_type = type(self).__name__
+        self.worker_process_failure = True
+
+
 def _is_credential_env_key(name: str) -> bool:
     return name in _HERMES_CREDENTIAL_ENV_KEYS or name.startswith("OPENROUTER_API_KEY_")
 
@@ -1057,8 +1082,10 @@ def _run_worker_subprocess(
             command,
             cwd=cwd,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=out_fh,
             stderr=err_fh,
+            close_fds=True,
             start_new_session=True,
         )
         try:
@@ -1567,12 +1594,29 @@ def _run_worker_once(
                 result = redact_secrets(result, secret_values)
                 _record_captured_deepseek_usage(result)
                 return result
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            tail = redact_secrets((stderr_text or stdout_text or "")[-800:], secret_values)
-            raise RuntimeError(
-                f"Agent worker produced no result (exit {returncode}). {exc}. "
-                f"Worker output tail:\n{tail}"
-            ) from exc
+        except (OSError, json.JSONDecodeError, TypeError, AttributeError) as exc:
+            stdout_tail = redact_secrets((stdout_text or "")[-800:], secret_values)
+            stderr_tail = redact_secrets((stderr_text or "")[-800:], secret_values)
+            tail = "\n".join(part for part in (stderr_tail, stdout_tail) if part).strip()
+            message = (
+                f"Agent worker produced no usable result (exit {returncode}). {exc}."
+            )
+            if tail:
+                message += f" Worker output tail:\n{tail}"
+            process_error = AgentWorkerProcessError(
+                message,
+                returncode=returncode,
+                stdout_tail=stdout_tail,
+                stderr_tail=stderr_tail,
+            )
+            process_error.worker_result = {
+                "error": message,
+                "error_type": process_error.error_type,
+                "returncode": returncode,
+                "worker_stdout_tail": stdout_tail,
+                "worker_stderr_tail": stderr_tail,
+            }
+            raise process_error from exc
 
 
 def run_agent_turn(

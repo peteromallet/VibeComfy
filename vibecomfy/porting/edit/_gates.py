@@ -113,6 +113,7 @@ class _GatesMixin:
                     "No edits applied — identity verified; Gate B passed. "
                     f"Summary: {gate_c_summary}"
                 ),
+                diagnostics=gate_b.diagnostics,
             )
 
         replayed, ir_diags = self._replay_interpret_for_done()
@@ -230,6 +231,7 @@ class _GatesMixin:
                 f"Gate B passed: touched compile region is isomorphic. "
                 f"Summary: {gate_c_summary}"
             ),
+            diagnostics=gate_b.diagnostics,
         )
 
     def _replay_interpret_for_done(self) -> tuple[Any | None, tuple[CompactDiagnostic, ...]]:
@@ -339,19 +341,143 @@ class _GatesMixin:
         candidate_workflow: VibeWorkflow,
         ops: tuple[EditOp, ...],
     ) -> DoneResult:
-        compiled_original = self._compile_workflow_for_done_gate_b(original_workflow, label="original")
-        if isinstance(compiled_original, DoneResult):
-            return compiled_original
+        # Gate B proves the accepted edit, not that unrelated pre-existing
+        # canvas defects are executable.  Keep a whole-graph attempt first so
+        # its diagnostics remain visible, then scope only that failed oracle
+        # to the operation's affected region.  Queue/readiness gates remain
+        # independent and fail closed on the complete graph.
+        region_hint = self._done_gate_b_region_hint_node_ids(
+            ops=ops,
+            workflows=(original_workflow, working_workflow, candidate_workflow),
+        )
+        baseline_diagnostics: list[CompactDiagnostic] = []
+        whole = (
+            ("original", original_workflow),
+            ("working", working_workflow),
+            ("candidate", candidate_workflow),
+        )
+        compiled = tuple(
+            self._compile_workflow_for_done_gate_b(workflow, label=label)
+            for label, workflow in whole
+        )
+        failures = tuple(
+            (label, result)
+            for (label, _workflow), result in zip(whole, compiled)
+            if isinstance(result, DoneResult)
+        )
+        if failures:
+            # A baseline carve-out is safe only when every projection carries
+            # the same pre-existing compile defect.  A newly introduced or
+            # changed candidate defect therefore remains fail-closed.
+            fingerprints = {
+                tuple(
+                    (
+                        diag.code,
+                        diag.severity,
+                        diag.detail.get("exception_type"),
+                        diag.detail.get("exception_message"),
+                        # Diagnostics supplied by a test/provider may not
+                        # carry structured exception detail.  In that case
+                        # compare their text after removing only the graph
+                        # label, whose value necessarily differs by branch.
+                        diag.message
+                        .replace("original IR", "GRAPH IR")
+                        .replace("working IR", "GRAPH IR")
+                        .replace("candidate IR", "GRAPH IR")
+                        .replace("original affected region", "GRAPH affected region")
+                        .replace("working affected region", "GRAPH affected region")
+                        .replace("candidate affected region", "GRAPH affected region"),
+                    )
+                    for diag in result.diagnostics
+                )
+                for _label, result in failures
+            }
+            if len(failures) != len(whole) or len(fingerprints) != 1 or not region_hint:
+                first = failures[0][1]
+                return DoneResult(
+                    ok=False,
+                    summary=first.summary,
+                    diagnostics=tuple(
+                        diag
+                        for _label, result in failures
+                        for diag in result.diagnostics
+                    ),
+                )
+            for label, result in failures:
+                baseline_diagnostics.append(
+                    _diag(
+                        "done_gate_b_baseline_compile_failed",
+                        "Gate B retained a pre-existing compile diagnostic outside the affected edit region.",
+                        severity="warning",
+                        detail={
+                            "label": label,
+                            "diagnostic": tuple(
+                                {"code": item.code, "message": item.message}
+                                for item in result.diagnostics
+                            ),
+                            "region_node_ids": tuple(sorted(region_hint, key=_node_id_sort_key)),
+                        },
+                    )
+                )
+            # Before accepting the scoped proof, independently compare the
+            # untouched quotient across all three retained IRs.  This proves
+            # the carve-out did not conceal unrelated candidate mutations.
+            region_uids = {
+                uid for _scope, uid in _done_gate_b_uids_for_ops(ops)
+            }
+            outside = tuple(
+                self._done_gate_b_outside_signature(workflow, region_uids)
+                for _label, workflow in whole
+            )
+            if outside[0] != outside[1] or outside[0] != outside[2]:
+                return DoneResult(
+                    ok=False,
+                    summary="Gate B failed: unchanged remainder differs across retained IRs.",
+                    diagnostics=(
+                        _diag(
+                            "done_gate_b_unmodified_remainder_changed",
+                            "The scoped Gate B carve-out found a mutation outside the affected edit region.",
+                            severity="error",
+                            detail={"region_uids": tuple(sorted(region_uids))},
+                        ),
+                    ),
+                )
+            scoped_results = tuple(
+                self._compile_workflow_for_done_gate_b(
+                    self._done_gate_b_region_workflow(workflow, region_hint),
+                    label=f"{label} affected region",
+                )
+                for label, workflow in whole
+            )
+            if any(isinstance(result, DoneResult) for result in scoped_results):
+                first = next(result for result in scoped_results if isinstance(result, DoneResult))
+                return DoneResult(
+                    ok=False,
+                    summary=first.summary,
+                    diagnostics=tuple(baseline_diagnostics)
+                    + tuple(
+                        diag
+                        for result in scoped_results
+                        if isinstance(result, DoneResult)
+                        for diag in result.diagnostics
+                    ),
+                )
+            compiled = scoped_results
+
+        compiled_original, compiled_working, compiled_candidate = compiled
+        if (
+            isinstance(compiled_original, DoneResult)
+            or isinstance(compiled_working, DoneResult)
+            or isinstance(compiled_candidate, DoneResult)
+        ):
+            first = next(
+                result
+                for result in compiled
+                if isinstance(result, DoneResult)
+            )
+            return first
         original_workflow, original_api = compiled_original
-
-        compiled_working = self._compile_workflow_for_done_gate_b(working_workflow, label="working")
-        if isinstance(compiled_working, DoneResult):
-            return compiled_working
         working_workflow, working_api = compiled_working
-
-        compiled_candidate = self._compile_workflow_for_done_gate_b(candidate_workflow, label="candidate")
-        if isinstance(compiled_candidate, DoneResult):
-            return compiled_candidate
         candidate_workflow, candidate_api = compiled_candidate
 
         region_ids = self._done_gate_b_region_node_ids(
@@ -370,14 +496,18 @@ class _GatesMixin:
 
         ok, diffs = parity.compile_equivalent(working_region, candidate_region)
         if ok:
-            return DoneResult(ok=True, summary="Gate B passed.")
+            return DoneResult(
+                ok=True,
+                summary="Gate B passed: touched compile region is isomorphic.",
+                diagnostics=tuple(baseline_diagnostics),
+            )
         return DoneResult(
             ok=False,
             summary=(
                 "Gate B failed: current working IR and replayed candidate are "
                 "not compile-equivalent over the touched region."
             ),
-            diagnostics=(
+            diagnostics=tuple(baseline_diagnostics) + (
                 _diag(
                     "done_gate_b_compile_isomorphism_failed",
                     "Touched-region compile equivalence failed.",
@@ -391,6 +521,88 @@ class _GatesMixin:
                 ),
             ),
         )
+
+    def _done_gate_b_region_hint_node_ids(
+        self,
+        *,
+        ops: tuple[EditOp, ...],
+        workflows: tuple[Any, ...],
+    ) -> set[str]:
+        """Find a conservative operation region before any graph compiles.
+
+        This is deliberately an IR-only hint used solely to isolate a failed
+        baseline oracle.  It includes operation endpoints and their immediate
+        neighbors, preserving enough context to prove the edit while keeping
+        unrelated invalid/bypassed nodes out of the scoped compile.
+        """
+        region: set[str] = set()
+        for workflow in workflows:
+            by_uid = _workflow_uid_to_node_id(workflow)
+            touched = {
+                by_uid.get(uid)
+                for _scope, uid in _done_gate_b_uids_for_ops(ops)
+                if by_uid.get(uid) is not None
+            }
+            touched = {str(node_id) for node_id in touched}
+            region.update(touched)
+            for edge in getattr(workflow, "edges", ()) or ():
+                source = str(getattr(edge, "from_node", ""))
+                target = str(getattr(edge, "to_node", ""))
+                if source in touched or target in touched:
+                    region.update((source, target))
+        return region
+
+    @staticmethod
+    def _done_gate_b_outside_signature(
+        workflow: Any,
+        region_uids: set[str],
+    ) -> tuple[Any, ...]:
+        """Project the retained editable quotient excluding operation UIDs."""
+        from vibecomfy.porting.edit.apply_gate import editable_signature
+
+        nodes, edges, interfaces, recursive = editable_signature(workflow)
+        untouched_nodes = tuple(
+            sorted(
+                (uid, value)
+                for uid, value in nodes.items()
+                if uid not in region_uids
+            )
+        )
+        untouched_edges = tuple(
+            edge
+            for edge in edges
+            if edge[0] not in region_uids and edge[2] not in region_uids
+        )
+        # Recursive state is already a typed immutable quotient.  Keeping it
+        # in this comparison makes the fallback conservative for recursive
+        # edits instead of silently treating an unscoped definition mutation
+        # as presentation-only baseline drift.
+        return untouched_nodes, untouched_edges, interfaces, recursive
+
+    @staticmethod
+    def _done_gate_b_region_workflow(workflow: Any, region_node_ids: set[str]) -> Any:
+        """Return a detached compile witness containing only the affected region."""
+        scoped = workflow.copy()
+        keep = {str(node_id) for node_id in region_node_ids}
+        scoped.nodes = {
+            str(node_id): node
+            for node_id, node in scoped.nodes.items()
+            if str(node_id) in keep
+        }
+        scoped.edges = [
+            edge
+            for edge in scoped.edges
+            if str(edge.from_node) in keep and str(edge.to_node) in keep
+        ]
+        scoped.inputs = {
+            name: value
+            for name, value in scoped.inputs.items()
+            if str(value.node_id) in keep
+        }
+        scoped.outputs = [
+            value for value in scoped.outputs if str(value.node_id) in keep
+        ]
+        return scoped
 
     def _done_gate_c(self, ops: tuple[EditOp, ...]) -> str:
         """Gate C: generate a plain-language summary from landed ops and ledger state.
@@ -441,7 +653,11 @@ class _GatesMixin:
                         "done_gate_b_compile_failed",
                         f"Gate B could not compile {label} IR: {type(exc).__name__}: {exc}",
                         severity="error",
-                        detail={"label": label, "exception_type": type(exc).__name__},
+                        detail={
+                            "label": label,
+                            "exception_type": type(exc).__name__,
+                            "exception_message": str(exc),
+                        },
                     ),
                 ),
             )

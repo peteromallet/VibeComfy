@@ -241,6 +241,10 @@ class AgentEditState:
     # clarify(..., missing_classes=[...]) feedback contract. Plain clarify
     # leaves this empty and cannot select the executor's research edge.
     batch_implement_missing_classes_feedback: tuple[str, ...] = ()
+    # Agent-authored terminal spelling (currently ``clarify`` or the typed
+    # ``requires_custom_nodes`` refusal).  The latter is only projected after
+    # matching local lookup receipts are independently verified.
+    batch_terminal_refusal_kind: str = ""
     lint_noop_messages: tuple[str, ...] = ()
     provisional_registry_candidate_hashes: frozenset[str] = frozenset()
     # Planned custom-node dependencies classified before authoring.  Registry

@@ -138,6 +138,11 @@ def _validate_recursive_field(workflow: Any, op: SetNodeFieldOp, provider: Any) 
     specs = getattr(schema, "inputs", None) or {}
     spec = specs.get(field) if isinstance(specs, Mapping) else None
     if spec is None:
+        if schema is not None:
+            raise ApplyOpsError(
+                "unknown_target_field",
+                f"field {field!r} has no exact authoring-schema witness on {class_type!r}; canvas/compiled fields are not schema authority.",
+            )
         return
     from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 
@@ -204,7 +209,9 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
         )
     widgets = getattr(node, "widgets", None) or {}
     inputs = getattr(node, "inputs", None) or {}
-    spec = _input_spec(node, field, provider)
+    schema = _schema_for(node, provider)
+    specs = getattr(schema, "inputs", None) or {}
+    spec = specs.get(field) if isinstance(specs, Mapping) else None
     positional_index: int | None = None
     if spec is None and field not in widgets and field not in inputs:
         try:
@@ -237,6 +244,11 @@ def _validate_field(workflow: Any, op: SetNodeFieldOp, provider: Any) -> None:
         raise ApplyOpsError("no_op", f"{field!r} is already set to that value.")
 
     if spec is None:
+        if schema is not None:
+            raise ApplyOpsError(
+                "unknown_target_field",
+                f"field {field!r} has no exact authoring-schema witness on {node.class_type!r}; canvas/compiled fields are not schema authority.",
+            )
         return
     from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 
