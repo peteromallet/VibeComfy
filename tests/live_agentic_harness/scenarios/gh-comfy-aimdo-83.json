@@ -2,11 +2,11 @@
  "id": "gh-comfy-aimdo-83",
  "query": "aimdo's vbar_allocate (src/model-vbar.c:222-227) clamps each VBAR VA reservation to vram_capacity, so on large-VRAM ROCm/Windows devices every model >=1/10 of device capacity reserves the full capacity of address space; three models (LTX video+TE+VAE) exhaust the ~256 GiB per-process GPU VA space and sampling fails with hipErrorOutOfMemory while 60-82 GB VRAM is free.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP demonstrated that changing one multiplier in ComfyUI (the ModelVBAR(self.model_size() * 10, ...) reservation in model_patcher.py _vbar_get) takes peak usage on a 43 GiB LTX workflow from 26,978 MB to 81,522 MB and turns the hard failure into a clean run (OP-confirmed measurement in issue body). No upstream aimdo fix confirmed yet; merged PR #78 (NVML pressure and async pre-free clamping) was bot-linked as related but not confirmed to fix this.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

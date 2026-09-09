@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1254",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nWanAnimate crashes ComfyUI with CUDA IndexKernel 'index out of bounds' assertions even with torchcompile off and lightx2v lora off, when loading theAnimate model as GGUF in WanVideoModelLoader.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1254_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Confirmed by another user + OP: 'CompiledKernel has no attribute launch_enter_hook' triton mismatch \u2014 solved by downgrading Triton and then permanently with the next day's WanVideoWrapper release.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed by another user + OP: 'CompiledKernel has no attribute launch_enter_hook' triton mismatch \u2014 solved by downgrading Triton and then permanently with the next day's WanVideoWrapper release.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan-Animate",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1254",
+  "provenance_source": "github-closed",
+  "github_issue": 1254,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan-animate"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Untangle a CUDA IndexKernel assert into a triton/torch version mismatch (CompiledKernel launch_enter_hook) and resolve via triton downgrade or wrapper update.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "multi-sample",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

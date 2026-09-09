@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-15445",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nOfficial MiniMax H3 workflow doubles in runtime (12 -> 25+ min) after the 0.31 update on 5080/5090/H200/5060Ti; VRAM underused, disk thrashing each gen.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15445",
+  "provenance_source": "github-open",
+  "github_issue": 15445,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize a 0.31 memory-management regression (disk thrash, VRAM underused, 2x runtime) and land on 'rollback to 0.30.0' after ruling out custom_nodes.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

@@ -1,0 +1,53 @@
+{
+ "id": "gh-comfyui-15261",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nIdentical official H3 ref2video run is 2.3x faster on 5070 Ti than 4080 (both 16GB + 64GB RAM); user asks why.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "TheLeastMost (C0): H3 offloads to RAM, so memory bandwidth (GDDR7) and PCIe 5.0 dominate, not compute. rattus128 (C2): profile with Nvidia Nsight to spot PCIe/RAM gaps. Explanation only; OP never re-benchmarked.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "TheLeastMost (C0): H3 offloads to RAM, so memory bandwidth (GDDR7) and PCIe 5.0 dominate, not compute. rattus128 (C2): profile with Nvidia Nsight to spot PCIe/RAM gaps. Explanation only; OP never re-benchmarked.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15261",
+  "provenance_source": "github-open",
+  "github_issue": 15261,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "unreproducible",
+   "gpu-only",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Explain H2O-style H3 offload behavior: performance is memory-bandwidth/PCIe-bound (GDDR7 + PCIe 5.0), not compute-bound, so a 5070 Ti beats a 4080 despite lower compute.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

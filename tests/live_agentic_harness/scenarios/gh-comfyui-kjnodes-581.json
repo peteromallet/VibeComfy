@@ -2,11 +2,11 @@
  "id": "gh-comfyui-kjnodes-581",
  "query": "OOM on 3090/V100 with LTX 2.3 after a KJNodes update; OP rolled back to commit 8ba02bd as workaround.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Maintainer kijai (2026-03-19): the memory-relevant nodes were disabled in the posted workflow and 'it has nothing to do with KJNodes if you have them disabled'; suggested enabling the chunk feedforward node to reduce VRAM. OP's rollback not validated as the true cause.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

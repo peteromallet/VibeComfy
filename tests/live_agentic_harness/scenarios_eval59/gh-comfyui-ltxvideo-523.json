@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-ltxvideo-523",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX-2.3 audio path intermittently produces 'Input contains (near) NaN/+-Inf' from ffmpeg's AAC encoder: the AudioVAE generates NaNs at 'inconvenient' sequence lengths (e.g. 69/121 frames) that the vocoder amplifies, and fp16 attention backends worsen it.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP (ai-bond, flash-attention maintainer) traced it to ffmpeg receiving NaN/Inf and proposes sanitizing in comfy_api video_types.py (`torch.nan_to_num` + clamp before av.AudioFrame); diagnosis cross-referenced with #386/#475/#11664 but patch not merged or OP-run-confirmed.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP (ai-bond, flash-attention maintainer) traced it to ffmpeg receiving NaN/Inf and proposes sanitizing in comfy_api video_types.py (`torch.nan_to_num` + clamp before av.AudioFrame); diagnosis cross-referenced with #386/#475/#11664 but patch not merged or OP-run-confirmed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "multi",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/523",
+  "provenance_source": "github-open",
+  "github_issue": 523,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Trace intermittent AAC-encoder NaN/Inf failures to AudioVAE NaNs at awkward sequence lengths amplified by the vocoder, then design a sanitize-at-the-boundary patch (nan_to_num before av.AudioFrame).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

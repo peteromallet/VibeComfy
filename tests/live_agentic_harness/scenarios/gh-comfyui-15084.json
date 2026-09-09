@@ -2,11 +2,11 @@
  "id": "gh-comfyui-15084",
  "query": "Krea2 Turbo int8_convrot UNet on RX 9070 XT (gfx1201, ROCm 7.2) samples cleanly but decodes to black/NaN; fp8_scaled works; suspected quantized-kernel defect on ROCm.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_flux1_dev_uso_reference_image_gen.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
@@ -48,5 +48,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

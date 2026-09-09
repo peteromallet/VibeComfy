@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1997",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nWanAnimate + WanVideoAnimateEmbeds with bg_images connected + context options crashes: image_cond[:, c] IndexError at nodes_sampler.py:1903 because provided bg_images is encoded at raw length instead of num_frames-num_refs.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 5,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1997",
+  "provenance_source": "github-open",
+  "github_issue": 1997,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Root-cause the WanAnimate bg_images IndexError: bg encoded at raw length (nodes.py:1281) vs None-case length num_frames-num_refs, plus 4k+1 num_frames rounding desync; patch normalizes bg by truncate/last-frame-pad.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfy-aimdo-83",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\naimdo's vbar_allocate (src/model-vbar.c:222-227) clamps each VBAR VA reservation to vram_capacity, so on large-VRAM ROCm/Windows devices every model >=1/10 of device capacity reserves the full capacity of address space; three models (LTX video+TE+VAE) exhaust the ~256 GiB per-process GPU VA space and sampling fails with hipErrorOutOfMemory while 60-82 GB VRAM is free.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP demonstrated that changing one multiplier in ComfyUI (the ModelVBAR(self.model_size() * 10, ...) reservation in model_patcher.py _vbar_get) takes peak usage on a 43 GiB LTX workflow from 26,978 MB to 81,522 MB and turns the hard failure into a clean run (OP-confirmed measurement in issue body). No upstream aimdo fix confirmed yet; merged PR #78 (NVML pressure and async pre-free clamping) was bot-linked as related but not confirmed to fix this.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP demonstrated that changing one multiplier in ComfyUI (the ModelVBAR(self.model_size() * 10, ...) reservation in model_patcher.py _vbar_get) takes peak usage on a 43 GiB LTX workflow from 26,978 MB to 81,522 MB and turns the hard failure into a clean run (OP-confirmed measurement in issue body). No upstream aimdo fix confirmed yet; merged PR #78 (NVML pressure and async pre-free clamping) was bot-linked as related but not confirmed to fix this.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/comfy-aimdo/issues/83",
+  "provenance_source": "github-open",
+  "github_issue": 83,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Reason about GPU virtual-address-space reservation math (VBAR clamping to capacity) and validate a one-multiplier core patch with a measured before/after, not intuition.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

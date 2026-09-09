@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-207",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nThe WanVideo control example workflow errors right at inference start: tensors must have same number of dimensions, after a node update.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_207_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan 2.1 Fun-Control/VACE",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/207",
+  "provenance_source": "github-closed",
+  "github_issue": 207,
+  "workflow_source": "inline-block",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan 2.1 fun-control/vace"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize a custom-node update regression (tensor-dim mismatch in the Wan control path) and confirm the fix by updating the wrapper to kijai's patched commit.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

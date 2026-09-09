@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-15643",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX 2.5 lip sync: the LTX 2.3 pattern (audio encode -> latent mask -> audio latent) no longer produces synced mouth movement; modality/CFG/mask tweaks don't help.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "UCHIJ (C3) ported the 2.3 lipsync nodes to a native-node LTX 2.5 workflow that works: https://github.com/UCHIJ/LTX2.5-LipSync. Not confirmed by OP.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "UCHIJ (C3) ported the 2.3 lipsync nodes to a native-node LTX 2.5 workflow that works: https://github.com/UCHIJ/LTX2.5-LipSync. Not confirmed by OP.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "audio+video",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15643",
+  "provenance_source": "github-open",
+  "github_issue": 15643,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "stale-workflow",
+   "visual-judgment",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Recognize the LTX 2.3 audio-encode/latent-mask lipsync wiring is stale for LTX 2.5 and rebuild the lipsync path with native nodes (per UCHIJ's ported repo).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

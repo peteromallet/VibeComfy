@@ -1,0 +1,53 @@
+{
+ "id": "gh-comfyui-kjnodes-725",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nOn RTX 5070 Ti (sm120), the MiniMax H3 memory-efficient SageAttention path hits AttributeError: _qattn_sm89 is None (kernel lookup fails on Windows sageattention builds); kernels exist under torch.ops.sageattention_qattn_sm89.* but the node doesn't look there.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Commenter yyyingjjjie (AI-assisted analysis, 2026-08-08): bypass the experimental node and use Patch Sage Attention KJ instead, or patch ltxv_nodes.py to fall back to torch.ops kernels. No maintainer reply.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Commenter yyyingjjjie (AI-assisted analysis, 2026-08-08): bypass the experimental node and use Patch Sage Attention KJ instead, or patch ltxv_nodes.py to fall back to torch.ops kernels. No maintainer reply.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "niche",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/725",
+  "provenance_source": "github-open",
+  "github_issue": 725,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "gpu-only",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose a Windows/Blackwell-specific kernel-lookup failure in the memory-efficient SageAttention path and either switch to the working patch node or fix the torch.ops fallback.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

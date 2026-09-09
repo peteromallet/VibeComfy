@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-541",
  "query": "Fix proposal for the kornia>=0.8.x ImportError: `from kornia.geometry.transform.pyramid import pad` no longer resolves, preventing the entire package from loading.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP's diff (remove `pad` from kornia import, add `pad = F.pad`) confirmed working by charlyarias65 in comments.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

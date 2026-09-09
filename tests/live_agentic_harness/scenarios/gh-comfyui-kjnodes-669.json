@@ -2,11 +2,11 @@
  "id": "gh-comfyui-kjnodes-669",
  "query": "LTX-2.3 videos degraded to muddy, structureless output after dependency churn; intermittent 'ghost' recovery. Root cause: running without the required distill LoRA and with xformers installed (should not be used with these nodes).",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

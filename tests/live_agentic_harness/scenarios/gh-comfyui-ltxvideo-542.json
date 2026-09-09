@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-542",
  "query": "kornia 0.8.3 removed the accidental re-export of torch's `pad` from kornia.geometry.transform.pyramid, so the whole node pack fails to import and every dependent workflow breaks.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "kornia maintainer (ducha-aiki) confirmed cause and that the fix belongs in this repo (PRs #498/#506/#516): drop `pad` from the kornia import and use `pad = F.pad` (confirmed by MartinT23); alternative confirmed workaround: pin kornia==0.8.2 (dadleo).",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

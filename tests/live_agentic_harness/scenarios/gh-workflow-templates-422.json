@@ -2,11 +2,11 @@
  "id": "gh-workflow-templates-422",
  "query": "video_wan_2_2_14B_animate template won't execute: node #107 'missing the class_type property' because the template's DWPose preprocessor custom nodes (ComfyUI-tbox) fail to import \u2014 'AttributeError: module cv2 has no attribute dnn' from a broken/mixed OpenCV install.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP (xhost007) root-caused and confirmed: the missing DWPreprocessor nodes come from ComfyUI-tbox which failed to load due to the OpenCV conflict; reinstalling OpenCV and manually removing older instances made the workflow load correctly.",
@@ -45,5 +45,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

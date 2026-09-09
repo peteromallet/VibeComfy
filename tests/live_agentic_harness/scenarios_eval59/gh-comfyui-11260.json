@@ -1,0 +1,50 @@
+{
+ "id": "gh-comfyui-11260",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nAfter a fresh ComfyUI install, exported API-format workflows cannot be loaded when nodes are missing; error message is misleading and UI does not show which nodes are missing.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Hunyuan Video",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/11260",
+  "provenance_source": "github-closed",
+  "github_issue": 11260,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "hunyuan video"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Detect silently-skipped missing custom nodes by probing the API (invalid_prompt 'node RIFE VFI does not exist') and enumerating/installing the absent packs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

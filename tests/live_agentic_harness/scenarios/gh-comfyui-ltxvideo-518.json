@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-518",
  "query": "Generated videos ignore the input image and follow the text prompt instead (character consistency broken in i2v short-drama use).",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Another user (ulissescappato, same symptom) suggests disabling the 'prompt_enhance' option so output follows the input image; not confirmed by OP.",
@@ -48,5 +48,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

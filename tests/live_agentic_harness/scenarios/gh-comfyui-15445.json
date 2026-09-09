@@ -2,11 +2,11 @@
  "id": "gh-comfyui-15445",
  "query": "Official MiniMax H3 workflow doubles in runtime (12 -> 25+ min) after the 0.31 update on 5080/5090/H200/5060Ti; VRAM underused, disk thrashing each gen.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

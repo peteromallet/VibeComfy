@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-831",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nUni3C controlnet with radial/sage attention throws 'Triton Error [CUDA]: invalid argument' during WanVideoSampler when Uni3C loader attention is set to sage; works with sdpa.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_831_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan (Uni3C + radial attention)",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/831",
+  "provenance_source": "github-closed",
+  "github_issue": 831,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan (uni3c + radial attention)"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "solution-too-specific",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize the Triton 'invalid argument' as an attention-backend mismatch between the Uni3C controlnet loader (sage) and the sampler, fixable by setting sdpa on the Uni3C loader or updating the wrapper.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

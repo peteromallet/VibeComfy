@@ -2,11 +2,11 @@
  "id": "gh-comfyui-15666",
  "query": "--reserve-vram is not enforced during model load/init (VRAM exceeds capacity-reserved on a 5090 with H3 t2v); only applied afterward.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Maintainer rattus128 (C0): legacy semantic - reserve only bounds runtime activations; the dynamic-VRAM flag --vram-headroom/--vram-extra-headroom is the intended mechanism. OP (C1/C3) reports that flag still doesn't cap load-time usage; no dev follow-up.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-950",
  "query": "After upgrading ComfyUI to v0.3.48, WanVideoDecode node fails: MetadataHook async_map_node_over_list_with_metadata() got an unexpected keyword argument 'hidden_inputs'.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_950_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "kijai diagnosed the conflict with Anything-Anywhere nodes; removing those nodes fixed the error. OP confirmed \"that fixed it\".",
@@ -45,5 +45,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

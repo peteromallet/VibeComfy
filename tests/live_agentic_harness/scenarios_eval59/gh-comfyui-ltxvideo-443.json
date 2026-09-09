@@ -1,0 +1,50 @@
+{
+ "id": "gh-comfyui-ltxvideo-443",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nConditioning saved via conditioning_saver and reloaded via conditioning_loader yields corrupted video (tearing/brown noise) vs identical live-encoded conditioning.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "NRTnarathip root-caused it: the saver persists only attention_mask and drops pooled_output/other cond_options keys, so denoising runs on incomplete text conditioning; fix posted as a fork with new 'LTXV 2.3 Save/Load Conditioning' nodes (unmerged, no confirmation back).",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "NRTnarathip root-caused it: the saver persists only attention_mask and drops pooled_output/other cond_options keys, so denoising runs on incomplete text conditioning; fix posted as a fork with new 'LTXV 2.3 Save/Load Conditioning' nodes (unmerged, no confirmation back).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/443",
+  "provenance_source": "github-open",
+  "github_issue": 443,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Inspect what the conditioning saver actually persists, discover it drops pooled_output and cond_options keys, and restore complete text conditioning (or use fixed save/load nodes).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-gguf-477",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX-2.5 GGUF models have 3 BF16 non-layer params (learnable_registers, keyframes_abs_pos_embedding) left as GGMLTensor, so packed BF16 storage dims (e.g. 4096 vs 8192) leak into runtime ops and crash samplers.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP-verified fix: after gguf_sd_loader(), materialize only those three named BF16 tensors via dequantize_tensor() before load_diffusion_model_state_dict(); full workflow then runs (OP offers a PR for this in loader.py).",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP-verified fix: after gguf_sd_loader(), materialize only those three named BF16 tensors via dequantize_tensor() before load_diffusion_model_state_dict(); full workflow then runs (OP offers a PR for this in loader.py).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 3,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/477",
+  "provenance_source": "github-open",
+  "github_issue": 477,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "version-drift",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Debug inside third-party GGUF loader code: recognize that packed-BF16 storage dims leak for named non-layer tensors and patch tensor materialization before model load, not the workflow.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

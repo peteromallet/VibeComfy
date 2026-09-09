@@ -2,11 +2,11 @@
  "id": "gh-comfyui-15261",
  "query": "Identical official H3 ref2video run is 2.3x faster on 5070 Ti than 4080 (both 16GB + 64GB RAM); user asks why.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "TheLeastMost (C0): H3 offloads to RAM, so memory bandwidth (GDDR7) and PCIe 5.0 dominate, not compute. rattus128 (C2): profile with Nvidia Nsight to spot PCIe/RAM gaps. Explanation only; OP never re-benchmarked.",
@@ -48,5 +48,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

@@ -1,0 +1,50 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-950",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nAfter upgrading ComfyUI to v0.3.48, WanVideoDecode node fails: MetadataHook async_map_node_over_list_with_metadata() got an unexpected keyword argument 'hidden_inputs'.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_950_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "kijai diagnosed the conflict with Anything-Anywhere nodes; removing those nodes fixed the error. OP confirmed \"that fixed it\".",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "kijai diagnosed the conflict with Anything-Anywhere nodes; removing those nodes fixed the error. OP confirmed \"that fixed it\".",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan 2.2",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/950",
+  "provenance_source": "github-closed",
+  "github_issue": 950,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan 2.2"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Trace an 'unexpected keyword argument hidden_inputs' error after a ComfyUI upgrade to a conflicting custom-node pack (Anything-Anywhere) rather than WanVideoWrapper itself.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

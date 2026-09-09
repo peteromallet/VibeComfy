@@ -2,11 +2,11 @@
  "id": "gh-comfyui-13139",
  "query": "With dynamic VRAM, 2-pass Qwen-Image-Edit unloads all models between samplers and after the run (RAM flushed), doubling generation time vs --disable-dynamic-vram.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image-qwen_image_edit_2511_lora_inflation.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Workaround --disable-dynamic-vram confirmed working by Kozatiju (C5) and others, but rattus128 only reproduced/asked for logs and the flag is slated for removal; underlying reload behavior not fixed.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

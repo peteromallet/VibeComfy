@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-1332",
  "query": "WanVideoModelLoader fails with AttributeError: 'NoneType' object has no attribute 'endswith' at extra_model[\"path\"].endswith('.gguf'); dropdown shows 'wan2.1_t2v_1.3B_fp16.safetensors' not in [].",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1332_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Confirmed by OP: the VACE module model loader was hidden underneath the main model loader in the graph and its model wasn't selected \u2014 you either use a main model with VACE built in, or a normal model + VACE module node; selecting it fixed the error.",
@@ -43,5 +43,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

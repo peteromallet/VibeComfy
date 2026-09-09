@@ -2,11 +2,11 @@
  "id": "gh-comfyui-kjnodes-692",
  "query": "LTX2MemoryEfficientSageAttentionPatch on sm120 dereferences sageattention._qattn_sm89 module attributes that sageattention 2.x no longer exposes (kernels moved to torch.ops.sageattention_qattn_sm89.*), causing AttributeError at first sampling step.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Commenter feigo313 (2026-08-29) confirmed a temporary workaround: dispatch generic sageattn(q,k,v,tensor_layout='NHD') for sm120/sm121 or resolve kernels via torch.ops.sageattention_qattn_sm89.*; not maintainer-applied.",
@@ -47,5 +47,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

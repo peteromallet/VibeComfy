@@ -1,0 +1,50 @@
+{
+ "id": "gh-workflow-templates-422",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nvideo_wan_2_2_14B_animate template won't execute: node #107 'missing the class_type property' because the template's DWPose preprocessor custom nodes (ComfyUI-tbox) fail to import \u2014 'AttributeError: module cv2 has no attribute dnn' from a broken/mixed OpenCV install.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP (xhost007) root-caused and confirmed: the missing DWPreprocessor nodes come from ComfyUI-tbox which failed to load due to the OpenCV conflict; reinstalling OpenCV and manually removing older instances made the workflow load correctly.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP (xhost007) root-caused and confirmed: the missing DWPreprocessor nodes come from ComfyUI-tbox which failed to load due to the OpenCV conflict; reinstalling OpenCV and manually removing older instances made the workflow load correctly.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 7,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/422",
+  "provenance_source": "github-open",
+  "github_issue": 422,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Chain 'missing class_type property' on a template node to the ComfyUI-tbox pack failing import via 'cv2 has no attribute dnn', then repair the broken OpenCV install.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

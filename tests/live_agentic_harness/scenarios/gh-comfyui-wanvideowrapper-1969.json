@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-1969",
  "query": "Low GPU utilization / heavy memory swapping during WanVideoSampler on VRAM-limited setups (720p 30f uses 6GB; attention memory design can't sustain 720p 100f on 8GB) \u2014 attention implementation keeps full K/V and doesn't chunk Q, so long-sequence attention is memory-bound.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP's own fix (applied to comfy/ldm/wan/model.py in Comfy core): keep only complete K and V in memory and compute attention for Q in chunks \u2014 720p/120f then fits in ~4GB with high CUDA utilization (~90min for 6 steps on RTX 5050). Commenter (redomsu76) corroborated the symptom on a 5060 Ti but the fix was never ported to the wrapper or confirmed by the maintainer.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

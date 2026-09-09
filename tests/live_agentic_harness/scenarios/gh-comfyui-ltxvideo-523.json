@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-523",
  "query": "LTX-2.3 audio path intermittently produces 'Input contains (near) NaN/+-Inf' from ffmpeg's AAC encoder: the AudioVAE generates NaNs at 'inconvenient' sequence lengths (e.g. 69/121 frames) that the vocoder amplifies, and fp16 attention backends worsen it.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP (ai-bond, flash-attention maintainer) traced it to ffmpeg receiving NaN/Inf and proposes sanitizing in comfy_api video_types.py (`torch.nan_to_num` + clamp before av.AudioFrame); diagnosis cross-referenced with #386/#475/#11664 but patch not merged or OP-run-confirmed.",
@@ -47,5 +47,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

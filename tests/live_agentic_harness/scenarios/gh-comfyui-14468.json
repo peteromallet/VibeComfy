@@ -2,11 +2,11 @@
  "id": "gh-comfyui-14468",
  "query": "User with 6GB 3050 wants to split i2v diffusion work onto CPU/RAM after OOM; asks how.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "anr2me (C0): CPU diffusion is impractically slow; ComfyUI already offloads weights to RAM by default. rattus128 (C3): CPU/GPU split tested and 'not really effective'; recommends KJNodes FFN-chunker nodes to cut inference VRAM for Wan/LTX on low VRAM.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

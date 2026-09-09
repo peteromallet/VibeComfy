@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-ltxvideo-438",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX 2.3 image-audio-to-video: lips never move / no lip-sync to the provided audio for most users, video and audio otherwise generate fine.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Several community workarounds, none official: remove/bypass the Prompt Enhancer group and explicitly write that the character 'lip-syncs their dialog' in the prompt (rocko107: 'I did get it to work'); raise SolidMask values 0.2\u21920.5 (ZELBIO); nag scale 3.2\u20134.2 plus negative prompt (othello77); other users report these don't work for them.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Several community workarounds, none official: remove/bypass the Prompt Enhancer group and explicitly write that the character 'lip-syncs their dialog' in the prompt (rocko107: 'I did get it to work'); raise SolidMask values 0.2\u21920.5 (ZELBIO); nag scale 3.2\u20134.2 plus negative prompt (othello77); other users report these don't work for them.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video+audio",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/438",
+  "provenance_source": "github-open",
+  "github_issue": 438,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "visual-judgment",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tune conditioning (bypass Prompt Enhancer, explicitly prompt lip-sync, raise SolidMask, adjust nag scale) so LTX 2.3 image-audio-to-video actually lip-syncs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

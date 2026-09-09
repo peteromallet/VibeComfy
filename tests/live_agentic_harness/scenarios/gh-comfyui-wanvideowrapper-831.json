@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-831",
  "query": "Uni3C controlnet with radial/sage attention throws 'Triton Error [CUDA]: invalid argument' during WanVideoSampler when Uni3C loader attention is set to sage; works with sdpa.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_831_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

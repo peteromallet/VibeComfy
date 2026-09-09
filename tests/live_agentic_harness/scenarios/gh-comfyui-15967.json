@@ -2,11 +2,11 @@
  "id": "gh-comfyui-15967",
  "query": "MiniMax H3 t2v on Apple Silicon appears stuck at 'loaded completely' with no error; comfy-aimdo unsupported on Darwin.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Atsushi888 (C0) confirms it does complete on a 32GB MacBook Air (ComfyUI 0.34.2, PyTorch 2.13, MPS, GGUF TE + turbo LoRA + SolAttn-MPS): the long silence after load is normal sampling time (~9-12 min). OP never confirmed on his machine.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

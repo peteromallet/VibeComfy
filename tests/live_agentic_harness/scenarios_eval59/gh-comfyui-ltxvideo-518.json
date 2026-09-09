@@ -1,0 +1,53 @@
+{
+ "id": "gh-comfyui-ltxvideo-518",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nGenerated videos ignore the input image and follow the text prompt instead (character consistency broken in i2v short-drama use).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Another user (ulissescappato, same symptom) suggests disabling the 'prompt_enhance' option so output follows the input image; not confirmed by OP.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Another user (ulissescappato, same symptom) suggests disabling the 'prompt_enhance' option so output follows the input image; not confirmed by OP.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/518",
+  "provenance_source": "github-open",
+  "github_issue": 518,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "visual-judgment",
+   "unreproducible",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose why i2v output ignores the conditioning image (prompt_enhance / conditioning strength) rather than a crash \u2014 grading requires watching the video and judging adherence.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

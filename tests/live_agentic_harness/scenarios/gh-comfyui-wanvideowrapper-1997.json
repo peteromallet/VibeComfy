@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-1997",
  "query": "WanAnimate + WanVideoAnimateEmbeds with bg_images connected + context options crashes: image_cond[:, c] IndexError at nodes_sampler.py:1903 because provided bg_images is encoded at raw length instead of num_frames-num_refs.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

@@ -1,0 +1,50 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-2037",
+ "query": "I2V fails on ROCm 7.1/Windows with shifting tensor errors (shape invalid in unpatchify, 'Boolean value of Tensor'). A peer user with a near-identical stack shows the I2V code path works fine on ROCm, pointing to a config mistake (invalid frame count), not the AMD environment.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Peer user (zisisvangelis-gif) with the same PyTorch/ROCm/Wrapper stack completed >12 I2V generations and identified OP's num_frames:16 as invalid \u2014 Wan needs 4n+1 frames (17,21,...); suggested trying 17 plus a full working config (tiled_vae false, blocks_to_swap low). Not OP-confirmed; also measured blocks_to_swap 10 vs 20 = 8.7x speed difference.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true,
+  "answer_guidance": "Peer user (zisisvangelis-gif) with the same PyTorch/ROCm/Wrapper stack completed >12 I2V generations and identified OP's num_frames:16 as invalid \u2014 Wan needs 4n+1 frames (17,21,...); suggested trying 17 plus a full working config (tiled_vae false, blocks_to_swap low). Not OP-confirmed; also measured blocks_to_swap 10 vs 20 = 8.7x speed difference.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image+video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 2,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/2037",
+  "provenance_source": "github-open",
+  "github_issue": 2037,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Resist blaming the ROCm stack and instead spot that num_frames:16 violates Wan's 4n+1 frame requirement (use 17+), per a peer's identical-stack evidence.",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ }
+}

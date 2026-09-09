@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-1254",
  "query": "WanAnimate crashes ComfyUI with CUDA IndexKernel 'index out of bounds' assertions even with torchcompile off and lightx2v lora off, when loading theAnimate model as GGUF in WanVideoModelLoader.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1254_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Confirmed by another user + OP: 'CompiledKernel has no attribute launch_enter_hook' triton mismatch \u2014 solved by downgrading Triton and then permanently with the next day's WanVideoWrapper release.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "multi-sample",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

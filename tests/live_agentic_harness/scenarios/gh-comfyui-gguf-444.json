@@ -2,11 +2,11 @@
  "id": "gh-comfyui-gguf-444",
  "query": "ComfyUI-GGUF 2.0.0 on Windows: GGUFModelPatcher.unpatch_model with unpatch_weights=True touches GGUF mmap'd raw tensor memory during cache cleanup \u2192 access-violation crash (regression from 2.0.0 refactor; 1.1.6 had the fix).",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP gives definitive cause + one-line fix: pass unpatch_weights=False to super().unpatch_model(device_to, unpatch_weights=False) so the base patcher never touches mmap weight memory; model still unloads normally, no crash (OP-verified).",
@@ -46,5 +46,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

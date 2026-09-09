@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-458",
  "query": "MultimodalGuider with cfg=1.0 (distilled mode) crashes: noise_pred_neg only assigned inside the do_uncond() branch but unconditionally referenced by sampler_post_cfg_function hooks (euler_ancestral_cfg_pp/euler_cfg_pp) \u2014 UnboundLocalError.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP provides root cause and patch: initialize `noise_pred_neg = noise_pred_pos` (and noise_pred_perturbed) before the conditional blocks in guiders/multimodal_guider.py; not merged or maintainer-confirmed.",
@@ -43,5 +43,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

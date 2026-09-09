@@ -1,0 +1,53 @@
+{
+ "id": "gh-comfyui-15084",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nKrea2 Turbo int8_convrot UNet on RX 9070 XT (gfx1201, ROCm 7.2) samples cleanly but decodes to black/NaN; fp8_scaled works; suspected quantized-kernel defect on ROCm.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_flux1_dev_uso_reference_image_gen.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": 4,
+  "grade_mode": "rubric",
+  "model_family": "Flux",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "core-comfy",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15084",
+  "provenance_source": "github-open",
+  "github_issue": 15084,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "flux"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "unreproducible",
+   "visual-judgment"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Separate a real diffusion-path NaN (black decode) from a false-positive text-encoder signal, then apply the pointed backend workaround (--enable-triton-backend per #14782).",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

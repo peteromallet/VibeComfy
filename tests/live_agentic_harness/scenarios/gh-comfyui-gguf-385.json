@@ -2,11 +2,11 @@
  "id": "gh-comfyui-gguf-385",
  "query": "Loading Z-Image Turbo with Qwen3-4B-2507 text encoder GGUF throws \"gather(): Expected dtype int32 in index but got int64\" in UnetLoaderGGUF.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-GGUF_385_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

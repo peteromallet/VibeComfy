@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-kjnodes-581",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nOOM on 3090/V100 with LTX 2.3 after a KJNodes update; OP rolled back to commit 8ba02bd as workaround.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Maintainer kijai (2026-03-19): the memory-relevant nodes were disabled in the posted workflow and 'it has nothing to do with KJNodes if you have them disabled'; suggested enabling the chunk feedforward node to reduce VRAM. OP's rollback not validated as the true cause.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer kijai (2026-03-19): the memory-relevant nodes were disabled in the posted workflow and 'it has nothing to do with KJNodes if you have them disabled'; suggested enabling the chunk feedforward node to reduce VRAM. OP's rollback not validated as the true cause.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "weak",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 6,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/581",
+  "provenance_source": "github-open",
+  "github_issue": 581,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Resist the rollback temptation: recognize that disabled KJNodes cannot cause the OOM and reason about VRAM knobs (chunk feedforward) instead of pinning blame on the update.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

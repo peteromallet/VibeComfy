@@ -2,11 +2,11 @@
  "id": "gh-workflow-templates-993",
  "query": "Z-Image-Turbo Text to Image template throws RuntimeError: shape '[9728, 2560]' is invalid for input of size 10971515 in CLIPLoader for multiple users - caused by incomplete/misplaced model files (qwen_3_4b.safetensors etc.) in ComfyUI Desktop installs, not the workflow.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_z_image.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Commenter ProgramDrifter confirmed the fix: move qwen_3_4b.safetensors / z_image_turbo_bf16.safetensors / ae.safetensors into ComfyUI-Shared instead of ComfyUI-Installs model folders (comment 2026-07-26). Maintainer (comfyui-wiki) also asked users to verify the text encoder file is complete - shape-mismatch errors indicate a truncated file.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

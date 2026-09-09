@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-2010",
  "query": "Enabling cfg_zero_star + use_zero_init (zero_star_steps=0 default) on WanVideoExperimentalArgs crashes on step 0: predict_with_cfg's early-exit branch returns a 2-tuple while all callers unpack 3 values (ValueError) \u2014 reproduces on any I2V/T2V graph, v1 and v2 samplers.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP fully root-caused it: the use_cfg_zero_star + use_zero_init early-exit in predict_with_cfg (nodes_sampler.py ~line 1172 on main) returns 2 values; fix is returning the 3-tuple from that branch. No maintainer reply, no merged fix at thread end.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

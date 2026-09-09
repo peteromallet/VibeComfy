@@ -47,5 +47,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": null
 }

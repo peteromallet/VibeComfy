@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-ltxvideo-436",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX 2.3: image-to-video template works but text-to-video template fails with 'AssertionError: Audio VAE config is required for audio VAE' \u2014 the working template uses KJ nodes/models and the broken one uses LTX nodes (mixed ecosystems); also blocks upscalers in I2V.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "GlamoramaAttack gives the definitive cause: 'You're using either LTX models and nodes or KJ' models and nodes. You can't mix it' \u2014 stick to one ecosystem's models+nodes; no OP confirmation.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "GlamoramaAttack gives the definitive cause: 'You're using either LTX models and nodes or KJ' models and nodes. You can't mix it' \u2014 stick to one ecosystem's models+nodes; no OP confirmation.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 6,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/436",
+  "provenance_source": "github-open",
+  "github_issue": 436,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Recognize node/model ecosystem coupling (KJ nodes vs native LTX nodes) as a failure class and audit a mixed graph for cross-ecosystem contamination.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

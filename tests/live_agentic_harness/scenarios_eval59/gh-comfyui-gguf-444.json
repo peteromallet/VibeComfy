@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-gguf-444",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nComfyUI-GGUF 2.0.0 on Windows: GGUFModelPatcher.unpatch_model with unpatch_weights=True touches GGUF mmap'd raw tensor memory during cache cleanup \u2192 access-violation crash (regression from 2.0.0 refactor; 1.1.6 had the fix).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP gives definitive cause + one-line fix: pass unpatch_weights=False to super().unpatch_model(device_to, unpatch_weights=False) so the base patcher never touches mmap weight memory; model still unloads normally, no crash (OP-verified).",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "raffetazarius suggests using the v1.1 LTX-2.3 upscaler since v1.0 had a known issue; unconfirmed by OP.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 5,
+  "grade_mode": "rubric",
+  "model_family": "LTX",
+  "tech_freshness": "current",
+  "age_months": 1,
+  "generalizability": "universal",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/444",
+  "provenance_source": "github-open",
+  "github_issue": 444,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Debug a 2.0.0-regression access violation where GGUFModelPatcher.unpatch_model touches mmap'd weight memory during cache cleanup, and reason about why unpatch_weights=False prevents it.",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

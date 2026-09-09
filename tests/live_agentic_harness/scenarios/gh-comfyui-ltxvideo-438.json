@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-438",
  "query": "LTX 2.3 image-audio-to-video: lips never move / no lip-sync to the provided audio for most users, video and audio otherwise generate fine.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Several community workarounds, none official: remove/bypass the Prompt Enhancer group and explicitly write that the character 'lip-syncs their dialog' in the prompt (rocko107: 'I did get it to work'); raise SolidMask values 0.2\u21920.5 (ZELBIO); nag scale 3.2\u20134.2 plus negative prompt (othello77); other users report these don't work for them.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

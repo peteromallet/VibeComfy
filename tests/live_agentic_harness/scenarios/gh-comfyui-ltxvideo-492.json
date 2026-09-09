@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-492",
  "query": "STGGuiderAdvanced with apply_apg=True crashes: stg.py line 460 passes momentum_buffer=None to local apg() which doesn't accept it (signature drift vs upstream APG).",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP root-caused it and confirmed the workaround: remove `momentum_buffer=None,` from the apg() call at stg.py line 460 \u2014 'resolves the issue and the sampling is working again'.",
@@ -46,5 +46,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

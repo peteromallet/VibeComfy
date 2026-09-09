@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1969",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLow GPU utilization / heavy memory swapping during WanVideoSampler on VRAM-limited setups (720p 30f uses 6GB; attention memory design can't sustain 720p 100f on 8GB) \u2014 attention implementation keeps full K/V and doesn't chunk Q, so long-sequence attention is memory-bound.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP's own fix (applied to comfy/ldm/wan/model.py in Comfy core): keep only complete K and V in memory and compute attention for Q in chunks \u2014 720p/120f then fits in ~4GB with high CUDA utilization (~90min for 6 steps on RTX 5050). Commenter (redomsu76) corroborated the symptom on a 5060 Ti but the fix was never ported to the wrapper or confirmed by the maintainer.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP's own fix (applied to comfy/ldm/wan/model.py in Comfy core): keep only complete K and V in memory and compute attention for Q in chunks \u2014 720p/120f then fits in ~4GB with high CUDA utilization (~90min for 6 steps on RTX 5050). Commenter (redomsu76) corroborated the symptom on a 5060 Ti but the fix was never ported to the wrapper or confirmed by the maintainer.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 7,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "aging",
+  "age_months": 10,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1969",
+  "provenance_source": "github-open",
+  "github_issue": 1969,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "gpu-only",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Implement Q-chunked attention (keep full K/V, chunk Q) in comfy/ldm/wan/model.py to cut long-sequence attention memory on low-VRAM GPUs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

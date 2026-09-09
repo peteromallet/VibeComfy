@@ -1,0 +1,52 @@
+{
+ "id": "gh-sageattention-403",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nMiniMax H3 generation in ComfyUI via KJNodes' MiniMaxH3MemoryEfficientSageAttentionPatch hard-crashes the CUDA context on SM89 (L20) inside the int8-QK/FP8-PV kernel path (_sageattn_int8_fp8_nhd); KJNodes PR #748 V-offset fix does not help.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_audio_minimax_music_3.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP A/B confirmed a settings-level workaround: switch the 'Patch Sage Attention KJ' mode to sageattn_qk_int8_pv_fp16_cuda and the same workflow runs cleanly \u2014 crash is specific to the SM89 FP8-PV kernel, which remains unfixed upstream.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP A/B confirmed a settings-level workaround: switch the 'Patch Sage Attention KJ' mode to sageattn_qk_int8_pv_fp16_cuda and the same workflow runs cleanly \u2014 crash is specific to the SM89 FP8-PV kernel, which remains unfixed upstream.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 8,
+  "grade_mode": "strict",
+  "model_family": "MiniMax-H3",
+  "tech_freshness": "current",
+  "age_months": 8,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/thu-ml/SageAttention/issues/403",
+  "provenance_source": "github-open",
+  "github_issue": 403,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "minimax-h3"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "gpu-only",
+   "env-specific",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Isolate a hard CUDA-context crash to one SM89 FP8-PV kernel path and A/B to the safe sageattn_qk_int8_pv_fp16_cuda mode.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

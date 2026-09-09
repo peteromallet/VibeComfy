@@ -2,11 +2,11 @@
  "id": "gh-workflow-templates-401",
  "query": "Z-Image Turbo template (image_z_image_turbo, inferred from title) outputs completely black images since 0.3.76 on a dual-GPU system: models auto-load onto cuda:1 and core-node runs are black; regenerating with MultiGpu nodes pinned to cuda:0 works.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_z_image.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "OP (Lordtzeentch38) confirmed workaround: force the model onto cuda:0 using MultiGpu nodes \u2014 image is visible; core nodes letting it load on cuda:1 stay black. Blue828 separately confirmed switching z_image_turbo_bf16 (12GB) to z-image-turbo-fp8-e4m3fn (6GB) fixed it on a 16GB 5060 Ti.",
@@ -47,5 +47,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

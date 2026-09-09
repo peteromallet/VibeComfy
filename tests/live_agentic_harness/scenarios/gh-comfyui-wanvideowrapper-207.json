@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-207",
  "query": "The WanVideo control example workflow errors right at inference start: tensors must have same number of dimensions, after a node update.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_207_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

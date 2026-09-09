@@ -2,11 +2,11 @@
  "id": "gh-comfyui-kjnodes-725",
  "query": "On RTX 5070 Ti (sm120), the MiniMax H3 memory-efficient SageAttention path hits AttributeError: _qattn_sm89 is None (kernel lookup fails on Windows sageattention builds); kernels exist under torch.ops.sageattention_qattn_sm89.* but the node doesn't look there.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Commenter yyyingjjjie (AI-assisted analysis, 2026-08-08): bypass the experimental node and use Patch Sage Attention KJ instead, or patch ltxv_nodes.py to fall back to torch.ops kernels. No maintainer reply.",
@@ -48,5 +48,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

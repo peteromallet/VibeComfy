@@ -1,0 +1,52 @@
+{
+ "id": "gh-comfyui-14250",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nAfter the pinned-memory update, WAN 2.2 (and later MiniMax H3) intermittently fails at 'HostBuffer.read_file_slice failed'/CUDA OOM during weight loading, mostly on multi-GPU systems.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_image_to_video_wan.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "OP-confirmed fixes: --disable-pinned-memory (title/body), and eoris' CUDA_VISIBLE_DEVICES=1 / --cuda-device <uuid> to hide the second GPU (C6, and akashzeno C9's controlled A/B). rattus128 worked a speculative fix in PR #14252; aimdo 0.4.5+ 'cold marking of pins' also shipped.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "OP-confirmed fixes: --disable-pinned-memory (title/body), and eoris' CUDA_VISIBLE_DEVICES=1 / --cuda-device <uuid> to hide the second GPU (C6, and akashzeno C9's controlled A/B). rattus128 worked a speculative fix in PR #14252; aimdo 0.4.5+ 'cold marking of pins' also shipped.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan",
+  "tech_freshness": "current",
+  "age_months": 3,
+  "generalizability": "common",
+  "nodes_type": "mixed",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14250",
+  "provenance_source": "github-open",
+  "github_issue": 14250,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Attribute a post-update intermittent 'HostBuffer.read_file_slice failed'/CUDA OOM to the pinned-memory change and land the confirmed mitigation (--disable-pinned-memory or GPU-hiding) on a multi-GPU rig.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

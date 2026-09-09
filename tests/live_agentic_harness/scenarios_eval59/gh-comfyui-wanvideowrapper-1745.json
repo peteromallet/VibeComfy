@@ -1,0 +1,50 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1745",
+ "query": "WanVideo Draw WanMove Tracks: providing 3 motion tracks, output video is 81 frames as set, but during sampling frame count unexpectedly becomes 241, causing axis-0 mismatch merge failure in Draw Tracks node.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1745_p1.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
+  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Wan-Move",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1745",
+  "provenance_source": "github-closed",
+  "github_issue": 1745,
+  "workflow_source": "attachment",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "wan-move"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Trace the 81\u2192241 frame mismatch during sampling to SplineEditor (KJNodes) emitting wrong frame counts with multiple splines; fix via KJNodes update or manual per-node frame counts.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
+ }
+}

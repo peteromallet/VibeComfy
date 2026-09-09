@@ -2,11 +2,11 @@
  "id": "gh-comfyui-ltxvideo-436",
  "query": "LTX 2.3: image-to-video template works but text-to-video template fails with 'AssertionError: Audio VAE config is required for audio VAE' \u2014 the working template uses KJ nodes/models and the broken one uses LTX nodes (mixed ecosystems); also blocks upscalers in I2V.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "GlamoramaAttack gives the definitive cause: 'You're using either LTX models and nodes or KJ' models and nodes. You can't mix it' \u2014 stick to one ecosystem's models+nodes; no OP confirmation.",
@@ -46,5 +46,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

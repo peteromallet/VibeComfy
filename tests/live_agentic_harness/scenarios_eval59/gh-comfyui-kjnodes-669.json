@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-kjnodes-669",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLTX-2.3 videos degraded to muddy, structureless output after dependency churn; intermittent 'ghost' recovery. Root cause: running without the required distill LoRA and with xformers installed (should not be used with these nodes).",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/synth_ltxv_image_to_video.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "LTX",
+  "tech_freshness": "aging",
+  "age_months": 2,
+  "generalizability": "universal",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/669",
+  "provenance_source": "github-open",
+  "github_issue": 669,
+  "workflow_source": "official-template",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "ltx"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "visual-judgment",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Attribute degraded video quality to environment (xformers installed against node requirements) plus workflow wiring (distill LoRA detached) rather than to dependency churn or model bugs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}

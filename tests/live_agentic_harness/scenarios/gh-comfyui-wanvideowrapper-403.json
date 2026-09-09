@@ -2,11 +2,11 @@
  "id": "gh-comfyui-wanvideowrapper-403",
  "query": "Fun-Control workflow fails in WanVideoSampler with tensor size mismatch (111 vs 110) during sampling.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_403_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "kijai diagnosed: an upstream node outputs a resolution not divisible by 16; resize the image after that node instead. OP confirmed \"Thank you, it work.\"",
@@ -45,5 +45,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

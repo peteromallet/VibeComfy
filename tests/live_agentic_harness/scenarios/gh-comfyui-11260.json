@@ -2,11 +2,11 @@
  "id": "gh-comfyui-11260",
  "query": "After a fresh ComfyUI install, exported API-format workflows cannot be loaded when nodes are missing; error message is misleading and UI does not show which nodes are missing.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
@@ -45,5 +45,6 @@
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
- }
+ },
+ "interaction_mode": "answer_only"
 }

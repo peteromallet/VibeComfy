@@ -1,0 +1,51 @@
+{
+ "id": "gh-comfyui-gguf-385",
+ "query": "Diagnose this workflow problem and explain the root cause and the correct fix direction:\n\nLoading Z-Image Turbo with Qwen3-4B-2507 text encoder GGUF throws \"gather(): Expected dtype int32 in index but got int64\" in UnetLoaderGGUF.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-GGUF_385_p1.json",
+ "apply": false,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": false
+ },
+ "desired": {
+  "outcome": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
+  "alternatives_ok": true,
+  "answer_guidance": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "grade_mode": "strict",
+  "model_family": "Z-Image Turbo / Qwen3-4B",
+  "tech_freshness": "aging",
+  "age_months": 12,
+  "generalizability": "common",
+  "nodes_type": "custom-nodes",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/385",
+  "provenance_source": "github-closed",
+  "github_issue": 385,
+  "workflow_source": "inline-block",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "requires_custom_nodes": true,
+  "techniques": [
+   "z-image turbo / qwen3-4b"
+  ],
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose a PyTorch index-dtype mismatch (int64 vs int32) inside UnetLoaderGGUF for Z-Image/Qwen3 GGUF and apply/read the dtype-conversion fix.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
+ },
+ "interaction_mode": "answer_only"
+}
