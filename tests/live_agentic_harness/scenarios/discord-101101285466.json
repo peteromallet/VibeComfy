@@ -1,7 +1,7 @@
 {
  "id": "discord-101101285466",
  "query": "This workflow raises another question. When using several reference images, you can connect each ref image to its slot \"image_0\" \"image_1\" etc. in the Bernini conditioning wrapper. But why is there a second node  'Batch images' which you can connect the reference images too ? This node goes into another entry point of the Bernini wrapper \"reference_images\". Or perhaps should we connect -when multi",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1512430101101285_Bernini_testing_video_edit.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -46,6 +46,8 @@
    }
   ],
   "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7
+  "problem_clarity_1to10": 7,
+  "workflow_attachment_sha256": "44fc561864de3b07ade7a747ebbd29207782b0b61d7c33d72c75995ce8044151",
+  "workflow_source_type": "direct-json"
  }
 }

@@ -1,7 +1,7 @@
 {
  "id": "discord-829251035290",
  "query": "Hi everyone, I'm having trouble using a GGUF model. I'm testing the same workflow on two different computers. On the machine with an RTX 5070 Ti 16GB, the final image comes out with noise, while on an RTX 3060 12GB, it generates perfectly fine. What could be happening?",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1477767829251035_ltx2_combi_1.3.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -46,6 +46,8 @@
    }
   ],
   "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 5
+  "problem_clarity_1to10": 5,
+  "workflow_attachment_sha256": "bcc10f8de8a584d0287ee6f29c6d74272f184dbaca1b1b0c5e8cc182b591e996",
+  "workflow_source_type": "direct-json"
  }
 }

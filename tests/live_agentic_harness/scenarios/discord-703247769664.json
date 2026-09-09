@@ -1,7 +1,7 @@
 {
  "id": "discord-703247769664",
  "query": "Anyone have issues with Z-Image Base model now?\n\nComfyUI 0.13.0\nComfyUI_frontend v1.38.13\nevery few preview frames, it injects noise of a completely unrelated image, which screws everything up\n\nI've tried embedded workflows in images i've created before that worked then, but do not now\nthis is what i get",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1472123703247769_ComfyUI_2026-02-14-014741z-image-base__00001_.extracted.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -46,6 +46,8 @@
    }
   ],
   "nodes_type": "core-comfy",
-  "problem_clarity_1to10": 6
+  "problem_clarity_1to10": 6,
+  "workflow_attachment_sha256": "aeffcda1ae15dee5c7096d5562ddd3900f76c18c9352f67ebb1391af8561d2e7",
+  "workflow_source_type": "direct-json"
  }
 }

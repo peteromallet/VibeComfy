@@ -1,7 +1,7 @@
 {
  "id": "discord-490163216414",
  "query": "Can someone help me verify a possible bug here, real quick? Using H3. I'll post the image with metadata for the workflow, since that's how i'm loading it on my end.\nCan you load it up, fix paths as needed.\nUnhook the reference video that goes into the reference to video node.\nChange the image to whatever.\nChange the prompt to whatever.",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1534591490163216_H3_Ref_00010.extracted.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -46,6 +46,8 @@
    }
   ],
   "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7
+  "problem_clarity_1to10": 7,
+  "workflow_attachment_sha256": "1a8c86fed206a274797c040f23c0aed9d94afe6a691f04d4f00b69ff2926c189",
+  "workflow_source_type": "direct-json"
  }
 }

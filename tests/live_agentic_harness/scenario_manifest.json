@@ -293,10 +293,15 @@
   {
    "id": "discord-101101285466",
    "path": "tests/live_agentic_harness/scenarios/discord-101101285466.json",
-   "descriptor_sha256": "3a85b89c56fe7663298ad423e783e6a2c877607b03c6d576f09eceacc44b0080",
+   "descriptor_sha256": "920e051541c3037b184818622d0a55ce0dbe7f41ed110cf54561c27f172e2ef4",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "discord-101101285466",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1512430101101285_Bernini_testing_video_edit.json",
+    "sha256": "44fc561864de3b07ade7a747ebbd29207782b0b61d7c33d72c75995ce8044151"
+   }
   },
   {
    "id": "discord-103717023795",
@@ -325,10 +330,15 @@
   {
    "id": "discord-135766040747",
    "path": "tests/live_agentic_harness/scenarios/discord-135766040747.json",
-   "descriptor_sha256": "318c93f27b348c5428b50ee4da234db2a521f44673e50bcd8d4742f7a124aedd",
+   "descriptor_sha256": "cf12378df24219185ff50c25b7b0588c5b05609567b6cad873c16aba85de002a",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "discord-135766040747",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1476347135766040_LTX-2_Depth_FML.json",
+    "sha256": "f99dbca29e2cb423f116faaaf85cbc9a93244a2e2c3d30283a0629c9567e2761"
+   }
   },
   {
    "id": "discord-158641869050",
@@ -341,10 +351,15 @@
   {
    "id": "discord-161965031454",
    "path": "tests/live_agentic_harness/scenarios/discord-161965031454.json",
-   "descriptor_sha256": "2d90655814d7aff518b9a43ad784c79aa870835a397a0651ca5db3904ad98c68",
+   "descriptor_sha256": "4fee2621d0af942e064a0a575b1fdaac1ce2396af3cac806de8b166046b721f9",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "discord-161965031454",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1474093161965031_wan22_SVI_Pro_native_example_KJ.json",
+    "sha256": "f39087eb816320c9877e00b5f506d878d742f24431d94c9c289ebbff8f630660"
+   }
   },
   {
    "id": "discord-164642603189",
@@ -477,10 +492,15 @@
   {
    "id": "discord-490163216414",
    "path": "tests/live_agentic_harness/scenarios/discord-490163216414.json",
-   "descriptor_sha256": "08e49d21292bdc596f3a06673af842e07cfce23d00c4cbde2c309b957cf6335d",
+   "descriptor_sha256": "899697b767227fb17c1667e7cfe9c5fd76acbe625c4effae03b0263647325ffb",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "discord-490163216414",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1534591490163216_H3_Ref_00010.extracted.json",
+    "sha256": "1a8c86fed206a274797c040f23c0aed9d94afe6a691f04d4f00b69ff2926c189"
+   }
   },
   {
    "id": "discord-512748191764",
@@ -549,10 +569,15 @@
   {
    "id": "discord-603741929605",
    "path": "tests/live_agentic_harness/scenarios/discord-603741929605.json",
-   "descriptor_sha256": "c4278b791a97b7378dc737221320f85b1652b3cc23278795cd342695e65af6f4",
+   "descriptor_sha256": "ecdf1dd1aee4d603bc2a7cf36911f36b9a5a29ee0ce40c0107e310a52c0f8841",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "discord-603741929605",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1491156603741929_LTX_00003.json",
+    "sha256": "a59ca387b783dd6a6c3943550d7b357f062847ab8a6046ea129c0da2c26d9fb5"
+   }
   },
   {
    "id": "discord-617321709638",
@@ -589,10 +614,15 @@
   {
    "id": "discord-703247769664",
    "path": "tests/live_agentic_harness/scenarios/discord-703247769664.json",
-   "descriptor_sha256": "6bdb57cfbcfab5810d84d8dfe2ce8ce476966af662147f7cc697526af8b48875",
+   "descriptor_sha256": "cb437a816a9b9e1f21ef817c0b9ae2177954560e55be1fa5749d7d9a9945da83",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "image",
+   "source_workflow": {
+    "id": "discord-703247769664",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1472123703247769_ComfyUI_2026-02-14-014741z-image-base__00001_.extracted.json",
+    "sha256": "aeffcda1ae15dee5c7096d5562ddd3900f76c18c9352f67ebb1391af8561d2e7"
+   }
   },
   {
    "id": "discord-714977955915",
@@ -653,10 +683,15 @@
   {
    "id": "discord-829251035290",
    "path": "tests/live_agentic_harness/scenarios/discord-829251035290.json",
-   "descriptor_sha256": "be84c18590e63371fed1d7c59ea27128da6bbe17374002be89e0119560bce482",
+   "descriptor_sha256": "564f3666cdb08d84a5d0cab427897096cfeeb599161deda29ebdde06329ec135",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "image",
+   "source_workflow": {
+    "id": "discord-829251035290",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/1477767829251035_ltx2_combi_1.3.json",
+    "sha256": "bcc10f8de8a584d0287ee6f29c6d74272f184dbaca1b1b0c5e8cc182b591e996"
+   }
   },
   {
    "id": "discord-853189890049",
@@ -1356,7 +1391,7 @@
   {
    "id": "live-graph-explanation-smoke",
    "path": "tests/live_agentic_harness/scenarios/live-graph-explanation-smoke.json",
-   "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
+   "descriptor_sha256": "a8512b11a73c94a055ef2790a82e8e6aff707eec9151a02f724d0b54dbfbd564",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unknown"
@@ -1676,7 +1711,7 @@
   {
    "id": "speed-distillation-research",
    "path": "tests/live_agentic_harness/scenarios/speed-distillation-research.json",
-   "descriptor_sha256": "c19b6c215834c9e974876f6aaf3d15273a3da02d4940560f8211fc80eee2ed7e",
+   "descriptor_sha256": "9e00fd65c4377cb9f67317c545337875dd9c6f4e8326fd0b23c8e6e62ce7f15e",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unknown"

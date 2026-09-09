@@ -1,7 +1,7 @@
 {
  "id": "discord-135766040747",
  "query": "Has anyone tried mixing FML workflows with IC lora workflows with Depth_anything? I am trying to do something similar to what could be done in VACE of adding 3 style frames plus the control video. I tried to mix the workflows but I don't know if I did it right or if there is a way to merge it better...",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1476347135766040_LTX-2_Depth_FML.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -56,6 +56,8 @@
    }
   ],
   "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7
+  "problem_clarity_1to10": 7,
+  "workflow_attachment_sha256": "f99dbca29e2cb423f116faaaf85cbc9a93244a2e2c3d30283a0629c9567e2761",
+  "workflow_source_type": "direct-json"
  }
 }

@@ -1,7 +1,7 @@
 {
  "id": "discord-161965031454",
  "query": "Hello, I'd like to see if maybe someone has had this same issue with SVI, left is just wan normally (no SVI lora), middle is the first gen and the final gen on the right, I keep getting distorted results with this, why might this be? I'm using this workflow.",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1474093161965031_wan22_SVI_Pro_native_example_KJ.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -51,6 +51,8 @@
    }
   ],
   "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 6
+  "problem_clarity_1to10": 6,
+  "workflow_attachment_sha256": "f39087eb816320c9877e00b5f506d878d742f24431d94c9c289ebbff8f630660",
+  "workflow_source_type": "direct-json"
  }
 }
