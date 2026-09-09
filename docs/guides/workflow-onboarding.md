@@ -7,7 +7,7 @@ Use this path when you have a workflow from ComfyUI or an upstream repository an
 Keep the upstream file unchanged under a stable source path, and record its URL, upstream commit or release, local path, and SHA-256. For example, the MiniMax H3 AV inpainting source used by the Matrix experiment is:
 
 - upstream: [LanPaint `MiniMax_H3_AV_EncodeDecode_Inpaint.json`](https://github.com/scraed/LanPaint/blob/32cf848e93971da380d868936e007f5611218bee/example_workflows/MiniMax_H3_AV_EncodeDecode_Inpaint.json)
-- local: `Astrid/runs/matrix-minkhole/planning/comfy-inspection/MiniMax_H3_AV_EncodeDecode_Inpaint.json`
+- local: `planning/comfy-inspection/MiniMax_H3_AV_EncodeDecode_Inpaint.json`
 - SHA-256: `2dd64fe26c42281962e434841c458cc935b1d1858e83093b882bbaeb02dc3121`
 
 Keep source JSON as evidence. Put hand edits in a recipe or scratchpad so the upstream graph can still be compared with the candidate.

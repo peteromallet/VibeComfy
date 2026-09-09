@@ -109,6 +109,11 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
                 },
             }
             _emit_convert_payload(payload, json_output=args.json)
+            if not args.json:
+                print(
+                    "Resolve the ComfyUI subgraph boundary, then rerun the commands shown above.",
+                    file=sys.stderr,
+                )
             return 1
         return _emit_strict_ready_load_failure(
             args,

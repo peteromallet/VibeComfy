@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 
 
-PATH = Path(__file__).parents[1] / "comfy-inspection/MiniMax_H3_AV_EncodeDecode_Inpaint.py"
+PATH = Path(__file__).parent / "fixtures/h3_generated_editability.py"
 
 
 def _module():
