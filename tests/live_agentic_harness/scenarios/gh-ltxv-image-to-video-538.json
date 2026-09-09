@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver maps a core-refactor import break to 'update the custom node' (PR #532) rather than reinstalling models or rolling back ComfyUI.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

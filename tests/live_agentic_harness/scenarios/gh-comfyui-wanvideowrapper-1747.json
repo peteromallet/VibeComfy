@@ -34,6 +34,16 @@
   "techniques": [
    "wan 2.2 / wan-move"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "env-specific",
+   "unreproducible",
+   "outcome-ambiguous",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver localizes memory pressure to the VAE decode stage (not the sampler) and knows the tiled-decode + block-swap non_blocking levers",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

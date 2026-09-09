@@ -35,6 +35,17 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/871",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "unreproducible",
+   "gpu-only",
+   "visual-judgment",
+   "information-poor",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver can triage a no-log-error corrupted-video report (suspected VAE/precision/RTX-50-series issue) with zero confirmed root cause",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

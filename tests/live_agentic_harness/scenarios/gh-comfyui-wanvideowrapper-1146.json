@@ -34,6 +34,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver recognizes a tensor-device crash as an upstream wrapper regression and pins/reverts to a known-good commit instead of debugging the workflow",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

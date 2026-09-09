@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/712",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver checks the SageAttention build/version for compatibility before blaming GPU hardware (SM89) or the node itself",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

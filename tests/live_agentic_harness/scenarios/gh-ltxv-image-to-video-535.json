@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver chooses update-custom-node over downgrading ComfyUI, and can parse the confusing 'pin 0.28.2 (actually a newer build)' versioning trap.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

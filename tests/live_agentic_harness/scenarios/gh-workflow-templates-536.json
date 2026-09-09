@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/536",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "trivial",
+   "version-drift",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver recognizes missing nodes as core nodes added in ComfyUI 0.11.1 (template newer than runtime), not as custom-node gaps",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

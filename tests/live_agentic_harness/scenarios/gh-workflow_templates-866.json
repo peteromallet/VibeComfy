@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/866",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "visual-judgment",
+   "gpu-only",
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Identical to gh-workflow-templates-866: tests whether the solver inspects node bypass/mute state and follows the image-preprocess path before blaming model weights or precision",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

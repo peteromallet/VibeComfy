@@ -34,6 +34,15 @@
   "techniques": [
    "sd (smz clip)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "visual-judgment",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether solver checks ComfyUI version parity between the two installs and knows v0.3.12 changed ancestral-sampling determinism, rather than hunting for a workflow or smZ CLIP bug.",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

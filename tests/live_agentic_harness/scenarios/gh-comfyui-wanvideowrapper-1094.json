@@ -34,6 +34,13 @@
   "techniques": [
    "wan2.2 (infinitetalk/multitalk)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests understanding of nonstandard node semantics: the Long-I2V WanVideoSampler stores already-decoded frames in the 'latent' dict, so VAE-decoding it is a no-op and saving raises KeyError 'samples'",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/10805",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "unreproducible",
+   "gpu-only",
+   "version-drift",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver diagnosing a silent no-op Sage Attention on Blackwell checks torch/xformers/driver stack coherence (cu128 wheels vs CUDA-13 build) rather than the workflow graph",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

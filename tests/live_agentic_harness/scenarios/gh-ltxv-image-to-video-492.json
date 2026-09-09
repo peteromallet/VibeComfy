@@ -35,6 +35,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests reading a TypeError traceback as a local-vs-upstream API signature drift (stg.py passing momentum_buffer=None to apg()) and applying the minimal correct edit.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/457",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "solution-too-specific",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver knows subgraph conversion can hide existing inputs and can unpack/navigate subgraphs to re-expose them instead of concluding nodes are missing",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

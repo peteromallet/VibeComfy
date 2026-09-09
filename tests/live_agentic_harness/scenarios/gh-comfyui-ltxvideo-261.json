@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/261",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "stale-workflow",
+   "information-poor",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests diagnostic reasoning on a second-stage latent-upsampler pipeline that collapses to a frozen first frame \u2014 with no confirmed ground truth to grade against",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -35,6 +35,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests cross-boundary blame: ComfyUI core refactored RoPE helpers (interleaved_freqs_cis -> freqs_cis_matrix), so the fix is updating the custom node, not rolling back ComfyUI.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -35,6 +35,15 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver attributes a 2x runtime regression to the app update and bisects versions instead of blaming settings/hardware",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

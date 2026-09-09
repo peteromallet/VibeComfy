@@ -34,6 +34,13 @@
   "techniques": [
    "wan2.2"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver knows latent dims must divide by 16 and checks resolution multiples before suspecting the workflow",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

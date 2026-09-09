@@ -34,6 +34,14 @@
   "techniques": [
    "z-image turbo / qwen3-4b"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver can trace a dtype error to the GGUF loader's index handling and know that PyTorch gather indexes should be int64",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

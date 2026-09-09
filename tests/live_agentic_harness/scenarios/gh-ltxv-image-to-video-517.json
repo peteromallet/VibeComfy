@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver reads the ImportError traceback and fixes the dependency (pin kornia==0.7.3 / 0.8.2, or replace the dead re-export with torch.nn.functional.pad) instead of touching the workflow graph.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

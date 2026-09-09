@@ -34,6 +34,16 @@
   "techniques": [
    "wan multitalk/infinitetalk"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "unreproducible",
+   "trivial",
+   "outcome-ambiguous"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests recognizing a post-update device-placement regression (cuda:0 vs cpu tensors) in the wrapper whose fix is upstream, not a workflow edit",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

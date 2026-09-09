@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/471",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "solution-too-specific",
+   "stale-workflow",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver finds that a third-party fork plus a comfy.org subgraph with 'Unet Loader (Dynamic VRAM)' is the only working MiniMax-H3 path",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

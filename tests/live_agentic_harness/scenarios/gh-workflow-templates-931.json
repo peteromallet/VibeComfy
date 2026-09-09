@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/931",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "visual-judgment",
+   "gpu-only",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests understanding that CFG=1 turbo models have no usable negative branch and whether ConditioningZeroOut vs an empty CLIP Text Encode differ in conditioning semantics at low CFG",
+  "eval_value": "medium",
+  "recommended_grade_mode": "multi-sample"
  }
 }

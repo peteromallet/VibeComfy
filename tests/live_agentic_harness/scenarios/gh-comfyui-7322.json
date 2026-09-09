@@ -34,6 +34,17 @@
   "techniques": [
    "general (frontend perf)"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "information-poor",
+   "version-drift",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether solver profiles frontend rendering and implicates preview-heavy LoadImage nodes (deleting them restored FPS) instead of blaming GPU, VRAM, or raw node count.",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

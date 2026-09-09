@@ -34,6 +34,17 @@
   "techniques": [
    "wan 2.2 / animate"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "information-poor",
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Supposedly tests block-swap/offload tuning, but the recorded 'fix' (CUDA PATH repair) does not explain a 16-vs-8 tensor mismatch, so the real root cause is unknown",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

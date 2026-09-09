@@ -34,6 +34,15 @@
   "techniques": [
    "sd-inpaint"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "visual-judgment",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver recognizes that standard inpaint samplers under-adhere to prompts and that this is a quality limitation, not a wiring bug",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

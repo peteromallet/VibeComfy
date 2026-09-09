@@ -34,6 +34,15 @@
   "techniques": [
    "wan 2.1 fun-control/vace"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver identifies a wrapper regression introduced by a node update and checks upstream for the maintainer's fix commit",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

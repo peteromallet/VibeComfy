@@ -34,6 +34,16 @@
   "techniques": [
    "flux (fluxtrainer)"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether solver localizes the NameError to the third-party ComfyUI-FluxTrainer pack's broken version-string check (misfiled to core ComfyUI) instead of blaming core, torch, or the workflow.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

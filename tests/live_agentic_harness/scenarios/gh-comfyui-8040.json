@@ -34,6 +34,14 @@
   "techniques": [
    "mmaudio"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether solver attributes a frontend JS TypeError ('displayValue' of undefined) to a specific custom pack (VHS, fixed in VHS issue #472) and updates that pack rather than the workflow or core.",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

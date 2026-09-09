@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/16138",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether solver bisects a core regression to a version boundary (0.34.2 vs 0.34.3 hostbuf read_file_slice on-demand weight streaming) instead of blaming the workflow, VRAM size, or settings.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

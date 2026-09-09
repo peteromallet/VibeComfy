@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/11260",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "solution-too-specific",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver discovers that the UI silently drops missing custom nodes on import and uses the API (invalid_prompt: 'node RIFE VFI does not exist') to enumerate what to install",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

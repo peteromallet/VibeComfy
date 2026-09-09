@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "solution-too-specific",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests tracing a GGUF dequantization edge case (BF16 non-layer params like learnable_registers left as GGMLTensor) into a loader-level patch, not a workflow edit.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

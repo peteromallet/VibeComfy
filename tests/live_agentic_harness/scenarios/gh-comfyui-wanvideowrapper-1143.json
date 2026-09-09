@@ -34,6 +34,15 @@
   "techniques": [
    "wan infinitetalk"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "unreproducible",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests recognizing a wrapper-side prefetch regression (black frames despite normal logs) and fixing it by updating/pinning the node instead of reworking the workflow",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

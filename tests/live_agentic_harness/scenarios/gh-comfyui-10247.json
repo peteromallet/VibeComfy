@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/10247",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver attributes an AttributeError inside LTXVPreprocess to a Desktop build bug and upgrades to v0.5.1 rather than reinstalling custom nodes",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

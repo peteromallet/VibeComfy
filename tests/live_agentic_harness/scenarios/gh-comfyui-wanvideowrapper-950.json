@@ -34,6 +34,14 @@
   "techniques": [
    "wan 2.2"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver blames the correct third-party pack (Anything-Anywhere hooking node metadata) instead of the WanVideoWrapper or ComfyUI v0.3.48 itself.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

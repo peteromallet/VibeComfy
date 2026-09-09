@@ -35,6 +35,17 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "visual-judgment",
+   "gpu-only",
+   "unreproducible",
+   "env-specific",
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Supposedly tests recognizing environment/attention-backend interference (xformers) plus a missing distill LoRA behind degraded video quality \u2014 but the query text already states the root cause, so it mostly tests restating it.",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

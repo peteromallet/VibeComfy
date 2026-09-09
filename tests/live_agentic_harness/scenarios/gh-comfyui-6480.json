@@ -34,6 +34,16 @@
   "techniques": [
    "flux (pulid/controlnet)"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "outcome-ambiguous",
+   "unreproducible",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether solver recognizes a frontend canvas/export rendering bug (the workflow file itself is valid and loads server-side) rather than workflow corruption \u2014 but the thread has no documented ground truth.",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

@@ -34,6 +34,15 @@
   "techniques": [
    "flux (chatgpt plus / art-venture)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether solver treats the generic 'Loading aborted due to error reloading workflow data' as stale custom-node packs and knows the fix needs git pull PLUS pip install -r requirements.txt per pack, not just a pull.",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

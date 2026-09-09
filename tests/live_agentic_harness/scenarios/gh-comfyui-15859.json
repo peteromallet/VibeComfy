@@ -35,6 +35,14 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15859",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "trivial",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether the solver knows mmproj is the vision-projector weights a text-only GGUF lacks, and that the fault lives in a third-party node's model choice rather than ComfyUI core",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

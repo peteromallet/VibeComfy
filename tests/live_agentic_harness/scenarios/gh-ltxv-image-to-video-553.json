@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests symptom-to-cause indirection: a 'missing node' complaint must be traced to a pack-wide import failure in ComfyUI logs, then fixed in pyramid_blending.py.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

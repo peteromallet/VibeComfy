@@ -35,6 +35,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver recognizes a dependency re-export removal and applies the one-line pad shim or pins kornia==0.8.2, rather than debugging the workflow.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

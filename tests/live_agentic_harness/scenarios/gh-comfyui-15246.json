@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15246",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "outcome-ambiguous",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether the solver checks torch compatibility (NestedTensor decode broken on 2.9.1+cu128) and knows the H3 VAE alternative (standard decode, built-in tiling) before touching the workflow",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

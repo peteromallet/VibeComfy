@@ -35,6 +35,16 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "env-specific",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver recognizes a false-negative in the node's own sageattention version/arch check and swaps to an equivalent patch node rather than reinstalling deps",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

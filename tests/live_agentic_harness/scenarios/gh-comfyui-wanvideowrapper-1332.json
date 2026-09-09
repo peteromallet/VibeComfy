@@ -34,6 +34,14 @@
   "techniques": [
    "wan-vace"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "information-poor",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver notices a second (VACE module) loader node hidden underneath the main loader with an unselected model dropdown",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

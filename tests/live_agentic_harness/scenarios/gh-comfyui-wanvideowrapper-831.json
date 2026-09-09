@@ -34,6 +34,16 @@
   "techniques": [
    "wan (uni3c + radial attention)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "outcome-ambiguous",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver isolates the attention-backend conflict to the Uni3C controlnet loader specifically (sdpa there, sage on the model loader is fine) instead of blindly switching every attention setting or blaming Triton/radial-attention install.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

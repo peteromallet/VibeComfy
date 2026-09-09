@@ -34,6 +34,14 @@
   "techniques": [
    "wan-move"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver traces a frame-count mismatch (81 vs 241) in WanMove Tracks back to a SplineEditor (KJNodes) bug rather than the Draw Tracks node",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

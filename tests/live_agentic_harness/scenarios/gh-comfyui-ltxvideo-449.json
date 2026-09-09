@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/449",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "trivial",
+   "visual-judgment",
+   "gpu-only",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver diffs the user's workflow against official example defaults and spots IC-LoRA strength 1.0 (vs 0.5) as the texture-bleed cause on stylized inputs",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

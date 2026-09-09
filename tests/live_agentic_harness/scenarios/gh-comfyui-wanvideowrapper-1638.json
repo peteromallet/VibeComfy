@@ -34,6 +34,14 @@
   "techniques": [
    "wan 2.2 t2v 14b"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver can correctly convert an I2V WanVideoWrapper graph to T2V (drop LoadImage + Image2VideoEncode, swap in WanVideoEmptyEmbeds, switch models/loras)",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

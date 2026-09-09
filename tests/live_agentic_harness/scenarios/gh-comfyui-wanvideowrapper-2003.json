@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/2003",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "information-poor",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver recognizes the 36-vs-68-channel symptom as wrong-VAE (Wan2.1 VAE used with a Wan2.2 model, or vice versa) instead of a sampler bug",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

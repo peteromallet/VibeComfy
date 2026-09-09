@@ -34,6 +34,14 @@
   "techniques": [
    "general"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether solver recognizes IS_CHANGED()/doit() signature-mismatch errors as core\u2194custom-node API drift after a partial upgrade, and prescribes coordinated upgrade of ComfyUI + Manager instead of editing the workflow.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

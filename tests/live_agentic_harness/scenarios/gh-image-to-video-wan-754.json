@@ -35,6 +35,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests recognizing a hard platform limitation (macOS/MPS has no Float8_e4m3fn backend) instead of hunting for a wiring bug, and proposing the right escape (GGUF/bf16 weights) or correctly declaring it unfixable.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

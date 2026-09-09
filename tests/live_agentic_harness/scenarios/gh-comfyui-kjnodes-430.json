@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/430",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "gpu-only",
+   "version-drift",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver attributes a CUDA pinned-memory error thrown under WanVideoNAG to ComfyUI-GGUF's loader (PR #357) instead of KJNodes or the sampler",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

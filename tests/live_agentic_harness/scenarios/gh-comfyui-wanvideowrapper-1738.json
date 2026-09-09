@@ -34,6 +34,14 @@
   "techniques": [
    "longcat"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver attributes a kwarg signature break after a ComfyUI update to the WanVideoWrapper and updates it, instead of patching LongCat node code",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

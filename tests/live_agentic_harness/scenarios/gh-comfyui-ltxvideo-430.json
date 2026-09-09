@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/430",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "gpu-only",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests tracing a NaN from the AAC mux back to its latent source: FP8-format LoRA incompatible with the 22B model, or bad sigma values in a two-pass setup \u2014 not an ffmpeg/audio-encoder bug",
+  "eval_value": "high",
+  "recommended_grade_mode": "multi-sample"
  }
 }

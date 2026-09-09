@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/447",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "information-poor",
+   "stale-workflow",
+   "version-drift",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver can identify which custom-node pack supplies the missing animate nodes when ComfyUI-Manager's registry finds nothing (registry gap, not a core bug)",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

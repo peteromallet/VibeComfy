@@ -34,6 +34,15 @@
   "techniques": [
    "wan 2.1 vace"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "information-poor",
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Supposedly tests VACE mask-path debugging, but the record ends at 'removing the mask avoids it' with no root cause or actual fix",
+  "eval_value": "low",
+  "recommended_grade_mode": "multi-sample"
  }
 }

@@ -35,6 +35,16 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "env-specific",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver maps an AMD-specific AOTriton/SDPA kernel crash to a known fixed upstream PR instead of chasing workflow settings",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

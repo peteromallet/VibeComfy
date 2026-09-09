@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/10383",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "trivial",
+   "stale-workflow",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver decodes the misleading 'missing class_type property: Node ID #1' error as a missing third-party custom node (ComfyUI-Hunyuan3d-2-1) and installs it",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

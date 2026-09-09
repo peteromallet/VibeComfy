@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/452",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "solution-too-specific",
+   "outcome-ambiguous",
+   "stale-workflow",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver knows that using the official fp8 safetensors TE through standard CLIPLoader sidesteps the whole GGUF-TE problem",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

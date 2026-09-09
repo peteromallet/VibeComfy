@@ -34,6 +34,15 @@
   "techniques": [
    "longcat avatar (wan-based)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "solution-too-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver checks custom-node version/changelog for a known tensor-double-rename bug before debugging the workflow graph",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

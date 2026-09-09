@@ -35,6 +35,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests the diagnostic chain: 'missing class_type' -> missing DWPose nodes -> ComfyUI-tbox import failure -> broken/mixed OpenCV (cv2.dnn) install, then repairing the Python env.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

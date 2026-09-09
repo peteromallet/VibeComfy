@@ -35,6 +35,13 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15274",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether the solver knows the MiniMax H3 VAE has trained-in tiling (<8GB VRAM design), making VAEDecodeTiled categorically incompatible rather than misconfigured",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

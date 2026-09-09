@@ -35,6 +35,15 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "outcome-ambiguous"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver recognizes a kwarg-signature break from upstream API drift and updates the custom node (or drops the now-redundant low-VRAM node)",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

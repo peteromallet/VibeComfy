@@ -35,6 +35,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver correctly locates the fix in the node-pack repo (kornia maintainer said so) and either pins kornia==0.8.2 or swaps pad to F.pad.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

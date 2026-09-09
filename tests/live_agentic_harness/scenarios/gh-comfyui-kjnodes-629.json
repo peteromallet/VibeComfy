@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/629",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "trivial",
+   "gpu-only",
+   "visual-judgment",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver isolates attention-mode as the flicker variable by ablation instead of blaming model/seed/VRAM \u2014 but the query text already states the cause and fix",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

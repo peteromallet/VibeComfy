@@ -35,6 +35,15 @@
   "solution_confirmed": true,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/484",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "trivial",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver knows 'Patch Model Patch Order' is an obsolete torch.compile workaround to delete, and that post-removal slowness is first-run compilation",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

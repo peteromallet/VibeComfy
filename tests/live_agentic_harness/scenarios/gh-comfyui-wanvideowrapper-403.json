@@ -34,6 +34,13 @@
   "techniques": [
    "wan fun-control"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver traces which upstream node emits a non-16-divisible resolution and inserts/fixes the resize before the sampler",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

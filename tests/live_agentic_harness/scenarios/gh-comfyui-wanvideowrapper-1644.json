@@ -34,6 +34,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "unreproducible",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver attributes a VRAM regression to stale Triton/inductor caches (and knows the exact cache paths) rather than blockswap misconfiguration",
+  "eval_value": "medium",
+  "recommended_grade_mode": "multi-sample"
  }
 }

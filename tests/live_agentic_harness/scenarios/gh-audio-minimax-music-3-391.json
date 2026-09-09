@@ -35,6 +35,16 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "unreproducible",
+   "gpu-only",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver can isolate a failing SageAttention kernel via single-variable control and craft a kernel-level workaround (FP16 V + sm80 path) instead of blaming drivers",
+  "eval_value": "medium",
+  "recommended_grade_mode": "multi-sample"
  }
 }

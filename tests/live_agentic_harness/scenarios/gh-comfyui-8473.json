@@ -34,6 +34,14 @@
   "techniques": [
    "wan2.1 vace"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver recognizes a known frontend metadata-vs-selected-file comparison bug rather than hunting the workflow for errors",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

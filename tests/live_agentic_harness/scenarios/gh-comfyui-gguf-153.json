@@ -34,6 +34,15 @@
   "techniques": [
    "any gguf (flux)"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver reads the AttributeError and pins numpy<2.0 (or updates the node) instead of debugging the GGUF workflow itself",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

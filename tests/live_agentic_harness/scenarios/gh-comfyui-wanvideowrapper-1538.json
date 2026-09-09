@@ -34,6 +34,15 @@
   "techniques": [
    "wan2.1 (lynx face ip)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether solver maps an UnboundLocalError in custom_linear.py to a wrapper bug and updates the custom node instead of editing the example workflow",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

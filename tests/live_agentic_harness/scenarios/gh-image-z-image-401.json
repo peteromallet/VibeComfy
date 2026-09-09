@@ -35,6 +35,17 @@
   "techniques": [
    "z-image"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "unreproducible",
+   "version-drift",
+   "outcome-ambiguous",
+   "visual-judgment"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests connecting a black-output symptom to automatic model placement on cuda:1 in dual-GPU systems and pinning the model to cuda:0 (or matching weight file to VRAM) rather than suspecting the sampler/model.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

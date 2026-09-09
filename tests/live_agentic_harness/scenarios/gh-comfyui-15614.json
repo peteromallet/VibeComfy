@@ -35,6 +35,16 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15614",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "version-drift",
+   "visual-judgment",
+   "gpu-only",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether the solver isolates a version regression by bisection (0.30 vs 0.31/0.33) instead of tweaking sampler/LoRA/precision/attention knobs",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

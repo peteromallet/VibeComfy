@@ -34,6 +34,14 @@
   "techniques": [
    "flux2"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver checks the ComfyUI core version / logs for the wrong TE model class (ZImageTEModel_ vs Flux2TEModel_) before blaming the GGUF file",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

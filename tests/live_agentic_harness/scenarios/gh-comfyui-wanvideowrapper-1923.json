@@ -34,6 +34,14 @@
   "techniques": [
    "wan2.1 fun control camera"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver recognizes an upstream UnboundLocalError code bug (uninitialized image_cond_mask branch) rather than user misconfiguration",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

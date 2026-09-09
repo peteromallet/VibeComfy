@@ -34,6 +34,15 @@
   "techniques": [
    "wan-lucyedit"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "information-poor",
+   "visual-judgment"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether solver isolates a conflicting FastWan low-step LoRA (shape [3072,3072] vs 26214400) as the cause rather than blaming the undocumented Lucy Edit node wiring",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

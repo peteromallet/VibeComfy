@@ -34,6 +34,14 @@
   "techniques": [
    "wan2.2 animate"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial",
+   "solution-too-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver knows saved workflows can carry stale node definitions and that ComfyUI's 'Fix node (recreate)' resolves unexpected-kwarg errors",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

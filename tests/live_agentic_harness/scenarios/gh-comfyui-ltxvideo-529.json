@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/529",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests recognition of a quantization-format support gap: LTXVAudioVAELoader cannot load the audio component of the int8-ConvRot checkpoint, so the fix is a compatible audio-VAE file or loader update, not workflow rewiring",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

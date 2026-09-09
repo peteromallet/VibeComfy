@@ -34,6 +34,15 @@
   "techniques": [
    "generic unet (sd/sdxl)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "tests whether the solver maps a custom-node (UNetSelfAttentionMultiply) crash under partial offload to a core lowvram bug fixed upstream, rather than rewriting the workflow",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

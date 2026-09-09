@@ -34,6 +34,14 @@
   "techniques": [
    "minimax h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether the solver reads a weight-shape mismatch at CLIPLoader as a wrong/mismatched text-encoder file in the model dirs (Desktop shared-model resolution), not a code or graph bug",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

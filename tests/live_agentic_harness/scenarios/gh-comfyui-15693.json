@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15693",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "visual-judgment",
+   "gpu-only",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether the solver connects Q5_1 GGUF quantization of a 22B model to texture/grain degradation instead of tuning schedulers and step counts",
+  "eval_value": "medium",
+  "recommended_grade_mode": "multi-sample"
  }
 }

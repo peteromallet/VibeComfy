@@ -35,6 +35,14 @@
   "solution_confirmed": true,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1998",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "information-poor",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver connects an audio cross-attention reshape mismatch to a resolution not divisible by 16 (456/16=28.5) and fixes it at the resize node",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

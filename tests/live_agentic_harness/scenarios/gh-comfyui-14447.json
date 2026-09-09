@@ -35,6 +35,15 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14447",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "outcome-ambiguous",
+   "unreproducible",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "tests whether the solver recognizes the GGUF legacy loading path (logs show legacy loader, not aimdo) as the offload root cause and recommends native weights + dynamic VRAM rather than flag tweaking",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

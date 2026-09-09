@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "json-attachment",
   "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/580",
-  "provenance_source": "github-closed"
+  "provenance_source": "github-closed",
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow",
+   "information-poor",
+   "outcome-ambiguous"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver recognizes a latent_frequency_bins AttributeError as a ComfyUI/KJNodes-vs-VAE-file version mismatch and updates all three consistently",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

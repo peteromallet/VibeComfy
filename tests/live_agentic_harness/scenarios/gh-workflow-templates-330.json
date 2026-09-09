@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/330",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "trivial",
+   "unreproducible",
+   "outcome-ambiguous",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver connects a 'Failed to convert INT' validation error to unpopulated/stale widget values in the shipped template JSON versus a broken local install",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

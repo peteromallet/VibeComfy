@@ -35,6 +35,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "outcome-ambiguous",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Tests whether the solver can author the one-line pad shim (drop the kornia import, use F.pad) from the ImportError alone.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

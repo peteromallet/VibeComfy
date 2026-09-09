@@ -35,6 +35,16 @@
   "solution_confirmed": false,
   "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/858",
-  "provenance_source": "github"
+  "provenance_source": "github",
+  "pitfalls": [
+   "trivial",
+   "stale-workflow",
+   "outcome-ambiguous",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tests whether the solver checks node-type existence against the current platform schema and spots widgets_values ordering drift (V2 order) rather than just renaming the node",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }
