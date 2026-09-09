@@ -1,0 +1,40 @@
+{
+ "id": "vc-422480191612",
+ "query": "Is <@228118453062467585> 's infintetalk workflow meant to only be used with a maximum of 4 steps? I tired removing the lightx2v lora and increase the steps and cfg but I always get this error.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1342763350815277067/1461310422480191612",
+  "provenance_source": "discord-readytemplate"
+ }
+}

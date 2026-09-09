@@ -1,0 +1,40 @@
+{
+ "id": "vc-414120345733",
+ "query": "Has anyone gotten the `RuntimeError: a Tensor with 2 elements cannot be converted to Scalar` error?\n\nI'm working on video extension using Kijai's `LTXVAudioVideoMask` and getting it intermittently, and only with <@228118453062467585> 's bf16 model set to higher steps..\n\nFor example, with my workflow",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "medium",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1309520535012638740/1460737414120345733",
+  "provenance_source": "discord-readytemplate"
+ }
+}

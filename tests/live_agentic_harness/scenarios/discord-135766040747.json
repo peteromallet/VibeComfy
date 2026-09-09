@@ -1,7 +1,7 @@
 {
  "id": "discord-135766040747",
- "query": "Has anyone tried mixing FML workflows with IC lora workflows with Depth_anything? I am trying to do something similar to what could be done in VACE of adding 3 style frames plus the control video. I tried to mix the workflows but I don't know if I did it right or if there is a way to merge it better...",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1476347135766040_LTX-2_Depth_FML.json",
+ "query": "Has anyone tried mixing FML workflows with IC lora workflows with Depth_anything? I am trying to do something similar to what could be done in VACE of adding 3 style frames plus the control video. I tried to mix the workflows but I don't know if I did it right or if there is a way to merge it better",
+ "workflow_path": null,
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,13 +9,13 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "video",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,41 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
-  "difficulty_1to10": 6,
-  "answer_confidence_1to10": 3,
-  "tech_freshness": "aging",
-  "age_months": 7,
-  "solution_specificity": 2,
-  "generalizability": "niche",
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "medium",
   "grade_mode": "rubric",
   "solution_confirmed": false,
-  "provenance_url": "",
-  "provenance_source": "discord",
-  "discord_message_id": "1476347135766040747",
-  "discord_channel": "ltx_chatter",
-  "attachments": [
-   {
-    "id": "1476347133840850954",
-    "filename": "LTX-IC-Pose-Compare_00013.mp4",
-    "content_type": "video/mp4"
-   },
-   {
-    "id": "1476347134570926282",
-    "filename": "LTX-2-IC-Control_00030-audio.mp4",
-    "content_type": "video/mp4"
-   },
-   {
-    "id": "1476347135527096320",
-    "filename": "LTX-2_Depth_FML.json",
-    "content_type": "application/json; charset=utf-8"
-   }
-  ],
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7,
-  "workflow_attachment_sha256": "f99dbca29e2cb423f116faaaf85cbc9a93244a2e2c3d30283a0629c9567e2761",
-  "workflow_source_type": "direct-json"
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1309520535012638740/1476347135766040747",
+  "provenance_source": "discord"
  }
 }

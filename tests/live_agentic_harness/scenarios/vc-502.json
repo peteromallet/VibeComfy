@@ -1,0 +1,40 @@
+{
+ "id": "vc-502",
+ "query": "Loading state_dict for LTXAVModel fails with scale_shift_table size mismatches (5,2048 vs 8,2048 etc.) after downloading models from HuggingFace \u2014 checkpoint version vs node-pack/model-code version mismatch.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (rluxemburg) states definitive cause: 'This is a checkpoint/code version mismatch. Please check whether you downloaded LTX-2 or LTX-2.3 model weights' \u2014 match weight version to the node pack.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/502",
+  "provenance_source": "github-readytemplate"
+ }
+}

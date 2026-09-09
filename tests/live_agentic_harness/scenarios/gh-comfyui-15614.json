@@ -1,7 +1,7 @@
 {
  "id": "gh-comfyui-15614",
  "query": "H3 generated-video audio always has static/popping on RTX 4080 Super across ComfyUI 0.31/0.33 regardless of sampler, LoRA, precision, or attention choice.",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -10,12 +10,12 @@
  },
  "desired": {
   "outcome": "OP (C2/C3): fixed by downgrading - the portable ComfyUI 0.30.0 build generates normal audio. (Regression in newer versions; no upstream fix identified.)",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "multi",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,22 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
   "difficulty_1to10": 5,
-  "answer_confidence_1to10": 8,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 1,
-  "solution_specificity": 6,
-  "generalizability": "universal",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "low",
   "grade_mode": "strict",
   "solution_confirmed": true,
+  "workflow_source": "official-template",
   "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15614",
-  "provenance_source": "github",
-  "github_repo": "Comfy-Org/ComfyUI",
-  "github_issue": 15614,
-  "nodes_type": "core-comfy",
-  "problem_clarity_1to10": 7
+  "provenance_source": "github"
  }
 }

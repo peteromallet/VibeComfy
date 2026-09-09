@@ -1,0 +1,619 @@
+{
+  "id": "4125c6df-9bca-430d-8e85-7cff9cc592d4",
+  "revision": 0,
+  "last_node_id": 18,
+  "last_link_id": 22,
+  "nodes": [
+    {
+      "id": 10,
+      "type": "SaveGLB",
+      "pos": [
+        1460,
+        -600
+      ],
+      "size": [
+        810,
+        820
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 11
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "SaveGLB",
+        "Camera Info": {
+          "position": {
+            "x": -6.4110169253384175,
+            "y": 5.539857713152493,
+            "z": 3.717347126943132
+          },
+          "target": {
+            "x": 0,
+            "y": 2.309554637620379,
+            "z": 0
+          },
+          "zoom": 1,
+          "cameraType": "perspective"
+        },
+        "Show Grid": false
+      },
+      "widgets_values": [
+        "mesh/ComfyUI",
+        ""
+      ]
+    },
+    {
+      "id": 13,
+      "type": "CLIPVisionEncode",
+      "pos": [
+        871.7900390625,
+        -750.9157104492188
+      ],
+      "size": [
+        270,
+        80
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip_vision",
+          "type": "CLIP_VISION",
+          "link": 20
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CLIP_VISION_OUTPUT",
+          "type": "CLIP_VISION_OUTPUT",
+          "links": [
+            22
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "CLIPVisionEncode"
+      },
+      "widgets_values": [
+        "center"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        480,
+        -390
+      ],
+      "size": [
+        274.080078125,
+        314
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "7e31e24a0659f8140edbf57b763f74a6.png",
+        "image"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "EmptyLatentHunyuan3Dv2",
+      "pos": [
+        841.0836181640625,
+        -133.48277282714844
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "EmptyLatentHunyuan3Dv2"
+      },
+      "widgets_values": [
+        4096,
+        1
+      ]
+    },
+    {
+      "id": 6,
+      "type": "Hunyuan3Dv2Conditioning",
+      "pos": [
+        856.6612548828125,
+        -238.9003143310547
+      ],
+      "size": [
+        229.470703125,
+        46
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip_vision_output",
+          "type": "CLIP_VISION_OUTPUT",
+          "link": 22
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "Hunyuan3Dv2Conditioning"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "ModelSamplingAuraFlow",
+      "pos": [
+        855.1685180664062,
+        -601.0834350585938
+      ],
+      "size": [
+        270,
+        270
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "ModelSamplingAuraFlow"
+      },
+      "widgets_values": [
+        1
+      ]
+    },
+    {
+      "id": 7,
+      "type": "KSampler",
+      "pos": [
+        1150,
+        -600
+      ],
+      "size": [
+        270,
+        262
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 19
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 5
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 6
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        597246518453994,
+        "fixed",
+        20,
+        5,
+        "euler",
+        "normal",
+        1
+      ]
+    },
+    {
+      "id": 9,
+      "type": "VoxelToMesh",
+      "pos": [
+        1150,
+        -130
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "voxel",
+          "type": "VOXEL",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MESH",
+          "type": "MESH",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "VoxelToMesh"
+      },
+      "widgets_values": [
+        "surface net",
+        0.7
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecodeHunyuan3D",
+      "pos": [
+        1150,
+        -290
+      ],
+      "size": [
+        270,
+        102
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 8
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 18
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VOXEL",
+          "type": "VOXEL",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "Node name for S&R": "VAEDecodeHunyuan3D"
+      },
+      "widgets_values": [
+        1000,
+        128
+      ]
+    },
+    {
+      "id": 1,
+      "type": "ImageOnlyCheckpointLoader",
+      "pos": [
+        387.17364501953125,
+        -602.5026245117188
+      ],
+      "size": [
+        451.8882751464844,
+        100
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            16
+          ]
+        },
+        {
+          "name": "CLIP_VISION",
+          "type": "CLIP_VISION",
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageOnlyCheckpointLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.59",
+        "models": [
+          {
+            "name": "hunyuan_3d_v2.1.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged/resolve/main/hunyuan_3d_v2.1.safetensors",
+            "directory": "checkpoints"
+          }
+        ]
+      },
+      "widgets_values": [
+        "hunyuan_3d_v2.1.safetensors"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "MarkdownNote",
+      "pos": [
+        -37.90242004394531,
+        -675.8171997070312
+      ],
+      "size": [
+        380,
+        160
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "## Model\nDownload [hunyuan_3d_v2.1.safetensors](https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged/resolve/main/hunyuan_3d_v2.1.safetensors) \n\nPut it under the **ComfyUI/models/checkpoints** directory"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      5,
+      6,
+      0,
+      7,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      6,
+      6,
+      1,
+      7,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      7,
+      4,
+      0,
+      7,
+      3,
+      "LATENT"
+    ],
+    [
+      8,
+      7,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      10,
+      8,
+      0,
+      9,
+      0,
+      "VOXEL"
+    ],
+    [
+      11,
+      9,
+      0,
+      10,
+      0,
+      "MESH"
+    ],
+    [
+      16,
+      1,
+      0,
+      3,
+      0,
+      "MODEL"
+    ],
+    [
+      18,
+      1,
+      2,
+      8,
+      1,
+      "VAE"
+    ],
+    [
+      19,
+      3,
+      0,
+      7,
+      0,
+      "MODEL"
+    ],
+    [
+      20,
+      1,
+      1,
+      13,
+      0,
+      "CLIP_VISION"
+    ],
+    [
+      21,
+      2,
+      0,
+      13,
+      1,
+      "IMAGE"
+    ],
+    [
+      22,
+      13,
+      0,
+      6,
+      0,
+      "CLIP_VISION_OUTPUT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Step 1 - Load model",
+      "bounding": [
+        440,
+        -670,
+        356.3746337890625,
+        183.60000610351562
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Step 2 - Upload image here",
+      "bounding": [
+        440,
+        -470,
+        350,
+        410
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1.116781577942479,
+      "offset": [
+        -96.47320973856407,
+        795.2147686875637
+      ]
+    },
+    "frontendVersion": "1.27.10",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

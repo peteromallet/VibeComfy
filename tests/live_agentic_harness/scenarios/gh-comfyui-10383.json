@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-10383",
+ "query": "Official template workflow 3d_hunyuan3d-v2.1 (and other 3D templates) cannot start after updating ComfyUI: 'Cannot execute because a node is missing the class_type property.: Node ID #1'. The template requires the third-party ComfyUI-Hunyuan3d-2-1 custom node which is not installed.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10383_attached.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Missing custom node: maintainer pointed to https://github.com/visualbruno/ComfyUI-Hunyuan3d-2-1 ; Comfy team also shipped improved error messaging in frontend v1.39.5 that names the missing node type.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 1,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "Hunyuan3D"
+  ],
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/10383",
+  "provenance_source": "github-closed"
+ }
+}

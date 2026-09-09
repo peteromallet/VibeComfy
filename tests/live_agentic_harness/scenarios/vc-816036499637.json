@@ -1,0 +1,40 @@
+{
+ "id": "vc-816036499637",
+ "query": "<@256636116763934731>  Please excuse the tag, but I can't figure this out without your help\n\n\nWhen I want to perform an inpainting using two control nets with DIFFERENT weights (depth 0.4 and pose 0.9, for example), what is the correct way to set up the workflow before moving on to KSampler? \n\nBoth ",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1342763350815277067/1512180816036499637",
+  "provenance_source": "discord-readytemplate"
+ }
+}

@@ -1,0 +1,866 @@
+{
+ "id": "1805b8e4-0356-4384-adec-44f12a18f32e",
+ "revision": 0,
+ "last_node_id": 62,
+ "last_link_id": 121,
+ "nodes": [
+  {
+   "id": 39,
+   "type": "VAELoader",
+   "pos": [
+    866.3932495117188,
+    499.18597412109375
+   ],
+   "size": [
+    306.36004638671875,
+    58
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "VAE",
+     "type": "VAE",
+     "slot_index": 0,
+     "links": [
+      76,
+      99
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAELoader"
+   },
+   "widgets_values": [
+    "wan_2.1_vae.safetensors"
+   ]
+  },
+  {
+   "id": 7,
+   "type": "CLIPTextEncode",
+   "pos": [
+    413,
+    389
+   ],
+   "size": [
+    425.27801513671875,
+    180.6060791015625
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 75
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      98
+     ]
+    }
+   ],
+   "title": "CLIP Text Encode (Negative Prompt)",
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
+   ],
+   "color": "#322",
+   "bgcolor": "#533"
+  },
+  {
+   "id": 49,
+   "type": "CLIPVisionLoader",
+   "pos": [
+    20,
+    640
+   ],
+   "size": [
+    315,
+    58
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "CLIP_VISION",
+     "type": "CLIP_VISION",
+     "slot_index": 0,
+     "links": [
+      94
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPVisionLoader"
+   },
+   "widgets_values": [
+    "clip_vision_h.safetensors"
+   ]
+  },
+  {
+   "id": 38,
+   "type": "CLIPLoader",
+   "pos": [
+    20,
+    190
+   ],
+   "size": [
+    390,
+    106
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "CLIP",
+     "type": "CLIP",
+     "slot_index": 0,
+     "links": [
+      74,
+      75
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPLoader"
+   },
+   "widgets_values": [
+    "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+    "wan",
+    "default"
+   ]
+  },
+  {
+   "id": 37,
+   "type": "UNETLoader",
+   "pos": [
+    20,
+    70
+   ],
+   "size": [
+    346.7470703125,
+    82
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      114
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UNETLoader"
+   },
+   "widgets_values": [
+    "chrono_edit_14B_fp16.safetensors",
+    "default"
+   ]
+  },
+  {
+   "id": 57,
+   "type": "LoraLoaderModelOnly",
+   "pos": [
+    313.1655618877424,
+    -70.25101331621893
+   ],
+   "size": [
+    270,
+    82
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 4,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 114
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      115
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoraLoaderModelOnly"
+   },
+   "widgets_values": [
+    "chronoedit_distill_lora.safetensors",
+    1
+   ]
+  },
+  {
+   "id": 54,
+   "type": "ModelSamplingSD3",
+   "pos": [
+    603.2948770447579,
+    -69.69607225024097
+   ],
+   "size": [
+    210,
+    58
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 115
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "slot_index": 0,
+     "links": [
+      116
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ModelSamplingSD3"
+   },
+   "widgets_values": [
+    5
+   ]
+  },
+  {
+   "id": 61,
+   "type": "Note",
+   "pos": [
+    1176.1677252113434,
+    -74.898820711942
+   ],
+   "size": [
+    296.3672813221649,
+    149.46902182607533
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [],
+   "properties": {},
+   "widgets_values": [
+    "If you enable the lora set steps to 8, cfg to 1.0 and shift to 2.0"
+   ],
+   "color": "#432",
+   "bgcolor": "#653"
+  },
+  {
+   "id": 6,
+   "type": "CLIPTextEncode",
+   "pos": [
+    415,
+    186
+   ],
+   "size": [
+    422.84503173828125,
+    164.31304931640625
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip",
+     "type": "CLIP",
+     "link": 74
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CONDITIONING",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      97
+     ]
+    }
+   ],
+   "title": "CLIP Text Encode (Positive Prompt)",
+   "properties": {
+    "Node name for S&R": "CLIPTextEncode"
+   },
+   "widgets_values": [
+    "the anime girl with massive fennec ears is wearing cargo pants while sitting on a log in the woods biting into a sandwich beside a beautiful alpine lake"
+   ],
+   "color": "#232",
+   "bgcolor": "#353"
+  },
+  {
+   "id": 52,
+   "type": "LoadImage",
+   "pos": [
+    -423.7039641503115,
+    764.9945766923782
+   ],
+   "size": [
+    784.1758464659455,
+    864.5785958527819
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "slot_index": 0,
+     "links": [
+      106,
+      109
+     ]
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "slot_index": 1,
+     "links": null
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImage"
+   },
+   "widgets_values": [
+    "fennec_girl_sing.png",
+    "image"
+   ]
+  },
+  {
+   "id": 51,
+   "type": "CLIPVisionEncode",
+   "pos": [
+    360,
+    640
+   ],
+   "size": [
+    253.60000610351562,
+    78
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "clip_vision",
+     "type": "CLIP_VISION",
+     "link": 94
+    },
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 109
+    }
+   ],
+   "outputs": [
+    {
+     "name": "CLIP_VISION_OUTPUT",
+     "type": "CLIP_VISION_OUTPUT",
+     "slot_index": 0,
+     "links": [
+      120
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CLIPVisionEncode"
+   },
+   "widgets_values": [
+    "none"
+   ]
+  },
+  {
+   "id": 58,
+   "type": "ScaleROPE",
+   "pos": [
+    837.2033663575412,
+    -68.06574769393512
+   ],
+   "size": [
+    270,
+    178
+   ],
+   "flags": {},
+   "order": 12,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 116
+    }
+   ],
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      117
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ScaleROPE"
+   },
+   "widgets_values": [
+    1,
+    0,
+    1,
+    0,
+    7,
+    0
+   ]
+  },
+  {
+   "id": 50,
+   "type": "WanImageToVideo",
+   "pos": [
+    673.0507202148438,
+    627.272705078125
+   ],
+   "size": [
+    342.5999755859375,
+    210
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 97
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 98
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 99
+    },
+    {
+     "name": "clip_vision_output",
+     "shape": 7,
+     "type": "CLIP_VISION_OUTPUT",
+     "link": 120
+    },
+    {
+     "name": "start_image",
+     "shape": 7,
+     "type": "IMAGE",
+     "link": 106
+    }
+   ],
+   "outputs": [
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "slot_index": 0,
+     "links": [
+      101
+     ]
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "slot_index": 1,
+     "links": [
+      102
+     ]
+    },
+    {
+     "name": "latent",
+     "type": "LATENT",
+     "slot_index": 2,
+     "links": [
+      103
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "WanImageToVideo"
+   },
+   "widgets_values": [
+    1024,
+    1024,
+    5,
+    1
+   ]
+  },
+  {
+   "id": 8,
+   "type": "VAEDecode",
+   "pos": [
+    1210,
+    190
+   ],
+   "size": [
+    210,
+    46
+   ],
+   "flags": {},
+   "order": 14,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "samples",
+     "type": "LATENT",
+     "link": 35
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 76
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "slot_index": 0,
+     "links": [
+      118
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAEDecode"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 59,
+   "type": "ImageFromBatch",
+   "pos": [
+    1439.5867813458365,
+    193.7873860396569
+   ],
+   "size": [
+    270,
+    82
+   ],
+   "flags": {},
+   "order": 15,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 118
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      119
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ImageFromBatch"
+   },
+   "widgets_values": [
+    4,
+    1
+   ]
+  },
+  {
+   "id": 60,
+   "type": "SaveImage",
+   "pos": [
+    1721.216645287363,
+    196.33283004740952
+   ],
+   "size": [
+    365.496881485494,
+    426.80352145149016
+   ],
+   "flags": {},
+   "order": 16,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 119
+    }
+   ],
+   "outputs": [],
+   "properties": {},
+   "widgets_values": [
+    "ComfyUI"
+   ]
+  },
+  {
+   "id": 3,
+   "type": "KSampler",
+   "pos": [
+    860.8330588113224,
+    188.08347059433876
+   ],
+   "size": [
+    315,
+    262
+   ],
+   "flags": {},
+   "order": 13,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 117
+    },
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 101
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 102
+    },
+    {
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 103
+    }
+   ],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "slot_index": 0,
+     "links": [
+      35
+     ]
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    835443033673619,
+    "fixed",
+    20,
+    4,
+    "uni_pc",
+    "simple",
+    1
+   ]
+  }
+ ],
+ "links": [
+  [
+   35,
+   3,
+   0,
+   8,
+   0,
+   "LATENT"
+  ],
+  [
+   74,
+   38,
+   0,
+   6,
+   0,
+   "CLIP"
+  ],
+  [
+   75,
+   38,
+   0,
+   7,
+   0,
+   "CLIP"
+  ],
+  [
+   76,
+   39,
+   0,
+   8,
+   1,
+   "VAE"
+  ],
+  [
+   94,
+   49,
+   0,
+   51,
+   0,
+   "CLIP_VISION"
+  ],
+  [
+   97,
+   6,
+   0,
+   50,
+   0,
+   "CONDITIONING"
+  ],
+  [
+   98,
+   7,
+   0,
+   50,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   99,
+   39,
+   0,
+   50,
+   2,
+   "VAE"
+  ],
+  [
+   101,
+   50,
+   0,
+   3,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   102,
+   50,
+   1,
+   3,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   103,
+   50,
+   2,
+   3,
+   3,
+   "LATENT"
+  ],
+  [
+   106,
+   52,
+   0,
+   50,
+   4,
+   "IMAGE"
+  ],
+  [
+   109,
+   52,
+   0,
+   51,
+   1,
+   "IMAGE"
+  ],
+  [
+   114,
+   37,
+   0,
+   57,
+   0,
+   "MODEL"
+  ],
+  [
+   115,
+   57,
+   0,
+   54,
+   0,
+   "MODEL"
+  ],
+  [
+   116,
+   54,
+   0,
+   58,
+   0,
+   "MODEL"
+  ],
+  [
+   117,
+   58,
+   0,
+   3,
+   0,
+   "MODEL"
+  ],
+  [
+   118,
+   8,
+   0,
+   59,
+   0,
+   "IMAGE"
+  ],
+  [
+   119,
+   59,
+   0,
+   60,
+   0,
+   "IMAGE"
+  ],
+  [
+   120,
+   51,
+   0,
+   50,
+   3,
+   "CLIP_VISION_OUTPUT"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 1.015255979947778,
+   "offset": [
+    182.85120243474032,
+    435.2741947767315
+   ]
+  },
+  "frontendVersion": "1.28.8"
+ },
+ "version": 0.4
+}

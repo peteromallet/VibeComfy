@@ -1,0 +1,303 @@
+{
+  "90": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "91": {
+    "inputs": {
+      "text": "bright colors, overexposed, static, blurred details, subtitles,\nworst quality, jpeg artifacts, ugly, extra fingers, poorly drawn\nhands, still image, cluttered background, duplicate limbs, random text",
+      "clip": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "92": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "93": {
+    "inputs": {
+      "shift": 5,
+      "model": [
+        "131",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "94": {
+    "inputs": {
+      "shift": 5,
+      "model": [
+        "132",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "95": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 2,
+      "end_at_step": 4,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "94",
+        0
+      ],
+      "positive": [
+        "99",
+        0
+      ],
+      "negative": [
+        "91",
+        0
+      ],
+      "latent_image": [
+        "96",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "96": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 331947016729867,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": 2,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "93",
+        0
+      ],
+      "positive": [
+        "99",
+        0
+      ],
+      "negative": [
+        "91",
+        0
+      ],
+      "latent_image": [
+        "104",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "97": {
+    "inputs": {
+      "samples": [
+        "95",
+        0
+      ],
+      "vae": [
+        "92",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "99": {
+    "inputs": {
+      "text": "A rainy night in a dense cyberpunk market, neon kanji signs flicker overhead. The camera starts shoulder-height behind a hooded courier, steadily tracking forward as he weaves through crowds of holographic umbrellas. Volumetric pink-blue backlight cuts through steam vents, puddles mirror the glow. Lens flare, shallow depth of field. Moody, Blade-Runner vibe.",
+      "clip": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "prompt"
+    }
+  },
+  "101": {
+    "inputs": {
+      "unet_name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "102": {
+    "inputs": {
+      "unet_name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "104": {
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "length": 77,
+      "batch_size": 1
+    },
+    "class_type": "EmptyHunyuanLatentVideo",
+    "_meta": {
+      "title": "EmptyHunyuanLatentVideo"
+    }
+  },
+  "116": {
+    "inputs": {
+      "ckpt_name": "rife49.pth",
+      "clear_cache_after_n_frames": 10,
+      "multiplier": 2,
+      "fast_mode": false,
+      "ensemble": true,
+      "scale_factor": 1,
+      "frames": [
+        "117",
+        0
+      ]
+    },
+    "class_type": "RIFE VFI",
+    "_meta": {
+      "title": "RIFE VFI (recommend rife47 and rife49)"
+    }
+  },
+  "117": {
+    "inputs": {
+      "upscale_model": [
+        "118",
+        0
+      ],
+      "image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": {
+      "title": "Upscale Image (using Model)"
+    }
+  },
+  "118": {
+    "inputs": {
+      "model_name": "RealESRGAN_x2.pth"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
+  },
+  "121": {
+    "inputs": {
+      "frame_rate": 15,
+      "loop_count": 0,
+      "filename_prefix": "MYFOLDER/raw",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 5,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "123": {
+    "inputs": {
+      "frame_rate": 30,
+      "loop_count": 0,
+      "filename_prefix": "MYFOLDER/upscaled",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 5,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "116",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "131": {
+    "inputs": {
+      "lora_name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+      "strength_model": 1,
+      "model": [
+        "101",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "132": {
+    "inputs": {
+      "lora_name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+      "strength_model": 1,
+      "model": [
+        "102",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  }
+}

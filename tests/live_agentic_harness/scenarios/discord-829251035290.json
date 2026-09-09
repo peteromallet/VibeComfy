@@ -1,7 +1,7 @@
 {
  "id": "discord-829251035290",
  "query": "Hi everyone, I'm having trouble using a GGUF model. I'm testing the same workflow on two different computers. On the machine with an RTX 5070 Ti 16GB, the final image comes out with noise, while on an RTX 3060 12GB, it generates perfectly fine. What could be happening?",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1477767829251035_ltx2_combi_1.3.json",
+ "workflow_path": null,
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,13 +9,13 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "image",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,31 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
-  "difficulty_1to10": 6,
-  "answer_confidence_1to10": 1,
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 1,
-  "solution_specificity": 1,
-  "generalizability": "common",
-  "grade_mode": "weak",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "medium",
+  "grade_mode": "rubric",
   "solution_confirmed": false,
-  "provenance_url": "",
-  "provenance_source": "discord",
-  "discord_message_id": "1477767829251035290",
-  "discord_channel": "ltx_chatter",
-  "attachments": [
-   {
-    "id": "1477767828844318750",
-    "filename": "ltx2_combi_1.3.json",
-    "content_type": "application/json; charset=utf-8"
-   }
-  ],
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 5,
-  "workflow_attachment_sha256": "bcc10f8de8a584d0287ee6f29c6d74272f184dbaca1b1b0c5e8cc182b591e996",
-  "workflow_source_type": "direct-json"
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1309520535012638740/1477767829251035290",
+  "provenance_source": "discord"
  }
 }

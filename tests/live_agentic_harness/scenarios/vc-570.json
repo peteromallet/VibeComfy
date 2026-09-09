@@ -1,0 +1,40 @@
+{
+ "id": "vc-570",
+ "query": "SimpleCalculatorKJ throws TypeError on 'variables.a' kwarg and VAE load fails \u2014 stale KJNodes/ComfyUI versions incompatible with the workflow.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP aswordok (2026-03-13): updating ComfyUI-KJNodes to the nightly via Manager fixed it (latest release was too old at the time); commenter ccran adds updating ComfyUI to latest also fixes it.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/570",
+  "provenance_source": "github-readytemplate"
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "id": "vc-361548083211",
+ "query": "Just trying the offical 2step workflow, as i find the first step is very good, but why is the second step so broke always? Colours, and everything. Anybody knows a fix?",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1309520535012638740/1480290361548083211",
+  "provenance_source": "discord-readytemplate"
+ }
+}

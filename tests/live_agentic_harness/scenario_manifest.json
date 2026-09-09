@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "scenario_root": "tests/live_agentic_harness/scenarios",
- "scenario_count": 194,
+ "scenario_count": 259,
  "entries": [
   {
    "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
@@ -293,15 +293,10 @@
   {
    "id": "discord-101101285466",
    "path": "tests/live_agentic_harness/scenarios/discord-101101285466.json",
-   "descriptor_sha256": "920e051541c3037b184818622d0a55ce0dbe7f41ed110cf54561c27f172e2ef4",
+   "descriptor_sha256": "6fde938851b96ed3c57c4f4a01e086494421a5acd59f2f10529561c30fcb8652",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video",
-   "source_workflow": {
-    "id": "discord-101101285466",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1512430101101285_Bernini_testing_video_edit.json",
-    "sha256": "44fc561864de3b07ade7a747ebbd29207782b0b61d7c33d72c75995ce8044151"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-103717023795",
@@ -330,15 +325,10 @@
   {
    "id": "discord-135766040747",
    "path": "tests/live_agentic_harness/scenarios/discord-135766040747.json",
-   "descriptor_sha256": "cf12378df24219185ff50c25b7b0588c5b05609567b6cad873c16aba85de002a",
+   "descriptor_sha256": "4336c20091eb4397edc0aaee53ad44723e2b90f0cb179c31f0743c07a1406e71",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video",
-   "source_workflow": {
-    "id": "discord-135766040747",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1476347135766040_LTX-2_Depth_FML.json",
-    "sha256": "f99dbca29e2cb423f116faaaf85cbc9a93244a2e2c3d30283a0629c9567e2761"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-158641869050",
@@ -351,15 +341,10 @@
   {
    "id": "discord-161965031454",
    "path": "tests/live_agentic_harness/scenarios/discord-161965031454.json",
-   "descriptor_sha256": "4fee2621d0af942e064a0a575b1fdaac1ce2396af3cac806de8b166046b721f9",
+   "descriptor_sha256": "cfb9111289d40daca145281343444510b6f04c999d2582d033f39e1067195057",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video",
-   "source_workflow": {
-    "id": "discord-161965031454",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1474093161965031_wan22_SVI_Pro_native_example_KJ.json",
-    "sha256": "f39087eb816320c9877e00b5f506d878d742f24431d94c9c289ebbff8f630660"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-164642603189",
@@ -492,15 +477,10 @@
   {
    "id": "discord-490163216414",
    "path": "tests/live_agentic_harness/scenarios/discord-490163216414.json",
-   "descriptor_sha256": "899697b767227fb17c1667e7cfe9c5fd76acbe625c4effae03b0263647325ffb",
+   "descriptor_sha256": "79807192b03829a3a1a9471a14ba586215025f37e1b9a24731bea5fad35c8e06",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video",
-   "source_workflow": {
-    "id": "discord-490163216414",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1534591490163216_H3_Ref_00010.extracted.json",
-    "sha256": "1a8c86fed206a274797c040f23c0aed9d94afe6a691f04d4f00b69ff2926c189"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-512748191764",
@@ -569,15 +549,10 @@
   {
    "id": "discord-603741929605",
    "path": "tests/live_agentic_harness/scenarios/discord-603741929605.json",
-   "descriptor_sha256": "ecdf1dd1aee4d603bc2a7cf36911f36b9a5a29ee0ce40c0107e310a52c0f8841",
+   "descriptor_sha256": "99595f6caa940f34d6c21a26110eab45511a551bf1d97fbc666e904d7b7ccff7",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video",
-   "source_workflow": {
-    "id": "discord-603741929605",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1491156603741929_LTX_00003.json",
-    "sha256": "a59ca387b783dd6a6c3943550d7b357f062847ab8a6046ea129c0da2c26d9fb5"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-617321709638",
@@ -614,15 +589,10 @@
   {
    "id": "discord-703247769664",
    "path": "tests/live_agentic_harness/scenarios/discord-703247769664.json",
-   "descriptor_sha256": "cb437a816a9b9e1f21ef817c0b9ae2177954560e55be1fa5749d7d9a9945da83",
+   "descriptor_sha256": "1111b244881395084c9ab12d3c2c6cfec448fd85bd09c810bb765ef6e05e8679",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image",
-   "source_workflow": {
-    "id": "discord-703247769664",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1472123703247769_ComfyUI_2026-02-14-014741z-image-base__00001_.extracted.json",
-    "sha256": "aeffcda1ae15dee5c7096d5562ddd3900f76c18c9352f67ebb1391af8561d2e7"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-714977955915",
@@ -683,15 +653,10 @@
   {
    "id": "discord-829251035290",
    "path": "tests/live_agentic_harness/scenarios/discord-829251035290.json",
-   "descriptor_sha256": "564f3666cdb08d84a5d0cab427897096cfeeb599161deda29ebdde06329ec135",
+   "descriptor_sha256": "3dc1acd6865c640aef86ddf9f871b1fb46fcc813bffe235ddc11362c61aa6467",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image",
-   "source_workflow": {
-    "id": "discord-829251035290",
-    "path": "tests/fixtures/live_agentic_corpus/corpus/1477767829251035_ltx2_combi_1.3.json",
-    "sha256": "bcc10f8de8a584d0287ee6f29c6d74272f184dbaca1b1b0c5e8cc182b591e996"
-   }
+   "scenario_kind": "unclear"
   },
   {
    "id": "discord-853189890049",
@@ -774,6 +739,84 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-10247",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-10247.json",
+   "descriptor_sha256": "c8f320dd79cdd28f7f65b55191b2d2506d6e8f5177b5a2ce2d5c0d7dd1847ef1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-10247",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10247_attached.json",
+    "sha256": "9c4ab6274aac1e017e66a40a7a0561eab9481bf5b68a5ed89cdb5e11256c5bda"
+   }
+  },
+  {
+   "id": "gh-comfyui-10383",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-10383.json",
+   "descriptor_sha256": "67e6b809fb641335a5d3c3d476514656d79cc88e6088931797d32dc74f619d17",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-10383",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10383_attached.json",
+    "sha256": "5ef9155c8fc5f6857eec44bac1b498c1f36f19d4d4f063f85aeb49fdb8a637be"
+   }
+  },
+  {
+   "id": "gh-comfyui-10568",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-10568.json",
+   "descriptor_sha256": "e75f0a80d5be9182ec3d05d3075d6838b4c46d48cc32e565bf144b33abb3adb1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-10568",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10568_frompng.json",
+    "sha256": "5ec7021864d6a2238809d95d4a3958a7ca4dbabf55588ff72a1eafb9a0f92bf1"
+   }
+  },
+  {
+   "id": "gh-comfyui-10805",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-10805.json",
+   "descriptor_sha256": "0a510eeffcec2b3ff45a9e7fdd93da6599bea4de9a59628d3776ac81d8b2f236",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-10805",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_10805_attached.json",
+    "sha256": "f93f2fd222d068bbc99175ca3a89206dfe0881463daebd553a8d0f3b847c6981"
+   }
+  },
+  {
+   "id": "gh-comfyui-11260",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-11260.json",
+   "descriptor_sha256": "b8d85ba40b41c851e2197536048e11e876f137c64c5694ab6449b802eaf9624d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-11260",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_files.json",
+    "sha256": "834a1f3e7e8f58f6bf4d8af5bec73a694eb24c3dc727f8899f16e1b45ebea5d3"
+   }
+  },
+  {
+   "id": "gh-comfyui-12220",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-12220.json",
+   "descriptor_sha256": "63e78abb9dcdcf3e8108626a2a14226407863be6087f033db7275843bed1bc5c",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-12220",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_12220_attached.json",
+    "sha256": "b7469a9fe49fe6bc58ac85657dd23b8d534d0e8247d51f4bf5a15165803434cb"
+   }
+  },
+  {
    "id": "gh-comfyui-13116",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-13116.json",
    "descriptor_sha256": "e2dbe37b9d2bc19e7a886c72153727c45fa366322c3110bd0c1d06fae42b7c94",
@@ -798,12 +841,38 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-14447",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-14447.json",
+   "descriptor_sha256": "36662b528a1fdced8f472ad3fc2db5cfde2be275f760275e1c65b390f778a43b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-14447",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/template_purz_wan22_animate_auto_character_replace.json",
+    "sha256": "7395e649758d9a47fbe02685df761bbc46260a177f0ccb2a666eba5cb50bdf4f"
+   }
+  },
+  {
    "id": "gh-comfyui-14465",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-14465.json",
    "descriptor_sha256": "022ddee529d7bf9e4e029264b07f140df2ea8f9e647d8358452cf76fec95fdfc",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "infra"
+  },
+  {
+   "id": "gh-comfyui-14492",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-14492.json",
+   "descriptor_sha256": "c442b4066b0183fa5541bdddaaac36c2bab26597c99d7feb74da8b1f5ff67570",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-14492",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_14492_attached.json",
+    "sha256": "118d48750e5b65d94789236b4798d86366dc850cf8c424f65820f2dcabb45bc9"
+   }
   },
   {
    "id": "gh-comfyui-15001",
@@ -816,18 +885,28 @@
   {
    "id": "gh-comfyui-15246",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15246.json",
-   "descriptor_sha256": "a34c3b5d2614e38470b358d8d40b6d827e99fbde1c15f234a33aebb5010e0348",
+   "descriptor_sha256": "0a9b7d53db32fec66d63fd7dc44f9deb5ff083b7ae0f67adbe88a0bdf6e1bfcf",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15246",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
   },
   {
    "id": "gh-comfyui-15274",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15274.json",
-   "descriptor_sha256": "17ea7e2c0c78efee806599a1f1bacd78d04f988766ba00bc83774e27a4f525e4",
+   "descriptor_sha256": "0dedd2371a9b6fec825c1848591e228d287c39394fed4e228b00b43120702599",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15274",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
   },
   {
    "id": "gh-comfyui-15445",
@@ -836,6 +915,19 @@
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "video"
+  },
+  {
+   "id": "gh-comfyui-15470",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15470.json",
+   "descriptor_sha256": "9ca4831d6df56957b2ddf3cf955778d9a31bf3f89ca53023f2ae7f4f784e9bd3",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15470",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
   },
   {
    "id": "gh-comfyui-15478",
@@ -848,10 +940,15 @@
   {
    "id": "gh-comfyui-15614",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15614.json",
-   "descriptor_sha256": "d4c5b8a4325decc0807bde1f8e949d44df02bbe8fb36c86c170441dbc16b0664",
+   "descriptor_sha256": "92a3723a6a8593639aec46833b64ce9c142734e9e54b8c16f04c142ac81e836d",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "multi"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15614",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
   },
   {
    "id": "gh-comfyui-15653",
@@ -862,12 +959,64 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-15693",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15693.json",
+   "descriptor_sha256": "aab83cc8466febb728f0a994d275b7dccc8814c31e316378cd1663305ca1ebc1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15693",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ltxv_image_to_video.json",
+    "sha256": "0637ccaa7a44a361274df51074ace29172103ba4af40bfa05b0f92fecf021c60"
+   }
+  },
+  {
    "id": "gh-comfyui-15797",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15797.json",
    "descriptor_sha256": "6d9dcb964b40f1c331489e7e675cb2d7affbbb2077ebc1ec80267448458c1900",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "image"
+  },
+  {
+   "id": "gh-comfyui-15859",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15859.json",
+   "descriptor_sha256": "3b958fbd1229b4266b08dfa07404425f84f461141b987f735e4e876cb390b255",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15859",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
+  },
+  {
+   "id": "gh-comfyui-15862",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15862.json",
+   "descriptor_sha256": "21d79c344cbf6b32d7e1cee9124e6113447209f3916d6de52d1a113a1b67e52a",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15862",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
+  },
+  {
+   "id": "gh-comfyui-15968",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-15968.json",
+   "descriptor_sha256": "ecf316d096819cd1f153add1d137f268a4a67b8f0c503bcb886588ef99873944",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-15968",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
   },
   {
    "id": "gh-comfyui-16097",
@@ -878,12 +1027,95 @@
    "scenario_kind": "infra"
   },
   {
-   "id": "gh-comfyui-gguf-471",
-   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-gguf-471.json",
-   "descriptor_sha256": "3943ddee4386176d5960df5c039adc0775992c15bd88745523d46f4f5d33eab7",
+   "id": "gh-comfyui-16138",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-16138.json",
+   "descriptor_sha256": "ccdc721ef709b084dce8c711a52e067ddb591992989627b5b17ec2a558c00b63",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-16138",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_16138_attached.json",
+    "sha256": "0233c610020d2d6c00d31775518f2ddf62c5f915373a58eb33c47c201e4b08fc"
+   }
+  },
+  {
+   "id": "gh-comfyui-gguf-452",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-gguf-452.json",
+   "descriptor_sha256": "4b5803135df9342eadc38d9b87d0eecfa3e8cb34f471785cc003888f99c67f5e",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-gguf-452",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
+    "sha256": "6b3bc351bb721c71184c9aa817448c6dba5a378be4964b2e94c91399ef2872c4"
+   }
+  },
+  {
+   "id": "gh-comfyui-gguf-471",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-gguf-471.json",
+   "descriptor_sha256": "43f6447f6d66ec60d417faa235a086a1ce467263d0ca1278674bed33c8575d2d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-gguf-471",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
+    "sha256": "d9d5e1292f41f1c98c5b47974c1a3805e5a6a2ed52a0a3ba50bd77c4df116688"
+   }
+  },
+  {
+   "id": "gh-comfyui-kjnodes-407",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-407.json",
+   "descriptor_sha256": "2fbcfc36f990ca6d298e8a838aa34db13476e4c238f35a0664ecd590c32aa72f",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-407",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_447_attached.json",
+    "sha256": "066e74539d01e24a391e53ff487d6640edfaf9b281632f4dbadd4f6898bdb648"
+   }
+  },
+  {
+   "id": "gh-comfyui-kjnodes-430",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-430.json",
+   "descriptor_sha256": "81ba6350e200005a5afdfb19c691915011955295a6cb2d01043794f7e59dc125",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-430",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_430_attached.json",
+    "sha256": "8f79690b88f61df55ee868095295a69173daadad6f0e6820df8e401bebca4ba1"
+   }
+  },
+  {
+   "id": "gh-comfyui-kjnodes-447",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-447.json",
+   "descriptor_sha256": "44a7f419555f8e82440c7eade43a6bfeb85c6a23aa46f938096d72296b63bbef",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-447",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_447_attached.json",
+    "sha256": "066e74539d01e24a391e53ff487d6640edfaf9b281632f4dbadd4f6898bdb648"
+   }
+  },
+  {
+   "id": "gh-comfyui-kjnodes-484",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-484.json",
+   "descriptor_sha256": "b7dabc46426b792ff3a1caf0d02d51c2aee5cc2ea8c4b03ddb6412dd7fb6f82d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-484",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_484_attached.json",
+    "sha256": "42a3d6ee95de773bd45cc02e704d598a782cb87966d56707e50f782cb43c6be3"
+   }
   },
   {
    "id": "gh-comfyui-kjnodes-570",
@@ -894,12 +1126,38 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-kjnodes-580",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-580.json",
+   "descriptor_sha256": "8a551a356b4cbaddb5cce0c5aece6e659c02aecc55b7975ddcdb9faeeb6aa9da",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-580",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_580_attached.json",
+    "sha256": "561cc9685560dfdafa1e237db946b2e6f0d98e7ea0fcf71bdd843043fe46bffe"
+   }
+  },
+  {
    "id": "gh-comfyui-kjnodes-586",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-586.json",
    "descriptor_sha256": "6fafdda8016256e2389429aa0cab2e2b65868bc8b6f047fb30834e043c17a95a",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "image"
+  },
+  {
+   "id": "gh-comfyui-kjnodes-592",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-592.json",
+   "descriptor_sha256": "09f690af612e3c172d579079f03e472933b054bb02c911e4065ee6433c4205e2",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-592",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_447_attached.json",
+    "sha256": "066e74539d01e24a391e53ff487d6640edfaf9b281632f4dbadd4f6898bdb648"
+   }
   },
   {
    "id": "gh-comfyui-kjnodes-627",
@@ -912,10 +1170,15 @@
   {
    "id": "gh-comfyui-kjnodes-629",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-629.json",
-   "descriptor_sha256": "ec5761083078e7893a46e93a3ac4f9cbf2a8842fdf9c01afcd60c44be0ffe14f",
+   "descriptor_sha256": "87bd4709b644aab324fb90f5c8da8d0bca3924242cbd54a576fa5e5291eb664e",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-629",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/template_purz_wan22_animate_auto_character_replace.json",
+    "sha256": "7395e649758d9a47fbe02685df761bbc46260a177f0ccb2a666eba5cb50bdf4f"
+   }
   },
   {
    "id": "gh-comfyui-kjnodes-669",
@@ -926,6 +1189,19 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-kjnodes-712",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-712.json",
+   "descriptor_sha256": "0d9f81340f47f0f98b5117e156cc67d483c9ff31678a8984c7ee8662c41de0ce",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-kjnodes-712",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_712_files.json",
+    "sha256": "5ad33b806ea664b6eb4adb6eb9c42cecb0b9e78d273af5b4c184a6523810e380"
+   }
+  },
+  {
    "id": "gh-comfyui-kjnodes-750",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-kjnodes-750.json",
    "descriptor_sha256": "a7a9eb4edf50abb6488b85db937eef3a4e02fb58a7aeeb0e2b2ea4b80aa50233",
@@ -934,12 +1210,64 @@
    "scenario_kind": "video"
   },
   {
+   "id": "gh-comfyui-ltxvideo-261",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-ltxvideo-261.json",
+   "descriptor_sha256": "9d1df9e144da0798ffe7e9b33fb31b5300a66e0f57739a95047a4e77f405897e",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-ltxvideo-261",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-LTXVideo_261_attached.json",
+    "sha256": "f1baec188dae492532317990c06b35c83fa2eb113125dc9bdbe0ab000afcf1bf"
+   }
+  },
+  {
+   "id": "gh-comfyui-ltxvideo-430",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-ltxvideo-430.json",
+   "descriptor_sha256": "02fff76077a71199314d841812ce28f348e6209f29ba10170c00516ebd3687da",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-ltxvideo-430",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-LTXVideo_430_attached.json",
+    "sha256": "febcbadd3fb2447ca88e0efb0b4e93307f3b44eaf34edf3e7bfbb99e2ccfacec"
+   }
+  },
+  {
+   "id": "gh-comfyui-ltxvideo-449",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-ltxvideo-449.json",
+   "descriptor_sha256": "6dc20546cf58fb5747d552d8e53f6c9771996499778c27be8d289caefb25613b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-ltxvideo-449",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-LTXVideo_449_frompng.json",
+    "sha256": "1dbd6aac255ccfeb3951beeeb7b188e26ad8bace23a11ea677a7d50858f6141f"
+   }
+  },
+  {
    "id": "gh-comfyui-ltxvideo-502",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-ltxvideo-502.json",
    "descriptor_sha256": "5b47f39d0a2b9e9e45dc91e5e9b01f0991ae27b4fecbac5eaa4aa96d1f6249fe",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "multi"
+  },
+  {
+   "id": "gh-comfyui-ltxvideo-529",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-ltxvideo-529.json",
+   "descriptor_sha256": "255f5e8fe4b73c4f6c90eb6f368e9b0c97164e76320c1f37cd631cd60c2bdde5",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-ltxvideo-529",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ltxv_image_to_video.json",
+    "sha256": "0637ccaa7a44a361274df51074ace29172103ba4af40bfa05b0f92fecf021c60"
+   }
   },
   {
    "id": "gh-comfyui-ltxvideo-544",
@@ -968,10 +1296,28 @@
   {
    "id": "gh-comfyui-wanvideowrapper-1998",
    "path": "tests/live_agentic_harness/scenarios/gh-comfyui-wanvideowrapper-1998.json",
-   "descriptor_sha256": "baacbc8c1e2d588bf63a367d5247029824f5f347e9cc443428c089369c588422",
+   "descriptor_sha256": "ec3aaed001f9417342be111a33be331486c6fcbebd1537f27e022c91b1d56cb1",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "video"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-wanvideowrapper-1998",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/templates-wan2_1_infinitetalk_music.json",
+    "sha256": "022bbdf60183c43de5694d84cea5365adef53b586f14836fd41704dd1688e20f"
+   }
+  },
+  {
+   "id": "gh-comfyui-wanvideowrapper-2003",
+   "path": "tests/live_agentic_harness/scenarios/gh-comfyui-wanvideowrapper-2003.json",
+   "descriptor_sha256": "aabdf1f2f60340ece740ee230b1740045b109ac6337ab51d17cae9f2b553147b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-comfyui-wanvideowrapper-2003",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/template_purz_wan22_animate_auto_character_replace.json",
+    "sha256": "7395e649758d9a47fbe02685df761bbc46260a177f0ccb2a666eba5cb50bdf4f"
+   }
   },
   {
    "id": "gh-workflow_templates-1005",
@@ -980,6 +1326,19 @@
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "image"
+  },
+  {
+   "id": "gh-workflow_templates-330",
+   "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-330.json",
+   "descriptor_sha256": "4e53d0b31542569640285b83622b47e1ab571e796f36cec252e6235b9bfdf797",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-330",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
+    "sha256": "6b3bc351bb721c71184c9aa817448c6dba5a378be4964b2e94c91399ef2872c4"
+   }
   },
   {
    "id": "gh-workflow_templates-339",
@@ -992,50 +1351,93 @@
   {
    "id": "gh-workflow_templates-447",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-447.json",
-   "descriptor_sha256": "2be66f4f3d63e3509de758309faf09f07101ddff280d0cdfba5d4d4a9048f0da",
+   "descriptor_sha256": "d986237d4aad28c7fda96014d6dc815ddf9baa7e0b969c74c38ed8ea7b07fe66",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "infra"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-447",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/image_to_video_wan.json",
+    "sha256": "6f97e17d9882bb457f5c6cf3db625fac3449dbba2fd8051f03335d6f7269d8ff"
+   }
   },
   {
    "id": "gh-workflow_templates-457",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-457.json",
-   "descriptor_sha256": "ce2c60dd2eff0263e78960e313cd9b7c21b43b4c310574bffb4cd43150f01d4c",
+   "descriptor_sha256": "1afef9272878286abbaa4e09af6e2f1c97d31cc95df3c51c50513cea9408d8ff",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-457",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
+    "sha256": "6b3bc351bb721c71184c9aa817448c6dba5a378be4964b2e94c91399ef2872c4"
+   }
   },
   {
    "id": "gh-workflow_templates-536",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-536.json",
-   "descriptor_sha256": "9fb7bb9bd63b80e4e246210b3467ed6ca62a88dcaa3afb5ba8670a340bb2504e",
+   "descriptor_sha256": "36172a18fc51a363504fb725b3a8510f1df90aaa999440da23e35a63b0f89f5a",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "audio"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-536",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/audio_ace_step1_5_xl_base.json",
+    "sha256": "be6c19b18d018dcc534b8fe638befa49b3de207061ac67ee188296e4e1fa0592"
+   }
   },
   {
    "id": "gh-workflow_templates-858",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-858.json",
-   "descriptor_sha256": "8ef403811ddf349846d70e8292f77487cc24421fe9fc8718faa8a971b9ac2a9a",
+   "descriptor_sha256": "b92863d22802a68c2d720548449198e2b22537aa4e0ffa960874bfe197054bc2",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-858",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/api_google_nano_banana2_image_edit.json",
+    "sha256": "c017500141ba85d0956665b9b83ffbacd260a57dc66869fde28a9c563420fb2c"
+   }
   },
   {
    "id": "gh-workflow_templates-866",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-866.json",
-   "descriptor_sha256": "2bb3331afd84535a82c29d245e0b57969fef56413806a9828138d8c84b22c9ef",
+   "descriptor_sha256": "dba3bfe9c3c477565f6a3481c1f9ff115fbad401a793b29472fc6503c2f74c81",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-866",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/image_hidream_o1.json",
+    "sha256": "6de002e5ef77021531c34d2c0ffa8e2bb136fcd67d8eb498b90f31fd7022878e"
+   }
+  },
+  {
+   "id": "gh-workflow_templates-871",
+   "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-871.json",
+   "descriptor_sha256": "1fc55ce415dcba351640a53fbead2a9383db9b30aa4c6097740b99da18f3168c",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-871",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/video_ltx2_3_ia2v.json",
+    "sha256": "252edc0cc2ca9f7fd24525a8fda801b3fda48867f3474efd6b3b09e6fee4bda8"
+   }
   },
   {
    "id": "gh-workflow_templates-931",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-931.json",
-   "descriptor_sha256": "62d43650f11a97b51d90cf262dfe860239e01f3b1c7793f54f3d092392f3a6e7",
+   "descriptor_sha256": "1aa9958cb4637c38b8c92876c3722a10f88f6d682f9041fb143ca928e7dfe60c",
    "inclusion_status": "included",
    "revision_status": "matched",
-   "scenario_kind": "image"
+   "scenario_kind": "unclear",
+   "source_workflow": {
+    "id": "gh-workflow_templates-931",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/image_z_image_turbo.json",
+    "sha256": "fd880c78bba7a771d624cd0224a85f5e9b2e000323d285133999fe663a7dbd3e"
+   }
   },
   {
    "id": "hotshot-16-frames-agent-edit",
@@ -1715,6 +2117,294 @@
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unknown"
+  },
+  {
+   "id": "vc--KJNodes#669",
+   "path": "tests/live_agentic_harness/scenarios/vc--KJNodes#669.json",
+   "descriptor_sha256": "f1d529dd57ab8ccb7466ab7c02e3553b617161001a9195f86081f7ebd9a5844c",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-069387374686",
+   "path": "tests/live_agentic_harness/scenarios/vc-069387374686.json",
+   "descriptor_sha256": "32c12901583be6fd238e97f18669c321cf128d4b7a40f602b3f108e9c1fdb13a",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-073372450957",
+   "path": "tests/live_agentic_harness/scenarios/vc-073372450957.json",
+   "descriptor_sha256": "dd9b03eb4145943ab8fefa2a6f979ffc4218bf540cddd911f14a7a3afa6c17c7",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-098102681662",
+   "path": "tests/live_agentic_harness/scenarios/vc-098102681662.json",
+   "descriptor_sha256": "d2330ac217ce8d8c4a8412951db4946dd326d7a3f1909462a05ec1ae065a6f52",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-206802157608",
+   "path": "tests/live_agentic_harness/scenarios/vc-206802157608.json",
+   "descriptor_sha256": "93d853d04404e78dc204c069cb3110b09d7459db4a779e8db64a25b5e778ce13",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-227438727358",
+   "path": "tests/live_agentic_harness/scenarios/vc-227438727358.json",
+   "descriptor_sha256": "b61b7f195e51c1849153960d89c26df89bba43416bbcd8fd7486da46b444372f",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-234153058354",
+   "path": "tests/live_agentic_harness/scenarios/vc-234153058354.json",
+   "descriptor_sha256": "91e7f7c5c6ad814360f2907c912a23e0cbc0310391ccb51a40e62abca5879730",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-278641483796",
+   "path": "tests/live_agentic_harness/scenarios/vc-278641483796.json",
+   "descriptor_sha256": "9ff3dcb61ea84302971e55a65513784ca01dc21757e8f54732297857eca83873",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-313403871255",
+   "path": "tests/live_agentic_harness/scenarios/vc-313403871255.json",
+   "descriptor_sha256": "7a089015ba4148e1be3fa277dc09a684915285f8b136e60a557b98f5e396a54b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-314494935246",
+   "path": "tests/live_agentic_harness/scenarios/vc-314494935246.json",
+   "descriptor_sha256": "99124200478d89e055e63aa554746bb2066fcda1d10b5c8f8f51ba01fb17064d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-352121507840",
+   "path": "tests/live_agentic_harness/scenarios/vc-352121507840.json",
+   "descriptor_sha256": "232ba810f00afed179b8ff81ba25cb151563d7c25c94802db6f1ac66e2a881f1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-361548083211",
+   "path": "tests/live_agentic_harness/scenarios/vc-361548083211.json",
+   "descriptor_sha256": "35217fa518fbc77896bde5eb31039f958e8afeedb7bc1799237ffff20eb12a29",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-414120345733",
+   "path": "tests/live_agentic_harness/scenarios/vc-414120345733.json",
+   "descriptor_sha256": "d22c9cf0cf2c3e2e9dfb9325fb6cfe773556454e306a044bd05b4bd1fa23a150",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-422480191612",
+   "path": "tests/live_agentic_harness/scenarios/vc-422480191612.json",
+   "descriptor_sha256": "bf23b21d87a84301826b831520ad16078773a6bd9df7d8ad13286144aeae3a36",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-502",
+   "path": "tests/live_agentic_harness/scenarios/vc-502.json",
+   "descriptor_sha256": "6b83f1256a9689b592235eea54041dd4f4ebf29083d90d5f99f49d208e1ba3ee",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-530827534543",
+   "path": "tests/live_agentic_harness/scenarios/vc-530827534543.json",
+   "descriptor_sha256": "6a8a649c067a2c2f6feeb5ba6bf9b4f5582ca7fb1c034bdb2cc6bc72d229e6f9",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-570",
+   "path": "tests/live_agentic_harness/scenarios/vc-570.json",
+   "descriptor_sha256": "9a1b12130254b48020a7104524c714a50f3d6c47d2a4894862c8dfb5cb87eaf0",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-596710822019",
+   "path": "tests/live_agentic_harness/scenarios/vc-596710822019.json",
+   "descriptor_sha256": "166f1a8d932cbc4d0adba599c542a98c488320b610faf8dc1eb9d5258485622b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-617321709638",
+   "path": "tests/live_agentic_harness/scenarios/vc-617321709638.json",
+   "descriptor_sha256": "7a4b954de73360af8dbedef864ef75e4481875bea80b19deadf30d0b8fce1e12",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-627",
+   "path": "tests/live_agentic_harness/scenarios/vc-627.json",
+   "descriptor_sha256": "a648e2b7cc16daec5a8764c8b0f37da0480ef772dbbffdcdd7bb38fab07f98b8",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-749521985587",
+   "path": "tests/live_agentic_harness/scenarios/vc-749521985587.json",
+   "descriptor_sha256": "c316d4f0a310d0e25bcfc57f0fc640d33964907a85850e3d8c22454b70f1f953",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-816036499637",
+   "path": "tests/live_agentic_harness/scenarios/vc-816036499637.json",
+   "descriptor_sha256": "4482b34a6a1a8aecc7bd2ef6cf532af86035a653ee4d579e74409f3da3c5a7e8",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-853189890049",
+   "path": "tests/live_agentic_harness/scenarios/vc-853189890049.json",
+   "descriptor_sha256": "8425a5663a9ae1ff9194f2f8a740093aa7c24b80ac7ae218024b1f28fc3c4701",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-875769311405",
+   "path": "tests/live_agentic_harness/scenarios/vc-875769311405.json",
+   "descriptor_sha256": "56d94f0502550e0468fefbcef39dcd9f057eb45f3ac5a0fecb00098ccf09d69f",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-883243241633",
+   "path": "tests/live_agentic_harness/scenarios/vc-883243241633.json",
+   "descriptor_sha256": "a32643fae2197ad792f06bc3ffa43384e0b9445fcd845609c4db971ef988385c",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-964539822101",
+   "path": "tests/live_agentic_harness/scenarios/vc-964539822101.json",
+   "descriptor_sha256": "01cd181425405ea7ce1e9a66019ddbc9649f4ef4b5afaa8058a3258738453291",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-992142204938",
+   "path": "tests/live_agentic_harness/scenarios/vc-992142204938.json",
+   "descriptor_sha256": "333fc097505223345d1c8c82c6191e699d584d6fcd46a1f8c967c9cb0b951d0e",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-LTXVideo#553",
+   "path": "tests/live_agentic_harness/scenarios/vc-LTXVideo#553.json",
+   "descriptor_sha256": "986046d88d3d683481864b5f293eeac5097d79b65a208f777126dd1feb6c3856",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-Wrapper#1986",
+   "path": "tests/live_agentic_harness/scenarios/vc-Wrapper#1986.json",
+   "descriptor_sha256": "1745a3b0d581d432a018eabe2e52bafe44d669d6c5fcbeaa219fd0fd312f23f4",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#339",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#339.json",
+   "descriptor_sha256": "83269f4a401fd85e173353b161e22e12f244b742d2e184817d2a857f4e77635e",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#447",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#447.json",
+   "descriptor_sha256": "1d0c349d3b51cc0c82cca290f5be20b2d4c2db81fa6ecf44315f1c51bb947c7d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#457",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#457.json",
+   "descriptor_sha256": "29585a176f07e85759834be694423bff339064c58c873dcf54ae8f91461fa2c8",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#536",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#536.json",
+   "descriptor_sha256": "284cac6ca3961ae425007139c0095120165a08eefa28d77cb9fe213ab36f9fa6",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#858",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#858.json",
+   "descriptor_sha256": "d06d2d6089c6058a3a2b438cb0013804919499239f7fd5ce13db920ea9efc0d2",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-emplates#931",
+   "path": "tests/live_agentic_harness/scenarios/vc-emplates#931.json",
+   "descriptor_sha256": "13b28a8a62226e58972c1df51c65d1ca656dffb4877dedbffe0b0fce0c0b3acd",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "vc-omfyUI#14250",
+   "path": "tests/live_agentic_harness/scenarios/vc-omfyUI#14250.json",
+   "descriptor_sha256": "58185391de1ada4f403ece46a50161ca88f34fcb8215e9f01e770cb53005cb06",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
   },
   {
    "id": "video-animatediff-video-to-video-with-controlnet-and-3c978e",

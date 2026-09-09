@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-ltxvideo-430",
+ "query": "LTX 2.3 save-video fails at the end with [aac] Input contains (near) NaN/+-Inf across multiple workflows.\nKijai's workflow worked; replicating its parts into others did not fix it.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-LTXVideo_430_attached.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Two confirmed root causes in thread: (1) FP8-format distilled LoRA incompatible with 22B model \u2014 removing it fixed NaN audio (lebakerino); (2) bad sigma values in the sigma node on two-pass setups (pappagheno).",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "high",
+  "manifest_complexity": 4,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "LTX-2.3"
+  ],
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://github.com/Lightricks/ComfyUI-LTXVideo/issues/430",
+  "provenance_source": "github-closed"
+ }
+}

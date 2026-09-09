@@ -1,0 +1,993 @@
+{
+  "id": "01750086-65ca-495a-b852-707ddfb4f58b",
+  "revision": 0,
+  "last_node_id": 25,
+  "last_link_id": 41,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UnetLoaderGGUF",
+      "pos": [
+        -820,
+        30
+      ],
+      "size": [
+        350,
+        60
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            41
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UnetLoaderGGUF"
+      },
+      "widgets_values": [
+        "Wan2.2-I2V-A14B-HighNoise-Q8_0.gguf"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoader",
+      "pos": [
+        -730,
+        -350
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            1,
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": [
+        "umt5_xxl_fp16.safetensors",
+        "wan",
+        "default"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        -730,
+        -190
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 0,
+          "links": [
+            5,
+            21
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "wan_2.1_vae.safetensors"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -420,
+        -200
+      ],
+      "size": [
+        270.4624938964844,
+        140
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            4,
+            37
+          ]
+        }
+      ],
+      "title": "CLIP Text Encode (Negative Prompt)",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -420,
+        -340
+      ],
+      "size": [
+        270,
+        100
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        }
+      ],
+      "title": "CLIP Text Encode (Positive Prompt)",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Beautiful video."
+      ]
+    },
+    {
+      "id": 6,
+      "type": "WanImageToVideo",
+      "pos": [
+        -120,
+        -330
+      ],
+      "size": [
+        210,
+        210
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 3
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 4
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 5
+        },
+        {
+          "name": "clip_vision_output",
+          "shape": 7,
+          "type": "CLIP_VISION_OUTPUT",
+          "link": null
+        },
+        {
+          "name": "start_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            6,
+            15
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "slot_index": 1,
+          "links": [
+            7,
+            16
+          ]
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "slot_index": 2,
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanImageToVideo"
+      },
+      "widgets_values": [
+        960,
+        960,
+        81,
+        1
+      ]
+    },
+    {
+      "id": 7,
+      "type": "SamplerCustom",
+      "pos": [
+        120,
+        -330
+      ],
+      "size": [
+        350,
+        440
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 27
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 6
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 7
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 11
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 13
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SamplerCustom"
+      },
+      "widgets_values": [
+        true,
+        2891302823726,
+        "fixed",
+        3.5
+      ]
+    },
+    {
+      "id": 8,
+      "type": "LoadImage",
+      "pos": [
+        -420,
+        -710
+      ],
+      "size": [
+        220,
+        326
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "KSamplerSelect",
+      "pos": [
+        120,
+        -560
+      ],
+      "size": [
+        210,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            11,
+            17
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "euler"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "BasicScheduler",
+      "pos": [
+        -120,
+        -490
+      ],
+      "size": [
+        210,
+        106
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 26
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BasicScheduler"
+      },
+      "widgets_values": [
+        "simple",
+        2,
+        1
+      ]
+    },
+    {
+      "id": 11,
+      "type": "SplitSigmas",
+      "pos": [
+        120,
+        -450
+      ],
+      "size": [
+        210,
+        78
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "high_sigmas",
+          "type": "SIGMAS",
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "low_sigmas",
+          "type": "SIGMAS",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SplitSigmas"
+      },
+      "widgets_values": [
+        1
+      ]
+    },
+    {
+      "id": 12,
+      "type": "SamplerCustom",
+      "pos": [
+        490,
+        -330
+      ],
+      "size": [
+        350,
+        440
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 38
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 15
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 16
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 17
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 18
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SamplerCustom"
+      },
+      "widgets_values": [
+        false,
+        0,
+        "fixed",
+        3.5
+      ]
+    },
+    {
+      "id": 13,
+      "type": "VAEDecode",
+      "pos": [
+        890,
+        -330
+      ],
+      "size": [
+        140,
+        46
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 20
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            22
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 16,
+      "type": "CreateVideo",
+      "pos": [
+        890,
+        -240
+      ],
+      "size": [
+        210,
+        78
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 22
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            23
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CreateVideo"
+      },
+      "widgets_values": [
+        16
+      ]
+    },
+    {
+      "id": 17,
+      "type": "SaveVideo",
+      "pos": [
+        890,
+        -120
+      ],
+      "size": [
+        210,
+        106
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 23
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "video/ComfyUI",
+        "auto",
+        "auto"
+      ]
+    },
+    {
+      "id": 18,
+      "type": "ModelSamplingSD3",
+      "pos": [
+        -360,
+        30
+      ],
+      "size": [
+        210,
+        58
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 41
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            26,
+            27,
+            39
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ModelSamplingSD3"
+      },
+      "widgets_values": [
+        5
+      ]
+    },
+    {
+      "id": 25,
+      "type": "WanVideoNAG",
+      "pos": [
+        -120,
+        -60
+      ],
+      "size": [
+        210,
+        150
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 39
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 37
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            38
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WanVideoNAG"
+      },
+      "widgets_values": [
+        11,
+        0.25,
+        2.5,
+        "default"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      4,
+      0,
+      "CLIP"
+    ],
+    [
+      2,
+      2,
+      0,
+      5,
+      0,
+      "CLIP"
+    ],
+    [
+      3,
+      5,
+      0,
+      6,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      4,
+      4,
+      0,
+      6,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      5,
+      3,
+      0,
+      6,
+      2,
+      "VAE"
+    ],
+    [
+      6,
+      6,
+      0,
+      7,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      7,
+      6,
+      1,
+      7,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      8,
+      6,
+      2,
+      7,
+      5,
+      "LATENT"
+    ],
+    [
+      10,
+      8,
+      0,
+      6,
+      4,
+      "IMAGE"
+    ],
+    [
+      11,
+      9,
+      0,
+      7,
+      3,
+      "SAMPLER"
+    ],
+    [
+      12,
+      10,
+      0,
+      11,
+      0,
+      "SIGMAS"
+    ],
+    [
+      13,
+      11,
+      0,
+      7,
+      4,
+      "SIGMAS"
+    ],
+    [
+      15,
+      6,
+      0,
+      12,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      16,
+      6,
+      1,
+      12,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      17,
+      9,
+      0,
+      12,
+      3,
+      "SAMPLER"
+    ],
+    [
+      18,
+      11,
+      1,
+      12,
+      4,
+      "SIGMAS"
+    ],
+    [
+      19,
+      7,
+      0,
+      12,
+      5,
+      "LATENT"
+    ],
+    [
+      20,
+      12,
+      0,
+      13,
+      0,
+      "LATENT"
+    ],
+    [
+      21,
+      3,
+      0,
+      13,
+      1,
+      "VAE"
+    ],
+    [
+      22,
+      13,
+      0,
+      16,
+      0,
+      "IMAGE"
+    ],
+    [
+      23,
+      16,
+      0,
+      17,
+      0,
+      "VIDEO"
+    ],
+    [
+      26,
+      18,
+      0,
+      10,
+      0,
+      "MODEL"
+    ],
+    [
+      27,
+      18,
+      0,
+      7,
+      0,
+      "MODEL"
+    ],
+    [
+      37,
+      4,
+      0,
+      25,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      38,
+      25,
+      0,
+      12,
+      0,
+      "MODEL"
+    ],
+    [
+      39,
+      18,
+      0,
+      25,
+      0,
+      "MODEL"
+    ],
+    [
+      41,
+      1,
+      0,
+      18,
+      0,
+      "MODEL"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.7616478266384887,
+      "offset": [
+        1070.8042392525074,
+        843.0779575140158
+      ]
+    },
+    "frontendVersion": "1.28.8",
+    "VHS_latentpreview": true,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

@@ -1,7 +1,7 @@
 {
  "id": "gh-comfyui-wanvideowrapper-1998",
  "query": "InfiniteTalk/MultiTalk crashes at multitalk.py:247 reshape (tensor size mismatch) after updating to ComfyUI 0.19.x; suspected off-by-one frame count. Anyone running 800x456 (non-16-divisible resolution) hits it.",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/templates-wan2_1_infinitetalk_music.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -10,35 +10,31 @@
  },
  "desired": {
   "outcome": "OP confirmed root cause was resolution: 800x456 is not divisible by 16 (456/16=28.5), causing the audio cross-attention reshape mismatch; switching to 832x480 in ImageScaleByAspectRatio fixed it completely (OP comment 'rookie-thomas'). Corroborated by Booyaka101's clean repro on current main and maintainer (kijai) saying the example workflow runs unchanged.",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "video",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
-  "complexity": "low",
-  "manifest_complexity": 1,
+  "complexity": "medium",
+  "manifest_complexity": 3,
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
-  "difficulty_1to10": 2,
-  "answer_confidence_1to10": 9,
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 6,
-  "solution_specificity": 9,
-  "generalizability": "universal",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
   "grade_mode": "strict",
   "solution_confirmed": true,
+  "workflow_source": "official-template",
   "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1998",
-  "provenance_source": "github",
-  "github_repo": "kijai/ComfyUI-WanVideoWrapper",
-  "github_issue": 1998,
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 8
+  "provenance_source": "github"
  }
 }

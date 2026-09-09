@@ -1,7 +1,7 @@
 {
  "id": "gh-comfyui-gguf-471",
  "query": "MiniMax-H3 GGUF (UNet + qwen3vl text encoder) unsupported by mainline nodes; users need a working loader/TE combination and correct workflow settings.",
- "workflow_path": null,
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_minimax_h3_flf2v.json",
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -10,12 +10,12 @@
  },
  "desired": {
   "outcome": "molbal's fork (github.com/molbal/ComfyUI-GGUF) loads MiniMax-H3 GGUFs incl. Unsloth quants \u2014 OP alish119 confirmed it 'works excellently' after fixing his own error (pixel count must be a multiple of 32) and using the 'Unet Loader (Dynamic VRAM)' node inside the comfy.org subgraph workflow (molbal comment + OP confirmation).",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "video",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,22 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
   "difficulty_1to10": 5,
-  "answer_confidence_1to10": 8,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 2,
-  "solution_specificity": 8,
-  "generalizability": "universal",
-  "grade_mode": "rubric",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "strict",
   "solution_confirmed": true,
+  "workflow_source": "official-template",
   "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/471",
-  "provenance_source": "github",
-  "github_repo": "city96/ComfyUI-GGUF",
-  "github_issue": 471,
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 6
+  "provenance_source": "github"
  }
 }

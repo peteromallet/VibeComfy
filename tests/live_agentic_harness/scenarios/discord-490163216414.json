@@ -1,7 +1,7 @@
 {
  "id": "discord-490163216414",
- "query": "Can someone help me verify a possible bug here, real quick? Using H3. I'll post the image with metadata for the workflow, since that's how i'm loading it on my end.\nCan you load it up, fix paths as needed.\nUnhook the reference video that goes into the reference to video node.\nChange the image to whatever.\nChange the prompt to whatever.",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1534591490163216_H3_Ref_00010.extracted.json",
+ "query": "Can someone help me verify a possible bug here, real quick? Using H3. I'll post the image with metadata for the workflow, since that's how i'm loading it on my end.\nCan you load it up, fix paths as needed.\nUnhook the reference video that goes into the reference to video node.\nChange the image to wha",
+ "workflow_path": null,
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,13 +9,13 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "video",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,31 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
-  "difficulty_1to10": 6,
-  "answer_confidence_1to10": 3,
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 1,
-  "solution_specificity": 2,
-  "generalizability": "niche",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
   "grade_mode": "rubric",
   "solution_confirmed": false,
-  "provenance_url": "",
-  "provenance_source": "discord",
-  "discord_message_id": "1534591490163216414",
-  "discord_channel": "comfyui",
-  "attachments": [
-   {
-    "id": "1534591489819148329",
-    "filename": "H3_Ref_00010.png",
-    "content_type": "image/png"
-   }
-  ],
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7,
-  "workflow_attachment_sha256": "1a8c86fed206a274797c040f23c0aed9d94afe6a691f04d4f00b69ff2926c189",
-  "workflow_source_type": "direct-json"
+  "workflow_source": "png-embedded",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1145677539738665020/1534591490163216414",
+  "provenance_source": "discord"
  }
 }

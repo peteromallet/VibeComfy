@@ -1,7 +1,7 @@
 {
  "id": "discord-603741929605",
- "query": "can someone maybe explain to me why my workflow barely changes anything in this vid 2 vid ltx 2.3 workflow? i't supposed to be a vid 2 vid ltx 2.3 detailer where its supposed to add detail and upscale 2x but it just outputs same video slightly different but same size etc not sure what i'm doing wrong",
- "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1491156603741929_LTX_00003.json",
+ "query": "can someone maybe explain to me why my workflow barely changes anything in this vid 2 vid ltx 2.3 workflow? i't supposed to be a vid 2 vid ltx 2.3 detailer where its supposed to add detail and upscale 2x but it just outputs same video slightly different but same size etc not sure what i'm doing wron",
+ "workflow_path": null,
  "apply": true,
  "network": true,
  "timeout": 420,
@@ -9,13 +9,13 @@
   "expect_graph_changed": true
  },
  "desired": {
-  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
-  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "outcome": "Diagnose the root cause and propose the fix direction.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
   "alternatives_ok": true
  },
  "hint_level": "none",
  "_tags": {
-  "modality": "video",
+  "modality": "unclear",
   "query_type": "diagnose",
   "abstraction": "high",
   "complexity": "medium",
@@ -23,31 +23,18 @@
   "task_type": "unclear",
   "requires_custom_nodes": false,
   "techniques": [
-   "generic",
-   "unclear"
+   "generic"
   ],
   "difficulty_1to10": 5,
-  "answer_confidence_1to10": 4,
+  "answer_confidence_1to10": null,
   "tech_freshness": "current",
-  "age_months": 2,
-  "solution_specificity": 2,
-  "generalizability": "niche",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "high",
   "grade_mode": "rubric",
   "solution_confirmed": false,
-  "provenance_url": "",
-  "provenance_source": "discord",
-  "discord_message_id": "1491156603741929605",
-  "discord_channel": "ltx_chatter",
-  "attachments": [
-   {
-    "id": "1491156603771031723",
-    "filename": "LTX_00003.json",
-    "content_type": "application/json; charset=utf-8"
-   }
-  ],
-  "nodes_type": "custom-nodes",
-  "problem_clarity_1to10": 7,
-  "workflow_attachment_sha256": "a59ca387b783dd6a6c3943550d7b357f062847ab8a6046ea129c0da2c26d9fb5",
-  "workflow_source_type": "direct-json"
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1309520535012638740/1491156603741929605",
+  "provenance_source": "discord"
  }
 }

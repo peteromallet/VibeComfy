@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-kjnodes-580",
+ "query": "LTX 2.3 workflow fails with AttributeError: 'VAE' object has no attribute 'latent_frequency_bins' on the audio VAE path.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_580_attached.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Version mismatch: use the correct LTX23_audio_vae_bf16.safetensors with matching loader node and fully updated ComfyUI/KJNodes ('something is not updated').",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "LTX-2"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/580",
+  "provenance_source": "github-closed"
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "id": "vc-314494935246",
+ "query": "I tried re-creating this 3 sampler setup in my comfycore workflow, but the results are garbage. Any insight as to what I am doing wrong? The first sampler is high noise fp16 / no lora, the second is high noise fp16 with Seko lora, third is low noise fp16 with seko lora",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "I just did some i2v with SVI Pro 2 now, just happy how easy it is compared to LTX2",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "medium",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "ready-template",
+  "provenance_url": "https://discord.com/channels/1076117621407223829/1342763350815277067/1460130314494935246",
+  "provenance_source": "discord-readytemplate"
+ }
+}

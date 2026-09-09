@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-14447",
+ "query": "GGUF Wan2.2 models on 5060 Ti 16GB offload aggressively to system RAM as resolution rises; disabling flags doesn't change it.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/template_purz_wan22_animate_auto_character_replace.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer comfyanonymous (C3): 'Stop using gguf' - use native model formats. rattus128 (C4): logs show legacy loader with GGUF, not aimdo; asked to retest with native models and no custom nodes. OP never retested; consistent guidance elsewhere is native formats + dynamic VRAM.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14447",
+  "provenance_source": "github"
+ }
+}

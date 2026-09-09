@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-gguf-452",
+ "query": "Ideogram-4 with unsloth Qwen3-VL GGUF text encoder unsupported; qwen3vl TE GGUFs load as wrong model type (Flux2TEModel_) and vision/mmproj path needs explicit support.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/api_bfl_flux2_max_sofa_swap.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "m8rr commits (a963418, 249624c, c7fb703 on his fork) add qwen3vl TE + vision support via mmproj file; fxd0h notes the official qwen3vl_8b_fp8_scaled safetensors through standard CLIPLoader is enough to run Ideogram-4 end to end, making a GGUF TE optional. No maintainer/OP confirmation on mainline.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "workflow_source": "official-template",
+  "provenance_url": "https://github.com/city96/ComfyUI-GGUF/issues/452",
+  "provenance_source": "github"
+ }
+}

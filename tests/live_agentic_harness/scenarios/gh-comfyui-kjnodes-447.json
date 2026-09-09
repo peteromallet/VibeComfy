@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-kjnodes-447",
+ "query": "Patch Sage Attention KJ shows no speedup on Z-Image Turbo (RTX 5090): 0.95s baseline vs 0.89s best across all SA modes instead of expected ~20% gain.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-KJNodes_447_attached.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "SageAttention only speeds up attention for large sequences \u2014 video models with many frames benefit; image models gain very little unless batching or huge resolutions.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 1,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "Z-Image"
+  ],
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/447",
+  "provenance_source": "github-closed"
+ }
+}

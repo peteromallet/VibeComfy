@@ -1,0 +1,40 @@
+{
+ "id": "gh-comfyui-11260",
+ "query": "After a fresh ComfyUI install, importing a workflow JSON or PNG shows a success message but nothing is rendered when custom nodes are missing; user cannot tell which node packs are absent. Via API the error surfaces as invalid_prompt 'node RIFE VFI does not exist'.",
+ "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI_11260_files.json",
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP confirmed workaround: repeatedly query the API and manually install every missing node package until import succeeds; issue transferred to frontend (ComfyUI_frontend#7427) to show workflow with missing nodes.",
+  "quality": "Diagnosis identifies the correct root cause; proposed fix is actionable and directionally correct.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "unclear",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "video-interpolation (RIFE VFI)"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": null,
+  "tech_freshness": "current",
+  "age_months": null,
+  "solution_specificity": null,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "workflow_source": "json-attachment",
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/11260",
+  "provenance_source": "github-closed"
+ }
+}
