@@ -45,7 +45,9 @@
   "hidden_requirement": "Read a multi-return-path sampler function and spot the inconsistent return arity in one early-exit branch (2-tuple vs 3-tuple unpack) \u2014 pure code-reading, no model knowledge needed.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

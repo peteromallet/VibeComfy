@@ -42,7 +42,9 @@
   "hidden_requirement": "Inspect the full graph (including a hidden/overlapped VACE module loader) and notice its model selector is empty \u2014 then choose main-model-with-VACE vs normal-model+VACE-module correctly.",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  },
  "interaction_mode": "answer_only"
 }

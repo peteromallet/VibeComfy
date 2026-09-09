@@ -45,7 +45,9 @@
   "hidden_requirement": "Know that CPU diffusion is impractically slow, ComfyUI already offloads weights to RAM by default, and KJNodes FFN-chunker is the actual lever for cutting low-VRAM Wan/LTX inference.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "request",
+  "task_type": "request"
  },
  "interaction_mode": "answer_only"
 }

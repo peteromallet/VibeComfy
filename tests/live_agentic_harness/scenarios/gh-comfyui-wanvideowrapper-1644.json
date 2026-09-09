@@ -46,7 +46,9 @@
   "hidden_requirement": "Distinguish a real wrapper-version VRAM regression from stale Triton/inductor caches, and know the missing 'blocks to swap' log line was just removed in a refactor (blockswap still works).",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": null
 }

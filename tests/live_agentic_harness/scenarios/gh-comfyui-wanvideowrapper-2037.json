@@ -45,7 +45,9 @@
   "hidden_requirement": "Resist blaming the ROCm stack and instead spot that num_frames:16 violates Wan's 4n+1 frame requirement (use 17+), per a peer's identical-stack evidence.",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "wrong-setting",
+  "task_type": "wrong-setting"
  },
  "interaction_mode": null
 }

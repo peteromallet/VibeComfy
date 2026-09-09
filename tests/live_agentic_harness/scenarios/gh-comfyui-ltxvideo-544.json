@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Map 'nodes error after install' to a pack-wide import failure after a ComfyUI update and apply the known update-the-pack remedy.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

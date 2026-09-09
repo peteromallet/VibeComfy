@@ -46,7 +46,9 @@
   "hidden_requirement": "Distinguish a RAM-bound stall (fp16 weights overflow system memory) from a GPU bug, using the fp16-fails/fp8-bf16-works differential as the diagnostic clue.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

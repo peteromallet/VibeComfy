@@ -45,7 +45,9 @@
   "hidden_requirement": "Trace a third-party dependency's removed re-export (kornia's `pad`) from the ImportError and patch the node-pack import to use torch's F.pad.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

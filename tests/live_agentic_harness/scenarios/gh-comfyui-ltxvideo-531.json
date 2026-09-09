@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Understand that a ComfyUI core refactor removed interleaved_freqs_cis and the pack's embeddings_connector must track the new freqs_cis_matrix API \u2014 or simply update the pack past PR #532.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

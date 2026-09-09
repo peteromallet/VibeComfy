@@ -46,7 +46,9 @@
   "hidden_requirement": "Tune conditioning (bypass Prompt Enhancer, explicitly prompt lip-sync, raise SolidMask, adjust nag scale) so LTX 2.3 image-audio-to-video actually lip-syncs.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "quality-mystery",
+  "task_type": "quality-mystery"
  },
  "interaction_mode": "answer_only"
 }

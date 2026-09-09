@@ -44,7 +44,9 @@
   "hidden_requirement": "Detect silently-skipped missing custom nodes by probing the API (invalid_prompt 'node RIFE VFI does not exist') and enumerating/installing the absent packs.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  },
  "interaction_mode": "answer_only"
 }

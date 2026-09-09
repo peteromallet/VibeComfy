@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Recognize that a kwarg-signature break after ComfyUI updates is a known wrapper bug fixed by pulling the latest ComfyUI-WanVideoWrapper.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  }
 }

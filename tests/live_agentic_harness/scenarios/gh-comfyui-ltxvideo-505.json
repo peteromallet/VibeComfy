@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Third instance of the kornia 0.8.3 pad-import break; identical symptom and identical fix set.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

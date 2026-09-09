@@ -46,7 +46,9 @@
   "hidden_requirement": "Independently verify and fix a hasattr-based kernel resolution that breaks under sageattention 2.2.0's torch.ops custom-op layout, before MiniMax H3 sampling crashes.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

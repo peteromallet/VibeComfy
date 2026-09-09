@@ -46,7 +46,9 @@
   "hidden_requirement": "Isolate a Windows driver-level GPU loss (nvlddmkm) to the Sage int8-QK/FP8-PV kernel via a controlled single-variable A/B, then build the confirmed workaround: keep int8-QK, demote V to FP16 and call the sm80 qk_int8_sv_f16_accum kernel.",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

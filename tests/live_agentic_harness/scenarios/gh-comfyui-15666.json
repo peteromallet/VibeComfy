@@ -46,7 +46,9 @@
   "hidden_requirement": "Know --reserve-vram's legacy semantics (bounds runtime activations only, not load/init) and that --vram-headroom/--vram-extra-headroom is the intended mechanism \u2014 while recognizing even that flag doesn't cap load-time usage.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

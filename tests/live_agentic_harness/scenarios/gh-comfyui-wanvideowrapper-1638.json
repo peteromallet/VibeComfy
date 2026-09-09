@@ -42,7 +42,9 @@
   "hidden_requirement": "Know exactly which structural changes convert a WanVideoWrapper I2V workflow to T2V (drop LoadImage + Image2Video Encode, swap to Empty Embeds, T2V checkpoints/loras).",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

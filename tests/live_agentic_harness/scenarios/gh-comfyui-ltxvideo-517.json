@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Fourth kornia pad-import instance, only distinguishing detail is the clean reinstall recipe (uninstall kornia-rs too).",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

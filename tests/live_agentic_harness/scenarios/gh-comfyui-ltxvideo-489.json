@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Audit a template's model-links manifest against actual repo assets and recognize documentation/ecosystem drift (missing Gemma text encoder, misfiled safetensors).",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "missing-component",
+  "task_type": "missing-component"
  }
 }

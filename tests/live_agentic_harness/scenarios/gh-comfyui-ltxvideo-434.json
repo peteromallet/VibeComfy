@@ -42,6 +42,8 @@
   "update_trap": false,
   "hidden_requirement": "Judge whether tail-frame artifacts in a long LTX i2v generation come from leftover negative-prompt text inside the subgraph or from inherent long-video drift.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "quality-mystery",
+  "task_type": "quality-mystery"
  }
 }

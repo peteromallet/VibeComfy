@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Visually diagnose mosaic/flicker output in the LTX-2.3 two-stage distilled workflow and trace it to the known-bad v1.0 upscaler checkpoint, substituting v1.1.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "quality-mystery",
+  "task_type": "quality-mystery"
  }
 }

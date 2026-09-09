@@ -46,7 +46,9 @@
   "hidden_requirement": "Recognize the LTX 2.3 audio-encode/latent-mask lipsync wiring is stale for LTX 2.5 and rebuild the lipsync path with native nodes (per UCHIJ's ported repo).",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "wrong-wiring",
+  "task_type": "wrong-wiring"
  },
  "interaction_mode": "answer_only"
 }

@@ -45,7 +45,9 @@
   "hidden_requirement": "Attribute degraded video quality to environment (xformers installed against node requirements) plus workflow wiring (distill LoRA detached) rather than to dependency churn or model bugs.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "wrong-setting",
+  "task_type": "wrong-setting"
  },
  "interaction_mode": "answer_only"
 }

@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Recognize the zod-schema modal is frontend PR #2751 regex-validating non-semver node-pack 'ver' fields, and that disabling workflow validation silences it (real fix merged in frontend).",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  }
 }

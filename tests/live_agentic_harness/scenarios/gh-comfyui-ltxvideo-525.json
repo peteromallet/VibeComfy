@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Fifth kornia pad-import instance; fix is the F.pad shim or pin, both already confirmed elsewhere.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

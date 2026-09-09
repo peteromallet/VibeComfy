@@ -44,7 +44,9 @@
   "hidden_requirement": "Root-cause a progressive VRAM leak to the _fp8_cache dict keyed by id(context) in WanI2VCrossAttention/WanT2VCrossAttention that is only cleared in __init__, and clear it per prompt in wanvideo/modules/model.py.",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

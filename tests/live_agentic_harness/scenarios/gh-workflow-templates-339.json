@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Recognize that the new template's Qwen3-shaped text-encoder weights cannot load on an older ComfyUI build and the fix is a full backend+frontend update (not a workflow change).",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

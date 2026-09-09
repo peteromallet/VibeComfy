@@ -46,7 +46,9 @@
   "hidden_requirement": "Resist the rollback temptation: recognize that disabled KJNodes cannot cause the OOM and reason about VRAM knobs (chunk feedforward) instead of pinning blame on the update.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "wrong-setting",
+  "task_type": "wrong-setting"
  },
  "interaction_mode": "answer_only"
 }

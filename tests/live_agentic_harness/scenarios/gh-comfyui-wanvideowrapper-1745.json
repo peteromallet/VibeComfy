@@ -45,7 +45,9 @@
   "hidden_requirement": "Trace the 81\u2192241 frame mismatch during sampling to SplineEditor (KJNodes) emitting wrong frame counts with multiple splines; fix via KJNodes update or manual per-node frame counts.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": null
 }

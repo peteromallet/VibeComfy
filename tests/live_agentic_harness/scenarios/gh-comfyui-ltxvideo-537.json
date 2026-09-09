@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Recognize a ComfyUI-core/pack version skew and update the pack, while rejecting the in-thread kornia==0.6.12 downgrade red herring.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

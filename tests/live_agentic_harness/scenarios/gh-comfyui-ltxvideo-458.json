@@ -42,7 +42,9 @@
   "hidden_requirement": "Trace the multimodal guider code path where cfg=1.0 skips the uncond branch, leaving noise_pred_neg unbound for sampler post-CFG hooks, and apply the initialization patch.",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Assemble a workable non-distilled LTX-2.3 Dev sampling config (KSamplerSelect gradient_estimation, ManualSigmas, 20-step scheduler shifts, distilled lora staged into the upscale pass).",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "request",
+  "task_type": "request"
  }
 }

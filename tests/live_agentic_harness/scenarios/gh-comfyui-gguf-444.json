@@ -45,7 +45,9 @@
   "hidden_requirement": "Debug a 2.0.0-regression access violation where GGUFModelPatcher.unpatch_model touches mmap'd weight memory during cache cleanup, and reason about why unpatch_weights=False prevents it.",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "quality-mystery",
+  "task_type": "quality-mystery"
  },
  "interaction_mode": "answer_only"
 }

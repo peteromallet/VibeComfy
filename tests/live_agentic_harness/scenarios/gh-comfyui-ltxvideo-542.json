@@ -45,7 +45,9 @@
   "hidden_requirement": "Same as #541: diagnose kornia 0.8.3's dropped `pad` re-export and either patch the import in-repo or pin kornia==0.8.2.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

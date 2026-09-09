@@ -45,7 +45,9 @@
   "hidden_requirement": "Trace a TypeError through SamplerCustom/stg.py to a cross-repo API signature mismatch (local apg() vs upstream APG) and apply the exact one-line fix.",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

@@ -45,7 +45,9 @@
   "hidden_requirement": "Recognize a custom-node update regression (tensor-dim mismatch in the Wan control path) and confirm the fix by updating the wrapper to kijai's patched commit.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

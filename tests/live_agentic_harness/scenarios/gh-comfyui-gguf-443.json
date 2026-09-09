@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Fix a pip install failure caused by running pip from the wrong working directory or a broken custom-node checkout on ComfyUI portable \u2014 pure environment/setup debugging.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  }
 }

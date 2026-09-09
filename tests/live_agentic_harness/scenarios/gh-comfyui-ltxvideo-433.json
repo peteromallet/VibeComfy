@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Recognize this is not a workflow fault at all: an fal.ai account-billing error plus local removal of a stored API key in ComfyUI Desktop.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "hardware-limit",
+  "task_type": "hardware-limit"
  }
 }

@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Map 'k' in GGUT k-quant naming to missing MPS kernel support and switch to a non-k quant \u2014 backend-capability reasoning, not model tuning.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "hardware-limit",
+  "task_type": "hardware-limit"
  }
 }

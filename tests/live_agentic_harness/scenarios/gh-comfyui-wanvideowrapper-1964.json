@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "Reason architecturally that DreamID-Omni is an Ovi variant (same layers, fp32 vs bf16, mmaudio + Wan 2.2 5B) so the existing Ovi workflow covers it, and that the maintainer has abandoned the wrapper.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "request",
+  "task_type": "request"
  }
 }

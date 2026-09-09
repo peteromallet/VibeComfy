@@ -45,7 +45,9 @@
   "hidden_requirement": "Untangle a multi-package 0.17.x regression: separate the Comfy-gguf/SageAttention/Triton conflicts from the core meta-tensor bug (PR #12967) and the unaddressed frontend subgraph breakage.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

@@ -47,7 +47,9 @@
   "hidden_requirement": "Explain H2O-style H3 offload behavior: performance is memory-bandwidth/PCIe-bound (GDDR7 + PCIe 5.0), not compute-bound, so a 5070 Ti beats a 4080 despite lower compute.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "request",
+  "task_type": "request"
  },
  "interaction_mode": "answer_only"
 }

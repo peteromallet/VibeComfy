@@ -46,7 +46,9 @@
   "hidden_requirement": "Trace an AttributeError into sageattention 2.x API drift and repair kernel dispatch for sm120 (generic sageattn call or torch.ops.sageattention_qattn_sm89 lookup).",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

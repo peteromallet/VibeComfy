@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Recognize a stale custom node broken by upstream model API changes and update KJNodes past the fix commit \u2014 no workflow reasoning required.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  }
 }

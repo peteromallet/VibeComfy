@@ -45,7 +45,9 @@
   "hidden_requirement": "Diagnose that Lucy Edit shape/size-mismatch errors come from the FastWan low-step LoRA interaction, not from wrong Lucy Edit wiring; fix by disabling the LoRA and raising steps to ~50.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": null
 }

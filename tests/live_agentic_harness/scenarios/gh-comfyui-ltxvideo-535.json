@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Same interleaved_freqs_cis core-refactor break as #531; fix is update pack or pin ComfyUI.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

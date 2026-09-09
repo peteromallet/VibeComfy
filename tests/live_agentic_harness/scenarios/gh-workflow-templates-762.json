@@ -45,6 +45,8 @@
   "update_trap": false,
   "hidden_requirement": "Untangle a grab-bag ticket: mostly feature requests, with one user-specific VAEDecode hang and a duplicate save-prompt traced to a ResizeImageMaskNode conflict with that user's install.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "request",
+  "task_type": "request"
  }
 }

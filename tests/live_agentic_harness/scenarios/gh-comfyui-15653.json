@@ -46,7 +46,9 @@
   "hidden_requirement": "Attribute 'CUDA error: invalid argument' on RX 9060 XT to a missing AOTriton kernel in the SDPA path (PR #15648) and get the fix by running a post-merge build.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

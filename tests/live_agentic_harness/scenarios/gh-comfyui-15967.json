@@ -46,7 +46,9 @@
   "hidden_requirement": "Resist the 'it's hung' hypothesis: on MPS, ~9-12 min of silence after 'loaded completely' is normal H3 sampling time (confirmed completing on a 32GB MacBook Air with a specific stack).",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "hardware-limit",
+  "task_type": "hardware-limit"
  },
  "interaction_mode": "answer_only"
 }

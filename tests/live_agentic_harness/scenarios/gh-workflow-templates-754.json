@@ -45,7 +45,9 @@
   "hidden_requirement": "Diagnose that the template's fp8 (Float8_e4m3fn) weights have no MPS backend on Apple Silicon \u2014 a platform limitation \u2014 and substitute GGUF-quantized weights.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "hardware-limit",
+  "task_type": "hardware-limit"
  },
  "interaction_mode": "answer_only"
 }

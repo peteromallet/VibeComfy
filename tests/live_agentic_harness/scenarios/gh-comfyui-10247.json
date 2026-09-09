@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Recognize a Desktop v0.5.0 packaging regression breaking LTXV nodes and update to v0.5.1.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  }
 }

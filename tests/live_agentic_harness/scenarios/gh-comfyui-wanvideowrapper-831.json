@@ -46,7 +46,9 @@
   "hidden_requirement": "Recognize the Triton 'invalid argument' as an attention-backend mismatch between the Uni3C controlnet loader (sage) and the sampler, fixable by setting sdpa on the Uni3C loader or updating the wrapper.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

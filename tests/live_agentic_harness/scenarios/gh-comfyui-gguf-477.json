@@ -46,7 +46,9 @@
   "hidden_requirement": "Debug inside third-party GGUF loader code: recognize that packed-BF16 storage dims leak for named non-layer tensors and patch tensor materialization before model load, not the workflow.",
   "eval_value": "high",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

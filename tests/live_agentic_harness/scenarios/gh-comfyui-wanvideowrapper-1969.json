@@ -46,7 +46,9 @@
   "hidden_requirement": "Implement Q-chunked attention (keep full K/V, chunk Q) in comfy/ldm/wan/model.py to cut long-sequence attention memory on low-VRAM GPUs.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Same kornia pad-import break as #494; test is whether the solver picks the durable patch over the naive 0.6.12 downgrade that breaks other packs.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

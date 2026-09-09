@@ -44,6 +44,8 @@
   "update_trap": false,
   "hidden_requirement": "Correlate an intermittent (~30% of runs) ~180s 'Model Initializing' stall with slow disk read throughput (<~1GB/s) and OS kernel regressions, not with model loading code.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "hardware-limit",
+  "task_type": "hardware-limit"
  }
 }

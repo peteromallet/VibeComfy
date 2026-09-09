@@ -44,6 +44,8 @@
   "update_trap": false,
   "hidden_requirement": "Nothing technical \u2014 the issue is bot-generated README/license spam with no workflow defect and no confirmed solution.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  }
 }

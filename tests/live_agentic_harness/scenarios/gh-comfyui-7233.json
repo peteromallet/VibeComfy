@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Identify that Desktop vs local disagree because v0.3.12 made ancestral sampling more deterministic, so mismatched versions \u2014 not the workflow \u2014 explain differing outputs.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "task_type": "wrong-setting",
+  "failure_class": "wrong-setting"
  }
 }

@@ -45,7 +45,9 @@
   "hidden_requirement": "Diagnose a PyTorch index-dtype mismatch (int64 vs int32) inside UnetLoaderGGUF for Z-Image/Qwen3 GGUF and apply/read the dtype-conversion fix.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

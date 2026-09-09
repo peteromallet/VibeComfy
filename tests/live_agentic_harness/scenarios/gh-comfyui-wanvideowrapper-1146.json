@@ -46,7 +46,9 @@
   "hidden_requirement": "Rule out workflow/user error for a cuda:0-vs-cpu device mismatch and identify it as a wrapper regression needing revert/upgrade.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

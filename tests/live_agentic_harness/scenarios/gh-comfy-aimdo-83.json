@@ -45,7 +45,9 @@
   "hidden_requirement": "Reason about GPU virtual-address-space reservation math (VBAR clamping to capacity) and validate a one-multiplier core patch with a measured before/after, not intuition.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

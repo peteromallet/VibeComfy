@@ -43,6 +43,8 @@
   "update_trap": true,
   "hidden_requirement": "Attribute an ImportError to ComfyUI's RoPE refactor and update the pack rather than hand-editing or reinstalling blindly.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

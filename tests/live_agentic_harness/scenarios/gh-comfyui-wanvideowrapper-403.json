@@ -44,7 +44,9 @@
   "hidden_requirement": "Map an off-by-one tensor mismatch (111 vs 110) to Wan's latent dims needing divisibility by 16 and locate the upstream node emitting a non-conforming resolution.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

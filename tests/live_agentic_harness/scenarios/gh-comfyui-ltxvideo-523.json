@@ -46,7 +46,9 @@
   "hidden_requirement": "Trace intermittent AAC-encoder NaN/Inf failures to AudioVAE NaNs at awkward sequence lengths amplified by the vocoder, then design a sanitize-at-the-boundary patch (nan_to_num before av.AudioFrame).",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "software-bug",
+  "task_type": "software-bug"
  },
  "interaction_mode": "answer_only"
 }

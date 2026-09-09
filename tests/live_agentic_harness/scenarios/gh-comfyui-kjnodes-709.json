@@ -44,6 +44,8 @@
   "update_trap": true,
   "hidden_requirement": "Read the node's version gate correctly and resolve a dependency-version conflict by installing a compatible sageattention build, with no workflow reasoning involved.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

@@ -43,6 +43,8 @@
   "update_trap": false,
   "hidden_requirement": "See through a 'missing node' symptom to the pack-wide kornia pad ImportError and patch pyramid_blending.py's import.",
   "eval_value": "low",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  }
 }

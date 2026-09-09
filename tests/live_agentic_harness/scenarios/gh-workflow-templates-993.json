@@ -45,7 +45,9 @@
   "hidden_requirement": "Recognize a CLIPLoader shape-mismatch as a truncated/misplaced text-encoder model file in ComfyUI Desktop's install layout, not a workflow bug.",
   "eval_value": "medium",
   "recommended_grade_mode": "strict",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "missing-component",
+  "task_type": "missing-component"
  },
  "interaction_mode": "answer_only"
 }

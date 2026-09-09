@@ -42,6 +42,8 @@
   "update_trap": true,
   "hidden_requirement": "Attribute load-time 'missing positional argument' validation errors to custom-node API signature drift after a core ComfyUI upgrade, and resolve by aligning node-pack versions.",
   "eval_value": "low",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "task_type": "software-bug",
+  "failure_class": "software-bug"
  }
 }

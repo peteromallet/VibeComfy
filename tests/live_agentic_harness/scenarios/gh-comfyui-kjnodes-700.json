@@ -44,7 +44,9 @@
   "hidden_requirement": "Understand a core PR's API migration (model -> ModelPatcherDynamic) and either rewire the workflow to bypass the incompatible node or apply the patcher API correctly.",
   "eval_value": "medium",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "version-regression",
+  "task_type": "version-regression"
  },
  "interaction_mode": "answer_only"
 }

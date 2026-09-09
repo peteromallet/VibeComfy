@@ -47,7 +47,9 @@
   "hidden_requirement": "Separately diagnose (a) unbounded pinned-memory RAM growth on Windows (fix: --disable-pinned-memory + older WanVideo Enhanced BlockSwap node) and (b) sageattn_3/torch.compile conflicts (per_block_mean mode; avoid reduce-overhead on Windows).",
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
-  "has_answer_guidance": true
+  "has_answer_guidance": true,
+  "failure_class": "wrong-setting",
+  "task_type": "wrong-setting"
  },
  "interaction_mode": null
 }
