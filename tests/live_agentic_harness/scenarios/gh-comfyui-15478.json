@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-15478",
+ "query": "MiniMaxH3MemoryEfficientSageAttentionPatch fails with 'sageattention is not new enough version or could not determine CUDA architecture' despite correct torch 2.13+cu130 / sageattention 2.2.0 - node's own version/arch check bug.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Workaround confirmed by OP (C5) and others: swap the node for 'Patch Sage Attention KJ' (aakash-chaddha, C2) - after which the native H3 patch also started working again for some. Real fix tracked in PR #15270 (still open at thread end).",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 9,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 8,
+  "generalizability": "universal",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15478",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/ComfyUI",
+  "github_issue": 15478,
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 9
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-15653",
+ "query": "RX 9060 XT crashes with 'CUDA error: invalid argument' running the official MiniMax H3 t2v workflow (AOTriton/SDPA kernel path).",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Fixed by PR #15648. 0xDELUXA (C0/C1) diagnosed the missing-AOTriton-kernel root cause and suggested --use-split-cross-attention as a test; OP (C2) confirms 'It is solved after merging #15648' and C5 confirms the merge.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 10,
+  "tech_freshness": "current",
+  "age_months": 2,
+  "solution_specificity": 10,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15653",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/ComfyUI",
+  "github_issue": 15653,
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 9
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-14465",
+ "query": "Desktop autodetects only the Nvidia GPU on a mixed Nvidia+AMD system - one PyTorch build (CUDA vs ROCm) can't see both vendors.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "anr2me (C0): CUDA and ROCm torch can't coexist; need a separate venv with ROCm torch for the AMD GPU. Kosinkadink (maintainer, C1): the 'Advanced' section of the install window lets you pick the environment/backend version.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "infra",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 9,
+  "tech_freshness": "current",
+  "age_months": 2,
+  "solution_specificity": 7,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14465",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/ComfyUI",
+  "github_issue": 14465,
+  "nodes_type": "unclear",
+  "problem_clarity_1to10": 7
+ }
+}

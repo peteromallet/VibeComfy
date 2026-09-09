@@ -1,0 +1,61 @@
+{
+ "id": "discord-098102681662",
+ "query": "Same seed+prompt. Someone suggested I should be using some attention node in my workflow. Checked Spectrum and it increases my performance by a good 30% but the results are so bad... What am I doing wrong?",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 4,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 1,
+  "generalizability": "universal",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1545918098102681662",
+  "discord_channel": "minimax_h3_chatter",
+  "attachments": [
+   {
+    "id": "1545918096693403658",
+    "filename": "0001-0124.mp4",
+    "content_type": "video/mp4"
+   },
+   {
+    "id": "1545918097196584970",
+    "filename": "image.png",
+    "content_type": "image/png"
+   },
+   {
+    "id": "1545918097649565777",
+    "filename": "image.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 5
+ }
+}

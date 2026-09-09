@@ -1,0 +1,44 @@
+{
+ "id": "gh-workflow_templates-447",
+ "query": "video_wan2_2_14B_animate template opens with 2 missing nodes ('Cannot execute because a node is missing the class_type property'); ComfyUI-Manager shows nothing to install and restarts don't help. A second user (Watermelon6093) reports the same.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer (comfyui-wiki): 'This model support requires custom nodes. Please follow the note in the guide to install the custom nodes.' Users report the Manager finds no such nodes (same family as #422), so no confirmed install path.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "infra",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 1,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 2,
+  "answer_confidence_1to10": 7,
+  "tech_freshness": "current",
+  "age_months": 12,
+  "solution_specificity": 9,
+  "generalizability": "universal",
+  "grade_mode": "strict",
+  "solution_confirmed": false,
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/447",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/workflow_templates",
+  "github_issue": 447,
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 7
+ }
+}

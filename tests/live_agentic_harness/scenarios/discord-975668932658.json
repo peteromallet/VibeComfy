@@ -1,0 +1,51 @@
+{
+ "id": "discord-975668932658",
+ "query": "anyone know how to prevent/disable these evil little fuckers from magically appearing in my workflow and connecting to things? I find they've been appearing just by me navigating around my workflow not meaning to make changes whatsoever... and they actually do damage to the workflow, replacing connections I don't mean to. This never used to happen until about 2 or 3 weeks ago, so I'm assuming ther",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "infra",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "weak",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1544811975668932658",
+  "discord_channel": "minimax_h3_chatter",
+  "attachments": [
+   {
+    "id": "1544811975354228766",
+    "filename": "evilfuckers.png",
+    "content_type": "image/webp"
+   }
+  ],
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 5
+ }
+}

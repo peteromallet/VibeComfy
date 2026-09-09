@@ -1,0 +1,51 @@
+{
+ "id": "discord-490163216414",
+ "query": "Can someone help me verify a possible bug here, real quick? Using H3. I'll post the image with metadata for the workflow, since that's how i'm loading it on my end.\nCan you load it up, fix paths as needed.\nUnhook the reference video that goes into the reference to video node.\nChange the image to whatever.\nChange the prompt to whatever.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 3,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 2,
+  "generalizability": "niche",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1534591490163216414",
+  "discord_channel": "comfyui",
+  "attachments": [
+   {
+    "id": "1534591489819148329",
+    "filename": "H3_Ref_00010.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 7
+ }
+}

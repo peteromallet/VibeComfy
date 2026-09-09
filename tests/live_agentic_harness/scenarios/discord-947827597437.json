@@ -1,0 +1,51 @@
+{
+ "id": "discord-947827597437",
+ "query": "i can't improve the quality, i tried different samplers, different amount of steps... what can i try? goddamit. I'll share my workflow",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "does anything appear in the web console logs (as opposed to the logs in comfyui)?",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "current",
+  "age_months": 3,
+  "solution_specificity": 2,
+  "generalizability": "niche",
+  "grade_mode": "weak",
+  "solution_confirmed": true,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1466954947827597437",
+  "discord_channel": "comfyui",
+  "attachments": [
+   {
+    "id": "1466954947353645240",
+    "filename": "ltx2_00012.mp4",
+    "content_type": "video/mp4"
+   }
+  ],
+  "nodes_type": "unclear",
+  "problem_clarity_1to10": 4
+ }
+}

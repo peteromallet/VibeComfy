@@ -1,0 +1,51 @@
+{
+ "id": "discord-083992490115",
+ "query": "I've just got this error on a workflow I've been using for two days. No console errors, no red nodes or anything else to indicate what's causing it. anyone run into this?",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "high",
+  "manifest_complexity": 4,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "current",
+  "age_months": 6,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "weak",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1536343083992490115",
+  "discord_channel": "minimax_h3_chatter",
+  "attachments": [
+   {
+    "id": "1536343083585904721",
+    "filename": "Screenshot_2026-08-10_125346.png",
+    "content_type": "image/webp"
+   }
+  ],
+  "nodes_type": "mixed",
+  "problem_clarity_1to10": 3
+ }
+}

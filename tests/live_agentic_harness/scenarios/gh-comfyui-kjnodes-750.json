@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-kjnodes-750",
+ "query": "MiniMax H3 Low/VRAM attention node fails with minimax_block_lowmem_forward() got an unexpected keyword argument 'attention' after upstream model API changes.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Maintainer kijai (2026-09-06): 'Should be fixed now' via recent PR; also notes the low-VRAM attention is no longer needed with comfy core sparse attention. OP confirmed (2026-09-08) the H3 Low VRAM attention breakage is fixed. Side-thread: VRAM/OOM with Model Preview Override traced to comfy-compiler/aimdo, mitigated by --disable-comfy-compiler.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 9,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 9,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/kijai/ComfyUI-KJNodes/issues/750",
+  "provenance_source": "github",
+  "github_repo": "kijai/ComfyUI-KJNodes",
+  "github_issue": 750,
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 9
+ }
+}

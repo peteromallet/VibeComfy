@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-15445",
+ "query": "Official MiniMax H3 workflow doubles in runtime (12 -> 25+ min) after the 0.31 update on 5080/5090/H200/5060Ti; VRAM underused, disk thrashing each gen.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 8,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 6,
+  "generalizability": "universal",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/15445",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/ComfyUI",
+  "github_issue": 15445,
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 8
+ }
+}

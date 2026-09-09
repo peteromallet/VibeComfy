@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-14250",
+ "query": "After the pinned-memory update, WAN 2.2 (and later MiniMax H3) intermittently fails at 'HostBuffer.read_file_slice failed'/CUDA OOM during weight loading, mostly on multi-GPU systems.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP-confirmed fixes: --disable-pinned-memory (title/body), and eoris' CUDA_VISIBLE_DEVICES=1 / --cuda-device <uuid> to hide the second GPU (C6, and akashzeno C9's controlled A/B). rattus128 worked a speculative fix in PR #14252; aimdo 0.4.5+ 'cold marking of pins' also shipped.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 9,
+  "tech_freshness": "current",
+  "age_months": 3,
+  "solution_specificity": 9,
+  "generalizability": "common",
+  "grade_mode": "strict",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/Comfy-Org/ComfyUI/issues/14250",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/ComfyUI",
+  "github_issue": 14250,
+  "nodes_type": "mixed",
+  "problem_clarity_1to10": 8
+ }
+}

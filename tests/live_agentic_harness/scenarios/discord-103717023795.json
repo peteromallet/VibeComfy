@@ -1,0 +1,51 @@
+{
+ "id": "discord-103717023795",
+ "query": "anyone know why i keep seeing this in workflows? does it actually do anything?",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "current",
+  "age_months": 7,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "weak",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1545197103717023795",
+  "discord_channel": "minimax_h3_chatter",
+  "attachments": [
+   {
+    "id": "1545197103377289216",
+    "filename": "image.png",
+    "content_type": "image/webp"
+   }
+  ],
+  "nodes_type": "unclear",
+  "problem_clarity_1to10": 2
+ }
+}

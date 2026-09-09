@@ -1,0 +1,44 @@
+{
+ "id": "gh-workflow_templates-931",
+ "query": "Z-Image-Turbo Text to Image template wires ConditioningZeroOut into the negative KSampler input; at CFG above 1 this produces distorted output, while an empty CLIP Text Encode node gives cleaner results.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Commenter lin-bot23 says Z-Image-Turbo expects CFG=1 and takes no negative prompt - distortion comes from high CFG, not the node; use the Z-Image template if negative prompting is needed (https://github.com/Tongyi-MAI/Z-Image). OP (FrizzSoft) disputed, arguing empty CLIP Text Encode behaves better at CFG~1.5. No maintainer ruling or template change confirmed.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 4,
+  "answer_confidence_1to10": 5,
+  "tech_freshness": "current",
+  "age_months": 2,
+  "solution_specificity": 6,
+  "generalizability": "universal",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/931",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/workflow_templates",
+  "github_issue": 931,
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 8
+ }
+}

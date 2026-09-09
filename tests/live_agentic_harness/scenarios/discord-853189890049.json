@@ -1,0 +1,51 @@
+{
+ "id": "discord-853189890049",
+ "query": "What the hell, can anyone see why this workflow would fail the save video node only when audio is connected?\nI have tested to make sure that the comfyui T2V template works, as do my other workflows.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 3,
+  "tech_freshness": "current",
+  "age_months": 4,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1496376853189890049",
+  "discord_channel": "ltx_chatter",
+  "attachments": [
+   {
+    "id": "1496376852883964065",
+    "filename": "image.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 7
+ }
+}

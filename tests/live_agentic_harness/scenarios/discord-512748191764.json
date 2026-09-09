@@ -1,0 +1,56 @@
+{
+ "id": "discord-512748191764",
+ "query": "Why are my videos coming out muddy with runexx new 3 pass workflow?",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 3,
+  "tech_freshness": "current",
+  "age_months": 4,
+  "solution_specificity": 2,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1490537512748191764",
+  "discord_channel": "ltx_chatter",
+  "attachments": [
+   {
+    "id": "1490537512047738992",
+    "filename": "LTX-2_00010-audio.mov",
+    "content_type": "video/quicktime"
+   },
+   {
+    "id": "1490537512404390011",
+    "filename": "LTX-2_00005-audio.mov",
+    "content_type": "video/quicktime"
+   }
+  ],
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 5
+ }
+}

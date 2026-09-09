@@ -1,0 +1,44 @@
+{
+ "id": "gh-workflow_templates-858",
+ "query": "templates/api_google_nano_banana2_image_edit.json references node type GeminiNanoBanana2V2 which no longer exists on Comfy Cloud (only GeminiNanoBanana2), failing validation for everyone ('unknown node type(s)'), and its widgets_values are in the old V2 order so a mere rename still fails value_not_in_list checks.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Reporter (from comfy_cloud MCP smoke test) provided full diagnosis and two concrete fixes: republish the template against the current GeminiNanoBanana2 node schema (prompt, model, seed, aspect_ratio, resolution, response_modalities, thinking_level) or reinstate GeminiNanoBanana2V2 on cloud. No maintainer response; nothing confirmed fixed.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 7,
+  "tech_freshness": "current",
+  "age_months": 1,
+  "solution_specificity": 9,
+  "generalizability": "universal",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "https://github.com/Comfy-Org/workflow_templates/issues/858",
+  "provenance_source": "github",
+  "github_repo": "Comfy-Org/workflow_templates",
+  "github_issue": 858,
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 9
+ }
+}

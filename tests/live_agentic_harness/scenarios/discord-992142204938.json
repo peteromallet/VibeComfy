@@ -1,0 +1,61 @@
+{
+ "id": "discord-992142204938",
+ "query": "I'm not sure what the problem is\u2014whether I use Lora 4-step or not, the audio is still ugly broken. any idea what should i try to fix this audio issue?\n\nHere's the ComfyUI version I'm using:\n[INFO] ComfyUI version: 0.31.0\n[INFO] comfy-aimdo version: 0.4.13\n[INFO] comfy-kitchen version: 0.2.28\n[INFO] comfyui-frontend-package version: 1.48.7\n[INFO] comfyui-workflow-templates version: 0.11.34\n[INFO] c",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 3,
+  "tech_freshness": "current",
+  "age_months": 6,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1535670992142204938",
+  "discord_channel": "minimax_h3_chatter",
+  "attachments": [
+   {
+    "id": "1535670991030722701",
+    "filename": "221922_MiniMaxH3_T2V__00001-audio.mp4",
+    "content_type": "video/mp4"
+   },
+   {
+    "id": "1535670991437430954",
+    "filename": "124720_MiniMaxH3_T2V__00001-audio.mp4",
+    "content_type": "video/mp4"
+   },
+   {
+    "id": "1535670991748071434",
+    "filename": "image.png",
+    "content_type": "image/webp"
+   }
+  ],
+  "nodes_type": "mixed",
+  "problem_clarity_1to10": 6
+ }
+}

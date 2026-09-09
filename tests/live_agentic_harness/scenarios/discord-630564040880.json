@@ -1,0 +1,51 @@
+{
+ "id": "discord-630564040880",
+ "query": "Im coming back to this model after not being able to get it to work awhile ago.\nAnd nomatter what I do, still doesnt work for me.\n\nUsing official workflow, downloaded the exact Model, VAE and CLIP im told.\nUsed the perfect settings, sampler and scheduler. Everything I generate comes out like crap.\nEverything is just blurry and fuzzy looking, and like no detail on anything.\n\nAnyone have a clue what",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 6,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "current",
+  "age_months": 12,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "weak",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1479526630564040880",
+  "discord_channel": "chroma",
+  "attachments": [
+   {
+    "id": "1479526630215909376",
+    "filename": "image.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 5
+ }
+}

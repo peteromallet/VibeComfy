@@ -1,0 +1,44 @@
+{
+ "id": "gh-comfyui-wanvideowrapper-1986",
+ "query": "WanVideo BlockSwap causes unbounded system-RAM growth on Windows (96GB filled by ~3rd run, pinned-memory related), and sageattn_3 + torch.compile either OOMs, degrades quality, or reduce-overhead fails (cudaMallocAsync pool conflict on Windows). Self-resolved with detailed evidence, 0 comments.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "OP self-confirmed workarounds with logs: run ComfyUI with --disable-pinned-memory and replace the WanVideo BlockSwap node with the older 'WanVideo Enhanced BlockSwap' node \u2014 this stopped RAM growth and enabled 1920x1024x61-frame generation on a 5060 Ti 16GB. For sageattn_3: use the per_block_mean sageattn3 mode (or keep SageAttention 2.2 for first/last steps); torch.compile reduce-overhead is blocked by Windows cudaMallocAsync pool limits (not fixable via --disable-cuda-malloc).",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "high",
+  "manifest_complexity": 4,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 8,
+  "answer_confidence_1to10": 8,
+  "tech_freshness": "current",
+  "age_months": 2,
+  "solution_specificity": 8,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": true,
+  "provenance_url": "https://github.com/kijai/ComfyUI-WanVideoWrapper/issues/1986",
+  "provenance_source": "github",
+  "github_repo": "kijai/ComfyUI-WanVideoWrapper",
+  "github_issue": 1986,
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 7
+ }
+}

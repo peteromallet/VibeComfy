@@ -1,0 +1,51 @@
+{
+ "id": "discord-540113064017",
+ "query": "Guys, is using Stand-In outdated? I\u2019m just starting to work with video now, I\u2019m trying to use a Stand-In workflow with face swap and I\u2019m getting this error. What should I do? Is there another alternative? I want to bring more consistency to my character\u2019s face, I\u2019d like to fine-tune it. I need some tips, I\u2019m just starting to work with video now.",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "video",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "low",
+  "manifest_complexity": 2,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 3,
+  "answer_confidence_1to10": 2,
+  "tech_freshness": "aging",
+  "age_months": 6,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "weak",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1475180540113064017",
+  "discord_channel": "wan_chatter",
+  "attachments": [
+   {
+    "id": "1475180539840561184",
+    "filename": "file_00000000fd28720ea1d3974e1294ee06.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "custom-nodes",
+  "problem_clarity_1to10": 3
+ }
+}

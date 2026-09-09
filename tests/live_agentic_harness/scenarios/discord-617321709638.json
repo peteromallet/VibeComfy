@@ -1,0 +1,51 @@
+{
+ "id": "discord-617321709638",
+ "query": "anyone else get this error today with z-image? i had it first with klein 9b edit earlier and i thought it was just that but it happened on one of my z-image workflows that i generated with just now too, both workflows worked fine until today and i update comfy daily, its as if something has broken? gemini said tiled vae can fix it and it pretty much did resolve it but seems strange as to why its s",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "image",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "medium",
+  "manifest_complexity": 3,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 5,
+  "answer_confidence_1to10": 4,
+  "tech_freshness": "current",
+  "age_months": 4,
+  "solution_specificity": 2,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1477045617321709638",
+  "discord_channel": "z-image",
+  "attachments": [
+   {
+    "id": "1477045617027973180",
+    "filename": "image.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "core-comfy",
+  "problem_clarity_1to10": 7
+ }
+}

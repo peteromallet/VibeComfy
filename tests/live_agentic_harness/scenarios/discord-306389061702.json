@@ -1,0 +1,51 @@
+{
+ "id": "discord-306389061702",
+ "query": "<@866436780995903558> had it pretty stable after switching to that other workflow yesterday and did a few gens earlier but did another 3 just now and randomly in the middle on fails, all gens using pretty much the same settings other than different seeds, wasn't the typical cuda error which would kill comfy but a vram grow error? failed at initializing on upscale and then continued on with the nex",
+ "workflow_path": null,
+ "apply": true,
+ "network": true,
+ "timeout": 420,
+ "assessment": {
+  "expect_graph_changed": true
+ },
+ "desired": {
+  "outcome": "Diagnose the root cause and propose the fix direction consistent with the failure class.",
+  "quality": "Diagnosis identifies the correct root cause class; proposed fix is actionable and directionally correct for this workflow.",
+  "alternatives_ok": true
+ },
+ "hint_level": "none",
+ "_tags": {
+  "modality": "infra",
+  "query_type": "diagnose",
+  "abstraction": "high",
+  "complexity": "high",
+  "manifest_complexity": 4,
+  "task_type": "unclear",
+  "requires_custom_nodes": false,
+  "techniques": [
+   "generic",
+   "unclear"
+  ],
+  "difficulty_1to10": 7,
+  "answer_confidence_1to10": 3,
+  "tech_freshness": "current",
+  "age_months": 3,
+  "solution_specificity": 1,
+  "generalizability": "common",
+  "grade_mode": "rubric",
+  "solution_confirmed": false,
+  "provenance_url": "",
+  "provenance_source": "discord",
+  "discord_message_id": "1507311306389061702",
+  "discord_channel": "ltx_chatter",
+  "attachments": [
+   {
+    "id": "1507311306586198087",
+    "filename": "image.png",
+    "content_type": "image/png"
+   }
+  ],
+  "nodes_type": "mixed",
+  "problem_clarity_1to10": 7
+ }
+}
