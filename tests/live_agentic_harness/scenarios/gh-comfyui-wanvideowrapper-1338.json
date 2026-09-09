@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Confirmed: community-shared full workflow (attached JSON) works; the shape/size-mismatch errors came from the FastWan low-step LoRA \u2014 disabling the LoRA (and raising steps to ~50) makes Lucy Edit run fine.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed: community-shared full workflow (attached JSON) works; the shape/size-mismatch errors came from the FastWan low-step LoRA \u2014 disabling the LoRA (and raising steps to ~50) makes Lucy Edit run fine.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Diagnose that Lucy Edit shape/size-mismatch errors come from the FastWan low-step LoRA interaction, not from wrong Lucy Edit wiring; fix by disabling the LoRA and raising steps to ~50.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

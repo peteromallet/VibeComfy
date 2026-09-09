@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Atsushi888 (C0) confirms it does complete on a 32GB MacBook Air (ComfyUI 0.34.2, PyTorch 2.13, MPS, GGUF TE + turbo LoRA + SolAttn-MPS): the long silence after load is normal sampling time (~9-12 min). OP never confirmed on his machine.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Atsushi888 (C0) confirms it does complete on a 32GB MacBook Air (ComfyUI 0.34.2, PyTorch 2.13, MPS, GGUF TE + turbo LoRA + SolAttn-MPS): the long silence after load is normal sampling time (~9-12 min). OP never confirmed on his machine.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Resist the 'it's hung' hypothesis: on MPS, ~9-12 min of silence after 'loaded completely' is normal H3 sampling time (confirmed completing on a 32GB MacBook Air with a specific stack).",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

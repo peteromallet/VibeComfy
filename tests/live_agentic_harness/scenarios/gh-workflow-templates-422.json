@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP (xhost007) root-caused and confirmed: the missing DWPreprocessor nodes come from ComfyUI-tbox which failed to load due to the OpenCV conflict; reinstalling OpenCV and manually removing older instances made the workflow load correctly.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP (xhost007) root-caused and confirmed: the missing DWPreprocessor nodes come from ComfyUI-tbox which failed to load due to the OpenCV conflict; reinstalling OpenCV and manually removing older instances made the workflow load correctly.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -41,6 +43,7 @@
   "update_trap": true,
   "hidden_requirement": "Chain 'missing class_type property' on a template node to the ComfyUI-tbox pack failing import via 'cv2 has no attribute dnn', then repair the broken OpenCV install.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

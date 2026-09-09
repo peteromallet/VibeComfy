@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Commenter yyyingjjjie (AI-assisted analysis, 2026-08-08): bypass the experimental node and use Patch Sage Attention KJ instead, or patch ltxv_nodes.py to fall back to torch.ops kernels. No maintainer reply.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Commenter yyyingjjjie (AI-assisted analysis, 2026-08-08): bypass the experimental node and use Patch Sage Attention KJ instead, or patch ltxv_nodes.py to fall back to torch.ops kernels. No maintainer reply.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -44,6 +46,7 @@
   "update_trap": false,
   "hidden_requirement": "Diagnose a Windows/Blackwell-specific kernel-lookup failure in the memory-efficient SageAttention path and either switch to the working patch node or fix the torch.ops fallback.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

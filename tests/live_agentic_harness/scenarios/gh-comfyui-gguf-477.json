@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP-verified fix: after gguf_sd_loader(), materialize only those three named BF16 tensors via dequantize_tensor() before load_diffusion_model_state_dict(); full workflow then runs (OP offers a PR for this in loader.py).",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP-verified fix: after gguf_sd_loader(), materialize only those three named BF16 tensors via dequantize_tensor() before load_diffusion_model_state_dict(); full workflow then runs (OP offers a PR for this in loader.py).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Debug inside third-party GGUF loader code: recognize that packed-BF16 storage dims leak for named non-layer tensors and patch tensor materialization before model load, not the workflow.",
   "eval_value": "high",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

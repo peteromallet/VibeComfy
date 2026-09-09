@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP root-caused it and confirmed the workaround: remove `momentum_buffer=None,` from the apg() call at stg.py line 460 \u2014 'resolves the issue and the sampling is working again'.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP root-caused it and confirmed the workaround: remove `momentum_buffer=None,` from the apg() call at stg.py line 460 \u2014 'resolves the issue and the sampling is working again'.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Trace a TypeError through SamplerCustom/stg.py to a cross-repo API signature mismatch (local apg() vs upstream APG) and apply the exact one-line fix.",
   "eval_value": "high",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

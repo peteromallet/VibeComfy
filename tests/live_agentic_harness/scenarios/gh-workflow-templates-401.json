@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP (Lordtzeentch38) confirmed workaround: force the model onto cuda:0 using MultiGpu nodes \u2014 image is visible; core nodes letting it load on cuda:1 stay black. Blue828 separately confirmed switching z_image_turbo_bf16 (12GB) to z-image-turbo-fp8-e4m3fn (6GB) fixed it on a 16GB 5060 Ti.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP (Lordtzeentch38) confirmed workaround: force the model onto cuda:0 using MultiGpu nodes \u2014 image is visible; core nodes letting it load on cuda:1 stay black. Blue828 separately confirmed switching z_image_turbo_bf16 (12GB) to z-image-turbo-fp8-e4m3fn (6GB) fixed it on a 16GB 5060 Ti.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Diagnose that dual-GPU auto-placement puts the model on cuda:1 where output renders black, and pin it to cuda:0 via MultiGpu nodes (or swap to the fp8 checkpoint).",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

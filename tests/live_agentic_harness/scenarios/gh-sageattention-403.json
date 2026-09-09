@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP A/B confirmed a settings-level workaround: switch the 'Patch Sage Attention KJ' mode to sageattn_qk_int8_pv_fp16_cuda and the same workflow runs cleanly \u2014 crash is specific to the SM89 FP8-PV kernel, which remains unfixed upstream.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP A/B confirmed a settings-level workaround: switch the 'Patch Sage Attention KJ' mode to sageattn_qk_int8_pv_fp16_cuda and the same workflow runs cleanly \u2014 crash is specific to the SM89 FP8-PV kernel, which remains unfixed upstream.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Isolate a hard CUDA-context crash to one SM89 FP8-PV kernel path and A/B to the safe sageattn_qk_int8_pv_fp16_cuda mode.",
   "eval_value": "high",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

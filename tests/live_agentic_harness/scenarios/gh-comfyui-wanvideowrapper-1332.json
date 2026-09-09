@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Confirmed by OP: the VACE module model loader was hidden underneath the main model loader in the graph and its model wasn't selected \u2014 you either use a main model with VACE built in, or a normal model + VACE module node; selecting it fixed the error.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed by OP: the VACE module model loader was hidden underneath the main model loader in the graph and its model wasn't selected \u2014 you either use a main model with VACE built in, or a normal model + VACE module node; selecting it fixed the error.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -39,6 +41,7 @@
   "update_trap": false,
   "hidden_requirement": "Inspect the full graph (including a hidden/overlapped VACE module loader) and notice its model selector is empty \u2014 then choose main-model-with-VACE vs normal-model+VACE-module correctly.",
   "eval_value": "high",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

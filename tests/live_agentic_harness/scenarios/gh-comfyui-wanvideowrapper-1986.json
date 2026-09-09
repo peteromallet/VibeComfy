@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP self-confirmed workarounds with logs: run ComfyUI with --disable-pinned-memory and replace the WanVideo BlockSwap node with the older 'WanVideo Enhanced BlockSwap' node \u2014 this stopped RAM growth and enabled 1920x1024x61-frame generation on a 5060 Ti 16GB. For sageattn_3: use the per_block_mean sageattn3 mode (or keep SageAttention 2.2 for first/last steps); torch.compile reduce-overhead is blocked by Windows cudaMallocAsync pool limits (not fixable via --disable-cuda-malloc).",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP self-confirmed workarounds with logs: run ComfyUI with --disable-pinned-memory and replace the WanVideo BlockSwap node with the older 'WanVideo Enhanced BlockSwap' node \u2014 this stopped RAM growth and enabled 1920x1024x61-frame generation on a 5060 Ti 16GB. For sageattn_3: use the per_block_mean sageattn3 mode (or keep SageAttention 2.2 for first/last steps); torch.compile reduce-overhead is blocked by Windows cudaMallocAsync pool limits (not fixable via --disable-cuda-malloc).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -44,6 +46,7 @@
   "update_trap": false,
   "hidden_requirement": "Separately diagnose (a) unbounded pinned-memory RAM growth on Windows (fix: --disable-pinned-memory + older WanVideo Enhanced BlockSwap node) and (b) sageattn_3/torch.compile conflicts (per_block_mean mode; avoid reduce-overhead on Windows).",
   "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": true,
   "hidden_requirement": "Trace the 81\u2192241 frame mismatch during sampling to SplineEditor (KJNodes) emitting wrong frame counts with multiple splines; fix via KJNodes update or manual per-node frame counts.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

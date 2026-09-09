@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "kornia maintainer (ducha-aiki) confirmed cause and that the fix belongs in this repo (PRs #498/#506/#516): drop `pad` from the kornia import and use `pad = F.pad` (confirmed by MartinT23); alternative confirmed workaround: pin kornia==0.8.2 (dadleo).",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "kornia maintainer (ducha-aiki) confirmed cause and that the fix belongs in this repo (PRs #498/#506/#516): drop `pad` from the kornia import and use `pad = F.pad` (confirmed by MartinT23); alternative confirmed workaround: pin kornia==0.8.2 (dadleo).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Same as #541: diagnose kornia 0.8.3's dropped `pad` re-export and either patch the import in-repo or pin kornia==0.8.2.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

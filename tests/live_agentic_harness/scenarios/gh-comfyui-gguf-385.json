@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "city96 confirmed the index should be int64 per PyTorch docs and pushed a fix converting index dtype in the GGUF loader; reporter confirmed the quick fix works.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Diagnose a PyTorch index-dtype mismatch (int64 vs int32) inside UnetLoaderGGUF for Z-Image/Qwen3 GGUF and apply/read the dtype-conversion fix.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP (C2) and partridge (C5): rolling back to 0.30.0 restores 12-min runtimes. comfyanonymous (C9) suggested renaming custom_nodes to rule them out - partially helped one user then reverted. Root regression in 0.31 memory management left unfixed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": true,
   "hidden_requirement": "Recognize a 0.31 memory-management regression (disk thrash, VRAM underused, 2x runtime) and land on 'rollback to 0.30.0' after ruling out custom_nodes.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

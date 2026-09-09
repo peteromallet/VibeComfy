@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Root cause: missing custom node packages (e.g. RIFE VFI). Installing all missing node packages resolves it. Bug in missing-node error reporting transferred to frontend repo Comfy-Org/ComfyUI_frontend#7427.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -41,6 +43,7 @@
   "update_trap": false,
   "hidden_requirement": "Detect silently-skipped missing custom nodes by probing the API (invalid_prompt 'node RIFE VFI does not exist') and enumerating/installing the absent packs.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

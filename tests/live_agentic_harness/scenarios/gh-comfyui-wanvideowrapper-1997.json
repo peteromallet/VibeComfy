@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Booyaka101 reproduced and root-caused it: provided bg is encoded at raw length (nodes.py:1281, no resize) while the None case builds bg at num_frames-num_refs; shorter bg -> shorter ref_latent -> IndexError, longer bg -> cat mismatch, and num_frames rounding to 4k+1 desyncs even matched lengths. Patch normalizing bg (truncate/last-frame-pad) offered as PR; not merged/confirmed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Root-cause the WanAnimate bg_images IndexError: bg encoded at raw length (nodes.py:1281) vs None-case length num_frames-num_refs, plus 4k+1 num_frames rounding desync; patch normalizes bg by truncate/last-frame-pad.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

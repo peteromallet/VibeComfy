@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Confirmed workarounds: clear Triton caches (~/.triton and %TEMP%/torchinductor_<user>) as kijai instructs, and/or revert to wrapper 1.3.6 (14.5GB vs 23.1GB VRAM measured); blockswap itself was working fine \u2014 log line removed in refactor.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed workarounds: clear Triton caches (~/.triton and %TEMP%/torchinductor_<user>) as kijai instructs, and/or revert to wrapper 1.3.6 (14.5GB vs 23.1GB VRAM measured); blockswap itself was working fine \u2014 log line removed in refactor.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": true,
   "hidden_requirement": "Distinguish a real wrapper-version VRAM regression from stale Triton/inductor caches, and know the missing 'blocks to swap' log line was just removed in a refactor (blockswap still works).",
   "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Convert the I2V workflow: delete/disable LoadImage and WanVideo Image2Video Encode nodes, replace sampler image_embeds with WanVideo Empty Embeds, switch model/loras to T2V versions. OP confirmed it works without error.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Convert the I2V workflow: delete/disable LoadImage and WanVideo Image2Video Encode nodes, replace sampler image_embeds with WanVideo Empty Embeds, switch model/loras to T2V versions. OP confirmed it works without error.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -39,6 +41,7 @@
   "update_trap": false,
   "hidden_requirement": "Know exactly which structural changes convert a WanVideoWrapper I2V workflow to T2V (drop LoadImage + Image2Video Encode, swap to Empty Embeds, T2V checkpoints/loras).",
   "eval_value": "high",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

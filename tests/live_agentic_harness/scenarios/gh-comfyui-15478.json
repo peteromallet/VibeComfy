@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Workaround confirmed by OP (C5) and others: swap the node for 'Patch Sage Attention KJ' (aakash-chaddha, C2) - after which the native H3 patch also started working again for some. Real fix tracked in PR #15270 (still open at thread end).",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Workaround confirmed by OP (C5) and others: swap the node for 'Patch Sage Attention KJ' (aakash-chaddha, C2) - after which the native H3 patch also started working again for some. Real fix tracked in PR #15270 (still open at thread end).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Determine that the error comes from MiniMaxH3MemoryEfficientSageAttentionPatch's own version/arch detection being wrong (env is actually fine: torch 2.13+cu130, sage 2.2.0) and swap to Patch Sage Attention KJ.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

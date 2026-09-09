@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer suggested using sdpa for the Uni3C controlnet loader (sage for the model loader is fine) and later pushed a fix ('Possibly fixed it if you want to try still'); user confirmed it works after updating.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": true,
   "hidden_requirement": "Recognize the Triton 'invalid argument' as an attention-backend mismatch between the Uni3C controlnet loader (sage) and the sampler, fixable by setting sdpa on the Uni3C loader or updating the wrapper.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

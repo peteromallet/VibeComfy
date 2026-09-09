@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "GlamoramaAttack gives the definitive cause: 'You're using either LTX models and nodes or KJ' models and nodes. You can't mix it' \u2014 stick to one ecosystem's models+nodes; no OP confirmation.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "GlamoramaAttack gives the definitive cause: 'You're using either LTX models and nodes or KJ' models and nodes. You can't mix it' \u2014 stick to one ecosystem's models+nodes; no OP confirmation.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Recognize node/model ecosystem coupling (KJ nodes vs native LTX nodes) as a failure class and audit a mixed graph for cross-ecosystem contamination.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

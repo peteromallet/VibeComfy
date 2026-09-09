@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "NRTnarathip root-caused it: the saver persists only attention_mask and drops pooled_output/other cond_options keys, so denoising runs on incomplete text conditioning; fix posted as a fork with new 'LTXV 2.3 Save/Load Conditioning' nodes (unmerged, no confirmation back).",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "NRTnarathip root-caused it: the saver persists only attention_mask and drops pooled_output/other cond_options keys, so denoising runs on incomplete text conditioning; fix posted as a fork with new 'LTXV 2.3 Save/Load Conditioning' nodes (unmerged, no confirmation back).",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -41,6 +43,7 @@
   "update_trap": false,
   "hidden_requirement": "Inspect what the conditioning saver actually persists, discover it drops pooled_output and cond_options keys, and restore complete text conditioning (or use fixed save/load nodes).",
   "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

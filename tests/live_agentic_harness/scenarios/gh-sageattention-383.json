@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Workaround: pad V to a multiple of 128 before per_channel_fp8, exactly as core.py's top-level sageattn_qk_int8_pv_fp8_cuda_sm90 already does (lines ~972-980). OP suggests fixing per_channel_fp8 to pad to 128 or adding a pad_to argument; KJNodes PR #729 filed; nothing merged upstream.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Workaround: pad V to a multiple of 128 before per_channel_fp8, exactly as core.py's top-level sageattn_qk_int8_pv_fp8_cuda_sm90 already does (lines ~972-980). OP suggests fixing per_channel_fp8 to pad to 128 or adding a pad_to argument; KJNodes PR #729 filed; nothing merged upstream.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -41,6 +43,7 @@
   "update_trap": false,
   "hidden_requirement": "Understand the padding contract between per_channel_fp8 (pads kv_len to 64) and sm90 kernels requiring CTA_K=128 alignment, then pad V to a multiple of 128.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

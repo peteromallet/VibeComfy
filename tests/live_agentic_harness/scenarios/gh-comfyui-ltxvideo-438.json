@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Several community workarounds, none official: remove/bypass the Prompt Enhancer group and explicitly write that the character 'lip-syncs their dialog' in the prompt (rocko107: 'I did get it to work'); raise SolidMask values 0.2\u21920.5 (ZELBIO); nag scale 3.2\u20134.2 plus negative prompt (othello77); other users report these don't work for them.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Several community workarounds, none official: remove/bypass the Prompt Enhancer group and explicitly write that the character 'lip-syncs their dialog' in the prompt (rocko107: 'I did get it to work'); raise SolidMask values 0.2\u21920.5 (ZELBIO); nag scale 3.2\u20134.2 plus negative prompt (othello77); other users report these don't work for them.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Tune conditioning (bypass Prompt Enhancer, explicitly prompt lip-sync, raise SolidMask, adjust nag scale) so LTX 2.3 image-audio-to-video actually lip-syncs.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

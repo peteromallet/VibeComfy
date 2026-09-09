@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP fully root-caused it: the use_cfg_zero_star + use_zero_init early-exit in predict_with_cfg (nodes_sampler.py ~line 1172 on main) returns 2 values; fix is returning the 3-tuple from that branch. No maintainer reply, no merged fix at thread end.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP fully root-caused it: the use_cfg_zero_star + use_zero_init early-exit in predict_with_cfg (nodes_sampler.py ~line 1172 on main) returns 2 values; fix is returning the 3-tuple from that branch. No maintainer reply, no merged fix at thread end.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Read a multi-return-path sampler function and spot the inconsistent return arity in one early-exit branch (2-tuple vs 3-tuple unpack) \u2014 pure code-reading, no model knowledge needed.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

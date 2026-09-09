@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP (C0) unblocked himself: remove Comfy-gguf node set, keep gguf nodes, uninstall SageAttention+Triton. rattus128 (C9) pointed to PR #12967 for the core meta-tensor crash; GlamoramaAttack (C10/C11) still hit follow-up errors. Frontend subgraph breakage unaddressed.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP (C0) unblocked himself: remove Comfy-gguf node set, keep gguf nodes, uninstall SageAttention+Triton. rattus128 (C9) pointed to PR #12967 for the core meta-tensor crash; GlamoramaAttack (C10/C11) still hit follow-up errors. Frontend subgraph breakage unaddressed.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Untangle a multi-package 0.17.x regression: separate the Comfy-gguf/SageAttention/Triton conflicts from the core meta-tensor bug (PR #12967) and the unaddressed frontend subgraph breakage.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

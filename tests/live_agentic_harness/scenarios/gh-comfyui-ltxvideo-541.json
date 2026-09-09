@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "OP's diff (remove `pad` from kornia import, add `pad = F.pad`) confirmed working by charlyarias65 in comments.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "OP's diff (remove `pad` from kornia import, add `pad = F.pad`) confirmed working by charlyarias65 in comments.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Trace a third-party dependency's removed re-export (kornia's `pad`) from the ImportError and patch the node-pack import to use torch's F.pad.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

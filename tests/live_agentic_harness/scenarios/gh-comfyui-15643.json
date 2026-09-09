@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "UCHIJ (C3) ported the 2.3 lipsync nodes to a native-node LTX 2.5 workflow that works: https://github.com/UCHIJ/LTX2.5-LipSync. Not confirmed by OP.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "UCHIJ (C3) ported the 2.3 lipsync nodes to a native-node LTX 2.5 workflow that works: https://github.com/UCHIJ/LTX2.5-LipSync. Not confirmed by OP.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Recognize the LTX 2.3 audio-encode/latent-mask lipsync wiring is stale for LTX 2.5 and rebuild the lipsync path with native nodes (per UCHIJ's ported repo).",
   "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

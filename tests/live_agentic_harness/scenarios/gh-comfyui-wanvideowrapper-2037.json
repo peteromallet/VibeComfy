@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Peer user (zisisvangelis-gif) with the same PyTorch/ROCm/Wrapper stack completed >12 I2V generations and identified OP's num_frames:16 as invalid \u2014 Wan needs 4n+1 frames (17,21,...); suggested trying 17 plus a full working config (tiled_vae false, blocks_to_swap low). Not OP-confirmed; also measured blocks_to_swap 10 vs 20 = 8.7x speed difference.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Peer user (zisisvangelis-gif) with the same PyTorch/ROCm/Wrapper stack completed >12 I2V generations and identified OP's num_frames:16 as invalid \u2014 Wan needs 4n+1 frames (17,21,...); suggested trying 17 plus a full working config (tiled_vae false, blocks_to_swap low). Not OP-confirmed; also measured blocks_to_swap 10 vs 20 = 8.7x speed difference.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Resist blaming the ROCm stack and instead spot that num_frames:16 violates Wan's 4n+1 frame requirement (use 17+), per a peer's identical-stack evidence.",
   "eval_value": "high",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

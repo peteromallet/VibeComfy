@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Wrapper bug in updated control workflow handling; kijai pushed a fix (\"My mistake, should be fixed now\") and OP confirmed \"it's working!\" after updating the nodes.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": true,
   "hidden_requirement": "Recognize a custom-node update regression (tensor-dim mismatch in the Wan control path) and confirm the fix by updating the wrapper to kijai's patched commit.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

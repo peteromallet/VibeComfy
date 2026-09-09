@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "LukeG89 (C0) points to the --enable-triton-backend arg (per #14782). JoaoZaokk (C1) shows the text-encoder 'works' half is a false positive (TEs always dequantize to fp32) so the diffusion-path NaN is the real bug; no confirmed fix.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -44,6 +46,7 @@
   "update_trap": false,
   "hidden_requirement": "Separate a real diffusion-path NaN (black decode) from a false-positive text-encoder signal, then apply the pointed backend workaround (--enable-triton-backend per #14782).",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

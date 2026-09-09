@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "No replies; reporter provided full root cause and verified the op schema matches existing call sites argument-for-argument.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "No replies; reporter provided full root cause and verified the op schema matches existing call sites argument-for-argument.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": false,
   "hidden_requirement": "Independently verify and fix a hasattr-based kernel resolution that breaks under sageattention 2.2.0's torch.ops custom-op layout, before MiniMax H3 sampling crashes.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

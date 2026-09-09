@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "AlbanSolaya: OpenCV >=5.0 breaks it; downgrade with `pip install opencv-python==4.14.0.94`. No OP confirmation.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "AlbanSolaya: OpenCV >=5.0 breaks it; downgrade with `pip install opencv-python==4.14.0.94`. No OP confirmation.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": true,
   "hidden_requirement": "Recognize OpenCV 5.x removed/changed the imwrite writer path used by LTXVHDRDecodePostprocess and either pin opencv-python<5 or reroute the writer.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

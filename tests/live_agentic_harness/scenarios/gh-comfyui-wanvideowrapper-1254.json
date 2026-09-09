@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Confirmed by another user + OP: 'CompiledKernel has no attribute launch_enter_hook' triton mismatch \u2014 solved by downgrading Triton and then permanently with the next day's WanVideoWrapper release.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Confirmed by another user + OP: 'CompiledKernel has no attribute launch_enter_hook' triton mismatch \u2014 solved by downgrading Triton and then permanently with the next day's WanVideoWrapper release.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": true,
   "hidden_requirement": "Untangle a CUDA IndexKernel assert into a triton/torch version mismatch (CompiledKernel launch_enter_hook) and resolve via triton downgrade or wrapper update.",
   "eval_value": "medium",
-  "recommended_grade_mode": "multi-sample"
+  "recommended_grade_mode": "multi-sample",
+  "has_answer_guidance": true
  }
 }

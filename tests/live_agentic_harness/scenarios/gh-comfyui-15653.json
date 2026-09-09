@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Fixed by PR #15648. 0xDELUXA (C0/C1) diagnosed the missing-AOTriton-kernel root cause and suggested --use-split-cross-attention as a test; OP (C2) confirms 'It is solved after merging #15648' and C5 confirms the merge.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Fixed by PR #15648. 0xDELUXA (C0/C1) diagnosed the missing-AOTriton-kernel root cause and suggested --use-split-cross-attention as a test; OP (C2) confirms 'It is solved after merging #15648' and C5 confirms the merge.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -43,6 +45,7 @@
   "update_trap": true,
   "hidden_requirement": "Attribute 'CUDA error: invalid argument' on RX 9060 XT to a missing AOTriton kernel in the SDPA path (PR #15648) and get the fix by running a post-merge build.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer kijai (2026-06-13): output looks like wrong model or missing distill lora; uninstall xformers, use standard pytorch attention or SageAttention. OP confirmed quality returned after removing xformers, cleaning caches and re-attaching the LoRAs.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Attribute degraded video quality to environment (xformers installed against node requirements) plus workflow wiring (distill LoRA detached) rather than to dependency churn or model bugs.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }

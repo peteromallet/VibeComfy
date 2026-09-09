@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "Maintainer (comfyui-wiki) gave the definitive cause: macOS does not support Float8_e4m3fn model weights ('Apple just doesn't support it'); suggested trying GGUF-quantized weights, noting most open-source video models perform poorly on Mac anyway. OP accepted, said the ticket can be closed as 'force majeure'.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "Maintainer (comfyui-wiki) gave the definitive cause: macOS does not support Float8_e4m3fn model weights ('Apple just doesn't support it'); suggested trying GGUF-quantized weights, noting most open-source video models perform poorly on Mac anyway. OP accepted, said the ticket can be closed as 'force majeure'.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Diagnose that the template's fp8 (Float8_e4m3fn) weights have no MPS backend on Apple Silicon \u2014 a platform limitation \u2014 and substitute GGUF-quantized weights.",
   "eval_value": "medium",
-  "recommended_grade_mode": "strict"
+  "recommended_grade_mode": "strict",
+  "has_answer_guidance": true
  }
 }

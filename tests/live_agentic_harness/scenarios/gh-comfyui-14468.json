@@ -11,7 +11,9 @@
  "desired": {
   "outcome": "anr2me (C0): CPU diffusion is impractically slow; ComfyUI already offloads weights to RAM by default. rattus128 (C3): CPU/GPU split tested and 'not really effective'; recommends KJNodes FFN-chunker nodes to cut inference VRAM for Wan/LTX on low VRAM.",
   "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
-  "alternatives_ok": true
+  "alternatives_ok": true,
+  "answer_guidance": "anr2me (C0): CPU diffusion is impractically slow; ComfyUI already offloads weights to RAM by default. rattus128 (C3): CPU/GPU split tested and 'not really effective'; recommends KJNodes FFN-chunker nodes to cut inference VRAM for Wan/LTX on low VRAM.",
+  "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
  },
  "hint_level": "none",
  "_tags": {
@@ -42,6 +44,7 @@
   "update_trap": false,
   "hidden_requirement": "Know that CPU diffusion is impractically slow, ComfyUI already offloads weights to RAM by default, and KJNodes FFN-chunker is the actual lever for cutting low-VRAM Wan/LTX inference.",
   "eval_value": "medium",
-  "recommended_grade_mode": "rubric"
+  "recommended_grade_mode": "rubric",
+  "has_answer_guidance": true
  }
 }
