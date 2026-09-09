@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from typing import Any
 
 from vibecomfy.porting.workbench import analyze_source
+from vibecomfy.porting.import_errors import native_boundary_recovery
 
 from ._shared import (
     _attach_contract_fields,
@@ -19,6 +21,20 @@ def _cmd_port_check(args: argparse.Namespace) -> int:
     try:
         payload, report = build_port_check_payload(args)
     except Exception as exc:
+        recovery = native_boundary_recovery(exc, args.workflow)
+        if recovery is not None and args.json:
+            print(json.dumps({"status": "error", "report": recovery}, indent=2, sort_keys=True))
+            return 1
+        if recovery is not None:
+            print(
+                f"port check blocked by {recovery['code']}: {recovery['message']}\n"
+                "Resolve the ComfyUI subgraph boundary first, then rerun port check/convert.\n"
+                f"- inspect: {recovery['recovery']['inspect_source']}\n"
+                f"- convert: {recovery['recovery']['materialize_after_resolution']}\n"
+                f"- validate: {recovery['recovery']['validate_candidate']}",
+                file=sys.stderr,
+            )
+            return 1
         return _emit_strict_ready_load_failure(
             args,
             exc,
