@@ -190,6 +190,9 @@ def run_headless_scenario(
     scenario_id = str(scenario.get("id", "scenario"))
     output_dir = authorized_output_dir(output_base, tag, scenario_id)
 
+    # Per-scenario pipeline mode (staged | threaded) — threaded runs the
+    # executor's single-session tool loop instead of staged phases.
+    pipeline_mode = pipeline_mode or scenario.get("pipeline_mode")
     graph = scenario.get("graph")
     if graph is not None and not isinstance(graph, dict):
         raise ValueError("Scenario `graph` must be a JSON object when supplied.")

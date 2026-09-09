@@ -47,5 +47,6 @@
   "recommended_grade_mode": "strict",
   "has_answer_guidance": true
  },
- "interaction_mode": "answer_only"
+ "interaction_mode": "answer_only",
+ "pipeline_mode": "threaded"
 }

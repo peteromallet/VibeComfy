@@ -48,5 +48,6 @@
   "eval_value": "high",
   "recommended_grade_mode": "rubric",
   "has_answer_guidance": true
- }
+ },
+ "pipeline_mode": "threaded"
 }

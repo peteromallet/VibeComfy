@@ -2,15 +2,15 @@
  "id": "gh-comfyui-wanvideowrapper-1745",
  "query": "WanVideo Draw WanMove Tracks: providing 3 motion tracks, output video is 81 frames as set, but during sampling frame count unexpectedly becomes 241, causing axis-0 mismatch merge failure in Draw Tracks node.",
  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/ComfyUI-WanVideoWrapper_1745_p1.json",
- "apply": true,
+ "apply": false,
  "network": true,
  "timeout": 420,
  "assessment": {
-  "expect_graph_changed": true
+  "expect_graph_changed": false
  },
  "desired": {
   "outcome": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
-  "quality": "Diagnosis identifies correct root cause; fix actionable and directionally correct.",
+  "quality": "Diagnosis names the correct root cause (matching the recorded root cause) and proposes the fix direction; depth of reasoning matters more than exact wording.",
   "alternatives_ok": true,
   "answer_guidance": "Confirmed by kijai: SplineEditor in KJNodes output wrong frame counts when using multiple splines \u2014 update KJNodes, or set frame counts manually in the nodes.",
   "guidance_note": "Known fix from the original issue thread. Use to verify the diagnosis targets the right root cause; alternative fixes that resolve the same root cause are acceptable."
@@ -49,5 +49,5 @@
   "task_type": "software-bug",
   "failure_class": "software-bug"
  },
- "interaction_mode": null
+ "interaction_mode": "answer_only"
 }
