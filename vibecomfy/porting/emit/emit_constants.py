@@ -102,8 +102,11 @@ __all__ = [
 ]
 
 
+# Only non-executing canvas furniture belongs here. Preview/show classes remain
+# semantic nodes: custom packs commonly implement them as auxiliary outputs,
+# and canonical bundle emission must preserve their node identity.
 UI_ONLY_CLASS_TYPES: frozenset[str] = frozenset(
-    {"Note", "MarkdownNote", "Label (rgthree)", "PreviewAny", "easy showAnything"}
+    {"Note", "MarkdownNote", "Label (rgthree)"}
 )
 FALLBACK_CLASS_TYPES: frozenset[str] = frozenset({
     "Note",

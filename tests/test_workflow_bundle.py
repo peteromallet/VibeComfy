@@ -13,7 +13,14 @@ import pytest
 from vibecomfy.security import CapabilityFenceError
 from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
-from vibecomfy.workflow import VibeInput, VibeWorkflow, WorkflowCompileError, WorkflowSource
+from vibecomfy.scratchpad_loader import load_scratchpad
+from vibecomfy.workflow import (
+    VibeInput,
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowSource,
+    canonical_ir_projection,
+)
 from vibecomfy.workflow_bundle import (
     ApprovedProjectionRecord,
     WorkflowBundleError,
@@ -682,16 +689,33 @@ def test_strict_sidecar_rejects_unknown_nested_fields_and_qualified_refs() -> No
         validate_sidecar(sidecar, workflow)
 
 
-def test_strict_sidecar_rejects_occurrence_gaps_duplicate_native_ids_and_stale_digest() -> None:
+def test_strict_sidecar_rejects_occurrence_gaps_and_duplicate_native_ids() -> None:
     workflow = _connected_workflow()
     sidecar = _strict_sidecar(workflow)
     duplicate = dict(sidecar["links"][0]); duplicate["occurrence_index"] = 2; duplicate["id"] = 10
     sidecar["links"].append(duplicate)
     with pytest.raises(WorkflowBundleError, match="contiguous"):
         validate_sidecar(sidecar, workflow)
+
+
+def test_sidecar_digest_drift_is_diagnostic_when_workflow_identity_matches() -> None:
+    workflow = _connected_workflow()
     sidecar = _strict_sidecar(workflow)
-    sidecar["bind"]["semantic_digest"] = "stale"
-    with pytest.raises(WorkflowBundleError, match="semantic digest"):
+    sidecar["bind"]["semantic_digest"] = "different-authorized-revision-digest"
+
+    normalized = validate_sidecar(sidecar, workflow)
+
+    assert normalized["bind"]["workflow_identity"] == workflow.id
+    assert normalized["bind"]["semantic_digest"] == "different-authorized-revision-digest"
+
+
+def test_sidecar_identity_mismatch_remains_fail_closed_even_with_digest_drift() -> None:
+    workflow = _connected_workflow()
+    sidecar = _strict_sidecar(workflow)
+    sidecar["bind"]["workflow_identity"] = "other-workflow"
+    sidecar["bind"]["semantic_digest"] = "different-authorized-revision-digest"
+
+    with pytest.raises(WorkflowBundleError, match="workflow_identity"):
         validate_sidecar(sidecar, workflow)
 
 
@@ -870,9 +894,159 @@ def test_capture_preserves_ui_fidelity_and_rejects_known_raw_properties(
     assert bundle.ui_sidecar["groups"][0]["presentation_id"] == "7"
     assert bundle.ui_sidecar["canvas"] == {"zoom": 1.5, "pan": [11.0, 12.0]}
     assert "reroute" not in bundle.ui_sidecar["links"][0]
-    graph["nodes"][0]["properties"]["editor_flag"] = True
-    with pytest.raises(WorkflowBundleError, match="unclassified"):
-        capture_bundle(graph, tmp_path / "bad.py", {"operation": "captured"})
+    graph["nodes"][0]["properties"]["widget_ue_connectable"] = True
+    extra = capture_bundle(graph, tmp_path / "extra-prop.py", {"operation": "captured"})
+    assert extra.ui_sidecar["nodes"]["source"]["id"] == 1
+    assert "widget_ue_connectable" not in extra.ui_sidecar["nodes"]["source"]
+
+
+def test_capture_coerces_oversized_node_size_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LiteGraph size sometimes has extra members; capture must not abort apply."""
+    workflow = _connected_workflow()
+    for node in workflow.nodes.values():
+        node.metadata["schema_source"] = {"provider": "authoritative_object_info"}
+    graph = {
+        "workflow_id": workflow.id,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "pos": [1, 2, 0],
+                "size": [3, 4, 1],
+                "properties": {"vibecomfy_uid": "source"},
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "pos": [5, 6],
+                "size": [7, 8],
+                "properties": {"vibecomfy_uid": "target"},
+            },
+        ],
+        "links": [[9, 1, 0, 2, 0, "A"]],
+        "groups": [],
+    }
+    monkeypatch.setattr("vibecomfy.ingest.normalize._named_import", lambda *args, **kwargs: workflow)
+    bundle = capture_bundle(graph, tmp_path / "size.py", {"operation": "captured"})
+    assert bundle.ui_sidecar["nodes"]["source"]["size"] == [3.0, 4.0]
+    assert bundle.ui_sidecar["nodes"]["source"]["pos"] == [1.0, 2.0]
+
+
+def test_emit_bundle_does_not_fail_closed_on_semantic_digest_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Emit→load semantic digest drift must not abort publication.
+
+    Implement apply fail-closed with "staged Python identity or semantic
+    digest differs from intended bundle" on representable graphs whose emit
+    roundtrip is lossy (same workflow id, different semantic digest).
+    """
+    workflow = _workflow("drift-id")
+    workflow.add_node("Integer", uid="integer-node", value=7)
+    destination = tmp_path / "drift.py"
+    real_load_scratchpad = load_scratchpad
+
+    def load_with_diagnostic_drift(*args, **kwargs):
+        loaded = real_load_scratchpad(*args, **kwargs)
+        loaded.nodes["1"].inputs["value"] = 8
+        return loaded
+
+    monkeypatch.setattr(
+        "vibecomfy.scratchpad_loader.load_scratchpad",
+        load_with_diagnostic_drift,
+    )
+    bundle = emit_bundle(workflow, destination, {"operation": "authored"})
+    assert destination.is_file()
+    loaded = real_load_scratchpad(destination, provenance_override=Provenance.USER_CONFIRMED)
+    assert loaded.id == workflow.id == bundle.workflow.id
+    assert loaded.semantic_digest() == workflow.semantic_digest()
+
+
+@pytest.mark.parametrize(
+    "auxiliary_class",
+    ["PreviewAny", "easy showAnything", "FutureCustomAuxiliaryOutput"],
+)
+def test_parameter_edit_publish_preserves_auxiliary_output_node_identity(
+    tmp_path: Path,
+    auxiliary_class: str,
+) -> None:
+    workflow = _workflow(f"auxiliary-output-{auxiliary_class}")
+    workflow.nodes["3"] = VibeNode(
+        "3",
+        "ParameterNode",
+        uid="parameters",
+        inputs={"temperature": 0.8, "max_tokens": 1024},
+    )
+    workflow.nodes["6"] = VibeNode(
+        "6",
+        auxiliary_class,
+        uid="auxiliary-output",
+        inputs={"source": None},
+    )
+    sidecar = {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": workflow.id,
+            "semantic_digest": workflow.semantic_digest(),
+        },
+        "nodes": {
+            "parameters": {"id": 3, "pos": [0, 0]},
+            "auxiliary-output": {"id": 6, "pos": [300, 0]},
+        },
+        "links": [],
+        "groups": [],
+        "canvas": {},
+    }
+    destination = tmp_path / "edited.py"
+
+    workflow.nodes["3"].inputs["max_tokens"] = 512
+    published = emit_bundle_with_candidate(
+        workflow,
+        destination,
+        {"operation": "authored"},
+        sidecar,
+    )
+    reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+    projected_uids = {
+        node["uid"] for node in canonical_ir_projection(reloaded.workflow)["nodes"]
+    }
+
+    assert reloaded.workflow.nodes["3"].inputs["max_tokens"] == 512
+    assert projected_uids == {"parameters", "auxiliary-output"}
+    assert reloaded.workflow.nodes["6"].class_type == auxiliary_class
+    assert reloaded.ui_sidecar is not None
+    assert validate_sidecar(reloaded.ui_sidecar, reloaded.workflow) == reloaded.ui_sidecar
+    assert published.workflow.nodes["6"].class_type == auxiliary_class
+
+
+def test_parameter_edit_sidecar_still_rejects_dangling_auxiliary_uid() -> None:
+    workflow = _workflow("dangling-auxiliary-output")
+    workflow.nodes["3"] = VibeNode(
+        "3",
+        "ParameterNode",
+        uid="parameters",
+        inputs={"temperature": 0.8, "max_tokens": 512},
+    )
+    sidecar = {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": workflow.id,
+            "semantic_digest": workflow.semantic_digest(),
+        },
+        "nodes": {
+            "parameters": {"id": 3},
+            "dangling-auxiliary-output": {"id": 6},
+        },
+        "links": [],
+        "groups": [],
+        "canvas": {},
+    }
+
+    with pytest.raises(WorkflowBundleError, match="does not match a Python node"):
+        validate_sidecar(sidecar, workflow)
 
 
 def test_capture_unknown_node_keeps_local_fallback_properties_out_of_sidecar(

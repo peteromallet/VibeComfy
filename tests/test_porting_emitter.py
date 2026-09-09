@@ -359,7 +359,7 @@ def test_canonical_emitter_does_not_duplicate_imported_link_views(tmp_path: Path
     assert reloaded.semantic_digest() == workflow.semantic_digest()
 
 
-def test_canonical_emitter_filters_only_edges_to_removed_ui_only_nodes(
+def test_canonical_emitter_preserves_auxiliary_output_nodes_and_their_edges(
     tmp_path: Path,
 ) -> None:
     def _node(
@@ -387,12 +387,12 @@ def test_canonical_emitter_filters_only_edges_to_removed_ui_only_nodes(
     terminal.connect("source.value", "preview.source")
 
     terminal_source = emit_canonical_python(terminal)
-    assert "wf.connect('source.value', 'preview.source')" not in terminal_source
+    assert "wf.connect('source.value', 'preview.source')" in terminal_source
     terminal_path = tmp_path / "terminal_ui.py"
     terminal_path.write_text(terminal_source, encoding="utf-8")
     terminal_reloaded = load_agent_generated_scratchpad(terminal_path)
-    assert set(terminal_reloaded.nodes) == {"source"}
-    assert terminal_reloaded.edges == []
+    assert set(terminal_reloaded.nodes) == {"source", "preview"}
+    assert terminal_reloaded.semantic_digest() == terminal.semantic_digest()
 
     passthrough = terminal.copy()
     passthrough.id = "canonical/ui-passthrough"
@@ -1570,38 +1570,100 @@ def test_cache_greater_than_ui_keeps_retained_arity(
 
 
 
-def test_agent_edit_aliases_reject_cached_schema_mismatch(
+def test_agent_edit_emit_reconciles_object_info_ui_arity_mismatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Loaded graphs must emit even when object_info arity disagrees with UI.
+
+    Fail-closing here blocked representable live edits before the agent could
+    act. Prefer UI slots (the graph already uses them).
+    """
     cache_root = _write_object_info_cache(
         tmp_path,
-        "AgentAliasNode",
+        "AnyEmitNode",
         ["first", "second", "stale_extra"],
     )
     _patch_object_info_cache(monkeypatch, cache_root)
     wf = _workflow_with_ui_and_metadata_outputs(
-        "AgentAliasNode",
+        "AnyEmitNode",
         ["FIRST VALUE", "SECOND VALUE"],
     )
 
-    with pytest.raises(ArityDisagreementError, match="AgentAliasNode"):
-        emit_agent_edit_python(wf)
+    text = emit_agent_edit_python(wf)
+    assert "AnyEmitNode(" in text
+    assert "stale_extra" not in text
 
 
-def test_agent_edit_aliases_reject_when_cache_has_too_few_outputs(
+@pytest.mark.parametrize(
+    ("object_info_outputs", "ui_outputs"),
+    [
+        (["IMAGE", "width", "height", "extra"], ["IMAGE", "width", "height"]),
+        ([], ["width", "height", "count", "bbox"]),
+        ([], ["MODEL"]),
+        ([], ["IMAGE"]),
+    ],
+)
+def test_agent_edit_emit_does_not_abort_on_empty_or_longer_object_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    object_info_outputs: list[str],
+    ui_outputs: list[str],
+) -> None:
+    cache_root = _write_object_info_cache(tmp_path, "AnyEmitNode", object_info_outputs)
+    _patch_object_info_cache(monkeypatch, cache_root)
+    wf = _workflow_with_ui_and_metadata_outputs("AnyEmitNode", ui_outputs)
+
+    text = emit_agent_edit_python(wf)
+    assert "AnyEmitNode(" in text
+
+
+def test_agent_edit_emit_reconciles_when_cache_has_too_few_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cache_root = _write_object_info_cache(tmp_path, "AgentAliasNode", ["first"])
+    cache_root = _write_object_info_cache(tmp_path, "AnyEmitNode", ["first"])
     _patch_object_info_cache(monkeypatch, cache_root)
     wf = _workflow_with_ui_and_metadata_outputs(
-        "AgentAliasNode",
+        "AnyEmitNode",
         ["FIRST VALUE", "SECOND VALUE"],
     )
 
-    with pytest.raises(ArityDisagreementError, match="AgentAliasNode"):
-        emit_agent_edit_python(wf)
+    text = emit_agent_edit_python(wf)
+    assert "AnyEmitNode(" in text
+
+
+def test_scratchpad_emit_reconciles_four_schema_names_to_three_ui_slots() -> None:
+    """The generated build must unpack the retained three-slot result."""
+    wf = VibeWorkflow("arity-reconcile", WorkflowSource("arity-reconcile"))
+    wf.nodes["1"] = VibeNode(
+        "1",
+        "WanImageToVideo",
+        uid="source",
+        metadata={
+            "output_names": ["first", "second", "third", "schema_only"],
+            "_ui": {
+                "outputs": [
+                    {"slot_index": 0, "name": "first"},
+                    {"slot_index": 1, "name": "second"},
+                    {"slot_index": 2, "name": "third"},
+                ]
+            },
+        },
+    )
+    wf.nodes["2"] = VibeNode("2", "KSampler", uid="sink")
+    for slot in range(3):
+        wf.connect(f"1.{slot}", f"2.input_{slot}")
+
+    source = emit_scratchpad_python(wf, source_path="generic-arity.json")
+
+    assert "first, second, third = WanImageToVideo(" in source
+    assert "schema_only" not in source.split("= WanImageToVideo(", 1)[0]
+    namespace: dict[str, Any] = {"__file__": "ready_templates/image/arity_reconcile.py"}
+    exec(compile(source, "arity_reconcile.py", "exec"), namespace)  # noqa: S102
+    rebuilt = namespace["build"]()
+    assert isinstance(rebuilt, VibeWorkflow)
+    assert sorted(rebuilt.nodes) == ["1", "2"]
 
 
 def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
@@ -2243,8 +2305,7 @@ def test_retained_output_arity_never_consults_ambient_object_info(
     )
     assert _node_local_output_names(node) == ["MASK", "IMAGE"]
     assert _node_local_arity_check(node, ui_output_count=2) == 2
-    with pytest.raises(ArityDisagreementError):
-        _node_local_arity_check(node, ui_output_count=4)
+    assert _node_local_arity_check(node, ui_output_count=4) == 4
 
 
 def test_identity_for_node_returns_none_without_context() -> None:

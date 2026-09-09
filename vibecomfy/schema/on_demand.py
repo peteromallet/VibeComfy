@@ -299,7 +299,43 @@ class OnDemandInstallSchemaProvider:
                 return ref
         return None
 
+    @contextmanager
+    def _clone_lock(self, slug: str):
+        """Serialize publishers for one pack across threads/processes.
+
+        A clone is published by replacing a directory, which has no
+        no-clobber variant on POSIX.  The per-slug advisory lock makes two
+        on-demand resolutions converge on the same pinned publication: the
+        second caller observes and validates the first caller's marker instead
+        of deleting or replacing it.
+        """
+        self.sandbox_root.mkdir(parents=True, exist_ok=True)
+        # Reuse the repository's cross-platform process lock (fcntl on POSIX,
+        # msvcrt/atomic-directory fallback elsewhere) rather than importing a
+        # platform-specific primitive here.  The lock is root-wide; that is
+        # intentionally conservative because publication is rare and it keeps
+        # the no-clobber guarantee identical on every supported platform.
+        from vibecomfy.porting.object_info.serialize import _ProcessFileLock
+
+        lock = _ProcessFileLock(self.sandbox_root)
+        try:
+            lock.acquire()
+            try:
+                yield
+            finally:
+                lock.release()
+        except OSError as exc:
+            raise OnDemandCloneError(
+                f"could not lock on-demand clone publication for {slug!r}: {exc}"
+            ) from exc
+
     def _ensure_clone(self, ref: Any) -> Path | None:
+        slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or _slug_from_url(ref.url)
+        slug = _safe_slug(slug)
+        with self._clone_lock(slug):
+            return self._ensure_clone_unlocked(ref)
+
+    def _ensure_clone_unlocked(self, ref: Any) -> Path | None:
         slug = getattr(ref, "slug", None) or getattr(ref, "registry_id", None) or _slug_from_url(ref.url)
         slug = _safe_slug(slug)
         target = self.sandbox_root / slug
@@ -386,8 +422,46 @@ class OnDemandInstallSchemaProvider:
                 encoding="utf-8",
             )
             if target.exists() or target.is_symlink():
-                raise OnDemandCloneError(f"on-demand clone target appeared during publish: {target}")
-            os.replace(staging, target)
+                # A publisher outside this process may have won the race.  A
+                # complete marker with the same immutable identity is safe to
+                # reuse; every other target is a conflict and must never be
+                # overwritten.
+                matching = (
+                    download_url and self._is_complete_archive(target, slug, pin, download_url)
+                ) or (
+                    not download_url and self._is_complete_clone(target, slug, pin, url)
+                )
+                if matching:
+                    try:
+                        os.utime(target, None)
+                    except OSError:
+                        pass
+                    return target
+                raise OnDemandCloneError(
+                    f"conflicting on-demand clone target appeared during publish: {target}"
+                )
+            try:
+                os.replace(staging, target)
+            except FileExistsError as exc:
+                # On platforms whose rename is no-clobber, a non-cooperating
+                # publisher can win between the existence check and publish.
+                # Reconcile that publication by the same immutable identity
+                # check; never turn the race into an overwrite or stale-cache
+                # replacement.
+                matching = (
+                    download_url and self._is_complete_archive(target, slug, pin, download_url)
+                ) or (
+                    not download_url and self._is_complete_clone(target, slug, pin, url)
+                )
+                if matching:
+                    try:
+                        os.utime(target, None)
+                    except OSError:
+                        pass
+                    return target
+                raise OnDemandCloneError(
+                    f"conflicting on-demand clone target appeared during publish: {target}"
+                ) from exc
             return target
         except OnDemandCloneError as exc:
             self.last_clone_error = str(exc)

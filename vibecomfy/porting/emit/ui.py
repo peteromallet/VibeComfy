@@ -4572,6 +4572,7 @@ def _overlay_validated_presentation(
     emitted_nodes = envelope.get("nodes", [])
     if not isinstance(emitted_nodes, list):
         raise ValueError("emitter returned an invalid nodes list")
+    from vibecomfy.porting.emit.emit_constants import UI_ONLY_CLASS_TYPES
 
     by_uid: dict[str, dict[str, Any]] = {}
     old_id_by_uid: dict[str, int] = {}
@@ -4584,13 +4585,54 @@ def _overlay_validated_presentation(
             by_uid[uid] = node
             if type(node.get("id")) is int:
                 old_id_by_uid[uid] = int(node["id"])
-
-    # Preserve the emitted ids for link remapping, then apply native sidecar ids.
-    old_to_new: dict[int, int] = {}
     native_ids: set[int] = {
         int(node["id"]) for node in emitted_nodes
         if isinstance(node, Mapping) and type(node.get("id")) is int
     }
+
+    # UI-only furniture has no executable VibeNode, but it is still part of
+    # the captured presentation custody.  Recreate the allowlisted note
+    # classes from their sidecar record so materialization does not silently
+    # discard authored canvas annotations.  Their synthetic UID is a custody
+    # key only; no semantic links are synthesized for them.
+    next_ui_only_id = max(native_ids, default=0) + 1
+    for uid, entry in side_nodes.items():
+        if uid in by_uid or not isinstance(entry, Mapping):
+            continue
+        class_type = entry.get("class_type")
+        if class_type not in UI_ONLY_CLASS_TYPES:
+            continue
+        native_id = entry.get("id")
+        if type(native_id) is not int:
+            while next_ui_only_id in native_ids:
+                next_ui_only_id += 1
+            native_id = next_ui_only_id
+            next_ui_only_id += 1
+        if native_id in native_ids:
+            raise ValueError(f"sidecar native node id collision for {native_id}")
+        node: dict[str, Any] = {
+            "id": native_id,
+            "type": class_type,
+            "properties": {
+                "Node name for S&R": class_type,
+                "vibecomfy_uid": str(uid),
+            },
+        }
+        for field in ("pos", "size", "color", "bgcolor", "title"):
+            if field in entry:
+                node[field] = deepcopy(entry[field])
+        if "z_order" in entry:
+            node["order"] = deepcopy(entry["z_order"])
+        if "collapsed" in entry:
+            node["flags"] = {"collapsed": entry["collapsed"]}
+        if "group" in entry:
+            node["group"] = deepcopy(entry["group"])
+        emitted_nodes.append(node)
+        by_uid[str(uid)] = node
+        native_ids.add(native_id)
+
+    # Preserve the emitted ids for link remapping, then apply native sidecar ids.
+    old_to_new: dict[int, int] = {}
     for uid, entry in side_nodes.items():
         node = by_uid.get(str(uid))
         if node is None or not isinstance(entry, Mapping):
@@ -5490,34 +5532,6 @@ def _remap_preserved_inbound_links(
     return remapped_links
 
 
-def _link_preserves_canonical_target(
-    original_link: Any,
-    candidate_link: Any,
-    original_scope: Mapping[str, Any],
-    candidate_scope: Mapping[str, Any],
-) -> bool:
-    """True for a derived target re-slot that preserves endpoint identity."""
-    if not (
-        isinstance(original_link, (list, tuple))
-        and isinstance(candidate_link, (list, tuple))
-        and len(original_link) == 6
-        and len(candidate_link) == 6
-    ):
-        return False
-    if list(original_link[:4]) != list(candidate_link[:4]) or original_link[5] != candidate_link[5]:
-        return False
-    original_nodes = _nodes_by_native_id(original_scope)
-    candidate_nodes = _nodes_by_native_id(candidate_scope)
-    target_id = str(original_link[3])
-    original_name = _socket_name_at(
-        original_nodes.get(target_id), "input", original_link[4]
-    )
-    candidate_name = _socket_name_at(
-        candidate_nodes.get(target_id), "input", candidate_link[4]
-    )
-    return bool(original_name and original_name == candidate_name)
-
-
 def _scope_node_uids(scope_graph: Mapping[str, Any]) -> list[str]:
     nodes = scope_graph.get("nodes")
     if not isinstance(nodes, list):
@@ -6261,8 +6275,18 @@ def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list
 def _expected_ui_links(
     original_scope: Mapping[str, Any],
     scope_ops: Sequence[EditOp],
+    candidate_scope: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], set[int], set[int], list[PortIssue]]:
-    """Fold the landed topology ops using the UI projection of apply_edit_cow."""
+    """Fold landed topology ops using the retained UI projection.
+
+    The fold is the producing projection for the exit guard.  Native
+    LiteGraph node IDs may be rematerialized by the emitter, so once the
+    canonical operation fold is complete, existing endpoint records are
+    projected onto the candidate's native IDs by stable UID.  The comparator
+    remains deliberately strict: it sees the repaired fold and compares raw
+    endpoint tuples exactly, while unknown/ambiguous identities remain
+    unprojected and therefore fail closed.
+    """
     records: list[dict[str, Any]] = []
     diagnostics: list[PortIssue] = []
     original_ids: set[int] = set()
@@ -6419,6 +6443,43 @@ def _expected_ui_links(
         and record["parts"][0] in original_by_id
         and tuple(record["parts"][1:]) != tuple(original_by_id[record["parts"][0]][1:])
     }
+    if candidate_scope is not None:
+        original_nodes_by_id = {
+            _canonical_native_int(node.get("id")): _node_uid(node)
+            for node in original_scope.get("nodes") or ()
+            if isinstance(node, Mapping)
+            and _canonical_native_int(node.get("id")) is not None
+            and _node_uid(node) is not None
+        }
+        candidate_ids_by_uid = {
+            _node_uid(node): _canonical_native_int(node.get("id"))
+            for node in candidate_scope.get("nodes") or ()
+            if isinstance(node, Mapping)
+            and _node_uid(node) is not None
+            and _canonical_native_int(node.get("id")) is not None
+        }
+        projected: list[dict[str, Any]] = []
+        for record in records:
+            parts = record["parts"]
+            source_uid = original_nodes_by_id.get(_canonical_native_int(parts[1]))
+            target_uid = original_nodes_by_id.get(_canonical_native_int(parts[3]))
+            source_id = candidate_ids_by_uid.get(source_uid)
+            target_id = candidate_ids_by_uid.get(target_uid)
+            if source_id is not None and target_id is not None:
+                record = dict(record)
+                record["parts"] = (
+                    parts[0], source_id, parts[2], target_id, parts[4], parts[5]
+                )
+            projected.append(record)
+        records = projected
+        allowed_changed_ids = {
+            record["parts"][0]
+            for record in records
+            if record["locked"]
+            and type(record["parts"][0]) is int
+            and record["parts"][0] in original_by_id
+            and tuple(record["parts"][1:]) != tuple(original_by_id[record["parts"][0]][1:])
+        }
     return records, fold_removed_ids, allowed_changed_ids, diagnostics
 
 
@@ -6442,6 +6503,7 @@ def _compare_expected_ui_links(
         if parts is not None
     }
     used: set[int] = set()
+
     for record in expected:
         parts = record["parts"]
         if record["locked"]:
@@ -6458,21 +6520,6 @@ def _compare_expected_ui_links(
                 continue
             used.add(link_id)
             if tuple(actual[1:]) != tuple(parts[1:]):
-                original_link = next(
-                    (
-                        link
-                        for link in original_scope.get("links") or ()
-                        if _link_id(link) == link_id
-                    ),
-                    None,
-                )
-                if original_link is not None and _link_preserves_canonical_target(
-                    original_link,
-                    actual,
-                    original_scope,
-                    candidate_scope,
-                ):
-                    continue
                 diagnostics.append(
                     _issue(
                         "full_ui_link_changed_unattributed",
@@ -7348,6 +7395,24 @@ def pin_untouched_ui(
                             merged["widgets_values"] = merged_widgets
                         else:
                             merged["widgets_values"] = deepcopy(candidate_widgets)
+                    elif set_fields and isinstance(node.get("widgets_values"), Mapping):
+                        # Dict-shaped widgets carry authoritative field names;
+                        # preserve untouched keys and copy only the exact
+                        # schema-admitted fields owned by this delta. No
+                        # positional inference is involved.
+                        original_widgets = original_node.get("widgets_values")
+                        merged_widgets = (
+                            deepcopy(dict(original_widgets))
+                            if isinstance(original_widgets, Mapping)
+                            else {}
+                        )
+                        candidate_widgets = node["widgets_values"]
+                        for field in set_fields:
+                            if field in candidate_widgets:
+                                merged_widgets[field] = deepcopy(
+                                    candidate_widgets[field]
+                                )
+                        merged["widgets_values"] = merged_widgets
                     # A concrete schema witness is emit furniture rather
                     # than an authored property, but a registry-hydrated
                     # candidate must retain it for the authority receipt. Do
@@ -7535,7 +7600,11 @@ def guard_exit_ui(
                 fold_removed_ids,
                 allowed_changed_link_ids,
                 fold_diagnostics,
-            ) = _expected_ui_links(original_scope, scope_ops)
+            ) = _expected_ui_links(
+                original_scope,
+                scope_ops,
+                candidate_scope=candidate_scope,
+            )
             diagnostics.extend(fold_diagnostics)
         scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:

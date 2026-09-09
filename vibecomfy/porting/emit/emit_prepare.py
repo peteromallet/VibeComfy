@@ -81,12 +81,10 @@ def _prepare_workflow_for_emit(
     if prune_dead_branches and not getattr(workflow, "edges", ()):
         prune_dead_branches = False
 
-    # UI-only classes (Note/MarkdownNote/PreviewAny/…) are normally decorative and
-    # stripped. But some — notably PreviewAny — are wired as live PASSTHROUGHS
-    # (their output feeds a real node). In fidelity mode (agent-edit,
-    # prune_dead_branches=False) stripping such a node severs that edge and drops
-    # the data it carried (e.g. GeminiNode → PreviewAny → ByteDance.model.prompt).
-    # Keep a UI-only node when it has an output edge into a non-UI-only node.
+    # Pure UI furniture (notes/labels) is normally stripped. Keep it when it is
+    # wired as a live passthrough so fidelity emission never severs an authored
+    # edge. Auxiliary output nodes are semantic graph members and therefore are
+    # not classified as UI-only here, even when their main purpose is preview.
     ui_only_passthroughs: set[str] = set()
     if not prune_dead_branches:
         for edge in workflow.edges:
@@ -352,20 +350,12 @@ def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
             if name
         }
     if ui_names and isinstance(metadata_names, (list, tuple)) and len(ui_names) != len(metadata_names):
-        from vibecomfy.errors import ArityDisagreementError  # noqa: PLC0415
+        from vibecomfy.porting.emit.emit_kwargs import (  # noqa: PLC0415
+            _warn_metadata_ui_output_arity_disagreement,
+        )
 
-        raise ArityDisagreementError(
-            (
-                f"output arity disagreement for {node.class_type}: authored metadata declares "
-                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}; "
-                "refresh the node UI metadata before canonical emission."
-            ),
-            class_type=str(node.class_type),
-            snapshot_pack=None,
-            snapshot_version=None,
-            snapshot_output_count=len(metadata_names),
-            ui_output_count=len(ui_names),
-            next_action="refresh the vibecomfy.exec node UI",
+        _warn_metadata_ui_output_arity_disagreement(
+            node, list(metadata_names), list(ui_names)
         )
         return {index: name for index, name in enumerate(ui_names) if name}
     ui_output_count = len(ui_names) if ui_names else None

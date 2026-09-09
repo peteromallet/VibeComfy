@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace as _dataclass_replace
 from pathlib import Path
 from types import MappingProxyType
@@ -838,6 +838,79 @@ def _complete_schema_snapshot_with_provisional(
         missing_classes=missing_classes,
         input_order=input_order,
         node_classes=dict(snapshot.node_classes),
+        workflow_observation_authoritative=False,
+        ambient_lookup_forbidden=True,
+    )
+    return _dataclass_replace(
+        completed,
+        content_digest=_schema_snapshot_digest(_digest_body(completed)),
+    )
+
+
+def _complete_schema_snapshot_with_authoritative_catalog(
+    snapshot: SchemaSnapshot,
+    additions: Mapping[str, Any],
+    *,
+    class_types: Iterable[str],
+    node_classes: Mapping[str, str] | None = None,
+) -> SchemaSnapshot:
+    """Create one bounded frozen generation from catalog-backed schemas.
+
+    ``interpret`` uses this before admission, while it still has the
+    ingress-bound catalog in hand.  Only classes selected by the submitted
+    delta may be added; admission and replay continue to consume the returned
+    immutable snapshot and never consult the catalog themselves.
+    """
+    selected = {str(class_type) for class_type in class_types if str(class_type)}
+    accepted: dict[str, dict[str, Any]] = {}
+    for class_type in sorted(selected):
+        if class_type in snapshot.schemas:
+            continue
+        schema = additions.get(class_type)
+        if schema is None or getattr(schema, "class_type", None) != class_type:
+            continue
+        try:
+            accepted[class_type] = schema_payload_from_node_schema(class_type, schema)
+        except Exception:  # noqa: BLE001 - malformed catalog evidence is not authority
+            continue
+
+    merged_node_classes = dict(snapshot.node_classes)
+    if node_classes is not None:
+        merged_node_classes.update(
+            {
+                str(identity): str(class_type)
+                for identity, class_type in node_classes.items()
+                if str(identity) and isinstance(class_type, str) and class_type
+            }
+        )
+    if not accepted and merged_node_classes == dict(snapshot.node_classes):
+        return snapshot
+
+    schemas = dict(snapshot.schemas)
+    schemas.update(accepted)
+    input_order = dict(snapshot.input_order)
+    for class_type, payload in accepted.items():
+        order = payload.get("input_order")
+        input_order[class_type] = tuple(
+            str(name) for name in order if isinstance(name, str)
+        ) if isinstance(order, list) else ()
+    completed = SchemaSnapshot(
+        identity=snapshot.identity,
+        content_digest="",
+        precedence=snapshot.precedence,
+        selected_source=snapshot.selected_source,
+        generation=snapshot.generation + 1,
+        conflicts=snapshot.conflicts,
+        timestamp=snapshot.timestamp,
+        version=snapshot.version,
+        schemas=schemas,
+        missing_classes=tuple(
+            class_type
+            for class_type in snapshot.missing_classes
+            if class_type not in accepted
+        ),
+        input_order=input_order,
+        node_classes=merged_node_classes,
         workflow_observation_authoritative=False,
         ambient_lookup_forbidden=True,
     )

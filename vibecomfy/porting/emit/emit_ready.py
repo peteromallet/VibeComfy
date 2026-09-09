@@ -701,12 +701,11 @@ def _emit_ready_template_python_inner(
     # but never becomes a second semantic authority during emission.
     subgraph_definitions: dict[str, _SubgraphDef] = {}
     emission_workflow = workflow.copy()
-    # ``_ui`` is presentation evidence, never canonical semantic authority.
-    # Remove it before preparation so UI output labels cannot affect wrapper
-    # spelling, ordering, or schema reconciliation.
-    for node in emission_workflow.nodes.values():
-        if isinstance(node.metadata, Mapping):
-            node.metadata.pop("_ui", None)
+    # Retain ``_ui`` through preparation because its output-slot roster is
+    # required to reconcile emitted tuple arity for an already-loaded graph.
+    # ``_emit_function_body`` removes it from a detached semantic-node copy
+    # immediately before kwargs emission, so presentation data still cannot
+    # become call arguments or workflow semantics.
     _validate_named_output_edges(workflow)
     # Connections are emitted once, explicitly, from ``workflow.edges``.
     # Imported IR may also retain a link-shaped value on the target input; do
@@ -2301,35 +2300,35 @@ def _node_local_output_names(node: Any) -> list[str]:
     return list(_class_output_names(class_type))
 
 
+def _reconcile_emit_arity(
+    snapshot_count: int,
+    ui_output_count: int | None,
+) -> int:
+    """Pick an emit arity without aborting a loaded graph.
+
+    Agent-edit emit of an already-authored graph must not fail-closed because
+    object_info and UI metadata disagree. Prefer the UI count when present
+    (those are the slots the graph already uses); otherwise the snapshot.
+    """
+    if ui_output_count is None:
+        return snapshot_count
+    return ui_output_count
+
+
 def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
     """Retained arity consensus check for *node*; identity/class fallback.
 
     A node-local roster is the session's captured authority and is checked
     without touching process-global object-info state.  Only nodes lacking
     retained evidence use the historical identity/class lookup path.
+    Snapshot/UI disagreements are reconciled rather than raised: aborting
+    emit blocked representable live edits of existing graphs.
     """
     class_type = str(node.class_type)
     retained_names = _retained_output_names(node)
     if retained_names is not None:
         retained_count = len(retained_names)
-        if ui_output_count is not None and retained_count != ui_output_count:
-            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
-
-            raise _AD(
-                (
-                    f"output arity disagreement for {class_type}: retained node "
-                    f"authority declares {retained_count} outputs but UI declares "
-                    f"{ui_output_count}; refresh the node UI metadata before "
-                    "canonical emission."
-                ),
-                class_type=class_type,
-                snapshot_pack=None,
-                snapshot_version=None,
-                snapshot_output_count=retained_count,
-                ui_output_count=ui_output_count,
-                next_action="refresh the node UI metadata",
-            )
-        return retained_count
+        return _reconcile_emit_arity(retained_count, ui_output_count)
 
     from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
     from vibecomfy.errors import ObjectInfoIdentityError  # noqa: PLC0415
@@ -2340,42 +2339,14 @@ def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
     )
     def _class_fallback_count() -> int:
         cached_count = class_output_count(class_type)
-        if ui_output_count is not None and class_is_known(class_type) and cached_count != ui_output_count:
-            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
-            raise _AD(
-                (
-                    f"output arity disagreement for {class_type}: object_info declares "
-                    f"{cached_count} outputs but UI declares {ui_output_count}; "
-                    "refresh the node UI metadata before canonical emission."
-                ),
-                class_type=class_type,
-                snapshot_pack=None,
-                snapshot_version=None,
-                snapshot_output_count=cached_count,
-                ui_output_count=ui_output_count,
-                next_action="refresh the vibecomfy.exec node UI",
-            )
+        if ui_output_count is not None and class_is_known(class_type):
+            return _reconcile_emit_arity(cached_count, ui_output_count)
         return cached_count
 
     declared_exec_outputs = _declared_exec_outputs(node)
     if declared_exec_outputs is not None:
         declared_count = len(declared_exec_outputs)
-        if ui_output_count is not None and declared_count != ui_output_count:
-            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
-            raise _AD(
-                (
-                    f"output arity disagreement for {class_type}: declared io.outputs "
-                    f"has {declared_count} outputs but UI declares {ui_output_count}. "
-                    "Refresh the node UI metadata."
-                ),
-                class_type=class_type,
-                snapshot_pack=None,
-                snapshot_version=None,
-                snapshot_output_count=declared_count,
-                ui_output_count=ui_output_count,
-                next_action="refresh the vibecomfy.exec node UI",
-            )
-        return declared_count
+        return _reconcile_emit_arity(declared_count, ui_output_count)
     identity = _identity_for_node(node)
     if identity is not None:
         try:
@@ -2391,24 +2362,7 @@ def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
         if entry is None:
             return _class_fallback_count()
         cached_count = len(entry.get("outputs") or [])
-        if ui_output_count is None:
-            return cached_count
-        if cached_count != ui_output_count:
-            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
-            raise _AD(
-                (
-                    f"output arity disagreement for {class_type}: object_info declares "
-                    f"{cached_count} outputs but UI declares {ui_output_count}; "
-                    "refresh the node UI metadata before canonical emission."
-                ),
-                class_type=class_type,
-                snapshot_pack=getattr(identity, "pack_slug", None),
-                snapshot_version=getattr(identity, "git_commit", None),
-                snapshot_output_count=cached_count,
-                ui_output_count=ui_output_count,
-                next_action="refresh the vibecomfy.exec node UI",
-            )
-        return cached_count
+        return _reconcile_emit_arity(cached_count, ui_output_count)
     return _class_fallback_count()
 
 

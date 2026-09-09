@@ -1767,13 +1767,24 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
             choices = list(raw["choices"])
     elif isinstance(raw, str):
         typ = raw
+
+    # Object-info is an external, weakly typed boundary.  Keep only bounds
+    # whose JSON value already has the schema contract's numeric type.  In
+    # particular, ComfyUI's ``BIGMAX`` sentinel is not a number and must not
+    # be guessed/coerced into one: the producer should emit ``null`` so the
+    # admission validator can remain strict without rejecting the whole row.
+    def typed_bound(value: Any) -> int | float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value
+
     return InputSpec(
         type=str(typ) if typ is not None else None,
         required=required,
         default=attrs.get("default"),
         choices=choices,
-        min=attrs.get("min"),
-        max=attrs.get("max"),
+        min=typed_bound(attrs.get("min")),
+        max=typed_bound(attrs.get("max")),
         unresolved_choices=attrs.get("unresolved_choices") is True,
         asset_kind="image" if attrs.get("image_upload") is True else None,
     )

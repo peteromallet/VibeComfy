@@ -189,6 +189,33 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
         "return_with_leftover_noise",
     ],
     "KSamplerSelect": ["sampler_name"],
+    # ComfyUI core ResolutionSelector currently serializes the advanced
+    # ``multiple`` control as the third LiteGraph widget.  The live node also
+    # exposes a preview control, but that is a non-value UI row and therefore
+    # does not consume a widgets_values slot.
+    "ResolutionSelector": ["aspect_ratio", "megapixels", "multiple"],
+    # The final slot is LanPaint's star-button UI action.  It is serialized by
+    # LiteGraph but has no runtime input; retain the slot as None so positional
+    # emission remains aligned and never turns it into a fabricated field.
+    "LanPaint_SamplerCustomAdvanced": [
+        "LanPaint_NumSteps",
+        "LanPaint_Lambda",
+        "LanPaint_StepSize",
+        "LanPaint_PromptMode",
+        "LanPaint_Info",
+        None,
+    ],
+    # ``values`` is an auto-growing input controller.  The only literal widget
+    # in this node is the expression editor; values.a/b/... are linked or
+    # dynamic API fields and are handled by schema validation.
+    "ComfyMathExpression": ["expression"],
+    # ComfyUI core MiniMax H3 node: prompt is the first literal widget;
+    # width/height/length follow the linked CLIP/VAE/image sockets.
+    "MiniMaxH3ImageToVideo": ["prompt", "width", "height", "length"],
+    # LanPaint's editor stores the video, keyframe JSON, and audio interval
+    # JSON, followed by two UI-only editor controls that still occupy slots.
+    "LanPaint_VideoMaskEditor": ["video", "keyframes", "audio_mask", None, None],
+    "LanPaint_AVDecode": ["blend_overlap", "audio_crossfade"],
     # LoadAudio: object_info comfy_core@runpod-snapshot.json lists only ['audio'].
     # Source workflows store two extra trailing widget slots (preview / upload UI)
     # that have no runtime semantics. Recording them as None surfaces them as
