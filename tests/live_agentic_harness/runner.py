@@ -1016,13 +1016,29 @@ def run_single(
         baseline = run_baseline_scenario(
             scenario, tag=tag, output_base=output_base
         )
+        baseline["guard"] = {
+            "assessment": {"verdict": baseline.get("judge_verdict"),
+                           "pass": baseline.get("ok")},
+            "live_agentic_success": bool(baseline.get("ok")),
+        }
+        baseline.setdefault("transport", transport)
+        _persist_scenario_summary(baseline, output_base, tag)
         if out_file is not None:
-            out_file.write_text(json.dumps(baseline, indent=1))
+            _write_json_atomic(out_file, baseline)
         return baseline
     summary = run_headless_scenario(
         scenario, output_base=output_base, tag=tag, transport=transport
     )
-    if summary.get("lane") != "baseline":
+    if summary.get("lane") == "baseline":
+        # Baseline has no graph artifacts; write the canonical summary file the
+        # runner's aggregation reads (agentic_summary.json) directly.
+        out_dir = summary.get("output_dir")
+        if out_dir:
+            from pathlib import Path as _P
+            _pd = _P(out_dir)
+            _pd.mkdir(parents=True, exist_ok=True)
+            (_pd / "agentic_summary.json").write_text(json.dumps(summary, indent=1))
+    else:
         _canonicalize_summary_output(
             summary,
             output_base=output_base,
