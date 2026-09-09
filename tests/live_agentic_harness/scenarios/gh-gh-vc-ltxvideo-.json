@@ -1,5 +1,5 @@
 {
- "id": "vc-Wrapper#1986",
+ "id": "gh-gh-vc-ltxvideo-",
  "query": "",
  "workflow_path": null,
  "apply": true,
@@ -30,11 +30,11 @@
   "tech_freshness": "current",
   "age_months": null,
   "solution_specificity": null,
-  "generalizability": "medium",
+  "generalizability": "high",
   "grade_mode": "rubric",
   "solution_confirmed": false,
   "workflow_source": "ready-template",
   "provenance_url": "",
-  "provenance_source": "github-readytemplate-weak"
+  "provenance_source": "github-readytemplate"
  }
 }

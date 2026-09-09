@@ -1,5 +1,5 @@
 {
- "id": "vc--KJNodes#669",
+ "id": "vc-wan22-pinned-mem-14250",
  "query": "",
  "workflow_path": null,
  "apply": true,
@@ -30,11 +30,11 @@
   "tech_freshness": "current",
   "age_months": null,
   "solution_specificity": null,
-  "generalizability": "high",
+  "generalizability": "medium",
   "grade_mode": "rubric",
   "solution_confirmed": false,
   "workflow_source": "ready-template",
   "provenance_url": "",
-  "provenance_source": "github-readytemplate"
+  "provenance_source": "github-readytemplate-weak"
  }
 }

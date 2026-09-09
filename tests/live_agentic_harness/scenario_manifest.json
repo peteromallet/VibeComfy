@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "scenario_root": "tests/live_agentic_harness/scenarios",
- "scenario_count": 259,
+ "scenario_count": 255,
  "entries": [
   {
    "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
@@ -1320,6 +1320,38 @@
    }
   },
   {
+   "id": "gh-gh-vc--kjnodes-",
+   "path": "tests/live_agentic_harness/scenarios/gh-gh-vc--kjnodes-.json",
+   "descriptor_sha256": "7c8c51018de98d3e0bc374aef94c225bc64c320b5ac5b60eaf9c0cc2349b4ee7",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "gh-gh-vc-emplates-",
+   "path": "tests/live_agentic_harness/scenarios/gh-gh-vc-emplates-.json",
+   "descriptor_sha256": "f7348a8366fe7a0a734ec0d0ee7e5526b366c54dc7265108681d133392bdfcd1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "gh-gh-vc-ltxvideo-",
+   "path": "tests/live_agentic_harness/scenarios/gh-gh-vc-ltxvideo-.json",
+   "descriptor_sha256": "bb9884f934fa5da2bf3845872f33ed44a7ea8896295531a81079d0d60f731422",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
+   "id": "gh-gh-vc-wrapper-1",
+   "path": "tests/live_agentic_harness/scenarios/gh-gh-vc-wrapper-1.json",
+   "descriptor_sha256": "339b963b9ac0e96155425576dc781b6d067abe50ba0a8840d4ae8bf793371c8f",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "unclear"
+  },
+  {
    "id": "gh-workflow_templates-1005",
    "path": "tests/live_agentic_harness/scenarios/gh-workflow_templates-1005.json",
    "descriptor_sha256": "950d8d1aa32d3d44210465dd7e18d2d7d2edda7dbd3a60efa2f4a8f77d800ff3",
@@ -2119,14 +2151,6 @@
    "scenario_kind": "unknown"
   },
   {
-   "id": "vc--KJNodes#669",
-   "path": "tests/live_agentic_harness/scenarios/vc--KJNodes#669.json",
-   "descriptor_sha256": "f1d529dd57ab8ccb7466ab7c02e3553b617161001a9195f86081f7ebd9a5844c",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
    "id": "vc-069387374686",
    "path": "tests/live_agentic_harness/scenarios/vc-069387374686.json",
    "descriptor_sha256": "32c12901583be6fd238e97f18669c321cf128d4b7a40f602b3f108e9c1fdb13a",
@@ -2335,73 +2359,17 @@
    "scenario_kind": "unclear"
   },
   {
-   "id": "vc-LTXVideo#553",
-   "path": "tests/live_agentic_harness/scenarios/vc-LTXVideo#553.json",
-   "descriptor_sha256": "986046d88d3d683481864b5f293eeac5097d79b65a208f777126dd1feb6c3856",
+   "id": "vc-wan22-pinned-mem-14250",
+   "path": "tests/live_agentic_harness/scenarios/vc-wan22-pinned-mem-14250.json",
+   "descriptor_sha256": "cf1cfd6724efb0ed5ff7c6a1f04e52a2d4a8f4ad0121ffc7c00b5975ee2b6228",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unclear"
   },
   {
-   "id": "vc-Wrapper#1986",
-   "path": "tests/live_agentic_harness/scenarios/vc-Wrapper#1986.json",
-   "descriptor_sha256": "1745a3b0d581d432a018eabe2e52bafe44d669d6c5fcbeaa219fd0fd312f23f4",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#339",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#339.json",
-   "descriptor_sha256": "83269f4a401fd85e173353b161e22e12f244b742d2e184817d2a857f4e77635e",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#447",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#447.json",
-   "descriptor_sha256": "1d0c349d3b51cc0c82cca290f5be20b2d4c2db81fa6ecf44315f1c51bb947c7d",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#457",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#457.json",
-   "descriptor_sha256": "29585a176f07e85759834be694423bff339064c58c873dcf54ae8f91461fa2c8",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#536",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#536.json",
-   "descriptor_sha256": "284cac6ca3961ae425007139c0095120165a08eefa28d77cb9fe213ab36f9fa6",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#858",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#858.json",
-   "descriptor_sha256": "d06d2d6089c6058a3a2b438cb0013804919499239f7fd5ce13db920ea9efc0d2",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-emplates#931",
-   "path": "tests/live_agentic_harness/scenarios/vc-emplates#931.json",
-   "descriptor_sha256": "13b28a8a62226e58972c1df51c65d1ca656dffb4877dedbffe0b0fce0c0b3acd",
-   "inclusion_status": "included",
-   "revision_status": "matched",
-   "scenario_kind": "unclear"
-  },
-  {
-   "id": "vc-omfyUI#14250",
-   "path": "tests/live_agentic_harness/scenarios/vc-omfyUI#14250.json",
-   "descriptor_sha256": "58185391de1ada4f403ece46a50161ca88f34fcb8215e9f01e770cb53005cb06",
+   "id": "vc-z-image-turbo-931",
+   "path": "tests/live_agentic_harness/scenarios/vc-z-image-turbo-931.json",
+   "descriptor_sha256": "bdbc345538c775f7b21b02310e18330e453dd1a76cedceb452501254e9815d4a",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unclear"
