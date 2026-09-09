@@ -1031,8 +1031,11 @@ def run_single(
         )
     summary.setdefault("transport", transport)
     if summary.get("lane") == "baseline":
-        summary["guard"] = {"assessment": {"verdict": summary.get("judge_verdict"),
-                                           "pass": summary.get("ok")}}
+        summary["guard"] = {
+            "assessment": {"verdict": summary.get("judge_verdict"),
+                           "pass": summary.get("ok")},
+            "live_agentic_success": bool(summary.get("ok")),
+        }
     else:
         summary["guard"] = _guard_scenario_output(
             summary["output_dir"],

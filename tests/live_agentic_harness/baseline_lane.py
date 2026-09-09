@@ -121,9 +121,14 @@ def _render_graph_digest(wf: Mapping[str, Any], max_nodes: int = 200) -> str:
         for n in nodes[:max_nodes]:
             if not isinstance(n, dict):
                 continue
-            widgets = ", ".join(
-                f"{v.get('name')}={v.get('value')!r}" for v in (n.get("widgets_values") or [])[:6] if isinstance(v, dict)
-            ) or repr(n.get("widgets_values"))[:60]
+            wv = n.get("widgets_values")
+            try:
+                if wv and isinstance(wv, (list, tuple)) and all(isinstance(v, dict) for v in list(wv)[:6]):
+                    widgets = ", ".join(f"{v.get('name')}={v.get('value')!r}" for v in list(wv)[:6])
+                else:
+                    widgets = repr(wv)[:80]
+            except Exception:
+                widgets = repr(wv)[:80]
             lines.append(f"  #{n.get('id')} {n.get('type','?')}({widgets})")
         node_block = "\n".join(lines)
         edge_lines = []
@@ -167,7 +172,10 @@ def run_baseline_turn(
     wf = _load_workflow_json(scenario, repo=repo)
     if wf is None:
         return BaselineResult(sid, "", None, None, error="fixture workflow missing or unparseable")
-    digest = _render_graph_digest(wf)
+    try:
+        digest = _render_graph_digest(wf)
+    except Exception as exc:
+        return BaselineResult(sid, "", None, None, error=f"graph digest failed: {exc}")
     # Byte-identical problem text: strip tool-flavored phrasing both lanes share.
     query = re.sub(
         r"(?i)\b(edit|change|modify)\s+(the\s+)?(workflow|graph|file)\b",
