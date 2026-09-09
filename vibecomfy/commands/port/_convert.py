@@ -13,6 +13,7 @@ from vibecomfy.porting.convert import (
 )
 from vibecomfy.porting.layout_store import write_layout
 from vibecomfy.porting.workbench import analyze_source, load_port_source
+from vibecomfy.porting.import_errors import native_boundary_recovery
 
 from ._shared import (
     _attach_contract_fields,
@@ -92,6 +93,27 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             keep_virtual_wires=bool(getattr(args, "keep_virtual_wires", False)),
         )
     except Exception as exc:
+        recovery = native_boundary_recovery(exc, args.workflow)
+        if recovery is not None:
+            payload = {
+                "status": "blocked",
+                "message": "port convert stopped at the native recursive-boundary import barrier.",
+                "report": {
+                    **recovery,
+                    "diagnostics": [{
+                        "severity": "error",
+                        "code": recovery["code"],
+                        "message": recovery["message"],
+                    }],
+                },
+            }
+            _emit_convert_payload(payload, json_output=args.json)
+            if not args.json:
+                print(
+                    "Resolve the ComfyUI subgraph boundary, then rerun the commands shown above.",
+                    file=sys.stderr,
+                )
+            return 1
         return _emit_strict_ready_load_failure(
             args,
             exc,
