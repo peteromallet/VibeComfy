@@ -1,0 +1,16 @@
+# Baseline (no-tools) profile for vibecomfy-executor.
+#
+# Measures pure-reasoning performance: the model gets the problem text and the
+# full fixture workflow JSON in ONE tool-free call. No research, no implement,
+# no tool loop. Used by the harness's baseline lane (--profile baseline) to
+# quantify how much the agentic tool loop adds over a single model turn.
+#
+# Stages map to the same routes as the default profile so per-stage results
+# join cleanly with agentic runs. The baseline lane never dispatches
+# implement/research phases — the runner short-circuits after classify.
+[profiles.baseline]
+classify   = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+research   = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+implement  = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+reply      = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
+execute    = "openrouter:openrouter:deepseek/deepseek-v4-flash-0731"
