@@ -34,6 +34,13 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Inspect what the conditioning saver actually persists, discover it drops pooled_output and cond_options keys, and restore complete text conditioning (or use fixed save/load nodes).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Trace a TypeError through SamplerCustom/stg.py to a cross-repo API signature mismatch (local apg() vs upstream APG) and apply the exact one-line fix.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

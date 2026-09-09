@@ -34,6 +34,17 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "unreproducible",
+   "outcome-ambiguous",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Maintain hypothesis discipline (quantized-tensor geometry, detour-hook interference) when the maintainer cannot reproduce and the environment is the confound.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

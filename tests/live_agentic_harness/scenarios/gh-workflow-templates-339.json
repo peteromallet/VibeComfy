@@ -34,6 +34,14 @@
   "techniques": [
    "qwen"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize that the new template's Qwen3-shaped text-encoder weights cannot load on an older ComfyUI build and the fix is a full backend+frontend update (not a workflow change).",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

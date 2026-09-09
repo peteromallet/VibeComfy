@@ -34,6 +34,15 @@
   "techniques": [
    "wan (uni3c + radial attention)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "solution-too-specific",
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize the Triton 'invalid argument' as an attention-backend mismatch between the Uni3C controlnet loader (sage) and the sampler, fixable by setting sdpa on the Uni3C loader or updating the wrapper.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

@@ -34,6 +34,14 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Read a multi-return-path sampler function and spot the inconsistent return arity in one early-exit branch (2-tuple vs 3-tuple unpack) \u2014 pure code-reading, no model knowledge needed.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

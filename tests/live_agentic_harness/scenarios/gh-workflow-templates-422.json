@@ -34,6 +34,13 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Chain 'missing class_type property' on a template node to the ComfyUI-tbox pack failing import via 'cv2 has no attribute dnn', then repair the broken OpenCV install.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

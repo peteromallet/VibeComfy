@@ -34,6 +34,17 @@
   "techniques": [
    "flux"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "unreproducible",
+   "outcome-ambiguous",
+   "solution-too-specific",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Untangle a grab-bag ticket: mostly feature requests, with one user-specific VAEDecode hang and a duplicate save-prompt traced to a ResizeImageMaskNode conflict with that user's install.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

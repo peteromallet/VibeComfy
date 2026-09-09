@@ -34,6 +34,14 @@
   "techniques": [
    "wan 2.1 fun-control/vace"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize a custom-node update regression (tensor-dim mismatch in the Wan control path) and confirm the fix by updating the wrapper to kijai's patched commit.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

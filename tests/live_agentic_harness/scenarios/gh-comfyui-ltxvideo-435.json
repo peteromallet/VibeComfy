@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "outcome-ambiguous",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Assemble a workable non-distilled LTX-2.3 Dev sampling config (KSamplerSelect gradient_estimation, ManualSigmas, 20-step scheduler shifts, distilled lora staged into the upscale pass).",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

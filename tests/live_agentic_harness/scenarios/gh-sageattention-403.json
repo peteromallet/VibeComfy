@@ -34,6 +34,15 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "gpu-only",
+   "env-specific",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Isolate a hard CUDA-context crash to one SM89 FP8-PV kernel path and A/B to the safe sageattn_qk_int8_pv_fp16_cuda mode.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

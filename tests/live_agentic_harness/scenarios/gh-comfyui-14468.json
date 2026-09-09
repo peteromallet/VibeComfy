@@ -34,6 +34,14 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "gpu-only",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Know that CPU diffusion is impractically slow, ComfyUI already offloads weights to RAM by default, and KJNodes FFN-chunker is the actual lever for cutting low-VRAM Wan/LTX inference.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

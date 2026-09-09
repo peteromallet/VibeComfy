@@ -34,6 +34,13 @@
   "techniques": [
    "wan fun-control"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "trivial"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Map an off-by-one tensor mismatch (111 vs 110) to Wan's latent dims needing divisibility by 16 and locate the upstream node emitting a non-conforming resolution.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

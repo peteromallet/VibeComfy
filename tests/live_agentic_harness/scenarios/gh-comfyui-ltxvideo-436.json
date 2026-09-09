@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Recognize node/model ecosystem coupling (KJ nodes vs native LTX nodes) as a failure class and audit a mixed graph for cross-ecosystem contamination.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

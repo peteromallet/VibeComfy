@@ -34,6 +34,13 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Understand the padding contract between per_channel_fp8 (pads kv_len to 64) and sm90 kernels requiring CTA_K=128 alignment, then pad V to a multiple of 128.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

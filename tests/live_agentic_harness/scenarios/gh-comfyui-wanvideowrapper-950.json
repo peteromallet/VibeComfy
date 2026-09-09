@@ -34,6 +34,13 @@
   "techniques": [
    "wan 2.2"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Trace an 'unexpected keyword argument hidden_inputs' error after a ComfyUI upgrade to a conflicting custom-node pack (Anything-Anywhere) rather than WanVideoWrapper itself.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "visual-judgment",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Tune conditioning (bypass Prompt Enhancer, explicitly prompt lip-sync, raise SolidMask, adjust nag scale) so LTX 2.3 image-audio-to-video actually lip-syncs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

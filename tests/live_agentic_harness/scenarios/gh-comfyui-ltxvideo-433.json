@@ -34,6 +34,15 @@
   "techniques": [
    "z-image"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "trivial",
+   "information-poor",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Recognize this is not a workflow fault at all: an fal.ai account-billing error plus local removal of a stored API key in ComfyUI Desktop.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,14 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Locate and integrate an unofficial fork (tdrminglin's WanVideoWrapper) that adds Bernini/SCAIL-2 support, with no reference workflow or maintainer guidance.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,16 @@
   "techniques": [
    "flux"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "unreproducible",
+   "visual-judgment"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Separate a real diffusion-path NaN (black decode) from a false-positive text-encoder signal, then apply the pointed backend workaround (--enable-triton-backend per #14782).",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

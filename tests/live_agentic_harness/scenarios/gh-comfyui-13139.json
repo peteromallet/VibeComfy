@@ -34,6 +34,14 @@
   "techniques": [
    "qwen"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Know that dynamic VRAM management forces full model unloads between 2-pass Qwen-Image-Edit samplers and that --disable-dynamic-vram (or equivalent memory policy) avoids the reload penalty.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

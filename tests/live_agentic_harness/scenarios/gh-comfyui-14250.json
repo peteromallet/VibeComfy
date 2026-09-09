@@ -34,6 +34,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "version-drift"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Attribute a post-update intermittent 'HostBuffer.read_file_slice failed'/CUDA OOM to the pinned-memory change and land the confirmed mitigation (--disable-pinned-memory or GPU-hiding) on a multi-GPU rig.",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }
