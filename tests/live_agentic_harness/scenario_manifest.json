@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "scenario_root": "tests/live_agentic_harness/scenarios",
- "scenario_count": 113,
+ "scenario_count": 125,
  "entries": [
   {
    "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
@@ -929,7 +929,7 @@
   {
    "id": "live-graph-explanation-smoke",
    "path": "tests/live_agentic_harness/scenarios/live-graph-explanation-smoke.json",
-   "descriptor_sha256": "a8512b11a73c94a055ef2790a82e8e6aff707eec9151a02f724d0b54dbfbd564",
+   "descriptor_sha256": "07d69897b6b1e7610e8d3f3eef163d72b815b44c2aae544e03bf1fbb2755ad00",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unknown"
@@ -958,6 +958,19 @@
     "id": "multi-3d-preview-and-image-output-workflow-d93baf",
     "path": "tests/fixtures/live_agentic_corpus/corpus/d93baf73c8a43f57.json",
     "sha256": "7ff1a0cdf47cec5a91ddb9090f78d676da6bc46cbf824afd9f795d9a3b6e27e3"
+   }
+  },
+  {
+   "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
+   "path": "tests/live_agentic_harness/scenarios/multi-ai-video-upscaling-with-detail-daemon-sampler-673197.json",
+   "descriptor_sha256": "e0c8ee0e52a198983c24400c5d3cfc3979f07ba80b68f83ff933174f9ebc71a0",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "multi",
+   "source_workflow": {
+    "id": "multi-ai-video-upscaling-with-detail-daemon-sampler-673197",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/673197a9269d00f8.json",
+    "sha256": "d15ba9e1d9385ec8ebcbe3ba82d1e9a85af103821b369af3f45170ac8c037f1b"
    }
   },
   {
@@ -1039,6 +1052,19 @@
    }
   },
   {
+   "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
+   "path": "tests/live_agentic_harness/scenarios/multi-flux2-image-and-video-generation-with-outpaint-435de2.json",
+   "descriptor_sha256": "613cb699ab1118164a70b33c798c40b86a930e550c869450958a9bd5000edc02",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "multi",
+   "source_workflow": {
+    "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/435de2f6bb5d3eda.json",
+    "sha256": "6ea334bb5afad8dea98ebc565a8a7993d1b32c9cfaebac39410a4e46eaf30d4c"
+   }
+  },
+  {
    "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
    "path": "tests/live_agentic_harness/scenarios/multi-image-to-3d-object-generation-with-background-1a7f84.json",
    "descriptor_sha256": "2f95c10c88aec40fa96088e71baf3fc83c7d4d7cc12ce6c717e5af7d6affd5aa",
@@ -1101,6 +1127,19 @@
     "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
     "path": "tests/fixtures/live_agentic_corpus/corpus/3598486eb6eb45d1.json",
     "sha256": "984d00ffe8cd14b1a90b3b2698cbd73aab811e71a184d229f2d08ffdcde9f08a"
+   }
+  },
+  {
+   "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+   "path": "tests/live_agentic_harness/scenarios/multi-svd-image-to-video-with-animation-builder-99e2a9.json",
+   "descriptor_sha256": "334e60b6bdb236f5bf632656b29c91ce85d82cec8b1cd542b321170b7287c0de",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "multi",
+   "source_workflow": {
+    "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/99e2a967a579197f.json",
+    "sha256": "f149b2397b765bcf5f0b82c91d63e0a806afe8aac0558352f626708ea8ac4263"
    }
   },
   {
@@ -1182,6 +1221,19 @@
    }
   },
   {
+   "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
+   "path": "tests/live_agentic_harness/scenarios/multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6.json",
+   "descriptor_sha256": "561317d51045d1a64145ebce37ef68ae2997480d31fada937895186b5533f24d",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "multi",
+   "source_workflow": {
+    "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/9d28c679b594d9c4.json",
+    "sha256": "2a6a77f6a780324ca8f06c8a25d964f038bc782d44cf257b3a906c13d31333a6"
+   }
+  },
+  {
    "id": "multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56",
    "path": "tests/live_agentic_harness/scenarios/multi-wanvideo-vace-inpainting-and-compositing-workf-b11a56.json",
    "descriptor_sha256": "943aaf6eab4c3fe23eb586648c84063c076443b48bbee688f7624015212f3a13",
@@ -1197,7 +1249,7 @@
   {
    "id": "speed-distillation-research",
    "path": "tests/live_agentic_harness/scenarios/speed-distillation-research.json",
-   "descriptor_sha256": "9e00fd65c4377cb9f67317c545337875dd9c6f4e8326fd0b23c8e6e62ce7f15e",
+   "descriptor_sha256": "c19b6c215834c9e974876f6aaf3d15273a3da02d4940560f8211fc80eee2ed7e",
    "inclusion_status": "included",
    "revision_status": "matched",
    "scenario_kind": "unknown"
@@ -1229,6 +1281,19 @@
    }
   },
   {
+   "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+   "path": "tests/live_agentic_harness/scenarios/video-animatediff-video-with-ipadapter-and-controlne-4eebf3.json",
+   "descriptor_sha256": "803c0b95458bcaee703d3bfebf20e0cf0887f3c8ccdffb24e765ac75a1a96030",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-animatediff-video-with-ipadapter-and-controlne-4eebf3",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/4eebf3dc07942c52.json",
+    "sha256": "1b6b276f31d6959bad780bba577b9570e1addd72429be1432a9e2d25d5764afa"
+   }
+  },
+  {
    "id": "video-anime-video-to-video-with-controlnet-and-openp-cb5cd2",
    "path": "tests/live_agentic_harness/scenarios/video-anime-video-to-video-with-controlnet-and-openp-cb5cd2.json",
    "descriptor_sha256": "7d6a8a08278c5b95e48d07dcbd58360ebca6bdf01c8ca44d3ca4af229138c5f8",
@@ -1252,6 +1317,32 @@
     "id": "video-generates-a-video-from-a",
     "path": "tests/fixtures/live_agentic_corpus/corpus/59502aed6ad75d87.json",
     "sha256": "28927117ba2b3a403337d39d012c375bba13b8aeed772fb1c846760056012175"
+   }
+  },
+  {
+   "id": "video-hunyuan-video-text-to-video-generation-265847",
+   "path": "tests/live_agentic_harness/scenarios/video-hunyuan-video-text-to-video-generation-265847.json",
+   "descriptor_sha256": "05c3fa8dd70aa02b2a2b2c05be2490995fca6e2d8b4051f499d3f5bc4d1260e0",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-hunyuan-video-text-to-video-generation-265847",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/26584720cc4075d1.json",
+    "sha256": "7d6fb4684f63805fb198b89180d19cd0711747352528d32ec5fa8b16827cb358"
+   }
+  },
+  {
+   "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
+   "path": "tests/live_agentic_harness/scenarios/video-hunyuanvideo-image-to-video-generation-with-en-ff076a.json",
+   "descriptor_sha256": "fe3e3b6c6eb53331f1c20941d80b0aaeff4c28562b7759404938ca282aebb8b1",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-hunyuanvideo-image-to-video-generation-with-en-ff076a",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/ff076a0bcc687c3e.json",
+    "sha256": "8bebcee908a9c9ba17f883e208abd93375e7d954121dd2c80db2d186767cd2b5"
    }
   },
   {
@@ -1304,6 +1395,19 @@
     "id": "video-ltx-video-upscaling-and-enhancement",
     "path": "tests/fixtures/live_agentic_corpus/corpus/0043c6cb3d3d011f.json",
     "sha256": "7e21e6095614576595e0fead1353f7768d96f69044822a47677728422ac494c7"
+   }
+  },
+  {
+   "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
+   "path": "tests/live_agentic_harness/scenarios/video-ltx-video-with-audio-and-inpainting-b3ba8a.json",
+   "descriptor_sha256": "38a26da46fa9b72c100415119823ce669be94165356573a8746c1352276d142f",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/b3ba8a025a649a3b.json",
+    "sha256": "e5212e916469564f8e8ec57a52b5196f79eee9ac745013284377cc79cf9fc4b6"
    }
   },
   {
@@ -1398,6 +1502,19 @@
    }
   },
   {
+   "id": "video-video-output-workflow-f855de",
+   "path": "tests/live_agentic_harness/scenarios/video-video-output-workflow-f855de.json",
+   "descriptor_sha256": "cf5acf66384bda928d5fe807bad17b926035822f622f1ef3b265fdaff7037f48",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-video-output-workflow-f855de",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/f855deb7cdef4ace.json",
+    "sha256": "213b367cc227ceb5b18f2ea26a36ff922f29306c047c1bde675969b32326d05a"
+   }
+  },
+  {
    "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
    "path": "tests/live_agentic_harness/scenarios/video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20.json",
    "descriptor_sha256": "9cdf77b6c0dfe2406c61651202a963bc5cb512c24eaae33f3610b63823a04c09",
@@ -1408,6 +1525,32 @@
     "id": "video-wan-alpha-video-generation-with-lora-and-gguf-6a9e20",
     "path": "tests/fixtures/live_agentic_corpus/corpus/6a9e200909ff7692.json",
     "sha256": "e85189db459d4c16dcf4244fdf4f96f278d8be179aba2eee83df0613be444118"
+   }
+  },
+  {
+   "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
+   "path": "tests/live_agentic_harness/scenarios/video-wan-video-generation-with-vace-and-multi-outpu-d1caec.json",
+   "descriptor_sha256": "6eab75c81ffdc1201dfab2195d121d59893017c11fe0f131e493c787782790c9",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/d1caece85b04698e.json",
+    "sha256": "7c52a085b58a386cb83ceecf183886197e90100d9ecd76f72b90eda1302d5db9"
+   }
+  },
+  {
+   "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+   "path": "tests/live_agentic_harness/scenarios/video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9.json",
+   "descriptor_sha256": "d095209376328c4da7f801976b75aebdeb4ded958004cf446c6e33fa8000324b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/374aa988d0a133be.json",
+    "sha256": "9c5506586ffe421d7036c393ece06f5d54136505115187a259bc9d64f1c6f49c"
    }
   },
   {
@@ -1447,6 +1590,19 @@
     "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
     "path": "tests/fixtures/live_agentic_corpus/corpus/62682a77ae33b43a.json",
     "sha256": "a518f843af614e923733dbee9e3cd7d346fb1d220bc1404abb9c5cc640545969"
+   }
+  },
+  {
+   "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
+   "path": "tests/live_agentic_harness/scenarios/video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9.json",
+   "descriptor_sha256": "198ac9fb5f50a646ffeddc71a0993e006e0442ccdfdc5c62c9bcdfddd64fc08b",
+   "inclusion_status": "included",
+   "revision_status": "matched",
+   "scenario_kind": "video",
+   "source_workflow": {
+    "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
+    "path": "tests/fixtures/live_agentic_corpus/corpus/82ffb9156459a82e.json",
+    "sha256": "b1234ae980088293b2e8cfa294548b7fcae8e13f286e4cd5f1f87833d976c1a4"
    }
   },
   {
