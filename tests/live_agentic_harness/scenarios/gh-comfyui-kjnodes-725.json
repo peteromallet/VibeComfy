@@ -34,6 +34,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "gpu-only",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose a Windows/Blackwell-specific kernel-lookup failure in the memory-efficient SageAttention path and either switch to the working patch node or fix the torch.ops fallback.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow",
+   "env-specific",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize a kornia 0.8.3 API break (removed torch pad re-export) and choose between pinning, patching pyramid_blending.py, or updating the pack.",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

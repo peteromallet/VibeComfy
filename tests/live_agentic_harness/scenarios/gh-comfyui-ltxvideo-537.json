@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize a ComfyUI-core/pack version skew and update the pack, while rejecting the in-thread kornia==0.6.12 downgrade red herring.",
+  "eval_value": "low",
+  "recommended_grade_mode": "strict"
  }
 }

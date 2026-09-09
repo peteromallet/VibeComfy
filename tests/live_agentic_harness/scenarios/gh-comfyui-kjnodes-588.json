@@ -34,6 +34,16 @@
   "techniques": [
    "hunyuan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "visual-judgment",
+   "outcome-ambiguous",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Reject the misleading pass-through node as suspect and reason about where black FramePack renders actually originate, despite the issue containing no confirmed cause.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,14 @@
   "techniques": [
    "mmaudio"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Trace a JS 'displayValue of undefined' workflow-load crash to a known VHS upstream bug rather than the MMAudio workflow itself.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

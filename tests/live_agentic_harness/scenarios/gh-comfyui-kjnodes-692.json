@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "gpu-only",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Trace an AttributeError into sageattention 2.x API drift and repair kernel dispatch for sm120 (generic sageattn call or torch.ops.sageattention_qattn_sm89 lookup).",
+  "eval_value": "high",
+  "recommended_grade_mode": "strict"
  }
 }

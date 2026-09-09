@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "gpu-only"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Trace intermittent AAC-encoder NaN/Inf failures to AudioVAE NaNs at awkward sequence lengths amplified by the vocoder, then design a sanitize-at-the-boundary patch (nan_to_num before av.AudioFrame).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

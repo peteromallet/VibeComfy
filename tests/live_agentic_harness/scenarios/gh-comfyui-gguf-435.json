@@ -34,6 +34,17 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "outcome-ambiguous",
+   "gpu-only",
+   "env-specific",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Advise on multi-GPU sharding of a flux2 q8 GGUF across 2x16GB cards \u2014 a hardware topology question with zero verified answer in the thread.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

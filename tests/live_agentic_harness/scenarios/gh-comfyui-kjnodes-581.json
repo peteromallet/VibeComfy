@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "env-specific",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Resist the rollback temptation: recognize that disabled KJNodes cannot cause the OOM and reason about VRAM knobs (chunk feedforward) instead of pinning blame on the update.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

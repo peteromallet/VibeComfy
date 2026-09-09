@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Debug a 2.0.0-regression access violation where GGUFModelPatcher.unpatch_model touches mmap'd weight memory during cache cleanup, and reason about why unpatch_weights=False prevents it.",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

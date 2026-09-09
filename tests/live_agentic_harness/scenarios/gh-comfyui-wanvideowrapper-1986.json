@@ -34,6 +34,16 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "env-specific",
+   "gpu-only",
+   "solution-too-specific",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Separately diagnose (a) unbounded pinned-memory RAM growth on Windows (fix: --disable-pinned-memory + older WanVideo Enhanced BlockSwap node) and (b) sageattn_3/torch.compile conflicts (per_block_mean mode; avoid reduce-overhead on Windows).",
+  "eval_value": "high",
+  "recommended_grade_mode": "rubric"
  }
 }

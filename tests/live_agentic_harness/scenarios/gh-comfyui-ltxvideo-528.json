@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize OpenCV 5.x removed/changed the imwrite writer path used by LTXVHDRDecodePostprocess and either pin opencv-python<5 or reroute the writer.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

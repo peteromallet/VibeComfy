@@ -34,6 +34,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "information-poor",
+   "unreproducible"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Evaluate whether JoyAI Image Edit GGUF already works via existing loaders because the checkpoint name contains 'wan' \u2014 a support request with only one unconfirmed comment.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

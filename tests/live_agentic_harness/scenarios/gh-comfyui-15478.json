@@ -34,6 +34,14 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "solution-too-specific",
+   "version-drift"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Determine that the error comes from MiniMaxH3MemoryEfficientSageAttentionPatch's own version/arch detection being wrong (env is actually fine: torch 2.13+cu130, sage 2.2.0) and swap to Patch Sage Attention KJ.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

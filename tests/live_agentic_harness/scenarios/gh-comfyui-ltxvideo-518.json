@@ -34,6 +34,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "outcome-ambiguous",
+   "visual-judgment",
+   "unreproducible",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose why i2v output ignores the conditioning image (prompt_enhance / conditioning strength) rather than a crash \u2014 grading requires watching the video and judging adherence.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

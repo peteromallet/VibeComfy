@@ -34,6 +34,15 @@
   "techniques": [
    "minimax-h3"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "information-poor",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Diagnose a Sampler RuntimeError from essentially zero evidence (no error text, empty log section); only evidence is one user's unconfirmed screenshot anecdote about 'easy cache'.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

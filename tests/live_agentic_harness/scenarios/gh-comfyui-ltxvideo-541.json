@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "solution-too-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Trace a third-party dependency's removed re-export (kornia's `pad`) from the ImportError and patch the node-pack import to use torch's F.pad.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

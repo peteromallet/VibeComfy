@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "env-specific",
+   "trivial",
+   "information-poor"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Fix a pip install failure caused by running pip from the wrong working directory or a broken custom-node checkout on ComfyUI portable \u2014 pure environment/setup debugging.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

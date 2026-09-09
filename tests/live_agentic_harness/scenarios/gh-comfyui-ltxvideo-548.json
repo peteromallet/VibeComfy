@@ -34,6 +34,15 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "unreproducible",
+   "outcome-ambiguous"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize that an sd1_clip.py unpack crash on LTX 2.5 means the ComfyUI core predates the 2.5 text-encoder contract and must be bumped to >=0.32.0.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

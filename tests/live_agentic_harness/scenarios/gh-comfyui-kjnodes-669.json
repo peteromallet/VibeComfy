@@ -34,6 +34,14 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "visual-judgment",
+   "env-specific"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Attribute degraded video quality to environment (xformers installed against node requirements) plus workflow wiring (distill LoRA detached) rather than to dependency churn or model bugs.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,15 @@
   "techniques": [
    "flux (chatgpt plus / art-venture)"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "stale-workflow",
+   "trivial"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Recognize 'loading aborted due to error reloading workflow data' as stale multi-pack custom nodes and refresh them (git pull + pip requirements).",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,15 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": true
+  "solution_confirmed": true,
+  "pitfalls": [
+   "version-drift",
+   "solution-too-specific",
+   "unreproducible"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Rule out workflow/user error for a cuda:0-vs-cpu device mismatch and identify it as a wrapper regression needing revert/upgrade.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "strict"
  }
 }

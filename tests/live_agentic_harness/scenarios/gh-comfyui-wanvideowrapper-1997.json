@@ -34,6 +34,14 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Root-cause the WanAnimate bg_images IndexError: bg encoded at raw length (nodes.py:1281) vs None-case length num_frames-num_refs, plus 4k+1 num_frames rounding desync; patch normalizes bg by truncate/last-frame-pad.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }

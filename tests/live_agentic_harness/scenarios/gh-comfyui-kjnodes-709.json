@@ -34,6 +34,16 @@
   "techniques": [
    "ltx"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "version-drift",
+   "env-specific",
+   "gpu-only",
+   "solution-too-specific"
+  ],
+  "update_trap": true,
+  "hidden_requirement": "Read the node's version gate correctly and resolve a dependency-version conflict by installing a compatible sageattention build, with no workflow reasoning involved.",
+  "eval_value": "low",
+  "recommended_grade_mode": "rubric"
  }
 }

@@ -34,6 +34,14 @@
   "techniques": [
    "wan"
   ],
-  "solution_confirmed": false
+  "solution_confirmed": false,
+  "pitfalls": [
+   "unreproducible",
+   "stale-workflow"
+  ],
+  "update_trap": false,
+  "hidden_requirement": "Root-cause the SCAIL crash at nodes_sampler.py:2068: SCAIL models produce no standard image_embeds, so partial_img_emb is None in the context-split path; propose a guard/derivation there.",
+  "eval_value": "medium",
+  "recommended_grade_mode": "rubric"
  }
 }
