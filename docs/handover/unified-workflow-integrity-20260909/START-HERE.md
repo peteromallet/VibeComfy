@@ -26,3 +26,5 @@ Read `goal.md`, `northstar.md`, `run.yaml`, `status.md`, `consolidation.md`, `pl
 Planning-only means no implementation or product tests are authorized by this package. If explicit execution authority arrives, update only the authoritative `run.yaml` mode while preserving roles, counters, stages, caps, and boundaries.
 
 The ready-to-send message is [assets/handover-message.md](assets/handover-message.md). Publication is limited to this handover branch; the receiver retains planning-only mode until explicit delivery instruction.
+
+Latest requested [Astra end-state sense check](evidence/astra-end-state-sense-check.md): two evidence clarifications are adopted in the acceptance ledger and task briefs. No product tests or implementation are claimed.

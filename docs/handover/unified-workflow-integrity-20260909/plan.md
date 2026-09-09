@@ -69,3 +69,7 @@ The user's bundling amendment supersedes D5 exclusion. The prior emission D1 set
 [execution-start.md](./execution-start.md) supplies exact roots, C0 source-selection rules and per-task outcome/evidence/dependency/normal-route briefs. Remaining C0/T0 uncertainties are bounded execution work, not claims that tests passed. Reuse current native H3 behavior and finish the absorbed emission requirements once in the shared path.
 
 The user requested an assessment of actual output elegance. The clean-source clarification in acceptance-ledger.md applies to the entire generated file: no renamed graph/JSON replay tail, no duplicated runtime controls, necessary custody only. E2 must demonstrate this on the actual H3 output; source syntax checks alone do not certify it.
+
+## Latest Astra sense-check requirements
+
+Apply the two mandatory evidence clarifications in [the acceptance ledger](acceptance-ledger.md#astra-sense-check-acceptance-clarification--2026-09-09): E0 maps the existing ingress owners and establishes cross-entrypoint baseline; E1 corrects only demonstrated shared-owner/emission defects; T3 adds the focused regressions to Q5; E2 saves/reloads and exports the edited H3 graph, asserts presentation/subgraph structure and records inspection of the exact rendered graph and whole Python file. A nested-definition source edit is a recommended optional test choice within existing I8/I9. No added task family or review stage.

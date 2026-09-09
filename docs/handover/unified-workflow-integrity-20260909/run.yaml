@@ -72,8 +72,8 @@ review_stages:
   - I10
   max_rounds: 3
 review_budget:
-  max_calls: 10
-  historical_calls: 5
+  max_calls: 11
+  historical_calls: 6
   future_stage_max_calls: 5
   count_rule: Every independent reviewer invocation counts, including UNKNOWN, failed/lost attempts, correction
     rounds and restarts. No new allowance from renaming/repackaging or XHARD replacement. No additional
@@ -88,8 +88,15 @@ budget_adoption:
   note: 'Canonical history: five reviews and five oracle decisions including D5. Absorbed emission history
     adds one prior Sol D1 oracle and zero executable reviews. Combined oracle spent=6 of 7; review spent=5
     of 10. Direct user bundling amendment is applied without an extra oracle call. Older 26-task source-run
-    counters remain untouched in that separate lineage; no old acceptance is treated as current proof.'
+    counters remain untouched in that separate lineage; no old acceptance is treated as current proof.
+    Latest user-requested Astra planning sense check adds one authorized call: cumulative review spent=6
+    of 11, with the same five future execution calls. Original historical_review_calls=5 remains lineage
+    history.'
   inherited_emission_oracle_calls: 1
+  user_requested_planning_review_calls: 1
+  user_requested_planning_review_authority: '2026-09-09: user explicitly requested one additional Astra
+    sense check of clean Python, elegant ingestion and testable end state. Adds and spends one planning
+    review; the five execution-review calls and oracle budget are unchanged.'
 binding_notes:
   reviewer_normal: Luna medium per explicit user correction; owns the save/export completion checkpoint.
   oracle: Current host is designated adjudicator per user readiness instruction; concrete decisions consume
@@ -105,7 +112,8 @@ review_contract:
   packet_template: review-packet-template.md
   assembly_source: plan.md#review-packet-assembly
   counts_source: status.md
-  planning_dispatch: none; future stages are dormant until explicit delivery authorization
+  planning_dispatch: One explicit user-requested Astra high planning sense check on 2026-09-09; future
+    executable stages remain dormant until explicit delivery authorization.
   restart_policy: Write attempt ID and debit count before dispatch. Recover lost results or conservatively
     keep charge. Counters survive crashes, stage renames, candidate changes and coordinator/model replacements.
   stage_failure: Only contract_violation, implementation_defect, required_evidence_gap may block. Fix

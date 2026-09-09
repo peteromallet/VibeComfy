@@ -25,3 +25,7 @@ Inspected Megado and handover skills commit: `ef42515942adfb1683cde4b7b2d53d4e56
 The intended package is scanned for credentials, private operational details, personal/home paths and excluded artifacts. H3 strings are public workflow/model metadata. The source base is already on this same public destination: its 1,760 reachable commits were inspected with bounded static pattern searches. They contain inherited example credentials, security records and local-path references; no history rewrite or new publication of unrelated local history is performed. Static pattern checks do not prove every historical match is inert. Only this selected handover directory is added to the already-public base; no logs/caches/private source overlays are staged.
 
 Fresh-checkout verification checks manifest, portable links, source/ref identity, YAML roles/stages/counters, complete criteria, H3 hash and pinned dependency reads. This is packaging verification, not product-test or model-review PASS. Actual future candidate review packets must be assembled after implementation and required tests.
+
+## User-requested Astra sense check
+
+One independent native `gpt-6-astra` high planning review examined the previously published `ed0d16d2a4b86d3e2750b1349a2a4e189110cbe8` package. Its two in-scope acceptance-evidence corrections were adopted without product execution. Latest user authority adds/spends one planning-review call, preserving five future execution calls and the oracle budget. This publication changes plan artifacts only.

@@ -63,3 +63,7 @@ timeout 600 python3 -m pytest -q tests/test_porting_emitter.py tests/test_h3_gen
 ## Observed current-main onboarding baseline
 
 See evidence/h3-main-baseline.md. E0 captures actual port-check/convert refusal (MiniMax class, CLIP enum and schema input errors), rather than assuming the guide path already works. E1/E2 must make the exact source-backed draft conversion/practical edit outcome work through existing representation/schema owners while preserving execution fail-closed behavior. Do not invent schemas or treat missing GPU readiness as semantic loss. T4 corrects raw-JSON inspect/analyze instructions that current authority rejects. No fresh candidate was produced by this baseline; the file opened to the user is the pre-existing main candidate. It does not close I10.
+
+## Latest Astra sense-check requirements
+
+Apply the two mandatory evidence clarifications in [the acceptance ledger](acceptance-ledger.md#astra-sense-check-acceptance-clarification--2026-09-09): E0 maps the existing ingress owners and establishes cross-entrypoint baseline; E1 corrects only demonstrated shared-owner/emission defects; T3 adds the focused regressions to Q5; E2 saves/reloads and exports the edited H3 graph, asserts presentation/subgraph structure and records inspection of the exact rendered graph and whole Python file. A nested-definition source edit is a recommended optional test choice within existing I8/I9. No added task family or review stage.
