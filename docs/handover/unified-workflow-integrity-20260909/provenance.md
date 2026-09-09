@@ -29,3 +29,7 @@ Fresh-checkout verification checks manifest, portable links, source/ref identity
 ## User-requested Astra sense check
 
 One independent native `gpt-6-astra` high planning review examined the previously published `ed0d16d2a4b86d3e2750b1349a2a4e189110cbe8` package. Its two in-scope acceptance-evidence corrections were adopted without product execution. Latest user authority adds/spends one planning-review call, preserving five future execution calls and the oracle budget. This publication changes plan artifacts only.
+
+## Main publication
+
+The user subsequently requested direct main publication to simplify receipt. The complete plan package and Astra corrections were integrated onto latest origin/main `623e7f6a386193927e32d23dd475df12cc9bc193`, preserving its intervening changes. Main is now the receiving ref; the earlier handover branch is historical. The inspected product baseline remains the source SHA above; C0 must check current source before implementation. Only plan artifacts changed. Local unrelated work remains untouched.

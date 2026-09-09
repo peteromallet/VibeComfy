@@ -1,3 +1,5 @@
+> Current authority: **delivery approved**. Execute the plan and required tests now. Earlier planning-only statements below are historical and superseded.
+
 # Start the unified integrity and Pythonic-emission delivery
 
 Prepared 2026-09-09. Read goal.md, northstar.md, run.yaml, tasklist.md and status.md first. The current mode is planning_only: these assignments are prepared, not dispatched for product implementation. On an instruction to execute this plan, record delivery authorization and switch mode to delivery without resetting counters. Read the installed Megado execution.md reference before source mutation. Host holds coordinator and oracle responsibility; normal assignments resolve through worker_normal in run.yaml. No merge/push/deployment is implied.
@@ -73,3 +75,7 @@ The current source closure check found all 12 relevant dirty edit/revision paths
 ## Latest Astra sense-check requirements
 
 Apply the two mandatory evidence clarifications in [the acceptance ledger](acceptance-ledger.md#astra-sense-check-acceptance-clarification--2026-09-09): E0 maps the existing ingress owners and establishes cross-entrypoint baseline; E1 corrects only demonstrated shared-owner/emission defects; T3 adds the focused regressions to Q5; E2 saves/reloads and exports the edited H3 graph, asserts presentation/subgraph structure and records inspection of the exact rendered graph and whole Python file. A nested-definition source edit is a recommended optional test choice within existing I8/I9. No added task family or review stage.
+
+## Latest user authorization — execute
+
+The user instructed: “And give them approval to execute too, keep it simple.” This supersedes earlier planning-only/start-permission instructions throughout this package. Receiving mode is delivery: begin C0, implement the unified plan, fix in-scope defects and run all required programmatic and visual acceptance checks. Preserve roles, scope, review/oracle counters and resource boundaries. Report completion with evidence and any actual unresolved blockers. No additional permission to start is required.

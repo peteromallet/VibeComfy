@@ -1,3 +1,5 @@
+> Current authority: **delivery approved**. Execute the plan and required tests now. Earlier planning-only statements below are historical and superseded.
+
 # Status
 
 Planning-only handover. Product delivery has not started. I1–I10 are `NOT RUN / MISSING`.
@@ -13,3 +15,7 @@ Source closure is resolved: the pinned main contains all selected behavior, no d
 The latest user authorized one additional Astra high planning sense check (one call added and spent). Existing execution-stage allowances remain 2 + 3; oracle remains 6/7. This is planning assessment, not implementation evidence.
 
 Astra found the architecture and whole-file clean-Python contract sound, with two required evidence clarifications now adopted: shared ingress-owner parity including refusal, and inspection of the exact exported graph plus whole Python file. Implementation evidence remains NOT RUN / MISSING.
+
+## Latest user authorization — execute
+
+The user instructed: “And give them approval to execute too, keep it simple.” This supersedes earlier planning-only/start-permission instructions throughout this package. Receiving mode is delivery: begin C0, implement the unified plan, fix in-scope defects and run all required programmatic and visual acceptance checks. Preserve roles, scope, review/oracle counters and resource boundaries. Report completion with evidence and any actual unresolved blockers. No additional permission to start is required.

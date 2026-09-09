@@ -1,4 +1,4 @@
-mode: planning_only
+mode: delivery
 roles:
   coordinator:
     model: gpt-6-astra
@@ -112,8 +112,8 @@ review_contract:
   packet_template: review-packet-template.md
   assembly_source: plan.md#review-packet-assembly
   counts_source: status.md
-  planning_dispatch: One explicit user-requested Astra high planning sense check on 2026-09-09; future
-    executable stages remain dormant until explicit delivery authorization.
+  planning_dispatch: The user-requested Astra planning check is complete. Delivery is now explicitly authorized;
+    execute existing stages at their declared triggers.
   restart_policy: Write attempt ID and debit count before dispatch. Recover lost results or conservatively
     keep charge. Counters survive crashes, stage renames, candidate changes and coordinator/model replacements.
   stage_failure: Only contract_violation, implementation_defect, required_evidence_gap may block. Fix
