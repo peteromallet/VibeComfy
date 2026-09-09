@@ -75,26 +75,26 @@
     "class_type": "Flux2Scheduler",
     "inputs": {
       "steps": 4,
-      "width": [
-        "8",
-        0
-      ],
       "height": [
         "8",
         1
+      ],
+      "width": [
+        "8",
+        0
       ]
     }
   },
   "11": {
     "class_type": "EmptyFlux2LatentImage",
     "inputs": {
-      "width": [
-        "8",
-        0
-      ],
       "height": [
         "8",
         1
+      ],
+      "width": [
+        "8",
+        0
       ]
     }
   },
@@ -141,12 +141,12 @@
         "2",
         0
       ],
-      "positive": [
-        "13",
-        0
-      ],
       "negative": [
         "14",
+        0
+      ],
+      "positive": [
+        "13",
         0
       ]
     }
@@ -154,12 +154,16 @@
   "16": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
-      "noise": [
-        "5",
-        0
-      ],
       "guider": [
         "15",
+        0
+      ],
+      "latent_image": [
+        "11",
+        0
+      ],
+      "noise": [
+        "5",
         0
       ],
       "sampler": [
@@ -168,10 +172,6 @@
       ],
       "sigmas": [
         "10",
-        0
-      ],
-      "latent_image": [
-        "11",
         0
       ]
     }
@@ -272,26 +272,26 @@
     "class_type": "Flux2Scheduler",
     "inputs": {
       "steps": 4,
-      "width": [
-        "26",
-        0
-      ],
       "height": [
         "26",
         1
+      ],
+      "width": [
+        "26",
+        0
       ]
     }
   },
   "29": {
     "class_type": "EmptyFlux2LatentImage",
     "inputs": {
-      "width": [
-        "26",
-        0
-      ],
       "height": [
         "26",
         1
+      ],
+      "width": [
+        "26",
+        0
       ]
     }
   },
@@ -381,12 +381,12 @@
         "21",
         0
       ],
-      "positive": [
-        "35",
-        0
-      ],
       "negative": [
         "34",
+        0
+      ],
+      "positive": [
+        "35",
         0
       ]
     }
@@ -394,12 +394,16 @@
   "37": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
-      "noise": [
-        "20",
-        0
-      ],
       "guider": [
         "36",
+        0
+      ],
+      "latent_image": [
+        "29",
+        0
+      ],
+      "noise": [
+        "20",
         0
       ],
       "sampler": [
@@ -408,10 +412,6 @@
       ],
       "sigmas": [
         "28",
-        0
-      ],
-      "latent_image": [
-        "29",
         0
       ]
     }

@@ -14,7 +14,7 @@ def test_multi_output_node_edges_preserved() -> None:
     """Edges referencing different output slots of the same node should be preserved."""
     wf = VibeWorkflow(
         "multi-out",
-        WorkflowSource("source/multi_out", source_type="api"),
+        WorkflowSource("multi-out", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["1"].metadata["output_names"] = ["image", "mask"]
@@ -31,14 +31,15 @@ def test_multi_output_node_edges_preserved() -> None:
 
     # Both output slots should be referenced in the emitted text
     text = result.text
-    assert ".out(0)" in text or ".out(" in text
+    assert "wf.connect('1.0', '2.images')" in text
+    assert "wf.connect('1.1', '3.images')" in text
 
 
 def test_single_output_node_no_edge_ambiguity() -> None:
     """Single-output node with implicit slot 0 should work correctly."""
     wf = VibeWorkflow(
         "single-out",
-        WorkflowSource("source/single_out", source_type="api"),
+        WorkflowSource("single-out", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/img"})

@@ -1,7 +1,7 @@
 {
   "id": "video-ltx-video-with-audio-and-inpainting-b3ba8a",
   "query": "The inpainted region looks sharp-edged and doesn't blend smoothly with the rest of the video, and the colors in that region are completely off (grayish). What's going wrong?",
-  "workflow_path": "external_workflows/corpus/b3ba8a025a649a3b.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b3ba8a025a649a3b.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/b3ba8a025a649a3b.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b3ba8a025a649a3b.json",
     "required_node_evidence": [
       "ImageToMask",
       "GrowMaskWithBlur",

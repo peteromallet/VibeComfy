@@ -23,7 +23,6 @@ from vibecomfy.porting.strict_ready import (
 from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.porting.emitter import _wrapper_module_for_class
 from vibecomfy.porting.object_info import class_has_list_output, class_output_count
-from vibecomfy.porting.parity import _is_schema_default_input
 from vibecomfy.registry.ready import repo_ready_template_id_for_path
 from vibecomfy.registry.ready_template import apply_ready_template_policy
 from vibecomfy.registry.static_contract import compare_public_contracts
@@ -607,12 +606,6 @@ def _v26_node_kwarg_diagnostics(ready_id: str, path: str, node: ast.Call, class_
         if kw.arg == "_outputs" and _is_single_output_class(class_type):
             diagnostics.append(_v26_diag(ready_id, path, node.lineno, "v26_single_output_outputs_kwarg", f"Single-output node {class_type} must not emit `_outputs=`.", enforced))
             continue
-        try:
-            value = ast.literal_eval(kw.value)
-        except Exception:
-            continue
-        if _is_schema_default_input(class_type, kw.arg, value):
-            diagnostics.append(_v26_diag(ready_id, path, node.lineno, "v26_schema_default_kwarg", f"Schema-default kwarg {class_type}.{kw.arg}={value!r} should be omitted.", enforced))
     return diagnostics
 
 

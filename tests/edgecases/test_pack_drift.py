@@ -14,7 +14,7 @@ def _build_workflow_with_pack_info() -> VibeWorkflow:
     """Build a workflow where nodes carry explicit pack metadata."""
     wf = VibeWorkflow(
         "pack-drift-test",
-        WorkflowSource("source/pack_drift", source_type="api"),
+        WorkflowSource("pack-drift-test", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", pack="comfy-core", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", pack="comfy-core", inputs={"filename_prefix": "out/test"})
@@ -38,7 +38,7 @@ def test_pack_metadata_preserved_through_conversion() -> None:
 
 def test_pack_drift_empty_no_crash() -> None:
     """Empty pack info should not cause crashes."""
-    wf = VibeWorkflow("no-pack", WorkflowSource("source/no_pack", source_type="api"))
+    wf = VibeWorkflow("no-pack", WorkflowSource("no-pack", source_type="api"))
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     result = port_convert_workflow(wf)
     assert result.validation is not None

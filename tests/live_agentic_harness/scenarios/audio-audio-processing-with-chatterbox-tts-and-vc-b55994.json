@@ -1,7 +1,7 @@
 {
   "id": "audio-audio-processing-with-chatterbox-tts-and-vc-b55994",
   "query": "Change the output audio format from MP3 to FLAC.",
-  "workflow_path": "external_workflows/corpus/b55994d9cb6aea42.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b55994d9cb6aea42.json",
   "network": true,
   "timeout": 280,
   "apply": true,

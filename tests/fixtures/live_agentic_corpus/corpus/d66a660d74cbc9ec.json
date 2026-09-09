@@ -1,0 +1,558 @@
+{
+  "edges": [
+    {
+      "from_node": "36",
+      "from_output": "6",
+      "to_input": "model_3d",
+      "to_node": "48"
+    },
+    {
+      "from_node": "48",
+      "from_output": "0",
+      "to_input": "mesh",
+      "to_node": "38"
+    }
+  ],
+  "groups": [],
+  "id": "2d5c68672bc2aaaf",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "36": {
+        "class_type": "Load3D",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "6",
+            [
+              "48",
+              "model_3d"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3d/boy_with_helmet.fbx'"
+          ],
+          [
+            "widget_1",
+            "None"
+          ],
+          [
+            "widget_2",
+            "'uploadExtraResources'"
+          ],
+          [
+            "widget_3",
+            "'clear'"
+          ],
+          [
+            "widget_4",
+            "''"
+          ],
+          [
+            "widget_5",
+            "1024"
+          ],
+          [
+            "widget_6",
+            "1024"
+          ]
+        ]
+      },
+      "38": {
+        "class_type": "SaveGLB",
+        "incoming_edge_sig": [
+          [
+            "mesh",
+            [
+              "48",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mesh/Hunyuan3D'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "48": {
+        "class_type": "Tencent3DTextureEditNode",
+        "incoming_edge_sig": [
+          [
+            "model_3d",
+            [
+              "36",
+              "6"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "38",
+              "mesh"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Cool game boy, cyberpunk style, neon lights, dynamic pose, minimalist'"
+          ],
+          [
+            "widget_1",
+            "337629833"
+          ],
+          [
+            "widget_2",
+            "'randomize'"
+          ]
+        ]
+      },
+      "49": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Supported formats: FBX\\n3D model limit: less than 100000 faces'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d66a660d74cbc9ec839c2a6f9c181ec309396e70ff89354e60e9bda866878f55",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Update templates from add-new-template (#591)",
+      "commit_sha": "c5b3d75d2a03a8d5c6d120efb738c22a3aa09126",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/c5b3d75d2a03a8d5c6d120efb738c22a3aa09126",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/api_hunyuan3d_texture_edit.json:api_hunyuan3d_texture_edit.json:2d5c68672bc2aaaf",
+      "filename": "api_hunyuan3d_texture_edit.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "Load3D": 1,
+        "Note": 1,
+        "SaveGLB": 1,
+        "Tencent3DTextureEditNode": 1
+      },
+      "node_count": 4,
+      "origin_date": "2026-02-16T18:27:27Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/api_hunyuan3d_texture_edit.json",
+      "source": "github",
+      "source_file_sha256": "2d5c68672bc2aaaf9675fc77c9717de16ff5b23cdccc33a9b7a30aa1ab9d7659",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/api_hunyuan3d_texture_edit.json",
+      "source_workflow_sha256": "e46225a7a1a29bef1c9542824043466659540b03aedf9bae7b4536923a7901d8",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "93dab152e8d43b6bf74cf60134afae37bd821791dcfc8dd07c646842bc5ade56",
+      "complexity": 1,
+      "description": "Loads a 3D model, applies texture editing via Tencent3DTextureEditNode, and exports the result as a GLB file.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "3d",
+      "tags": [
+        "3d",
+        "texture-editing",
+        "glb-export",
+        "model-loading"
+      ],
+      "task_type": "other",
+      "title": "3D Model Load, Edit, and Export Workflow"
+    }
+  },
+  "nodes": {
+    "36": {
+      "class_type": "Load3D",
+      "id": "36",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 36,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": null,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            },
+            {
+              "links": null,
+              "name": "mesh_path",
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "normal",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "camera_info",
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "links": null,
+              "name": "recording_video",
+              "type": "VIDEO"
+            },
+            {
+              "links": [
+                27
+              ],
+              "name": "model_3d",
+              "type": "FILE_3D"
+            }
+          ],
+          "pos": [
+            -5867.000899254719,
+            1432.000127406964
+          ],
+          "properties": {
+            "Camera Config": {
+              "cameraType": "perspective",
+              "fov": 35,
+              "state": {
+                "cameraType": "perspective",
+                "position": {
+                  "x": 6.521499681494316,
+                  "y": 4.226439949185556,
+                  "z": 9.518979655023397
+                },
+                "target": {
+                  "x": 0,
+                  "y": 2.5000000000000004,
+                  "z": 0
+                },
+                "zoom": 1
+              }
+            },
+            "Node name for S&R": "Load3D",
+            "Resource Folder": "",
+            "cnr_id": "comfy-core",
+            "ver": "0.13.0"
+          },
+          "size": [
+            576,
+            804
+          ],
+          "type": "Load3D",
+          "widgets_values": [
+            "3d/boy_with_helmet.fbx",
+            null,
+            "uploadExtraResources",
+            "clear",
+            "",
+            1024,
+            1024
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3d/boy_with_helmet.fbx",
+          null,
+          "uploadExtraResources",
+          "clear",
+          "",
+          1024,
+          1024
+        ]
+      },
+      "uid": "36",
+      "widgets": {
+        "widget_0": "3d/boy_with_helmet.fbx",
+        "widget_1": null,
+        "widget_2": "uploadExtraResources",
+        "widget_3": "clear",
+        "widget_4": "",
+        "widget_5": 1024,
+        "widget_6": 1024
+      }
+    },
+    "38": {
+      "class_type": "SaveGLB",
+      "id": "38",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "inputs": [
+            {
+              "link": 28,
+              "name": "mesh",
+              "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [],
+          "pos": [
+            -4715.000902184407,
+            1432.000127406964
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "ver": "0.13.0"
+          },
+          "size": [
+            684,
+            816
+          ],
+          "type": "SaveGLB",
+          "widgets_values": [
+            "mesh/Hunyuan3D",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mesh/Hunyuan3D",
+          ""
+        ]
+      },
+      "uid": "38",
+      "widgets": {
+        "widget_0": "mesh/Hunyuan3D",
+        "widget_1": ""
+      }
+    },
+    "48": {
+      "class_type": "Tencent3DTextureEditNode",
+      "id": "48",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 48,
+          "inputs": [
+            {
+              "link": 27,
+              "name": "model_3d",
+              "type": "FILE_3D_FBX,FILE_3D"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                28
+              ],
+              "name": "GLB",
+              "type": "FILE_3D_GLB"
+            },
+            {
+              "links": null,
+              "name": "FBX",
+              "type": "FILE_3D_FBX"
+            }
+          ],
+          "pos": [
+            -5243.00106331722,
+            1432.000127406964
+          ],
+          "properties": {
+            "Node name for S&R": "Tencent3DTextureEditNode"
+          },
+          "size": [
+            480,
+            240
+          ],
+          "type": "Tencent3DTextureEditNode",
+          "widgets_values": [
+            "Cool game boy, cyberpunk style, neon lights, dynamic pose, minimalist",
+            337629833,
+            "randomize"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Cool game boy, cyberpunk style, neon lights, dynamic pose, minimalist",
+          337629833,
+          "randomize"
+        ]
+      },
+      "uid": "48",
+      "widgets": {
+        "widget_0": "Cool game boy, cyberpunk style, neon lights, dynamic pose, minimalist",
+        "widget_1": 337629833,
+        "widget_2": "randomize"
+      }
+    },
+    "49": {
+      "class_type": "Note",
+      "id": "49",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 49,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            -5240.000235307632,
+            1760.0001019009273
+          ],
+          "properties": {},
+          "size": [
+            470,
+            300
+          ],
+          "type": "Note",
+          "widgets_values": [
+            "Supported formats: FBX\n3D model limit: less than 100000 faces"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Supported formats: FBX\n3D model limit: less than 100000 faces"
+        ]
+      },
+      "uid": "49",
+      "widgets": {
+        "widget_0": "Supported formats: FBX\n3D model limit: less than 100000 faces"
+      }
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "2d5c68672bc2aaaf",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/2d5c68672bc2aaaf-api_hunyuan3d_texture_edit.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d66a660d74cbc9ec839c2a6f9c181ec309396e70ff89354e60e9bda866878f55",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Update templates from add-new-template (#591)",
+      "commit_sha": "c5b3d75d2a03a8d5c6d120efb738c22a3aa09126",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/c5b3d75d2a03a8d5c6d120efb738c22a3aa09126",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/api_hunyuan3d_texture_edit.json:api_hunyuan3d_texture_edit.json:2d5c68672bc2aaaf",
+      "filename": "api_hunyuan3d_texture_edit.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "Load3D": 1,
+        "Note": 1,
+        "SaveGLB": 1,
+        "Tencent3DTextureEditNode": 1
+      },
+      "node_count": 4,
+      "origin_date": "2026-02-16T18:27:27Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/api_hunyuan3d_texture_edit.json",
+      "source": "github",
+      "source_file_sha256": "2d5c68672bc2aaaf9675fc77c9717de16ff5b23cdccc33a9b7a30aa1ab9d7659",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/api_hunyuan3d_texture_edit.json",
+      "source_workflow_sha256": "e46225a7a1a29bef1c9542824043466659540b03aedf9bae7b4536923a7901d8",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

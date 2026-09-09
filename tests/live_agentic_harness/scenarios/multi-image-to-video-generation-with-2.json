@@ -1,7 +1,7 @@
 {
   "id": "multi-image-to-video-generation-with-2",
   "query": "The audio doesn't match the video \u2014 the audio side of the pipeline seems off.",
-  "workflow_path": "tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/8d606b5c56f1243a.json",
   "apply": true,
   "network": true,
   "timeout": 300,

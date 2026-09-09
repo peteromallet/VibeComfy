@@ -14,7 +14,7 @@ def test_deeply_nested_inputs_no_crash() -> None:
     """Deeply nested dict/list inputs should not crash port_convert_workflow."""
     wf = VibeWorkflow(
         "deep-nest",
-        WorkflowSource("source/deep_nest", source_type="api"),
+        WorkflowSource("deep-nest", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",
@@ -33,7 +33,7 @@ def test_empty_inputs_dict_no_crash() -> None:
     """Node with empty inputs dict should not crash."""
     wf = VibeWorkflow(
         "empty-inputs",
-        WorkflowSource("source/empty_inputs", source_type="api"),
+        WorkflowSource("empty-inputs", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "EmptyLatentImage", inputs={})
     result = port_convert_workflow(wf)
@@ -45,7 +45,7 @@ def test_special_characters_in_input_values() -> None:
     """Input values with special characters (quotes, newlines) should be handled."""
     wf = VibeWorkflow(
         "special-chars",
-        WorkflowSource("source/special_chars", source_type="api"),
+        WorkflowSource("special-chars", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",
@@ -66,7 +66,7 @@ def test_boolean_and_null_like_inputs() -> None:
     """Boolean and numeric inputs should be preserved literally."""
     wf = VibeWorkflow(
         "bool-null",
-        WorkflowSource("source/bool_null", source_type="api"),
+        WorkflowSource("bool-null", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",

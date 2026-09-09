@@ -25,10 +25,48 @@ def flat_fixture() -> dict:
 
 
 @pytest.fixture(scope="module")
-def schema_provider():
-    from vibecomfy.schema import get_schema_provider
+def schema_provider(flat_fixture):
+    # This is deliberately graph-scoped evidence, not an ambient node_index
+    # lookup.  The untouched-door assertions do not claim that inference is
+    # proof of a real ComfyUI ABI.
+    from tests.support.corpus_schema import graph_inferred_schema_provider
 
-    return get_schema_provider("local")
+    return graph_inferred_schema_provider(flat_fixture)
+
+
+class _DynamicFixtureSchemaProvider:
+    """Explicit ABI boundary for the small API-shaped exec fixtures."""
+
+    def __init__(self):
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        self._schemas = {
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack="comfy-core",
+                inputs={},
+                outputs=[OutputSpec("IMAGE", "IMAGE"), OutputSpec("MASK", "MASK")],
+                source_provider="test_fake",
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack="comfy-core",
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test_fake",
+            ),
+        }
+
+    def get_schema(self, class_type: str):
+        return self._schemas.get(class_type)
+
+
+@pytest.fixture(scope="module")
+def dynamic_schema_provider():
+    return _DynamicFixtureSchemaProvider()
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +75,7 @@ def schema_provider():
 
 
 def test_response_envelope_shape(flat_fixture, schema_provider):
-    """Route returns {graph, report: {change, recovery, felt}, version: 1}."""
+    """An untouched route preserves the graph and reports no reconstruction."""
     from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": flat_fixture}, schema_provider=schema_provider)
@@ -51,12 +89,10 @@ def test_response_envelope_shape(flat_fixture, schema_provider):
     assert "recovery" in report, f"expected 'recovery' in report, got {list(report)}"
     assert "felt" in report, f"expected 'felt' in report, got {list(report)}"
 
-    change = report["change"]
-    assert "content_edits" in change, (
-        f"expected 'content_edits' in change, got {list(change)}"
-    )
-    assert "identity_stabilization" in change
-    assert report["felt"]["ok"] is True
+    assert result["graph"] == flat_fixture
+    assert report["change"] == {}
+    assert report["recovery"] == []
+    assert report["felt"] == {}
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +105,7 @@ def test_response_envelope_shape(flat_fixture, schema_provider):
 
 def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
     """Engine round-trip with prior_store: preserved is non-empty."""
-    from vibecomfy.ingest.normalize import from_api, from_ui
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.layout_store import store_from_ui_json
     from vibecomfy.porting.emit.ui import emit_ui_json
 
@@ -104,23 +140,14 @@ def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
 
 
 def test_recovery_one_entry_per_emitted_node(flat_fixture, schema_provider):
-    """Every emitted node id appears in the recovery report."""
+    """An untouched raw fixture does not synthesize recovery entries."""
     from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": flat_fixture}, schema_provider=schema_provider)
 
     assert "graph" in result, f"route failed: {result}"
-    emitted_node_ids = {str(n["id"]) for n in result["graph"]["nodes"]}
-    recovery_node_ids = {
-        str(r["node_id"])
-        for r in result["report"]["recovery"]
-        if r.get("node_id") is not None
-    }
-    missing = emitted_node_ids - recovery_node_ids
-    assert not missing, (
-        f"emitted nodes {missing!r} have no recovery entry; "
-        f"recovery ids: {recovery_node_ids!r}"
-    )
+    assert result["graph"] == flat_fixture
+    assert result["report"]["recovery"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +156,9 @@ def test_recovery_one_entry_per_emitted_node(flat_fixture, schema_provider):
 
 
 def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider):
-    """Route output is structurally equivalent to a direct emit_ui_json call.
-
-    Checks: same uid set, same class_type per uid, same edge set
-    (not byte-for-byte — per gate flag correctness-6/issue_hints-3).
-    """
+    """Route and direct engine both honor the untouched-door byte contract."""
     from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
-    from vibecomfy.ingest.normalize import from_api, from_ui
+    from vibecomfy.ingest.normalize import from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
 
     # Route path
@@ -146,35 +169,15 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
     route_graph = route_result["graph"]
 
     # Direct engine path — mirrors what the route does internally
-    wf = from_ui(flat_fixture)
+    wf = from_ui(flat_fixture, use_comfy_converter=False)
     direct_graph = emit_ui_json(
         wf,
         schema_provider=schema_provider,
         guard_original_ui=flat_fixture,
     )
 
-    # uid set
-    route_uids = {n["properties"]["vibecomfy_uid"] for n in route_graph["nodes"]}
-    direct_uids = {n["properties"]["vibecomfy_uid"] for n in direct_graph["nodes"]}
-    assert route_uids == direct_uids, (
-        f"uid sets differ — route: {route_uids!r}, direct: {direct_uids!r}"
-    )
-
-    # class_type per uid
-    route_ct = {n["properties"]["vibecomfy_uid"]: n["type"] for n in route_graph["nodes"]}
-    direct_ct = {
-        n["properties"]["vibecomfy_uid"]: n["type"] for n in direct_graph["nodes"]
-    }
-    assert route_ct == direct_ct, (
-        f"class_type mismatch — route: {route_ct!r}, direct: {direct_ct!r}"
-    )
-
-    # Edge set: (from_node, from_slot, to_node, to_slot)
-    route_edges = {(l[1], l[2], l[3], l[4]) for l in route_graph.get("links", [])}
-    direct_edges = {(l[1], l[2], l[3], l[4]) for l in direct_graph.get("links", [])}
-    assert route_edges == direct_edges, (
-        f"edge set mismatch — route: {route_edges!r}, direct: {direct_edges!r}"
-    )
+    assert direct_graph == flat_fixture
+    assert route_graph == direct_graph
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +240,10 @@ def test_failure_response_accept_preserves_nested_recovery() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_exec_roundtrip_preserves_source_and_io() -> None:
+def test_exec_roundtrip_preserves_source_and_io(dynamic_schema_provider) -> None:
     """Round-trip through the engine preserves source and io widget values."""
     from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
-    from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
@@ -255,8 +257,7 @@ def test_exec_roundtrip_preserves_source_and_io() -> None:
     }
 
     wf = from_api(api)
-    schema_provider = get_schema_provider("local")
-    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+    emitted = emit_ui_json(wf, schema_provider=dynamic_schema_provider)
 
     exec_nodes = [n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec"]
     assert len(exec_nodes) == 1
@@ -277,14 +278,16 @@ def test_exec_roundtrip_preserves_source_and_io() -> None:
     assert exec_node["properties"]["vibecomfy"]["intent"]["source"] == source
 
 
-def test_exec_roundtrip_preserves_linked_in_references() -> None:
+def test_exec_roundtrip_preserves_linked_in_references(dynamic_schema_provider) -> None:
     """Exec round-trip preserves linked in_N references from upstream nodes."""
     from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
-    from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
-    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+    io_spec = {
+        "inputs": [["image", "IMAGE"], ["image_2", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
+    }
 
     api = {
         "1": {"class_type": "LoadImage", "inputs": {"image": "example.png"}},
@@ -295,8 +298,7 @@ def test_exec_roundtrip_preserves_linked_in_references() -> None:
     }
 
     wf = from_api(api)
-    schema_provider = get_schema_provider("local")
-    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+    emitted = emit_ui_json(wf, schema_provider=dynamic_schema_provider)
 
     links = emitted.get("links", [])
     node_by_type = {n["type"]: n for n in emitted["nodes"]}
@@ -308,14 +310,13 @@ def test_exec_roundtrip_preserves_linked_in_references() -> None:
     assert len(upstream_links) >= 1
 
     target_slots = {l[4] for l in upstream_links}
-    assert 0 in target_slots
+    assert target_slots == {0, 1}
 
 
-def test_exec_roundtrip_preserves_downstream_out_references() -> None:
+def test_exec_roundtrip_preserves_downstream_out_references(dynamic_schema_provider) -> None:
     """Exec round-trip preserves downstream out_N links to consumer nodes."""
     from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
-    from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
@@ -332,8 +333,7 @@ def test_exec_roundtrip_preserves_downstream_out_references() -> None:
     }
 
     wf = from_api(api)
-    schema_provider = get_schema_provider("local")
-    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+    emitted = emit_ui_json(wf, schema_provider=dynamic_schema_provider)
 
     links = emitted.get("links", [])
     node_by_type = {n["type"]: n for n in emitted["nodes"]}
@@ -348,11 +348,10 @@ def test_exec_roundtrip_preserves_downstream_out_references() -> None:
     assert 0 in origin_slots
 
 
-def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
+def test_exec_roundtrip_preserves_dynamic_socket_counts(dynamic_schema_provider) -> None:
     """Exec node in the emitted UI graph preserves only declared dynamic sockets."""
     from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
-    from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
@@ -370,8 +369,7 @@ def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
     }
 
     wf = from_api(api)
-    schema_provider = get_schema_provider("local")
-    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+    emitted = emit_ui_json(wf, schema_provider=dynamic_schema_provider)
 
     exec_nodes = [n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec"]
     assert len(exec_nodes) == 1
@@ -466,7 +464,14 @@ def test_exec_emit_rebuilds_raw_ui_generic_port_pool_from_widgets_io() -> None:
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
     raw_ui = {
         "nodes": [
-            {"id": 2, "type": "LoadImage", "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}]},
+            {
+                "id": 2,
+                "type": "LoadImage",
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0},
+                    {"name": "MASK", "type": "MASK", "links": [], "slot_index": 1},
+                ],
+            },
             {
                 "id": 1,
                 "type": "vibecomfy.exec",
@@ -515,7 +520,6 @@ def test_exec_api_reload_without_ui_metadata_restores_derived_io() -> None:
             "inputs": {
                 "source": source,
                 "io": io_spec,
-                "in_0": ["2", 0],
             },
         }
     }
@@ -562,11 +566,10 @@ def test_exec_compile_preserves_linked_in_references() -> None:
     assert out_edges[0].to_node == "3"
 
 
-def test_exec_roundtrip_preserves_links_across_nodes() -> None:
+def test_exec_roundtrip_preserves_links_across_nodes(dynamic_schema_provider) -> None:
     """Full round-trip preserves all link topology including exec in/out slots."""
     from vibecomfy.ingest.normalize import from_api, from_ui
     from vibecomfy.porting.emit.ui import emit_ui_json
-    from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
     io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
@@ -584,8 +587,7 @@ def test_exec_roundtrip_preserves_links_across_nodes() -> None:
     }
 
     wf = from_api(api)
-    schema_provider = get_schema_provider("local")
-    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+    emitted = emit_ui_json(wf, schema_provider=dynamic_schema_provider)
 
     nodes = emitted["nodes"]
     links = emitted["links"]

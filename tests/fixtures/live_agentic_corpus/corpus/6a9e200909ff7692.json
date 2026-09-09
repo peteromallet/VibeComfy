@@ -1,0 +1,1995 @@
+{
+  "edges": [
+    {
+      "from_node": "65",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "48"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "52"
+    },
+    {
+      "from_node": "51",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "52"
+    },
+    {
+      "from_node": "74",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "59"
+    },
+    {
+      "from_node": "59",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "65"
+    },
+    {
+      "from_node": "48",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "40",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images_rgb",
+      "to_node": "73"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "images_alpha",
+      "to_node": "73"
+    }
+  ],
+  "groups": [],
+  "id": "283aa40d7c0c6c25",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "74",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "wan2.1-t2v-14b-Q4_K_M.gguf"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 349747025724295
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 4
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "40",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "48",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "52",
+              "samples"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'lcm'"
+          ],
+          [
+            "scheduler",
+            "'beta'"
+          ],
+          [
+            "seed",
+            "349747025724295"
+          ],
+          [
+            "steps",
+            "4"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "38": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'umt5_xxl_fp8_e4m3fn_scaled.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'wan'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'Wan Alpha\\\\wan_alpha_2.1_vae_rgb_channel.safetensors.safetensors'"
+          ]
+        ]
+      },
+      "40": {
+        "class_type": "EmptyHunyuanLatentVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "368"
+          ],
+          [
+            "length",
+            "33"
+          ],
+          [
+            "width",
+            "624"
+          ]
+        ]
+      },
+      "48": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "65",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "5"
+          ]
+        ]
+      },
+      "51": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "52",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'Wan Alpha\\\\wan_alpha_2.1_vae_alpha_channel.safetensors.safetensors'"
+          ]
+        ]
+      },
+      "52": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "51",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "73",
+              "images_alpha"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "59": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "74",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "65",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'Wan\\\\Wan 2.2 T2V\\\\Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'a man walks toward the camera down a fashion runway, the bakcground of this image is transparent'"
+          ]
+        ]
+      },
+      "65": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "59",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "48",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'Wan\\\\Wan Alpha\\\\epoch-13-1500_changed.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "73": {
+        "class_type": "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP",
+        "incoming_edge_sig": [
+          [
+            "images_alpha",
+            [
+              "52",
+              "0"
+            ]
+          ],
+          [
+            "images_rgb",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ],
+          [
+            "fps",
+            "24"
+          ],
+          [
+            "lossless",
+            "True"
+          ],
+          [
+            "method",
+            "'default'"
+          ],
+          [
+            "quality",
+            "80"
+          ]
+        ]
+      },
+      "74": {
+        "class_type": "UnetLoaderGGUF",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'wan2.1-t2v-14b-Q4_K_M.gguf'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "73",
+              "images_rgb"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "6a9e200909ff7692693d89a587ec87290ba103e312ce8860ff96fef70601addd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1344057524935983125,
+      "channel_name": "wan_gens",
+      "discord_message_url": "https://discord.com/channels/@me/1344057524935983125/1422683189754724404",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1422683189754724404:Wan_Alpha_T2V.json:283aa40d7c0c6c25",
+      "filename": "Wan_Alpha_T2V.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:40+00:00",
+      "message_id": 1422683189754724404,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSampler": 1,
+        "LoraLoaderModelOnly": 2,
+        "ModelSamplingSD3": 1,
+        "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP": 1,
+        "UnetLoaderGGUF": 1,
+        "VAEDecode": 2,
+        "VAELoader": 2
+      },
+      "node_count": 14,
+      "origin_date": "2025-09-30T20:35:04.613000+00:00",
+      "originator_global_name": "U\u0337r\u0337a\u0337b\u0337e\u0337w\u0337e\u0337",
+      "originator_id": "492369930474225726",
+      "originator_type": "discord_message_author",
+      "originator_username": "urabewe",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "283aa40d7c0c6c2528493864fbdf945cd09ee0daa2736c5e05c7ec0cd71050ce",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1344057524935983125/1422683188291043440/Wan_Alpha_T2V.json?ex=68de3938&is=68dce7b8&hm=cd0b869f9b0ecbd322ab0c30724c3d6a1544b7dbc1c274969061b499e675dadf&",
+      "source_workflow_sha256": "454b24b31a264bff966694f6a9654e8d1754708026b96d5fbc6b7d8ded7b7a6f",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "de3678f1f09d57378310e3c1baae2f818026ba05c8d1e75cefbe3903b090b17c",
+      "complexity": 2,
+      "description": "Generates animated video outputs using Hunyuan latent video, Wan Alpha VAEs, LoRA models, and a quantized UNet (GGUF) with CLIP text conditioning.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video-generation",
+        "wan-alpha",
+        "lora",
+        "gguf",
+        "hunyuan",
+        "text-to-video",
+        "animated-webp"
+      ],
+      "task_type": "animation",
+      "title": "Wan Alpha Video Generation with LoRA and GGUF UNet"
+    }
+  },
+  "nodes": {
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 1,
+        "denoise": 1,
+        "sampler_name": "lcm",
+        "scheduler": "beta",
+        "seed": 349747025724295,
+        "steps": 4,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 95,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 46,
+              "localized_name": "positive",
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 52,
+              "localized_name": "negative",
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 91,
+              "localized_name": "latent_image",
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": null,
+              "localized_name": "seed",
+              "name": "seed",
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "steps",
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg",
+              "name": "cfg",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "sampler_name",
+              "name": "sampler_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "sampler_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "scheduler",
+              "name": "scheduler",
+              "type": "COMBO",
+              "widget": {
+                "name": "scheduler"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "denoise",
+              "name": "denoise",
+              "type": "FLOAT",
+              "widget": {
+                "name": "denoise"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                35,
+                108
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            863,
+            187
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            315,
+            474
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            349747025724295,
+            "randomize",
+            4,
+            1,
+            "lcm",
+            "beta",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          349747025724295,
+          "randomize",
+          4,
+          1,
+          "lcm",
+          "beta",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "38": {
+      "class_type": "CLIPLoader",
+      "id": "38",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "device": "default",
+        "type": "wan"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "clip_name",
+              "name": "clip_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "clip_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "type",
+              "name": "type",
+              "type": "COMBO",
+              "widget": {
+                "name": "type"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "device",
+              "name": "device",
+              "shape": 7,
+              "type": "COMBO",
+              "widget": {
+                "name": "device"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                117,
+                118
+              ],
+              "localized_name": "CLIP",
+              "name": "CLIP",
+              "slot_index": 0,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            -117.83563995361328,
+            294.0386047363281
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            390,
+            106
+          ],
+          "title": "Load Text Encoder",
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "wan",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "wan",
+          "default"
+        ]
+      },
+      "uid": "38",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "VAELoader",
+      "id": "39",
+      "inputs": {
+        "vae_name": "Wan Alpha\\wan_alpha_2.1_vae_rgb_channel.safetensors.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "vae_name",
+              "name": "vae_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "vae_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                76
+              ],
+              "localized_name": "VAE",
+              "name": "VAE",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            873.0031127929688,
+            47.75358581542969
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            306.36004638671875,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "Wan Alpha\\wan_alpha_2.1_vae_rgb_channel.safetensors.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan Alpha\\wan_alpha_2.1_vae_rgb_channel.safetensors.safetensors"
+        ]
+      },
+      "uid": "39",
+      "widgets": {}
+    },
+    "40": {
+      "class_type": "EmptyHunyuanLatentVideo",
+      "id": "40",
+      "inputs": {
+        "batch_size": 1,
+        "height": 368,
+        "length": 33,
+        "width": 624
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 40,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "width",
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "height",
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "length",
+              "name": "length",
+              "type": "INT",
+              "widget": {
+                "name": "length"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "batch_size",
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                91
+              ],
+              "localized_name": "LATENT",
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            463.4875793457031,
+            657.9263305664062
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyHunyuanLatentVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            315,
+            130
+          ],
+          "type": "EmptyHunyuanLatentVideo",
+          "widgets_values": [
+            624,
+            368,
+            33,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          624,
+          368,
+          33,
+          1
+        ]
+      },
+      "uid": "40",
+      "widgets": {}
+    },
+    "48": {
+      "class_type": "ModelSamplingSD3",
+      "id": "48",
+      "inputs": {
+        "shift": 5
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 48,
+          "inputs": [
+            {
+              "link": 144,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "shift",
+              "name": "shift",
+              "type": "FLOAT",
+              "widget": {
+                "name": "shift"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                95
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            572.943359375,
+            74.36679077148438
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            210,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            5
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          5
+        ]
+      },
+      "uid": "48",
+      "widgets": {}
+    },
+    "51": {
+      "class_type": "VAELoader",
+      "id": "51",
+      "inputs": {
+        "vae_name": "Wan Alpha\\wan_alpha_2.1_vae_alpha_channel.safetensors.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 51,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "vae_name",
+              "name": "vae_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "vae_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                107
+              ],
+              "localized_name": "VAE",
+              "name": "VAE",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            869.414306640625,
+            712.5343627929688
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            306.36004638671875,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "Wan Alpha\\wan_alpha_2.1_vae_alpha_channel.safetensors.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan Alpha\\wan_alpha_2.1_vae_alpha_channel.safetensors.safetensors"
+        ]
+      },
+      "uid": "51",
+      "widgets": {}
+    },
+    "52": {
+      "class_type": "VAEDecode",
+      "id": "52",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 52,
+          "inputs": [
+            {
+              "link": 108,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 107,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                157
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1220.6512451171875,
+            530.7353515625
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            210,
+            46
+          ],
+          "title": "Alpha VAE Decode",
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "52",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "59",
+      "inputs": {
+        "lora_name": "Wan\\Wan 2.2 T2V\\Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [
+            {
+              "link": 158,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                143
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -38.43362045288086,
+            58.123836517333984
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "Wan\\Wan 2.2 T2V\\Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan\\Wan 2.2 T2V\\Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors",
+          1
+        ]
+      },
+      "uid": "59",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "a man walks toward the camera down a fashion runway, the bakcground of this image is transparent"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 118,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                46
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            365.5584411621094,
+            198.10687255859375
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            422.84503173828125,
+            164.31304931640625
+          ],
+          "title": "CLIP Text Encode (Positive Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "a man walks toward the camera down a fashion runway, the bakcground of this image is transparent"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "a man walks toward the camera down a fashion runway, the bakcground of this image is transparent"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "65": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "65",
+      "inputs": {
+        "lora_name": "Wan\\Wan Alpha\\epoch-13-1500_changed.safetensors",
+        "strength_model": 1
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 65,
+          "inputs": [
+            {
+              "link": 143,
+              "localized_name": "model",
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": null,
+              "localized_name": "lora_name",
+              "name": "lora_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "lora_name"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "strength_model",
+              "name": "strength_model",
+              "type": "FLOAT",
+              "widget": {
+                "name": "strength_model"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                144
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            267.7607421875,
+            57.55533981323242
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "Wan\\Wan Alpha\\epoch-13-1500_changed.safetensors",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan\\Wan Alpha\\epoch-13-1500_changed.safetensors",
+          1
+        ]
+      },
+      "uid": "65",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 117,
+              "localized_name": "clip",
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                52
+              ],
+              "localized_name": "CONDITIONING",
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            359.2072448730469,
+            406.81744384765625
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            425.27801513671875,
+            180.6060791015625
+          ],
+          "title": "CLIP Text Encode (Negative Prompt) Useless s",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "73": {
+      "class_type": "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP",
+      "id": "73",
+      "inputs": {
+        "filename_prefix": "ComfyUI",
+        "fps": 24,
+        "lossless": true,
+        "method": "default",
+        "quality": 80
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 73,
+          "inputs": [
+            {
+              "link": 156,
+              "localized_name": "images_rgb",
+              "name": "images_rgb",
+              "type": "IMAGE"
+            },
+            {
+              "link": 157,
+              "localized_name": "images_alpha",
+              "name": "images_alpha",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "fps",
+              "name": "fps",
+              "type": "FLOAT",
+              "widget": {
+                "name": "fps"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "lossless",
+              "name": "lossless",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "lossless"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "quality",
+              "name": "quality",
+              "type": "INT",
+              "widget": {
+                "name": "quality"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "method",
+              "name": "method",
+              "type": "COMBO",
+              "widget": {
+                "name": "method"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [],
+          "pos": [
+            1505.3529052734375,
+            48.0012321472168
+          ],
+          "properties": {
+            "Node name for S&R": "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP"
+          },
+          "size": [
+            935.7424926757812,
+            705.8514404296875
+          ],
+          "type": "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP",
+          "widgets_values": [
+            "ComfyUI",
+            24,
+            true,
+            80,
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI",
+          24,
+          true,
+          80,
+          "default"
+        ]
+      },
+      "uid": "73",
+      "widgets": {}
+    },
+    "74": {
+      "class_type": "UnetLoaderGGUF",
+      "id": "74",
+      "inputs": {
+        "unet_name": "wan2.1-t2v-14b-Q4_K_M.gguf"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 74,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "unet_name",
+              "name": "unet_name",
+              "type": "COMBO",
+              "widget": {
+                "name": "unet_name"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                158
+              ],
+              "localized_name": "MODEL",
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -398.5965576171875,
+            60.58761215209961
+          ],
+          "properties": {
+            "Node name for S&R": "UnetLoaderGGUF",
+            "cnr_id": "ComfyUI-GGUF",
+            "ver": "be2a08330d7ec232d684e50ab938870d7529471e"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "UnetLoaderGGUF",
+          "widgets_values": [
+            "wan2.1-t2v-14b-Q4_K_M.gguf"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan2.1-t2v-14b-Q4_K_M.gguf"
+        ]
+      },
+      "uid": "74",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 35,
+              "localized_name": "samples",
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 76,
+              "localized_name": "vae",
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                156
+              ],
+              "localized_name": "IMAGE",
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1220.984130859375,
+            51.24325180053711
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.61"
+          },
+          "size": [
+            210,
+            46
+          ],
+          "title": "RGB VAE Decode",
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "Wan Alpha\\wan_alpha_2.1_vae_alpha_channel.safetensors.safetensors",
+      "Wan Alpha\\wan_alpha_2.1_vae_rgb_channel.safetensors.safetensors",
+      "Wan\\Wan 2.2 T2V\\Wan22_A14B_T2V_LOW_Lightning_4steps_lora_250928_rank64_fp16.safetensors",
+      "Wan\\Wan Alpha\\epoch-13-1500_changed.safetensors",
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "wan2.1-t2v-14b-Q4_K_M.gguf"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "283aa40d7c0c6c25",
+    "path": "external_workflows/.shadow/source/283aa40d7c0c6c25-Wan_Alpha_T2V.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "6a9e200909ff7692693d89a587ec87290ba103e312ce8860ff96fef70601addd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1344057524935983125,
+      "channel_name": "wan_gens",
+      "discord_message_url": "https://discord.com/channels/@me/1344057524935983125/1422683189754724404",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1422683189754724404:Wan_Alpha_T2V.json:283aa40d7c0c6c25",
+      "filename": "Wan_Alpha_T2V.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:40+00:00",
+      "message_id": 1422683189754724404,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSampler": 1,
+        "LoraLoaderModelOnly": 2,
+        "ModelSamplingSD3": 1,
+        "SavePNGZIP_and_Preview_RGBA_AnimatedWEBP": 1,
+        "UnetLoaderGGUF": 1,
+        "VAEDecode": 2,
+        "VAELoader": 2
+      },
+      "node_count": 14,
+      "origin_date": "2025-09-30T20:35:04.613000+00:00",
+      "originator_global_name": "U\u0337r\u0337a\u0337b\u0337e\u0337w\u0337e\u0337",
+      "originator_id": "492369930474225726",
+      "originator_type": "discord_message_author",
+      "originator_username": "urabewe",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "283aa40d7c0c6c2528493864fbdf945cd09ee0daa2736c5e05c7ec0cd71050ce",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1344057524935983125/1422683188291043440/Wan_Alpha_T2V.json?ex=68de3938&is=68dce7b8&hm=cd0b869f9b0ecbd322ab0c30724c3d6a1544b7dbc1c274969061b499e675dadf&",
+      "source_workflow_sha256": "454b24b31a264bff966694f6a9654e8d1754708026b96d5fbc6b7d8ded7b7a6f",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

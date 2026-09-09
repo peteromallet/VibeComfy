@@ -5,7 +5,7 @@ import json
 import re
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.utils import find_repo_root
@@ -32,7 +32,11 @@ _FILENAME_KWARGS = frozenset({
 })
 
 
-def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
+def extract_ready_template_contract(
+    path: str | Path,
+    *,
+    wrapper_class_types: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Extract cheap public contract metadata from a ready-template source file.
 
     The extractor is intentionally static: unsupported dynamic values become
@@ -58,6 +62,11 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
         }
 
     assignments = _module_assignments(tree, diagnostics)
+    wrappers = (
+        dict(wrapper_class_types)
+        if wrapper_class_types is not None
+        else resolve_ready_wrapper_class_types_from_trees((tree,))
+    )
     metadata = _dict_or_empty(assignments.get("READY_METADATA"))
     metadata = _metadata_with_static_derivations(metadata, source_path, source)
     requirements = _dict_or_empty(assignments.get("READY_REQUIREMENTS"))
@@ -113,7 +122,14 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
             descriptor = _extract_output_call(node, call_name, diagnostics)
             if descriptor is not None:
                 public_outputs.append(descriptor)
-    public_inputs.extend(_infer_common_input_contracts(tree, public_inputs, assignments))
+    public_inputs.extend(
+        _infer_common_input_contracts(
+            tree,
+            public_inputs,
+            assignments,
+            wrapper_class_types=wrappers,
+        )
+    )
 
     # Merge requirements from metadata (ReadyMetadata.build may include them)
     meta_reqs = _dict_or_empty(metadata.get("requirements"))
@@ -227,17 +243,14 @@ def _node_runtime_ids(tree: ast.Module) -> dict[int, str]:
             calls.append(node)
     calls.sort(key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)))
     runtime_ids: dict[int, str] = {}
-    numeric_ids: set[int] = set()
+    allocator = _StaticNodeIdAllocator()
     for call in calls:
-        explicit = _node_call_source_id(call)
-        if explicit is not None:
-            runtime_ids[id(call)] = explicit
-            if explicit.isdigit():
-                numeric_ids.add(int(explicit))
-            continue
-        next_id = max(numeric_ids, default=0) + 1
-        runtime_ids[id(call)] = str(next_id)
-        numeric_ids.add(next_id)
+        node_id, relocations = allocator.allocate(_node_call_source_id(call))
+        if relocations:
+            for call_identity, prior_id in tuple(runtime_ids.items()):
+                if prior_id in relocations:
+                    runtime_ids[call_identity] = relocations[prior_id]
+        runtime_ids[id(call)] = node_id
     return runtime_ids
 
 
@@ -475,20 +488,35 @@ def _infer_common_input_contracts(
     tree: ast.AST,
     explicit_inputs: list[dict[str, Any]],
     assignments: dict[str, Any] | None = None,
+    *,
+    wrapper_class_types: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     explicit_names = {item.get("name") for item in explicit_inputs if isinstance(item.get("name"), str)}
     inferred: dict[str, dict[str, Any]] = {}
-    next_auto_id = 1
+    node_ids = _StaticNodeIdAllocator()
+    wrappers = wrapper_class_types or {}
     calls = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _is_static_node_call(node)
+        if isinstance(node, ast.Call) and _is_static_node_call(node, wrappers)
     ]
     for call in sorted(calls, key=lambda item: (getattr(item, "lineno", 0), getattr(item, "col_offset", 0))):
-        node_info = _runtime_node_call(call, next_auto_id, assignments)
+        node_info = _runtime_node_call(
+            call,
+            node_ids,
+            assignments,
+            wrapper_class_types=wrappers,
+        )
         if node_info is None:
             continue
-        next_auto_id += 1
+        for old_id, new_id in node_info.pop("relocations", {}).items():
+            for descriptor in inferred.values():
+                if descriptor.get("node_id") == old_id:
+                    descriptor["node_id"] = new_id
+                    descriptor["target"] = {
+                        **descriptor["target"],
+                        "node_id": new_id,
+                    }
         class_type = node_info["class_type"]
         node_id = node_info["node_id"]
         for field, value in node_info["inputs"].items():
@@ -513,15 +541,51 @@ def _infer_common_input_contracts(
     return [inferred[name] for name in sorted(inferred)]
 
 
-def _runtime_node_call(node: ast.Call, next_auto_id: int, assignments: dict[str, Any] | None = None) -> dict[str, Any] | None:
+class _StaticNodeIdAllocator:
+    """Mirror the ready builder's lowest-free allocation and source-id rename."""
+
+    def __init__(self) -> None:
+        self.occupied: set[str] = set()
+
+    def _next(self) -> str:
+        candidate = 1
+        while str(candidate) in self.occupied:
+            candidate += 1
+        return str(candidate)
+
+    def allocate(self, explicit: Any = None) -> tuple[str, dict[str, str]]:
+        automatic = self._next()
+        self.occupied.add(automatic)
+        if not isinstance(explicit, (str, int)) or isinstance(explicit, bool):
+            return automatic, {}
+        source_id = str(explicit)
+        relocations: dict[str, str] = {}
+        if source_id != automatic and source_id in self.occupied:
+            self.occupied.remove(source_id)
+            relocated = self._next()
+            self.occupied.add(relocated)
+            relocations[source_id] = relocated
+        self.occupied.remove(automatic)
+        self.occupied.add(source_id)
+        return source_id, relocations
+
+
+def _runtime_node_call(
+    node: ast.Call,
+    node_ids: _StaticNodeIdAllocator,
+    assignments: dict[str, Any] | None = None,
+    *,
+    wrapper_class_types: Mapping[str, str] | None = None,
+) -> dict[str, Any] | None:
     call_name = _call_name(node.func)
+    explicit_id: Any = None
     if call_name == "_node":
         class_type = _literal_arg(node, 1, "class_type", [], call_name, required=False)
-        node_id = _literal_arg(node, 2, "node_id", [], call_name, required=False)
+        explicit_id = _literal_arg(node, 2, "node_id", [], call_name, required=False)
         keyword_inputs = _literal_keyword_inputs(node, assignments=assignments)
     elif call_name == "ready_node":
         class_type = _literal_arg(node, 1, "class_type", [], call_name, required=False)
-        node_id = _keyword_literal(node, "source_id", [], call_name) or str(next_auto_id)
+        explicit_id = _keyword_literal(node, "source_id", [], call_name)
         keyword_inputs = _literal_keyword_inputs(node, excluded={"source_id", "outputs", "extras"}, assignments=assignments)
         extras = _keyword_literal(node, "extras", [], call_name)
         if isinstance(extras, dict):
@@ -537,17 +601,27 @@ def _runtime_node_call(node: ast.Call, next_auto_id: int, assignments: dict[str,
             if node_arg_index >= 0
             else _UNSUPPORTED
         )
-        node_id = str(raw_node_id) if isinstance(raw_node_id, (str, int)) and raw_node_id is not _UNSUPPORTED else str(next_auto_id)
+        explicit_id = raw_node_id
         keyword_inputs = _literal_keyword_inputs(node, assignments=assignments)
-    elif _wrapper_class_type(call_name) is not None:
-        class_type = _wrapper_class_type(call_name)
-        node_id = str(next_auto_id)
-        keyword_inputs = _literal_keyword_inputs(node, excluded={"pass_raw"}, assignments=assignments)
+    elif call_name in (wrapper_class_types or {}):
+        class_type = (wrapper_class_types or {})[call_name]
+        explicit_id = _keyword_literal(node, "_id", [], call_name)
+        keyword_inputs = _literal_keyword_inputs(
+            node,
+            excluded={"_id", "_uid", "_outputs", "_native_ports", "_mode", "pass_raw"},
+            assignments=assignments,
+        )
     else:
         return None
-    if not isinstance(class_type, str) or not isinstance(node_id, str):
+    if not isinstance(class_type, str):
         return None
-    return {"class_type": class_type, "node_id": node_id, "inputs": keyword_inputs}
+    node_id, relocations = node_ids.allocate(explicit_id)
+    return {
+        "class_type": class_type,
+        "node_id": node_id,
+        "inputs": keyword_inputs,
+        "relocations": relocations,
+    }
 
 
 def _literal_keyword_inputs(node: ast.Call, *, excluded: set[str] | None = None, assignments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -573,19 +647,70 @@ def _coerce_static_node_value(keyword: str, value: Any) -> Any:
     return value
 
 
-def _is_static_node_call(node: ast.Call) -> bool:
+def _is_static_node_call(
+    node: ast.Call,
+    wrapper_class_types: Mapping[str, str],
+) -> bool:
     call_name = _call_name(node.func)
-    return call_name in {"_node", "node", "ready_node"} or _wrapper_class_type(call_name) is not None
+    return call_name in {"_node", "node", "ready_node"} or call_name in wrapper_class_types
 
 
-def _wrapper_class_type(call_name: str) -> str | None:
-    if not call_name or call_name in {"InputSpec", "ModelAsset", "ReadyMetadata"}:
-        return None
+_NON_WRAPPER_CALLS = frozenset(
+    {
+        "InputSpec",
+        "ModelAsset",
+        "ReadyMetadata",
+        "bind_input",
+        "bind_output",
+        "finalize",
+        "new_workflow",
+        "node",
+        "ready_node",
+        "register_input",
+        "template_input",
+        "template_output",
+        "VibeOutput",
+    }
+)
+
+
+def _wrapper_call_candidates(tree: ast.AST) -> set[str]:
+    return {
+        name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        for name in [_call_name(node.func)]
+        if name and name not in _NON_WRAPPER_CALLS and name != "_node"
+    }
+
+
+def resolve_ready_wrapper_class_types_from_trees(
+    trees: Iterable[ast.AST],
+) -> dict[str, str]:
+    """Resolve every wrapper call in one content-witnessed cache batch."""
+    candidates: set[str] = set()
+    for tree in trees:
+        candidates.update(_wrapper_call_candidates(tree))
+    if not candidates:
+        return {}
     try:
-        from vibecomfy.porting.object_info import get_class
+        from vibecomfy.porting.object_info.consume import get_classes
     except ImportError:
-        return None
-    return call_name if get_class(call_name) is not None else None
+        return {}
+    return {name: name for name in get_classes(candidates)}
+
+
+def resolve_ready_wrapper_class_types(
+    paths: Iterable[str | Path],
+) -> dict[str, str]:
+    """Parse template paths and resolve their wrapper calls as one batch."""
+    trees: list[ast.AST] = []
+    for path in paths:
+        try:
+            trees.append(ast.parse(Path(path).read_text(encoding="utf-8")))
+        except (OSError, SyntaxError):
+            continue
+    return resolve_ready_wrapper_class_types_from_trees(trees)
 
 
 def _common_input_name(class_type: str, field: str, value: Any) -> str | None:

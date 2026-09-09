@@ -392,68 +392,139 @@ def persist_universal_ui_evidence(
     if original is None:
         original = dict(_EMPTY_UI)
 
-    # S2 (final-wave): persist accepted batch — candidate.ui → final.ui when
-    # batch_ok, never emit no_changes when final≠original. Scenarios: e8c20a
-    # staged (accepted_batch 2 ops, final≠original but no_changes), vace-retarget
-    # 4 leftover ops, 2a31ec threaded replay mismatch, IP-Adapter empty replay.
-    def _batch_ok() -> bool:
-        ab = response.get("accepted_batch")
-        if isinstance(ab, (list, tuple)) and len(ab) > 0:
-            return True
-        if isinstance(ab, Mapping) and len(ab) > 0:
-            return True
-        for key in ("candidate", "candidate_graph", "graph"):
-            val = response.get(key)
-            if isinstance(val, Mapping) and len(val) > 0:
-                return True
-            if isinstance(val, (list, tuple)) and len(val) > 0:
-                return True
-        if _load_ui_mapping(candidate_path) is not None:
-            return True
-        if isinstance(getattr(result, "graph", None), Mapping) and len(getattr(result, "graph")) > 0:  # type: ignore[union-attr]
-            return True
-        cd = response.get("change_details")
-        if isinstance(cd, Mapping):
-            if isinstance(cd.get("landed_operation_count"), int) and cd.get("landed_operation_count") > 0:  # type: ignore[union-attr]
-                return True
-            for turn in cd.get("batch_turns") or []:  # type: ignore[union-attr]
-                if isinstance(turn, Mapping) and isinstance(turn.get("landed_op_count"), int) and turn.get("landed_op_count") > 0:  # type: ignore[union-attr]
-                    return True
-        return False
+    # On a failed leg, accepted_batch is the sole durable mutation authority.
+    # Candidate/result graph views, copied candidate artifacts, and landed-count
+    # summaries are useful audit evidence, but cannot publish a refused graph.
+    def _terminal_carrier() -> Mapping[str, Any]:
+        if "accepted_batch" in response:
+            return response
+        # ExecutorResult serializes the implementation's durable response onto
+        # its public terminal envelope; candidate, batch and receipt must come
+        # from this one carrier rather than a copied audit artifact.
+        result_payload = _json_safe(result)
+        return result_payload if isinstance(result_payload, Mapping) else {}
 
-    batch_ok = _batch_ok()
+    def _terminal_candidate(carrier: Mapping[str, Any]) -> dict[str, Any] | None:
+        sources: list[Mapping[str, Any]] = [carrier]
+        report = carrier.get("report")
+        executor = report.get("executor") if isinstance(report, Mapping) else None
+        implementation = (
+            executor.get("implementation") if isinstance(executor, Mapping) else None
+        )
+        failure = (
+            implementation.get("failure")
+            if isinstance(implementation, Mapping)
+            else None
+        )
+        if isinstance(failure, Mapping):
+            sources.append(failure)
+        for source in sources:
+            for key in ("candidate", "candidate_graph", "graph"):
+                value = source.get(key)
+                if key == "candidate" and isinstance(value, Mapping):
+                    nested = value.get("graph")
+                    if isinstance(nested, Mapping):
+                        value = nested
+                candidate = _as_graph_mapping(value)
+                if candidate is not None:
+                    return candidate
+        return None
+
+    def _terminal_receipt(carrier: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        direct = carrier.get("authority_receipt")
+        if isinstance(direct, Mapping):
+            return direct
+        report = carrier.get("report")
+        executor = report.get("executor") if isinstance(report, Mapping) else None
+        implementation = (
+            executor.get("implementation") if isinstance(executor, Mapping) else None
+        )
+        failure = (
+            implementation.get("failure")
+            if isinstance(implementation, Mapping)
+            else None
+        )
+        retained = failure.get("authority_receipt") if isinstance(failure, Mapping) else None
+        return retained if isinstance(retained, Mapping) else None
+
+    def _bound_failed_candidate() -> dict[str, Any] | None:
+        carrier = _terminal_carrier()
+        accepted = carrier.get("accepted_batch")
+        if not isinstance(accepted, (list, tuple)) or not accepted:
+            return None
+        ops = [
+            dict(statement["op"])
+            for statement in accepted
+            if isinstance(statement, Mapping)
+            and isinstance(statement.get("op"), Mapping)
+        ]
+        if len(ops) != len(accepted):
+            return None
+        try:
+            from vibecomfy.porting.edit.ops import parse_edit_delta  # noqa: PLC0415
+
+            parse_edit_delta(ops)
+        except (TypeError, ValueError):
+            return None
+        candidate = _terminal_candidate(carrier)
+        raw_receipt = _terminal_receipt(carrier)
+        if candidate is None or raw_receipt is None:
+            return None
+        try:
+            from vibecomfy.comfy_nodes.agent.authority_receipts import (  # noqa: PLC0415
+                validate_authority_receipt_v2,
+            )
+            from vibecomfy.comfy_nodes.agent.candidate_transaction import (  # noqa: PLC0415
+                content_hash,
+            )
+            from vibecomfy.comfy_nodes.agent.session import (  # noqa: PLC0415
+                payload_hash,
+                structural_graph_hash,
+            )
+
+            receipt = validate_authority_receipt_v2(raw_receipt)
+            delta = {"schema_version": "2.0.0", "ops": ops}
+        except (TypeError, ValueError):
+            return None
+        if not receipt.is_applyable:
+            return None
+        if receipt.accepted_batch_digest != content_hash(delta):
+            return None
+        if receipt.candidate_hash != payload_hash(candidate):
+            return None
+        candidate_structural_hash = structural_graph_hash(candidate)
+        if (
+            receipt.replay.persisted_candidate_hash != candidate_structural_hash
+            or receipt.replay.recomputed_candidate_hash != candidate_structural_hash
+        ):
+            return None
+        if receipt.submit_graph_hash != payload_hash(original):
+            return None
+        for field in ("session_id", "turn_id"):
+            identity = carrier.get(field)
+            if (
+                not isinstance(identity, str)
+                or not identity
+                or identity != getattr(receipt, field)
+            ):
+                return None
+        return candidate
+
     # RRSYN2-2: on a failed leg the copied turn candidate is AUDIT-ONLY — it
     # was refused by the gate and must never be projected as the product UI.
-    # Original stays authoritative. S2 override: when batch_ok but gate later
-    # diverged (candidate_hash_mismatch, emit drift at vibecomfy/porting/emit/ui.py:emit_ui_json), persist candidate→final.
+    # Original stays authoritative. A later gate may diverge after edits were
+    # accepted, but candidate→final is permitted only when the terminal
+    # durable accepted_batch carries those admitted operations.
     failed_leg = (
         response.get("ok") is False or getattr(result, "ok", True) is False
     )
+    bound_failed_candidate = _bound_failed_candidate() if failed_leg else None
     if _route_projects_final_from_original(response):
         final = original
-    elif failed_leg and not batch_ok:
+    elif failed_leg and bound_failed_candidate is None:
         final = original
-    elif failed_leg and batch_ok:
-        final = _load_ui_mapping(candidate_path)
-        if final is None:
-            final = _load_ui_mapping(final_path)
-        if final is None:
-            artifacts_tmp = response.get("artifacts")
-            if isinstance(artifacts_tmp, Mapping):
-                for key in ("candidate_ui", "final_ui"):
-                    artifact_path = artifacts_tmp.get(key)
-                    if isinstance(artifact_path, str) and artifact_path:
-                        final = _load_ui_mapping(Path(artifact_path))
-                        if final is not None:
-                            break
-        if final is None:
-            final = _as_graph_mapping(
-                response.get("candidate_graph") or response.get("candidate") or response.get("graph")
-            )
-        if final is None:
-            final = _result_graph(result)
-        if final is None:
-            final = original
+    elif failed_leg:
+        final = bound_failed_candidate
     else:
         final = _load_ui_mapping(final_path)
         if final is None:

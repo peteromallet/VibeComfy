@@ -1,0 +1,1655 @@
+{
+  "edges": [
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "depth",
+      "to_node": "5"
+    },
+    {
+      "from_node": "3",
+      "from_output": "1",
+      "to_input": "normals",
+      "to_node": "6"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "8"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "7"
+    },
+    {
+      "from_node": "3",
+      "from_output": "3",
+      "to_input": "camera_poses",
+      "to_node": "11"
+    },
+    {
+      "from_node": "3",
+      "from_output": "4",
+      "to_input": "camera_intrinsics",
+      "to_node": "11"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "3"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "4"
+    },
+    {
+      "from_node": "3",
+      "from_output": "5",
+      "to_input": "gaussians",
+      "to_node": "10"
+    },
+    {
+      "from_node": "3",
+      "from_output": "2",
+      "to_input": "points3d",
+      "to_node": "9"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "colors",
+      "to_node": "9"
+    },
+    {
+      "from_node": "3",
+      "from_output": "1",
+      "to_input": "normals",
+      "to_node": "9"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "file_path",
+      "to_node": "12"
+    }
+  ],
+  "groups": [],
+  "id": "309697602aad74f4",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "VHS_LoadVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "choose video to upload",
+            "'image'"
+          ],
+          [
+            "custom_height",
+            "0"
+          ],
+          [
+            "custom_width",
+            "0"
+          ],
+          [
+            "force_rate",
+            "0"
+          ],
+          [
+            "format",
+            "'AnimateDiff'"
+          ],
+          [
+            "frame_load_cap",
+            "64"
+          ],
+          [
+            "select_every_nth",
+            "1"
+          ],
+          [
+            "skip_first_frames",
+            "0"
+          ],
+          [
+            "video",
+            "'Hailuo_Video_[Push in]_446165220074975238.mp4'"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'Hailuo_Video_[Push in]_446165220074975238.mp4', 'type': 'input', 'format': 'video/mp4', 'force_rate': 0, 'custom_width': 0, 'custom_height': 0, 'frame_load_cap': 64, 'skip_first_frames': 0, 'select_every_nth': 1}}"
+          ]
+        ]
+      },
+      "10": {
+        "class_type": "Save3DGaussians",
+        "incoming_edge_sig": [
+          [
+            "gaussians",
+            [
+              "3",
+              "5"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'./output/gaussians.ply'"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "95"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "1"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "SaveCameraParams",
+        "incoming_edge_sig": [
+          [
+            "camera_intrinsics",
+            [
+              "3",
+              "4"
+            ]
+          ],
+          [
+            "camera_poses",
+            [
+              "3",
+              "3"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'./output/cameras.json'"
+          ],
+          [
+            "widget_1",
+            "'json'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "View3DInBrowser",
+        "incoming_edge_sig": [
+          [
+            "file_path",
+            [
+              "9",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'C:\\\\ComfyUI\\\\ComfyUI\\\\output\\\\pointcloud.ply'"
+          ],
+          [
+            "widget_1",
+            "'pointcloud'"
+          ],
+          [
+            "widget_2",
+            "True"
+          ],
+          [
+            "widget_3",
+            "8765"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "LoadHunyuanWorldMirrorModel",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'C:\\\\ComfyUI\\\\ComfyUI\\\\models\\\\HunyuanWorld-Mirror\\\\HunyuanWorld-Mirror.safetensors'"
+          ],
+          [
+            "widget_1",
+            "'cuda'"
+          ],
+          [
+            "widget_2",
+            "'fp16'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "''"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "HWMInference",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5",
+              "depth"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "normals"
+            ]
+          ],
+          [
+            "1",
+            [
+              "9",
+              "normals"
+            ]
+          ],
+          [
+            "2",
+            [
+              "9",
+              "points3d"
+            ]
+          ],
+          [
+            "3",
+            [
+              "11",
+              "camera_poses"
+            ]
+          ],
+          [
+            "4",
+            [
+              "11",
+              "camera_intrinsics"
+            ]
+          ],
+          [
+            "5",
+            [
+              "10",
+              "gaussians"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1707355148"
+          ],
+          [
+            "widget_1",
+            "'randomize'"
+          ],
+          [
+            "widget_2",
+            "16"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "PreprocessImagesForHWM",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "9",
+              "colors"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'crop'"
+          ],
+          [
+            "widget_1",
+            "518"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "VisualizeDepth",
+        "incoming_edge_sig": [
+          [
+            "depth",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'turbo'"
+          ],
+          [
+            "widget_1",
+            "True"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "VisualizeNormals",
+        "incoming_edge_sig": [
+          [
+            "normals",
+            [
+              "3",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "7": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "8": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "5",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "9": {
+        "class_type": "SavePointCloud",
+        "incoming_edge_sig": [
+          [
+            "colors",
+            [
+              "4",
+              "0"
+            ]
+          ],
+          [
+            "normals",
+            [
+              "3",
+              "1"
+            ]
+          ],
+          [
+            "points3d",
+            [
+              "3",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "file_path"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'./output/pointcloud.ply'"
+          ],
+          [
+            "widget_1",
+            "'ply'"
+          ],
+          [
+            "widget_2",
+            "0"
+          ],
+          [
+            "widget_3",
+            "1"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "432652b04ff0738b38069572ec98681709d7f61b143b94807cd294f470c63021",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1405097356625707068,
+      "channel_name": "world-models",
+      "content_preview": "a quick workflow to get started quicker",
+      "discord_message_url": "https://discord.com/channels/@me/1405097356625707068/1439332257432080443",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1439332257432080443:HunyuanWorld-Mirror.json:309697602aad74f4",
+      "filename": "HunyuanWorld-Mirror.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:43+00:00",
+      "message_id": 1439332257432080443,
+      "node_class_multiset": {
+        "HWMInference": 1,
+        "LoadHunyuanWorldMirrorModel": 1,
+        "PreprocessImagesForHWM": 1,
+        "PreviewImage": 2,
+        "Save3DGaussians": 1,
+        "SaveCameraParams": 1,
+        "SavePointCloud": 1,
+        "VHS_LoadVideo": 1,
+        "View3DInBrowser": 1,
+        "VisualizeDepth": 1,
+        "VisualizeNormals": 1
+      },
+      "node_count": 12,
+      "origin_date": "2025-11-15T19:12:31.672000+00:00",
+      "originator_global_name": "TimHannan",
+      "originator_id": "391075181642252289",
+      "originator_type": "discord_message_author",
+      "originator_username": "timhannan",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "309697602aad74f446b170a28df1f4881727b336c8932acea0de5e90d81dc888",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1405097356625707068/1439332256962445503/HunyuanWorld-Mirror.json?ex=697bb11f&is=697a5f9f&hm=c1a9d1eb26ad874c79ec302f544bfdcff738701311a1afa8e6281fdbfc600ff7&",
+      "source_workflow_sha256": "ac7f07226e771d188c662526c7a209551036f041ce7f5f67bf6f26859a0e4c88",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "2ad6283d24458fc3236a2e84170e2bcdde6512dbfd55c56f53584b2551fc0c7f",
+      "complexity": 3,
+      "description": "Loads a video, preprocesses images, infers depth and normals using Hunyuan World Mirror, then saves 3D Gaussians, camera parameters, and point cloud, with preview outputs.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "3d-gaussian-splatting",
+        "video-to-3d",
+        "depth-estimation",
+        "normal-estimation",
+        "hunyuan-world-mirror",
+        "point-cloud",
+        "camera-parameters",
+        "3d-viewer"
+      ],
+      "task_type": "image_to_video",
+      "title": "3D Gaussian Splatting from Video with Hunyuan World Mirror"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "VHS_LoadVideo",
+      "id": "1",
+      "inputs": {
+        "choose video to upload": "image",
+        "custom_height": 0,
+        "custom_width": 0,
+        "force_rate": 0,
+        "format": "AnimateDiff",
+        "frame_load_cap": 64,
+        "select_every_nth": 1,
+        "skip_first_frames": 0,
+        "video": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "custom_height": 0,
+            "custom_width": 0,
+            "filename": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+            "force_rate": 0,
+            "format": "video/mp4",
+            "frame_load_cap": 64,
+            "select_every_nth": 1,
+            "skip_first_frames": 0,
+            "type": "input"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [
+            {
+              "link": null,
+              "name": "meta_batch",
+              "shape": 7,
+              "type": "VHS_BatchManager"
+            },
+            {
+              "link": null,
+              "name": "vae",
+              "shape": 7,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "frame_count",
+              "type": "INT"
+            },
+            {
+              "links": null,
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "type": "VHS_VIDEOINFO"
+            }
+          ],
+          "pos": [
+            1111.966878463834,
+            -9.771276213558435
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_LoadVideo",
+            "cnr_id": "comfyui-videohelpersuite",
+            "ver": "8e4d79471bf1952154768e8435a9300077b534fa",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            247.455078125,
+            455.2626221778634
+          ],
+          "type": "VHS_LoadVideo",
+          "widgets_values": {
+            "choose video to upload": "image",
+            "custom_height": 0,
+            "custom_width": 0,
+            "force_rate": 0,
+            "format": "AnimateDiff",
+            "frame_load_cap": 64,
+            "select_every_nth": 1,
+            "skip_first_frames": 0,
+            "video": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "custom_height": 0,
+                "custom_width": 0,
+                "filename": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+                "force_rate": 0,
+                "format": "video/mp4",
+                "frame_load_cap": 64,
+                "select_every_nth": 1,
+                "skip_first_frames": 0,
+                "type": "input"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "choose video to upload": "image",
+          "custom_height": 0,
+          "custom_width": 0,
+          "force_rate": 0,
+          "format": "AnimateDiff",
+          "frame_load_cap": 64,
+          "select_every_nth": 1,
+          "skip_first_frames": 0,
+          "video": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "custom_height": 0,
+              "custom_width": 0,
+              "filename": "Hailuo_Video_[Push in]_446165220074975238.mp4",
+              "force_rate": 0,
+              "format": "video/mp4",
+              "frame_load_cap": 64,
+              "select_every_nth": 1,
+              "skip_first_frames": 0,
+              "type": "input"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "10": {
+      "class_type": "Save3DGaussians",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "gaussians",
+              "type": "GAUSSIANS"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [],
+              "name": "filepath",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2098.212393086039,
+            420.0539144683404
+          ],
+          "properties": {
+            "Node name for S&R": "Save3DGaussians",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            280.0625,
+            154
+          ],
+          "type": "Save3DGaussians",
+          "widgets_values": [
+            "./output/gaussians.ply",
+            false,
+            95,
+            false,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "./output/gaussians.ply",
+          false,
+          95,
+          false,
+          1
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": "./output/gaussians.ply",
+        "widget_1": false,
+        "widget_2": 95,
+        "widget_3": false,
+        "widget_4": 1
+      }
+    },
+    "11": {
+      "class_type": "SaveCameraParams",
+      "id": "11",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "camera_poses",
+              "type": "POSES"
+            },
+            {
+              "link": 10,
+              "name": "camera_intrinsics",
+              "type": "INTRINSICS"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": null,
+              "name": "filepath",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2079.186231037195,
+            -84.53401150534653
+          ],
+          "properties": {
+            "Node name for S&R": "SaveCameraParams",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            102
+          ],
+          "type": "SaveCameraParams",
+          "widgets_values": [
+            "./output/cameras.json",
+            "json"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "./output/cameras.json",
+          "json"
+        ]
+      },
+      "uid": "11",
+      "widgets": {
+        "widget_0": "./output/cameras.json",
+        "widget_1": "json"
+      }
+    },
+    "12": {
+      "class_type": "View3DInBrowser",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 21,
+              "name": "file_path",
+              "type": "STRING",
+              "widget": {
+                "name": "file_path"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": null,
+              "name": "viewer_url",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2683.9659332158967,
+            353.0198661854969
+          ],
+          "properties": {
+            "Node name for S&R": "View3DInBrowser",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            130
+          ],
+          "type": "View3DInBrowser",
+          "widgets_values": [
+            "C:\\ComfyUI\\ComfyUI\\output\\pointcloud.ply",
+            "pointcloud",
+            true,
+            8765
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "C:\\ComfyUI\\ComfyUI\\output\\pointcloud.ply",
+          "pointcloud",
+          true,
+          8765
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": "C:\\ComfyUI\\ComfyUI\\output\\pointcloud.ply",
+        "widget_1": "pointcloud",
+        "widget_2": true,
+        "widget_3": 8765
+      }
+    },
+    "2": {
+      "class_type": "LoadHunyuanWorldMirrorModel",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                4
+              ],
+              "name": "model",
+              "type": "HWMIRROR_MODEL"
+            }
+          ],
+          "pos": [
+            1394.025246709107,
+            -43.42130579391902
+          ],
+          "properties": {
+            "Node name for S&R": "LoadHunyuanWorldMirrorModel",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            310.5083984375,
+            154
+          ],
+          "type": "LoadHunyuanWorldMirrorModel",
+          "widgets_values": [
+            "C:\\ComfyUI\\ComfyUI\\models\\HunyuanWorld-Mirror\\HunyuanWorld-Mirror.safetensors",
+            "cuda",
+            "fp16",
+            false,
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "C:\\ComfyUI\\ComfyUI\\models\\HunyuanWorld-Mirror\\HunyuanWorld-Mirror.safetensors",
+          "cuda",
+          "fp16",
+          false,
+          ""
+        ]
+      },
+      "uid": "2",
+      "widgets": {
+        "widget_0": "C:\\ComfyUI\\ComfyUI\\models\\HunyuanWorld-Mirror\\HunyuanWorld-Mirror.safetensors",
+        "widget_1": "cuda",
+        "widget_2": "fp16",
+        "widget_3": false,
+        "widget_4": ""
+      }
+    },
+    "3": {
+      "class_type": "HWMInference",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 4,
+              "name": "model",
+              "type": "HWMIRROR_MODEL"
+            },
+            {
+              "link": 14,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "depth",
+              "type": "DEPTH"
+            },
+            {
+              "links": [
+                7,
+                19
+              ],
+              "name": "normals",
+              "type": "NORMALS"
+            },
+            {
+              "links": [
+                9
+              ],
+              "name": "points3d",
+              "type": "POINTS3D"
+            },
+            {
+              "links": [
+                11
+              ],
+              "name": "camera_poses",
+              "type": "POSES"
+            },
+            {
+              "links": [
+                10
+              ],
+              "name": "camera_intrinsics",
+              "type": "INTRINSICS"
+            },
+            {
+              "links": [
+                8
+              ],
+              "name": "gaussians",
+              "type": "GAUSSIANS"
+            },
+            {
+              "links": null,
+              "name": "depth_conf",
+              "type": "CONFIDENCE"
+            },
+            {
+              "links": null,
+              "name": "normals_conf",
+              "type": "CONFIDENCE"
+            },
+            {
+              "links": null,
+              "name": "pts3d_conf",
+              "type": "CONFIDENCE"
+            }
+          ],
+          "pos": [
+            1746.3515634835858,
+            -60.02240264051052
+          ],
+          "properties": {
+            "Node name for S&R": "HWMInference",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            266
+          ],
+          "type": "HWMInference",
+          "widgets_values": [
+            1707355148,
+            "randomize",
+            16
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1707355148,
+          "randomize",
+          16
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": 1707355148,
+        "widget_1": "randomize",
+        "widget_2": 16
+      }
+    },
+    "4": {
+      "class_type": "PreprocessImagesForHWM",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 13,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                14,
+                16
+              ],
+              "name": "preprocessed_images",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1436.726793458002,
+            186.54082562032113
+          ],
+          "properties": {
+            "Node name for S&R": "PreprocessImagesForHWM",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            279.6099609375,
+            82
+          ],
+          "type": "PreprocessImagesForHWM",
+          "widgets_values": [
+            "crop",
+            518
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "crop",
+          518
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": "crop",
+        "widget_1": 518
+      }
+    },
+    "5": {
+      "class_type": "VisualizeDepth",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [
+            {
+              "link": 6,
+              "name": "depth",
+              "type": "DEPTH"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2068.5216848179434,
+            145.27590252991428
+          ],
+          "properties": {
+            "Node name for S&R": "VisualizeDepth",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "VisualizeDepth",
+          "widgets_values": [
+            "turbo",
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "turbo",
+          true
+        ]
+      },
+      "uid": "5",
+      "widgets": {
+        "widget_0": "turbo",
+        "widget_1": true
+      }
+    },
+    "6": {
+      "class_type": "VisualizeNormals",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "normals",
+              "type": "NORMALS"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                2
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2092.7445197122975,
+            313.5083069365009
+          ],
+          "properties": {
+            "Node name for S&R": "VisualizeNormals",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            151.68125,
+            26
+          ],
+          "type": "VisualizeNormals"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "PreviewImage",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 2,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [],
+          "pos": [
+            2463.897905599758,
+            306.13448559598754
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.66",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            140,
+            246
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "PreviewImage",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [],
+          "pos": [
+            2457.018219512144,
+            -19.02340370238037
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.66",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            140,
+            246
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "SavePointCloud",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "points3d",
+              "type": "POINTS3D"
+            },
+            {
+              "link": 16,
+              "name": "colors",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": 19,
+              "name": "normals",
+              "shape": 7,
+              "type": "NORMALS"
+            },
+            {
+              "link": null,
+              "name": "confidence",
+              "shape": 7,
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                21
+              ],
+              "name": "filepath",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2674.6848146757243,
+            76.7267554107606
+          ],
+          "properties": {
+            "Node name for S&R": "SavePointCloud",
+            "aux_id": "cedarconnor/ComfyUI-HunyuanWorld-Mirror",
+            "ver": "524e1b17b5511d3a1f68df87f5a0810f17330a10",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            278.08203125,
+            190
+          ],
+          "type": "SavePointCloud",
+          "widgets_values": [
+            "./output/pointcloud.ply",
+            "ply",
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "./output/pointcloud.ply",
+          "ply",
+          0,
+          1
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": "./output/pointcloud.ply",
+        "widget_1": "ply",
+        "widget_2": 0,
+        "widget_3": 1
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "7",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "8",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "309697602aad74f4",
+    "path": "external_workflows/.shadow/source/309697602aad74f4-HunyuanWorld-Mirror.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "432652b04ff0738b38069572ec98681709d7f61b143b94807cd294f470c63021",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1405097356625707068,
+      "channel_name": "world-models",
+      "content_preview": "a quick workflow to get started quicker",
+      "discord_message_url": "https://discord.com/channels/@me/1405097356625707068/1439332257432080443",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1439332257432080443:HunyuanWorld-Mirror.json:309697602aad74f4",
+      "filename": "HunyuanWorld-Mirror.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:43+00:00",
+      "message_id": 1439332257432080443,
+      "node_class_multiset": {
+        "HWMInference": 1,
+        "LoadHunyuanWorldMirrorModel": 1,
+        "PreprocessImagesForHWM": 1,
+        "PreviewImage": 2,
+        "Save3DGaussians": 1,
+        "SaveCameraParams": 1,
+        "SavePointCloud": 1,
+        "VHS_LoadVideo": 1,
+        "View3DInBrowser": 1,
+        "VisualizeDepth": 1,
+        "VisualizeNormals": 1
+      },
+      "node_count": 12,
+      "origin_date": "2025-11-15T19:12:31.672000+00:00",
+      "originator_global_name": "TimHannan",
+      "originator_id": "391075181642252289",
+      "originator_type": "discord_message_author",
+      "originator_username": "timhannan",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "309697602aad74f446b170a28df1f4881727b336c8932acea0de5e90d81dc888",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1405097356625707068/1439332256962445503/HunyuanWorld-Mirror.json?ex=697bb11f&is=697a5f9f&hm=c1a9d1eb26ad874c79ec302f544bfdcff738701311a1afa8e6281fdbfc600ff7&",
+      "source_workflow_sha256": "ac7f07226e771d188c662526c7a209551036f041ce7f5f67bf6f26859a0e4c88",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

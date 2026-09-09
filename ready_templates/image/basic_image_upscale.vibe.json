@@ -1,0 +1,63 @@
+{
+  "bind": {
+    "semantic_digest": "24bfee6942d0b594bae8d3a084fbd3f6cfaa7b960bb339090a0a104834e6d537",
+    "workflow_identity": "image/basic_image_upscale"
+  },
+  "canvas": {},
+  "format_version": 1,
+  "groups": [],
+  "links": [
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n1",
+        "scope_path": "",
+        "to_port": 2,
+        "to_uid": "n2"
+      },
+      "occurrence_index": 0
+    },
+    {
+      "edge_ref": {
+        "from_port": 0,
+        "from_uid": "n2",
+        "scope_path": "",
+        "to_port": 3,
+        "to_uid": "n3"
+      },
+      "occurrence_index": 0
+    }
+  ],
+  "nodes": {
+    "n1": {
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    },
+    "n2": {
+      "pos": [
+        520.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        74.0
+      ]
+    },
+    "n3": {
+      "pos": [
+        1040.0,
+        0.0
+      ],
+      "size": [
+        320.0,
+        52.0
+      ]
+    }
+  }
+}

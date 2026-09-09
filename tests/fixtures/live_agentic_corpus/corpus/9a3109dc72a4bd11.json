@@ -1,0 +1,1483 @@
+{
+  "edges": [
+    {
+      "from_node": "66",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "70"
+    },
+    {
+      "from_node": "62",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "71"
+    },
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "65"
+    },
+    {
+      "from_node": "63",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "65"
+    },
+    {
+      "from_node": "65",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "9"
+    },
+    {
+      "from_node": "70",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "69"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "69"
+    },
+    {
+      "from_node": "71",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "69"
+    },
+    {
+      "from_node": "68",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "69"
+    },
+    {
+      "from_node": "62",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "67"
+    }
+  ],
+  "groups": [],
+  "id": "d2174b8a3e0823e7",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "66",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "z_image_bf16.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "71",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "69",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 1078929997917744
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "69",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 25
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "35": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Model links\\n\\n**text_encoders**\\n\\n- [qwen_3_4b.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors)\\n\\n**diffusion_models**\\n\\n- [z_image_bf16.safetensors](https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors)\\n\\n**vae**\\n\\n- [ae.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors)\\n\\n\\nModel Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\\n\u2502   \u2502      \u2514\u2500\u2500 qwen_3_4b.safetensors\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\\n\u2502   \u2502      \u2514\u2500\u2500 z_image_bf16.safetensors\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\\n\u2502          \u2514\u2500\u2500 ae.safetensors\\n```\\n'"
+          ]
+        ]
+      },
+      "62": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "67",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "71",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'qwen_3_4b.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'lumina2'"
+          ]
+        ]
+      },
+      "63": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "65",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'ae.safetensors'"
+          ]
+        ]
+      },
+      "65": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "69",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "63",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "66": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "70",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'z_image_bf16.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "67": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "62",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'low angle view of a woman sitting on a chair holding a hand of cards at a poker table'"
+          ]
+        ]
+      },
+      "68": {
+        "class_type": "EmptySD3LatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "1024"
+          ],
+          [
+            "width",
+            "1024"
+          ]
+        ]
+      },
+      "69": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "68",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "70",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "71",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "67",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "65",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "4"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'res_multistep'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "seed",
+            "1078929997917744"
+          ],
+          [
+            "steps",
+            "25"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "70": {
+        "class_type": "ModelSamplingAuraFlow",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "66",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "3"
+          ]
+        ]
+      },
+      "71": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "62",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "72": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'- Steps: 30\uff5e50\\n- cfg:  4\uff5e7'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "65",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'z-image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "9a3109dc72a4bd11d6729a106fd1c886e7efad5451681bcbc5c7acd1e82364f3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1443174533271130132,
+      "channel_name": "z-image",
+      "content_preview": "it should all be inside the images but here I grabbed that poker one, just the default WF",
+      "discord_message_url": "https://discord.com/channels/@me/1443174533271130132/1465751160450453557",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1465751160450453557:image_z_image.json:d2174b8a3e0823e7",
+      "filename": "image_z_image.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:51+00:00",
+      "message_id": 1465751160450453557,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "MarkdownNote": 2,
+        "ModelSamplingAuraFlow": 1,
+        "SaveImage": 1,
+        "UNETLoader": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 12,
+      "origin_date": "2026-01-27T16:51:48.991000+00:00",
+      "originator_global_name": "Ada",
+      "originator_id": "222247313194745856",
+      "originator_type": "discord_message_author",
+      "originator_username": "adamanthy",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "d2174b8a3e0823e7843dbbd222e10c1bba3956ea15a26a5d5d284673df3082cf",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1443174533271130132/1465751160181751818/image_z_image.json?ex=697ae764&is=697995e4&hm=f05e13cb68392146c78668060ea2ac86694302a1e5d799812935a7bae108481e&",
+      "source_workflow_sha256": "4e24b1a53513e0e4766f19527a72ef2a7da478e1dfac46be911cb884b78c5b68",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "0ff58f8ec7318247f8028441d5f45098c07ee7c34d22727a1ce1c9bd38ff9029",
+      "complexity": 2,
+      "description": "Generates images using an AuraFlow model with Qwen CLIP text encoding and a custom VAE, then saves the output.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "auraflow",
+        "image-generation",
+        "text-to-image",
+        "qwen-clip",
+        "custom-vae"
+      ],
+      "task_type": "text_to_image",
+      "title": "AuraFlow Image Generation with Qwen CLIP"
+    }
+  },
+  "nodes": {
+    "35": {
+      "class_type": "MarkdownNote",
+      "id": "35",
+      "inputs": {
+        "unused_widget_0": "## Model links\n\n**text_encoders**\n\n- [qwen_3_4b.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors)\n\n**diffusion_models**\n\n- [z_image_bf16.safetensors](https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors)\n\n**vae**\n\n- [ae.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u2514\u2500\u2500 qwen_3_4b.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502      \u2514\u2500\u2500 z_image_bf16.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502          \u2514\u2500\u2500 ae.safetensors\n```\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#432",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 35,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [],
+          "pos": [
+            -289.6666459954674,
+            -158.6666723932416
+          ],
+          "properties": {},
+          "size": [
+            510,
+            420
+          ],
+          "title": "Model link (for local users)",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Model links\n\n**text_encoders**\n\n- [qwen_3_4b.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors)\n\n**diffusion_models**\n\n- [z_image_bf16.safetensors](https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors)\n\n**vae**\n\n- [ae.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u2514\u2500\u2500 qwen_3_4b.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502      \u2514\u2500\u2500 z_image_bf16.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502          \u2514\u2500\u2500 ae.safetensors\n```\n"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#432",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Model links\n\n**text_encoders**\n\n- [qwen_3_4b.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors)\n\n**diffusion_models**\n\n- [z_image_bf16.safetensors](https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors)\n\n**vae**\n\n- [ae.safetensors](https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u2514\u2500\u2500 qwen_3_4b.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502      \u2514\u2500\u2500 z_image_bf16.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 vae/\n\u2502          \u2514\u2500\u2500 ae.safetensors\n```\n"
+        ]
+      },
+      "uid": "35",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "CLIPLoader",
+      "id": "62",
+      "inputs": {
+        "clip_name": "qwen_3_4b.safetensors",
+        "device": "default",
+        "type": "lumina2"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 62,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                78,
+                82
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            270.33337313052357,
+            11.333322553071866
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "qwen_3_4b.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.73"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "qwen_3_4b.safetensors",
+            "lumina2",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "qwen_3_4b.safetensors",
+          "lumina2",
+          "default"
+        ]
+      },
+      "uid": "62",
+      "widgets": {}
+    },
+    "63": {
+      "class_type": "VAELoader",
+      "id": "63",
+      "inputs": {
+        "vae_name": "ae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 63,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                73
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            270.33337313052357,
+            161.33337863358537
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "vae",
+                "name": "ae.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.73"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "ae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ae.safetensors"
+        ]
+      },
+      "uid": "63",
+      "widgets": {}
+    },
+    "65": {
+      "class_type": "VAEDecode",
+      "id": "65",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 65,
+          "inputs": [
+            {
+              "link": 72,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 73,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                79
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1380,
+            -160
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.64"
+          },
+          "size": [
+            210,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "65",
+      "widgets": {}
+    },
+    "66": {
+      "class_type": "UNETLoader",
+      "id": "66",
+      "inputs": {
+        "unet_name": "z_image_bf16.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 66,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                71
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            270.33337313052357,
+            -118.6667011003664
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "diffusion_models",
+                "name": "z_image_bf16.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.73"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            "z_image_bf16.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "z_image_bf16.safetensors",
+          "default"
+        ]
+      },
+      "uid": "66",
+      "widgets": {}
+    },
+    "67": {
+      "class_type": "CLIPTextEncode",
+      "id": "67",
+      "inputs": {
+        "text": "low angle view of a woman sitting on a chair holding a hand of cards at a poker table"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 67,
+          "inputs": [
+            {
+              "link": 78,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                75
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            585.3334160505818,
+            -118.6667011003664
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.73"
+          },
+          "size": [
+            410,
+            315
+          ],
+          "title": "CLIP Text Encode (Positive Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "low angle view of a woman sitting on a chair holding a hand of cards at a poker table"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "low angle view of a woman sitting on a chair holding a hand of cards at a poker table"
+        ]
+      },
+      "uid": "67",
+      "widgets": {}
+    },
+    "68": {
+      "class_type": "EmptySD3LatentImage",
+      "id": "68",
+      "inputs": {
+        "batch_size": 1,
+        "height": 1024,
+        "width": 1024
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 68,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                77
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            280.3333893440612,
+            321.3333573663614
+          ],
+          "properties": {
+            "Node name for S&R": "EmptySD3LatentImage",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.64"
+          },
+          "size": [
+            260,
+            106
+          ],
+          "type": "EmptySD3LatentImage",
+          "widgets_values": [
+            1024,
+            1024,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          1024,
+          1
+        ]
+      },
+      "uid": "68",
+      "widgets": {}
+    },
+    "69": {
+      "class_type": "KSampler",
+      "id": "69",
+      "inputs": {
+        "cfg": 4,
+        "denoise": 1,
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "seed": 1078929997917744,
+        "steps": 25,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 69,
+          "inputs": [
+            {
+              "link": 74,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 75,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 83,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 77,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                72
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1035.333397169572,
+            -48.66668116687845
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.64"
+          },
+          "size": [
+            310,
+            435
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            1078929997917744,
+            "randomize",
+            25,
+            4,
+            "res_multistep",
+            "simple",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1078929997917744,
+          "randomize",
+          25,
+          4,
+          "res_multistep",
+          "simple",
+          1
+        ]
+      },
+      "uid": "69",
+      "widgets": {}
+    },
+    "70": {
+      "class_type": "ModelSamplingAuraFlow",
+      "id": "70",
+      "inputs": {
+        "shift": 3
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 70,
+          "inputs": [
+            {
+              "link": 71,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                74
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1035.3335842921224,
+            -158.6666723932416
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingAuraFlow",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.64"
+          },
+          "size": [
+            310,
+            58
+          ],
+          "type": "ModelSamplingAuraFlow",
+          "widgets_values": [
+            3
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          3
+        ]
+      },
+      "uid": "70",
+      "widgets": {}
+    },
+    "71": {
+      "class_type": "CLIPTextEncode",
+      "id": "71",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 71,
+          "inputs": [
+            {
+              "link": 82,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                83
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            590,
+            250
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.73"
+          },
+          "size": [
+            390,
+            125
+          ],
+          "title": "CLIP Text Encode (Negative Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "71",
+      "widgets": {}
+    },
+    "72": {
+      "class_type": "MarkdownNote",
+      "id": "72",
+      "inputs": {
+        "unused_widget_0": "- Steps: 30\uff5e50\n- cfg:  4\uff5e7"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 72,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            1040,
+            440
+          ],
+          "properties": {},
+          "size": [
+            300,
+            88
+          ],
+          "title": "Settings",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "- Steps: 30\uff5e50\n- cfg:  4\uff5e7"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "- Steps: 30\uff5e50\n- cfg:  4\uff5e7"
+        ]
+      },
+      "uid": "72",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "SaveImage",
+      "id": "9",
+      "inputs": {
+        "filename_prefix": "z-image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 79,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [],
+          "pos": [
+            1380.333488730243,
+            -38.66666495334084
+          ],
+          "properties": {
+            "Node name for S&R": "SaveImage",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.3.64"
+          },
+          "size": [
+            773.7831417940106,
+            704.7950350956075
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "z-image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "z-image"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "9",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "ae.safetensors",
+      "qwen_3_4b.safetensors",
+      "z_image_bf16.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "d2174b8a3e0823e7",
+    "path": "external_workflows/.shadow/source/d2174b8a3e0823e7-image_z_image.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "9a3109dc72a4bd11d6729a106fd1c886e7efad5451681bcbc5c7acd1e82364f3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1443174533271130132,
+      "channel_name": "z-image",
+      "content_preview": "it should all be inside the images but here I grabbed that poker one, just the default WF",
+      "discord_message_url": "https://discord.com/channels/@me/1443174533271130132/1465751160450453557",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1465751160450453557:image_z_image.json:d2174b8a3e0823e7",
+      "filename": "image_z_image.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:51+00:00",
+      "message_id": 1465751160450453557,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "EmptySD3LatentImage": 1,
+        "KSampler": 1,
+        "MarkdownNote": 2,
+        "ModelSamplingAuraFlow": 1,
+        "SaveImage": 1,
+        "UNETLoader": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 12,
+      "origin_date": "2026-01-27T16:51:48.991000+00:00",
+      "originator_global_name": "Ada",
+      "originator_id": "222247313194745856",
+      "originator_type": "discord_message_author",
+      "originator_username": "adamanthy",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "d2174b8a3e0823e7843dbbd222e10c1bba3956ea15a26a5d5d284673df3082cf",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1443174533271130132/1465751160181751818/image_z_image.json?ex=697ae764&is=697995e4&hm=f05e13cb68392146c78668060ea2ac86694302a1e5d799812935a7bae108481e&",
+      "source_workflow_sha256": "4e24b1a53513e0e4766f19527a72ef2a7da478e1dfac46be911cb884b78c5b68",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

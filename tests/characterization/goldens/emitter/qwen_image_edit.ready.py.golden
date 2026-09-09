@@ -1,10 +1,12 @@
 # vibecomfy: generated
 # For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
 from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
-from vibecomfy.nodes.core import CFGNorm, CLIPLoader, ComfySwitchNode, KSampler, LoadImage, LoraLoaderModelOnly, ModelSamplingAuraFlow, PrimitiveBoolean, PrimitiveFloat, PrimitiveInt, SaveImage, TextEncodeQwenImageEdit, UNETLoader, VAEDecode, VAEEncode, VAELoader
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import CFGNorm, CLIPLoader, ComfySwitchNode, KSampler, LoadImage, LoraLoaderModelOnly, ModelSamplingAuraFlow, SaveImage, TextEncodeQwenImageEdit, UNETLoader, VAEDecode, VAEEncode, VAELoader
 
 
 CLIP_NAME = 'qwen_2.5_vl_7b_fp8_scaled.safetensors'
@@ -16,243 +18,122 @@ VAE_NAME = 'qwen_image_vae.safetensors'
 
 
 PUBLIC_INPUT_METADATA = {
-    'seed': InputSpec(node='13', field='seed', default=DEFAULT_SEED, type='INT'),
-    'image': InputSpec(node='78', field='image', default='image_qwen_image_edit_input_image.png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+    'model': InputSpec(node='1', field='unet_name', default=UNET_NAME),
+    'prompt': InputSpec(node='6', field='prompt', default=DEFAULT_PROMPT),
+    'seed': InputSpec(node='13', field='seed', default=DEFAULT_SEED),
+    'image': InputSpec(node='78', field='image', default='image_qwen_image_edit_input_image.png', aliases=('input_image',)),
 }
 
 READY_METADATA = ReadyMetadata.build(
     capability='image',
+    template_id='edit/qwen_image_edit',
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors', 'qwen_2.5_vl_7b_fp8_scaled.safetensors', 'qwen_image_edit_fp8_e4m3fn.safetensors', 'qwen_image_vae.safetensors']},
     source_path='ready_templates/sources/official/edit/qwen_image_edit.json',
-    source_id='qwen_image_edit',
+    source_id='edit/qwen_image_edit',
+    upstream_source_id='qwen_image_edit',
     source_type='api',
     source_workflow_path='ready_templates/sources/official/edit/qwen_image_edit.json',
     output_mode='ready_template',
     ready_id='edit/qwen_image_edit',
-    provenance={'source_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'source_id': 'qwen_image_edit', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'output_mode': 'ready_template', 'ready_id': 'edit/qwen_image_edit', 'source_workflow': 'ready_templates/sources/official/edit/qwen_image_edit.json'},
+    provenance={'source_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'source_id': 'edit/qwen_image_edit', 'upstream_source_id': 'qwen_image_edit', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'output_mode': 'ready_template', 'ready_id': 'edit/qwen_image_edit', 'source_workflow': 'ready_templates/sources/official/edit/qwen_image_edit.json'},
 )
-
-# === Subgraph functions ===
-
-def qwen_image_edit(
-    *,
-    image,
-    prompt: str,
-    unet_name: str,
-    clip_name: str,
-    vae_name: str,
-    lora_name: str,
-    enable_turbo_mode: bool,
-):
-    """Qwen-Image-Edit - single-image variant.
-
-    Materialized from subgraph 74a8e1e2-9cb8-4112-978e-06ce1b5793f1 in ready_templates/sources/official/edit/qwen_image_edit.json.
-    # vibecomfy source hash: sha256:f8aeaa7eece313c69d029725de90d986487d28e9a9d4e08a6b40790d47fda688
-    Inner nodes: VAELoader, TextEncodeQwenImageEditx2, CFGNorm, ModelSamplingAuraFlow, VAEDecode, CLIPLoader, VAEEncode, LoraLoaderModelOnly, UNETLoader, PrimitiveFloatx2, PrimitiveIntx2, PrimitiveBoolean, KSampler, ComfySwitchNodex3.
-    """
-
-    unetloader = UNETLoader(
-        unet_name=unet_name,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#37',
-    )
-
-    cliploader = CLIPLoader(
-        type_='qwen_image',
-        clip_name=clip_name,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#38',
-    )
-
-    vaeloader = VAELoader(
-        vae_name=vae_name,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#39',
-    )
-
-    primitiveint = PrimitiveInt(
-        value=4,
-        control_after_generate='fixed',
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#103',
-    )
-
-    primitivefloat = PrimitiveFloat(
-        value=1,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#105',
-    )
-
-    primitiveint_2 = PrimitiveInt(
-        value=20,
-        control_after_generate='fixed',
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#106',
-    )
-
-    primitivefloat_2 = PrimitiveFloat(
-        value=2.5,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#107',
-    )
-
-    primitiveboolean = PrimitiveBoolean(
-        value=enable_turbo_mode,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#111',
-    )
-
-    textencodeqwenimageedit = TextEncodeQwenImageEdit(
-        prompt=prompt,
-        clip=cliploader,
-        image=image,
-        vae=vaeloader,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#76',
-    )
-
-    textencodeqwenimageedit_2 = TextEncodeQwenImageEdit(
-        prompt='',
-        clip=cliploader,
-        image=image,
-        vae=vaeloader,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#77',
-    )
-
-    vaeencode = VAEEncode(
-        pixels=image,
-        vae=vaeloader,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#88',
-    )
-
-    loraloadermodelonly = LoraLoaderModelOnly(
-        lora_name=lora_name,
-        model=unetloader,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#89',
-    )
-
-    comfyswitchnode_2 = ComfySwitchNode(
-        switch=primitiveboolean,
-        on_false=primitivefloat_2,
-        on_true=primitivefloat,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#109',
-    )
-
-    comfyswitchnode_3 = ComfySwitchNode(
-        switch=primitiveboolean,
-        on_false=primitiveint_2,
-        on_true=primitiveint,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#110',
-    )
-
-    comfyswitchnode = ComfySwitchNode(
-        switch=primitiveboolean,
-        on_false=unetloader,
-        on_true=loraloadermodelonly,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#108',
-    )
-
-    modelsamplingauraflow = ModelSamplingAuraFlow(
-        shift=3,
-        model=comfyswitchnode,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#66',
-    )
-
-    cfgnorm = CFGNorm(
-        model=modelsamplingauraflow,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#75',
-    )
-
-    ksampler = KSampler(
-        seed=344147753686358,
-        sampler_name='euler',
-        control_after_generate='randomize',
-        steps=comfyswitchnode_3,
-        cfg=comfyswitchnode_2,
-        latent_image=vaeencode,
-        model=cfgnorm,
-        negative=textencodeqwenimageedit_2,
-        positive=textencodeqwenimageedit,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#3',
-    )
-
-    vaedecode = VAEDecode(
-        samples=ksampler,
-        vae=vaeloader,
-        _uid='74a8e1e2-9cb8-4112-978e-06ce1b5793f1#8',
-    )
-
-    return vaedecode
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Loaders
-    unetloader = UNETLoader(_id='1', unet_name=UNET_NAME, _uid='n2')
+    unetloader = UNETLoader(
+        _id='1',
+        unet_name=UNET_NAME,
+        _uid='n2',
+        _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
 
     cliploader = CLIPLoader(
         _id='2',
         clip_name=CLIP_NAME,
-        type_='qwen_image',
+        type='qwen_image',
         _uid='n3',
+        _native_ports={'native_input_names': ['clip_name', 'type', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['CHOICE', 'CHOICE', 'CHOICE'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    vaeloader = VAELoader(_id='3', vae_name=VAE_NAME, _uid='n4')
-    comfyswitchnode = ComfySwitchNode(_id='4', switch=False, _uid='n5')
-    comfyswitchnode_2 = ComfySwitchNode(_id='5', switch=False, _uid='n6')
+    vaeloader = VAELoader(
+        _id='3',
+        vae_name=VAE_NAME,
+        _uid='n4',
+        _native_ports={'native_input_names': ['vae_name'], 'native_output_names': ['VAE'], 'native_input_types': ['CHOICE'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    comfyswitchnode_2 = ComfySwitchNode(
+        _id='4',
+        switch=False,
+        _uid='n5',
+        _native_ports={'native_input_names': ['switch', 'on_false', 'on_true'], 'native_output_names': ['OUTPUT'], 'native_input_types': ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3'], 'native_output_types': ['COMFY_MATCHTYPE_V3'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    comfyswitchnode_3 = ComfySwitchNode(
+        _id='5',
+        switch=False,
+        _uid='n6',
+        _native_ports={'native_input_names': ['switch', 'on_false', 'on_true'], 'native_output_names': ['OUTPUT'], 'native_input_types': ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3'], 'native_output_types': ['COMFY_MATCHTYPE_V3'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
 
     # Inputs
     image, _ = LoadImage(
         _id='78',
         image='image_qwen_image_edit_input_image.png',
         _uid='n1',
+        _native_ports={'native_input_names': ['image'], 'native_output_names': ['IMAGE', 'MASK'], 'native_input_types': ['CHOICE'], 'native_output_types': ['IMAGE', 'MASK'], 'native_input_optional': [False], 'native_input_asset_kinds': ['image'], 'native_output_slots': None},
     )
 
     textencodeqwenimageedit = TextEncodeQwenImageEdit(
         _id='6',
         prompt=DEFAULT_PROMPT,
-        clip=cliploader,
-        image=image,
-        vae=vaeloader,
         _uid='n7',
+        _native_ports={'native_input_names': ['prompt', 'image', 'vae', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'IMAGE', 'VAE', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     textencodeqwenimageedit_2 = TextEncodeQwenImageEdit(
         _id='7',
         prompt='',
-        clip=cliploader,
-        image=image,
-        vae=vaeloader,
         _uid='n8',
+        _native_ports={'native_input_names': ['prompt', 'image', 'vae', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'IMAGE', 'VAE', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     vaeencode = VAEEncode(
         _id='8',
-        pixels=image,
-        vae=vaeloader,
         _uid='n9',
+        _native_ports={'native_input_names': ['pixels', 'vae'], 'native_output_names': ['LATENT'], 'native_input_types': ['IMAGE', 'VAE'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     loraloadermodelonly = LoraLoaderModelOnly(
         _id='9',
         lora_name=LORA_NAME,
-        model=unetloader,
         _uid='n10',
+        _native_ports={'native_input_names': ['lora_name', 'strength_model', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    comfyswitchnode_3 = ComfySwitchNode(
+    comfyswitchnode = ComfySwitchNode(
         _id='10',
         switch=False,
-        on_false=unetloader,
-        on_true=loraloadermodelonly,
         _uid='n11',
+        _native_ports={'native_input_names': ['switch', 'on_false', 'on_true'], 'native_output_names': ['OUTPUT'], 'native_input_types': ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3'], 'native_output_types': ['COMFY_MATCHTYPE_V3'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     modelsamplingauraflow = ModelSamplingAuraFlow(
         _id='11',
         shift=3,
-        model=comfyswitchnode_3,
         _uid='n12',
+        _native_ports={'native_input_names': ['shift', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     cfgnorm = CFGNorm(
         _id='12',
         widget_0=1,
-        model=modelsamplingauraflow,
         _uid='n13',
+        _native_ports={'native_input_names': ['strength', 'pre_cfg', 'model', 'widget_0'], 'native_output_names': ['PATCHED_MODEL'], 'native_input_types': ['FLOAT', 'BOOLEAN', 'MODEL', None], 'native_output_types': ['MODEL'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Sampling
@@ -260,25 +141,230 @@ def build() -> VibeWorkflow:
         _id='13',
         seed=DEFAULT_SEED,
         sampler_name='euler',
-        steps=comfyswitchnode_2,
-        cfg=comfyswitchnode,
-        latent_image=vaeencode,
-        model=cfgnorm,
-        negative=textencodeqwenimageedit_2,
-        positive=textencodeqwenimageedit,
         _uid='n14',
+        _native_ports={'native_input_names': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False, False, False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Decode
     vaedecode = VAEDecode(
         _id='14',
-        samples=ksampler,
-        vae=vaeloader,
         _uid='n15',
+        _native_ports={'native_input_names': ['samples', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Outputs
-    saveimage = SaveImage(_id='60', images=vaedecode, _uid='n16')
+    saveimage = SaveImage(
+        _id='60',
+        _uid='n16',
+        _native_ports={'native_input_names': ['filename_prefix', 'extra_pnginfo', 'prompt', 'images'], 'native_output_names': None, 'native_input_types': ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE'], 'native_output_types': None, 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
 
-    return wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+    wf.connect('2.0', '6.clip')
+    wf.connect('78.0', '6.image')
+    wf.connect('3.0', '6.vae')
+    wf.connect('2.0', '7.clip')
+    wf.connect('78.0', '7.image')
+    wf.connect('3.0', '7.vae')
+    wf.connect('78.0', '8.pixels')
+    wf.connect('3.0', '8.vae')
+    wf.connect('1.0', '9.model')
+    wf.connect('1.0', '10.on_false')
+    wf.connect('9.0', '10.on_true')
+    wf.connect('10.0', '11.model')
+    wf.connect('11.0', '12.model')
+    wf.connect('8.0', '13.latent_image')
+    wf.connect('12.0', '13.model')
+    wf.connect('7.0', '13.negative')
+    wf.connect('6.0', '13.positive')
+    wf.connect('4.0', '13.cfg')
+    wf.connect('5.0', '13.steps')
+    wf.connect('13.0', '14.samples')
+    wf.connect('3.0', '14.vae')
+    wf.connect('14.0', '60.images')
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+    wf.nodes['1'].inputs = {'unet_name': 'qwen_image_edit_fp8_e4m3fn.safetensors'}
+    wf.nodes['1'].widgets = {}
+    wf.nodes['1'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name']}
+    wf.nodes['1'].native_input_names = ['unet_name', 'weight_dtype']
+    wf.nodes['1'].native_output_names = ['MODEL']
+    wf.nodes['1'].native_input_types = ['CHOICE', 'CHOICE']
+    wf.nodes['1'].native_output_types = ['MODEL']
+    wf.nodes['1'].native_input_optional = [False, False]
+    wf.nodes['1'].native_input_asset_kinds = None
+    wf.nodes['1'].native_output_slots = None
+    wf.nodes['10'].inputs = {'switch': False}
+    wf.nodes['10'].widgets = {}
+    wf.nodes['10'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT'], 'keep_defaults': ['on_false', 'on_true', 'switch']}
+    wf.nodes['10'].native_input_names = ['switch', 'on_false', 'on_true']
+    wf.nodes['10'].native_output_names = ['OUTPUT']
+    wf.nodes['10'].native_input_types = ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3']
+    wf.nodes['10'].native_output_types = ['COMFY_MATCHTYPE_V3']
+    wf.nodes['10'].native_input_optional = [False, False, False]
+    wf.nodes['10'].native_input_asset_kinds = None
+    wf.nodes['10'].native_output_slots = None
+    wf.nodes['11'].inputs = {'shift': 3}
+    wf.nodes['11'].widgets = {}
+    wf.nodes['11'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['model', 'shift']}
+    wf.nodes['11'].native_input_names = ['shift', 'model']
+    wf.nodes['11'].native_output_names = ['MODEL']
+    wf.nodes['11'].native_input_types = ['FLOAT', 'MODEL']
+    wf.nodes['11'].native_output_types = ['MODEL']
+    wf.nodes['11'].native_input_optional = [False, False]
+    wf.nodes['11'].native_input_asset_kinds = None
+    wf.nodes['11'].native_output_slots = None
+    wf.nodes['12'].inputs = {'widget_0': 1}
+    wf.nodes['12'].widgets = {}
+    wf.nodes['12'].metadata = {'provenance': 'agent_authored', 'output_names': ['PATCHED_MODEL'], 'keep_defaults': ['model', 'widget_0']}
+    wf.nodes['12'].native_input_names = ['strength', 'pre_cfg', 'model', 'widget_0']
+    wf.nodes['12'].native_output_names = ['PATCHED_MODEL']
+    wf.nodes['12'].native_input_types = ['FLOAT', 'BOOLEAN', 'MODEL', None]
+    wf.nodes['12'].native_output_types = ['MODEL']
+    wf.nodes['12'].native_input_optional = None
+    wf.nodes['12'].native_input_asset_kinds = None
+    wf.nodes['12'].native_output_slots = None
+    wf.nodes['13'].inputs = {'sampler_name': 'euler', 'seed': 344147753686358}
+    wf.nodes['13'].widgets = {}
+    wf.nodes['13'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['cfg', 'latent_image', 'model', 'negative', 'positive', 'sampler_name', 'seed', 'steps']}
+    wf.nodes['13'].native_input_names = ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive']
+    wf.nodes['13'].native_output_names = ['LATENT']
+    wf.nodes['13'].native_input_types = ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['13'].native_output_types = ['LATENT']
+    wf.nodes['13'].native_input_optional = [False, False, False, False, False, False, False, False, False, False]
+    wf.nodes['13'].native_input_asset_kinds = None
+    wf.nodes['13'].native_output_slots = None
+    wf.nodes['14'].inputs = {}
+    wf.nodes['14'].widgets = {}
+    wf.nodes['14'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['samples', 'vae']}
+    wf.nodes['14'].native_input_names = ['samples', 'vae']
+    wf.nodes['14'].native_output_names = ['IMAGE']
+    wf.nodes['14'].native_input_types = ['LATENT', 'VAE']
+    wf.nodes['14'].native_output_types = ['IMAGE']
+    wf.nodes['14'].native_input_optional = [False, False]
+    wf.nodes['14'].native_input_asset_kinds = None
+    wf.nodes['14'].native_output_slots = None
+    wf.nodes['2'].inputs = {'clip_name': 'qwen_2.5_vl_7b_fp8_scaled.safetensors', 'type': 'qwen_image'}
+    wf.nodes['2'].widgets = {}
+    wf.nodes['2'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['clip_name', 'type']}
+    wf.nodes['2'].native_input_names = ['clip_name', 'type', 'device']
+    wf.nodes['2'].native_output_names = ['CLIP']
+    wf.nodes['2'].native_input_types = ['CHOICE', 'CHOICE', 'CHOICE']
+    wf.nodes['2'].native_output_types = ['CLIP']
+    wf.nodes['2'].native_input_optional = [False, False, True]
+    wf.nodes['2'].native_input_asset_kinds = None
+    wf.nodes['2'].native_output_slots = None
+    wf.nodes['3'].inputs = {'vae_name': 'qwen_image_vae.safetensors'}
+    wf.nodes['3'].widgets = {}
+    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['VAE'], 'keep_defaults': ['vae_name']}
+    wf.nodes['3'].native_input_names = ['vae_name']
+    wf.nodes['3'].native_output_names = ['VAE']
+    wf.nodes['3'].native_input_types = ['CHOICE']
+    wf.nodes['3'].native_output_types = ['VAE']
+    wf.nodes['3'].native_input_optional = [False]
+    wf.nodes['3'].native_input_asset_kinds = None
+    wf.nodes['3'].native_output_slots = None
+    wf.nodes['4'].inputs = {'switch': False}
+    wf.nodes['4'].widgets = {}
+    wf.nodes['4'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT'], 'keep_defaults': ['switch']}
+    wf.nodes['4'].native_input_names = ['switch', 'on_false', 'on_true']
+    wf.nodes['4'].native_output_names = ['OUTPUT']
+    wf.nodes['4'].native_input_types = ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3']
+    wf.nodes['4'].native_output_types = ['COMFY_MATCHTYPE_V3']
+    wf.nodes['4'].native_input_optional = [False, False, False]
+    wf.nodes['4'].native_input_asset_kinds = None
+    wf.nodes['4'].native_output_slots = None
+    wf.nodes['5'].inputs = {'switch': False}
+    wf.nodes['5'].widgets = {}
+    wf.nodes['5'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT'], 'keep_defaults': ['switch']}
+    wf.nodes['5'].native_input_names = ['switch', 'on_false', 'on_true']
+    wf.nodes['5'].native_output_names = ['OUTPUT']
+    wf.nodes['5'].native_input_types = ['BOOLEAN', 'COMFY_MATCHTYPE_V3', 'COMFY_MATCHTYPE_V3']
+    wf.nodes['5'].native_output_types = ['COMFY_MATCHTYPE_V3']
+    wf.nodes['5'].native_input_optional = [False, False, False]
+    wf.nodes['5'].native_input_asset_kinds = None
+    wf.nodes['5'].native_output_slots = None
+    wf.nodes['6'].inputs = {'prompt': 'Remove all UI text elements from the image. Keep the feeling that the characters and scene are in water. Also, remove the green UI elements at the bottom.'}
+    wf.nodes['6'].widgets = {}
+    wf.nodes['6'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'image', 'prompt', 'vae']}
+    wf.nodes['6'].native_input_names = ['prompt', 'image', 'vae', 'clip']
+    wf.nodes['6'].native_output_names = ['CONDITIONING']
+    wf.nodes['6'].native_input_types = ['STRING', 'IMAGE', 'VAE', 'CLIP']
+    wf.nodes['6'].native_output_types = ['CONDITIONING']
+    wf.nodes['6'].native_input_optional = [False, True, True, False]
+    wf.nodes['6'].native_input_asset_kinds = None
+    wf.nodes['6'].native_output_slots = None
+    wf.nodes['60'].inputs = {}
+    wf.nodes['60'].widgets = {}
+    wf.nodes['60'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['images']}
+    wf.nodes['60'].native_input_names = ['filename_prefix', 'extra_pnginfo', 'prompt', 'images']
+    wf.nodes['60'].native_output_names = None
+    wf.nodes['60'].native_input_types = ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE']
+    wf.nodes['60'].native_output_types = None
+    wf.nodes['60'].native_input_optional = [False, True, True, False]
+    wf.nodes['60'].native_input_asset_kinds = None
+    wf.nodes['60'].native_output_slots = None
+    wf.nodes['7'].inputs = {'prompt': ''}
+    wf.nodes['7'].widgets = {}
+    wf.nodes['7'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'image', 'prompt', 'vae']}
+    wf.nodes['7'].native_input_names = ['prompt', 'image', 'vae', 'clip']
+    wf.nodes['7'].native_output_names = ['CONDITIONING']
+    wf.nodes['7'].native_input_types = ['STRING', 'IMAGE', 'VAE', 'CLIP']
+    wf.nodes['7'].native_output_types = ['CONDITIONING']
+    wf.nodes['7'].native_input_optional = [False, True, True, False]
+    wf.nodes['7'].native_input_asset_kinds = None
+    wf.nodes['7'].native_output_slots = None
+    wf.nodes['78'].inputs = {'image': 'image_qwen_image_edit_input_image.png'}
+    wf.nodes['78'].widgets = {}
+    wf.nodes['78'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE', 'MASK'], 'keep_defaults': ['image']}
+    wf.nodes['78'].native_input_names = ['image']
+    wf.nodes['78'].native_output_names = ['IMAGE', 'MASK']
+    wf.nodes['78'].native_input_types = ['CHOICE']
+    wf.nodes['78'].native_output_types = ['IMAGE', 'MASK']
+    wf.nodes['78'].native_input_optional = [False]
+    wf.nodes['78'].native_input_asset_kinds = ['image']
+    wf.nodes['78'].native_output_slots = None
+    wf.nodes['8'].inputs = {}
+    wf.nodes['8'].widgets = {}
+    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['pixels', 'vae']}
+    wf.nodes['8'].native_input_names = ['pixels', 'vae']
+    wf.nodes['8'].native_output_names = ['LATENT']
+    wf.nodes['8'].native_input_types = ['IMAGE', 'VAE']
+    wf.nodes['8'].native_output_types = ['LATENT']
+    wf.nodes['8'].native_input_optional = [False, False]
+    wf.nodes['8'].native_input_asset_kinds = None
+    wf.nodes['8'].native_output_slots = None
+    wf.nodes['9'].inputs = {'lora_name': 'Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors'}
+    wf.nodes['9'].widgets = {}
+    wf.nodes['9'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['lora_name', 'model']}
+    wf.nodes['9'].native_input_names = ['lora_name', 'strength_model', 'model']
+    wf.nodes['9'].native_output_names = ['MODEL']
+    wf.nodes['9'].native_input_types = ['CHOICE', 'FLOAT', 'MODEL']
+    wf.nodes['9'].native_output_types = ['MODEL']
+    wf.nodes['9'].native_input_optional = [False, False, False]
+    wf.nodes['9'].native_input_asset_kinds = None
+    wf.nodes['9'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('image', '78', 'image', 'image_qwen_image_edit_input_image.png', type='IMAGE', default='image_qwen_image_edit_input_image.png', required=True, range=None, aliases=('input_image',), media_semantics='image', allow_missing_target=False)
+    wf.register_input('model', '1', 'unet_name', 'qwen_image_edit_fp8_e4m3fn.safetensors', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['model'].default = None
+    wf.register_input('prompt', '6', 'prompt', 'Remove all UI text elements from the image. Keep the feeling that the characters and scene are in water. Also, remove the green UI elements at the bottom.', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['prompt'].default = None
+    wf.register_input('seed', '13', 'seed', 344147753686358, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['seed'].default = None
+    wf.register_input('input_image', '78', 'image', 'image_qwen_image_edit_input_image.png', type='IMAGE', default='image_qwen_image_edit_input_image.png', required=True, range=None, aliases=(), media_semantics='image', allow_missing_target=False, materialized_alias_of='image')
+    public_output_0 = wf.outputs[0]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveImage'
+    public_output_0.name = 'image'
+    public_output_0.artifact_kind = 'image'
+    public_output_0.mime_type = 'image/png'
+    public_output_0.filename_prefix = 'ComfyUI'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    wf.requirements.models = ['Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors', 'qwen_2.5_vl_7b_fp8_scaled.safetensors', 'qwen_image_edit_fp8_e4m3fn.safetensors', 'qwen_image_vae.safetensors']
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
+    return wf
 

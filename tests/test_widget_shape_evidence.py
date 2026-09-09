@@ -196,7 +196,7 @@ def test_primitive_int_control_after_generate_metadata_adds_ui_slot() -> None:
     assert evidence.overflow is False
 
 
-def test_raw_scalar_widget_overflow_is_not_hidden_by_compacted_candidate_count() -> None:
+def test_raw_scalar_widget_overflow_preserves_candidate_rows() -> None:
     node = VibeNode(
         "12",
         "ShrinkingStatic",
@@ -215,7 +215,7 @@ def test_raw_scalar_widget_overflow_is_not_hidden_by_compacted_candidate_count()
     evidence = _evidence(node, provider)
 
     assert evidence.raw_widget_count == 5
-    assert evidence.candidate_widget_count == 2
+    assert evidence.candidate_widget_count == 5
     assert evidence.schema_widget_count == 2
     assert evidence.has_dict_rows is False
     assert evidence.overflow is True

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
+import sys
+import types
 
 import pytest
 
@@ -2138,6 +2142,260 @@ def test_public_outcome_kinds_are_the_closed_contract_set() -> None:
     )
     assert len(PUBLIC_OUTCOME_KINDS) == 6
     assert len(set(PUBLIC_OUTCOME_KINDS)) == 6
+
+
+def test_public_candidate_envelope_carries_bundle_revision_lineage() -> None:
+    revision_id = "a" * 64
+    parent_revision = "b" * 64
+    projected = ensure_agent_edit_response_contract(
+        {
+            "ok": True,
+            "session_id": "sess-1",
+            "turn_id": "0001",
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
+            "outcome": {"kind": "candidate_transaction"},
+            "candidate": {
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
+            },
+        },
+        stage="submit",
+    )
+    assert projected["revision_id"] == revision_id
+    assert projected["parent_revision"] == parent_revision
+    assert projected["candidate"]["revision_id"] == revision_id
+    assert projected["candidate"]["parent_revision"] == parent_revision
+
+
+def test_real_public_submit_prepare_finalize_rollback_chat_envelopes_carry_revision(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.test_comfy_nodes_agent_backend_spine import (
+        _setup_v2_session_with_candidate,
+    )
+    from vibecomfy.comfy_nodes.agent import edit as edit_module
+    from vibecomfy.comfy_nodes.agent import routes as routes_module
+    from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle
+    from vibecomfy.testing.canonical import canonical_digest
+
+    compile_calls: list[str] = []
+
+    def compile_once(self, *, schema_provider=None):
+        assert schema_provider is not None
+        compile_calls.append(self.revision_id)
+        api_projection = {"workflow_revision": self.revision_id}
+        return ApprovedProjectionRecord(
+            revision_id=self.revision_id,
+            selected_variant=self.workflow.default_variant,
+            input_binding={},
+            api_projection=api_projection,
+            ui_projection={},
+            api_digest=canonical_digest(api_projection),
+        )
+
+    monkeypatch.setattr(WorkflowBundle, "compile", compile_once)
+    root, session_id, turn_id, candidate_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+    rollback_root, rollback_session, rollback_turn, rollback_hash, _rollback_structural, rollback_plan = (
+        _setup_v2_session_with_candidate(tmp_path / "rollback")
+    )
+    persisted_submits = {
+        session_id: json.loads(
+            (root / session_id / "turns" / turn_id / "response.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+        rollback_session: json.loads(
+            (
+                rollback_root
+                / rollback_session
+                / "turns"
+                / rollback_turn
+                / "response.json"
+            ).read_text(encoding="utf-8")
+        ),
+    }
+
+    registered: dict[tuple[str, str], object] = {}
+
+    class _Routes:
+        def post(self, path):
+            def _decorator(fn):
+                registered[("POST", path)] = fn
+                return fn
+
+            return _decorator
+
+        def get(self, path):
+            def _decorator(fn):
+                registered[("GET", path)] = fn
+                return fn
+
+            return _decorator
+
+    aiohttp_module = types.ModuleType("aiohttp")
+    aiohttp_module.web = types.SimpleNamespace(
+        json_response=lambda body, status=200, **kwargs: {
+            "status": status,
+            "body": body,
+            "headers": kwargs.get("headers", {}),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+    def _registered_submit(payload, *, client_id=None):
+        del client_id
+        return persisted_submits[payload["session_id"]], 201
+
+    async def _inline_to_thread(fn, /, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(routes_module, "_handle_agent_executor_submit", _registered_submit)
+    monkeypatch.setattr(routes_module.asyncio, "to_thread", _inline_to_thread)
+
+    class _Request:
+        def __init__(self, payload=None, *, query=None):
+            self._payload = payload
+            self.query = query or {}
+
+        async def json(self):
+            return self._payload
+
+    def _register_for_root(session_root):
+        monkeypatch.setattr(edit_module, "_SESSION_ROOT", session_root)
+        routes_module.register_agent_edit_routes(types.SimpleNamespace(routes=_Routes()))
+
+    def _body(method, path, request):
+        handler = registered[(method, path)]
+        response = asyncio.run(handler(request))
+        assert response["status"] == 200 or response["status"] == 201
+        return response["body"]
+
+    _register_for_root(root)
+    submit = _body(
+        "POST",
+        "/vibecomfy/agent-edit",
+        _Request({"session_id": session_id, "turn_id": turn_id}),
+    )
+    revision_id = submit["revision_id"]
+    parent_revision = submit["parent_revision"]
+    assert submit["candidate"]["revision_id"] == revision_id
+    assert submit["candidate"]["parent_revision"] == parent_revision
+    assert submit["candidate_transaction"]["revision_id"] == revision_id
+    assert submit["candidate_transaction"]["parent_revision"] == parent_revision
+
+    transaction = submit["candidate_transaction"]
+    prepared = _body(
+        "POST",
+        "/vibecomfy/agent-edit/prepare",
+        _Request(
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "plan_hash": plan_hash,
+                "candidate_graph_hash": candidate_hash,
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
+                "precondition_projection": transaction["candidate_authority"]["precondition"],
+            }
+        ),
+    )
+    assert prepared["revision_id"] == revision_id
+    assert prepared["parent_revision"] == parent_revision
+
+    chat = _body(
+        "GET",
+        "/vibecomfy/agent-edit/chat",
+        _Request(query={"session_id": session_id}),
+    )
+    lifecycle = chat["latest_turn_lifecycle"]
+    assert lifecycle["candidate_transaction"]["revision_id"] == revision_id
+    assert lifecycle["candidate_transaction"]["parent_revision"] == parent_revision
+
+    finalized = _body(
+        "POST",
+        "/vibecomfy/agent-edit/finalize",
+        _Request(
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "plan_hash": plan_hash,
+                "generation": prepared["generation"],
+                "lease_nonce": prepared["lease_nonce"],
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
+                "post_apply_hash": structural_hash,
+                "post_apply_graph": submit["candidate"]["graph"],
+                "applied_delta_hash": transaction["plan"]["delta_hash"],
+                "post_apply_hash_verified": True,
+                "browser_verified": True,
+                "postcondition_projection": transaction["candidate_authority"]["postcondition"],
+            }
+        ),
+    )
+    assert finalized["revision_id"] == revision_id
+    assert finalized["parent_revision"] == parent_revision
+    expected_approval = ApprovedProjectionRecord(
+        revision_id=revision_id,
+        selected_variant=None,
+        input_binding={},
+        api_projection={"workflow_revision": revision_id},
+        ui_projection={},
+        api_digest=canonical_digest({"workflow_revision": revision_id}),
+    )
+    expected_canonical = expected_approval.to_canonical_bytes().decode("utf-8")
+    assert finalized["approved_record_canonical"] == expected_canonical
+    durable_approval = finalized["receipt"]["receipt"]["approval"]
+    assert durable_approval["api_digest"] == expected_approval.api_digest
+    assert durable_approval["record_digest"] == hashlib.sha256(
+        expected_canonical.encode("utf-8")
+    ).hexdigest()
+
+    _register_for_root(rollback_root)
+    rollback_submit = _body(
+        "POST",
+        "/vibecomfy/agent-edit",
+        _Request({"session_id": rollback_session, "turn_id": rollback_turn}),
+    )
+    rollback_revision = rollback_submit["revision_id"]
+    rollback_parent = rollback_submit["parent_revision"]
+    rollback_transaction = rollback_submit["candidate_transaction"]
+    rollback_prepared = _body(
+        "POST",
+        "/vibecomfy/agent-edit/prepare",
+        _Request(
+            {
+                "session_id": rollback_session,
+                "turn_id": rollback_turn,
+                "plan_hash": rollback_plan,
+                "candidate_graph_hash": rollback_hash,
+                "revision_id": rollback_revision,
+                "parent_revision": rollback_parent,
+                "precondition_projection": rollback_transaction["candidate_authority"]["precondition"],
+            }
+        ),
+    )
+    assert rollback_prepared["revision_id"] == rollback_revision
+    assert rollback_prepared["parent_revision"] == rollback_parent
+    rolled = _body(
+        "POST",
+        "/vibecomfy/agent-edit/rollback",
+        _Request(
+            {
+                "session_id": rollback_session,
+                "turn_id": rollback_turn,
+                "plan_hash": rollback_plan,
+                "generation": rollback_prepared["generation"],
+                "lease_nonce": rollback_prepared["lease_nonce"],
+                "revision_id": rollback_revision,
+                "parent_revision": rollback_parent,
+            }
+        ),
+    )
+    assert rolled["revision_id"] == rollback_revision
+    assert rolled["parent_revision"] == rollback_parent
 
 
 def test_internal_to_public_outcome_is_closed_authoritative_mapping() -> None:

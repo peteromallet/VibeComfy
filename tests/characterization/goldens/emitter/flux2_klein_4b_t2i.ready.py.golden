@@ -1,10 +1,12 @@
 # vibecomfy: generated
 # For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
 from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
-from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, PrimitiveInt, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
 CLIP_NAME = 'qwen_3_4b.safetensors'
@@ -20,369 +22,528 @@ VAE_NAME = 'flux2-vae.safetensors'
 
 
 PUBLIC_INPUT_METADATA = {
-    'seed': InputSpec(node='19', field='noise_seed', default=DEFAULT_SEED, type='INT'),
+    'model': InputSpec(node='4', field='unet_name', default=UNET_NAME),
+    'prompt': InputSpec(node='8', field='text', default=''),
+    'seed': InputSpec(node='19', field='noise_seed', default=DEFAULT_SEED),
 }
 
 READY_METADATA = ReadyMetadata.build(
     capability='image',
+    template_id='image/flux2_klein_4b_t2i',
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['flux-2-klein-4b.safetensors', 'flux-2-klein-base-4b.safetensors', 'flux2-vae.safetensors', 'qwen_3_4b.safetensors']},
     source_path='ready_templates/sources/official/image/flux2_klein_4b_t2i.json',
-    source_id='flux2_klein_4b_t2i',
+    source_id='image/flux2_klein_4b_t2i',
+    upstream_source_id='flux2_klein_4b_t2i',
     source_type='api',
     source_workflow_path='ready_templates/sources/official/image/flux2_klein_4b_t2i.json',
     output_mode='ready_template',
     ready_id='image/flux2_klein_4b_t2i',
-    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'source_id': 'flux2_klein_4b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_4b_t2i', 'source_workflow': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json'},
+    provenance={'source_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'source_id': 'image/flux2_klein_4b_t2i', 'upstream_source_id': 'flux2_klein_4b_t2i', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_4b_t2i', 'source_workflow': 'ready_templates/sources/official/image/flux2_klein_4b_t2i.json'},
 )
-
-# === Subgraph functions ===
-
-def text_to_image_flux2_klein_4b(
-    *,
-    value: int,
-    value_1: int,
-    unet_name: str,
-    clip_name: str,
-    vae_name: str,
-    prompt: str,
-):
-    """Text to Image (Flux.2 Klein 4B).
-
-    Materialized from subgraph 7b34ab90-36f9-45ba-a665-71d418f0df18 in ready_templates/sources/official/image/flux2_klein_4b_t2i.json.
-    # vibecomfy source hash: sha256:aab4db47d06710f6d59dcfb42683078752baa5b7c9edebea9c50784046917b2e
-    Inner nodes: KSamplerSelect, Flux2Scheduler, CFGGuider, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, CLIPTextEncodex2, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader.
-    """
-
-    ksamplerselect = KSamplerSelect(
-        sampler_name='euler',
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#61',
-    )
-
-    primitiveint = PrimitiveInt(
-        control_after_generate='fixed',
-        value=value,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#68',
-    )
-
-    primitiveint_2 = PrimitiveInt(
-        control_after_generate='fixed',
-        value=value_1,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#69',
-    )
-
-    unetloader = UNETLoader(
-        unet_name=unet_name,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#70',
-    )
-
-    cliploader = CLIPLoader(
-        type_='flux2',
-        clip_name=clip_name,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#71',
-    )
-
-    vaeloader = VAELoader(
-        vae_name=vae_name,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#72',
-    )
-
-    randomnoise = RandomNoise(
-        control_after_generate='randomize',
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#73',
-    )
-
-    flux2scheduler = Flux2Scheduler(
-        width=primitiveint,
-        height=primitiveint_2,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#62',
-    )
-
-    emptyflux2latentimage = EmptyFlux2LatentImage(
-        width=primitiveint,
-        height=primitiveint_2,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#66',
-    )
-
-    negative = CLIPTextEncode(
-        text='',
-        clip=cliploader,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#67',
-    )
-
-    positive = CLIPTextEncode(
-        text=prompt,
-        clip=cliploader,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#74',
-    )
-
-    cfgguider = CFGGuider(
-        cfg=5,
-        model=unetloader,
-        negative=negative,
-        positive=positive,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#63',
-    )
-
-    output, _ = SamplerCustomAdvanced(
-        guider=cfgguider,
-        latent_image=emptyflux2latentimage,
-        noise=randomnoise,
-        sampler=ksamplerselect,
-        sigmas=flux2scheduler,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#64',
-    )
-
-    vaedecode = VAEDecode(
-        samples=output,
-        vae=vaeloader,
-        _uid='7b34ab90-36f9-45ba-a665-71d418f0df18#65',
-    )
-
-    return vaedecode
-
-
-def text_to_image_flux2_klein_4b_distilled(
-    *,
-    value: int,
-    value_1: int,
-    unet_name: str,
-    clip_name: str,
-    vae_name: str,
-    prompt: str,
-):
-    """Text to Image (Flux.2 Klein 4B Distilled).
-
-    Materialized from subgraph a67caa28-5f85-4917-8396-36004960dd30 in ready_templates/sources/official/image/flux2_klein_4b_t2i.json.
-    # vibecomfy source hash: sha256:d06e6daa0bc022edf61f1858c26ff4cd67ba570e115de57bfc006ddeb0aa4ea1
-    Inner nodes: KSamplerSelect, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader, CFGGuider, ConditioningZeroOut, CLIPTextEncode, Flux2Scheduler.
-    """
-
-    ksamplerselect = KSamplerSelect(
-        sampler_name='euler',
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#61',
-    )
-
-    primitiveint = PrimitiveInt(
-        control_after_generate='fixed',
-        value=value,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#68',
-    )
-
-    primitiveint_2 = PrimitiveInt(
-        control_after_generate='fixed',
-        value=value_1,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#69',
-    )
-
-    unetloader = UNETLoader(
-        unet_name=unet_name,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#70',
-    )
-
-    cliploader = CLIPLoader(
-        type_='flux2',
-        clip_name=clip_name,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#71',
-    )
-
-    vaeloader = VAELoader(
-        vae_name=vae_name,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#72',
-    )
-
-    randomnoise = RandomNoise(
-        noise_seed=432262096973490,
-        control_after_generate='randomize',
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#73',
-    )
-
-    flux2scheduler = Flux2Scheduler(
-        steps=4,
-        width=primitiveint,
-        height=primitiveint_2,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#62',
-    )
-
-    emptyflux2latentimage = EmptyFlux2LatentImage(
-        width=primitiveint,
-        height=primitiveint_2,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#66',
-    )
-
-    positive = CLIPTextEncode(
-        text=prompt,
-        clip=cliploader,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#74',
-    )
-
-    conditioningzeroout = ConditioningZeroOut(
-        conditioning=positive,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#76',
-    )
-
-    cfgguider = CFGGuider(
-        cfg=1,
-        model=unetloader,
-        negative=conditioningzeroout,
-        positive=positive,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#63',
-    )
-
-    output, _ = SamplerCustomAdvanced(
-        guider=cfgguider,
-        latent_image=emptyflux2latentimage,
-        noise=randomnoise,
-        sampler=ksamplerselect,
-        sigmas=flux2scheduler,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#64',
-    )
-
-    vaedecode = VAEDecode(
-        samples=output,
-        vae=vaeloader,
-        _uid='a67caa28-5f85-4917-8396-36004960dd30#65',
-    )
-
-    return vaedecode
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Sampling
-    ksamplerselect = KSamplerSelect(_id='1', sampler_name=EULER, _uid='n1')
-    flux2scheduler = Flux2Scheduler(_id='2', _uid='n2')
-    emptyflux2latentimage = EmptyFlux2LatentImage(_id='3', _uid='n3')
+    ksamplerselect = KSamplerSelect(
+        _id='1',
+        sampler_name=EULER,
+        _uid='n1',
+        _native_ports={'native_input_names': ['sampler_name'], 'native_output_names': ['SAMPLER'], 'native_input_types': ['COMBO'], 'native_output_types': ['SAMPLER'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    flux2scheduler_2 = Flux2Scheduler(
+        _id='2',
+        _uid='n2',
+        _native_ports={'native_input_names': ['steps', 'width', 'height'], 'native_output_names': ['SIGMAS'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['SIGMAS'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    emptyflux2latentimage_2 = EmptyFlux2LatentImage(
+        _id='3',
+        _uid='n3',
+        _native_ports={'native_input_names': ['width', 'height', 'batch_size'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
 
     # Loaders
-    unetloader = UNETLoader(_id='4', unet_name=UNET_NAME, _uid='n4')
-
-    cliploader = CLIPLoader(
-        _id='5',
-        clip_name=CLIP_NAME,
-        type_=FLUX2,
-        _uid='n5',
+    unetloader_2 = UNETLoader(
+        _id='4',
+        unet_name=UNET_NAME,
+        _uid='n4',
+        _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-
-    vaeloader = VAELoader(_id='6', vae_name=VAE_NAME, _uid='n6')
-    randomnoise = RandomNoise(_id='7', control_after_generate=RANDOMIZE, _uid='n7')
-    ksamplerselect_2 = KSamplerSelect(_id='13', sampler_name=EULER, _uid='n13')
-    flux2scheduler_2 = Flux2Scheduler(_id='14', steps=4, _uid='n14')
-    emptyflux2latentimage_2 = EmptyFlux2LatentImage(_id='15', _uid='n15')
-    unetloader_2 = UNETLoader(_id='16', unet_name=UNET_NAME_2, _uid='n16')
 
     cliploader_2 = CLIPLoader(
-        _id='17',
+        _id='5',
         clip_name=CLIP_NAME,
-        type_=FLUX2,
-        _uid='n17',
+        type=FLUX2,
+        _uid='n5',
+        _native_ports={'native_input_names': ['clip_name', 'type', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['CHOICE', 'CHOICE', 'CHOICE'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    vaeloader_2 = VAELoader(_id='18', vae_name=VAE_NAME, _uid='n18')
+    vaeloader_2 = VAELoader(
+        _id='6',
+        vae_name=VAE_NAME,
+        _uid='n6',
+        _native_ports={'native_input_names': ['vae_name'], 'native_output_names': ['VAE'], 'native_input_types': ['CHOICE'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
 
     randomnoise_2 = RandomNoise(
+        _id='7',
+        control_after_generate=RANDOMIZE,
+        _uid='n7',
+        _native_ports={'native_input_names': ['noise_seed', 'control_after_generate'], 'native_output_names': ['NOISE'], 'native_input_types': ['INT', None], 'native_output_types': ['NOISE'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    ksamplerselect_2 = KSamplerSelect(
+        _id='13',
+        sampler_name=EULER,
+        _uid='n13',
+        _native_ports={'native_input_names': ['sampler_name'], 'native_output_names': ['SAMPLER'], 'native_input_types': ['COMBO'], 'native_output_types': ['SAMPLER'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    flux2scheduler = Flux2Scheduler(
+        _id='14',
+        steps=4,
+        _uid='n14',
+        _native_ports={'native_input_names': ['steps', 'width', 'height'], 'native_output_names': ['SIGMAS'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['SIGMAS'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    emptyflux2latentimage = EmptyFlux2LatentImage(
+        _id='15',
+        _uid='n15',
+        _native_ports={'native_input_names': ['width', 'height', 'batch_size'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    unetloader = UNETLoader(
+        _id='16',
+        unet_name=UNET_NAME_2,
+        _uid='n16',
+        _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    cliploader = CLIPLoader(
+        _id='17',
+        clip_name=CLIP_NAME,
+        type=FLUX2,
+        _uid='n17',
+        _native_ports={'native_input_names': ['clip_name', 'type', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['CHOICE', 'CHOICE', 'CHOICE'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    vaeloader = VAELoader(
+        _id='18',
+        vae_name=VAE_NAME,
+        _uid='n18',
+        _native_ports={'native_input_names': ['vae_name'], 'native_output_names': ['VAE'], 'native_input_types': ['CHOICE'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    randomnoise = RandomNoise(
         _id='19',
         noise_seed=DEFAULT_SEED,
         control_after_generate=RANDOMIZE,
         _uid='n19',
+        _native_ports={'native_input_names': ['noise_seed', 'control_after_generate'], 'native_output_names': ['NOISE'], 'native_input_types': ['INT', None], 'native_output_types': ['NOISE'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Conditioning
-    negative = CLIPTextEncode(
+    cliptextencode_2 = CLIPTextEncode(
         _id='8',
         text='',
-        clip=cliploader,
         _uid='n8',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    positive = CLIPTextEncode(
+    cliptextencode = CLIPTextEncode(
         _id='20',
         text='',
-        clip=cliploader_2,
         _uid='n20',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    positive_2 = CLIPTextEncode(
+    cliptextencode_3 = CLIPTextEncode(
         _id='26',
         text='',
-        clip=cliploader,
         _uid='n9',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     cfgguider = CFGGuider(
         _id='10',
         cfg=GUIDE_STRENGTH,
-        model=unetloader,
-        negative=negative,
-        positive=positive_2,
         _uid='n10',
+        _native_ports={'native_input_names': ['cfg', 'model', 'negative', 'positive'], 'native_output_names': ['GUIDER'], 'native_input_types': ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['GUIDER'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     conditioningzeroout = ConditioningZeroOut(
         _id='21',
-        conditioning=positive,
         _uid='n21',
+        _native_ports={'native_input_names': ['conditioning'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['CONDITIONING'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     output, _ = SamplerCustomAdvanced(
         _id='11',
-        guider=cfgguider,
-        latent_image=emptyflux2latentimage,
-        noise=randomnoise,
-        sampler=ksamplerselect,
-        sigmas=flux2scheduler,
         _uid='n11',
+        _native_ports={'native_input_names': ['noise', 'guider', 'sampler', 'sigmas', 'latent_image'], 'native_output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'native_input_types': ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     cfgguider_2 = CFGGuider(
         _id='22',
         cfg=GUIDE_STRENGTH_2,
-        model=unetloader_2,
-        negative=conditioningzeroout,
-        positive=positive,
         _uid='n22',
+        _native_ports={'native_input_names': ['cfg', 'model', 'negative', 'positive'], 'native_output_names': ['GUIDER'], 'native_input_types': ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['GUIDER'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Decode
     vaedecode = VAEDecode(
         _id='12',
-        samples=output,
-        vae=vaeloader,
         _uid='n12',
+        _native_ports={'native_input_names': ['samples', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     output_2, _ = SamplerCustomAdvanced(
         _id='23',
-        guider=cfgguider_2,
-        latent_image=emptyflux2latentimage_2,
-        noise=randomnoise_2,
-        sampler=ksamplerselect_2,
-        sigmas=flux2scheduler_2,
         _uid='n23',
+        _native_ports={'native_input_names': ['noise', 'guider', 'sampler', 'sigmas', 'latent_image'], 'native_output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'native_input_types': ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     # Outputs
     saveimage = SaveImage(
         _id='9',
         filename_prefix='Flux2-Klein',
-        images=vaedecode,
         _uid='n25',
+        _native_ports={'native_input_names': ['filename_prefix', 'extra_pnginfo', 'prompt', 'images'], 'native_output_names': None, 'native_input_types': ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE'], 'native_output_types': None, 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     vaedecode_2 = VAEDecode(
         _id='24',
-        samples=output_2,
-        vae=vaeloader_2,
         _uid='n24',
+        _native_ports={'native_input_names': ['samples', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     saveimage_2 = SaveImage(
         _id='78',
         filename_prefix='Flux2-Klein',
-        images=vaedecode_2,
         _uid='n26',
+        _native_ports={'native_input_names': ['filename_prefix', 'extra_pnginfo', 'prompt', 'images'], 'native_output_names': None, 'native_input_types': ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE'], 'native_output_types': None, 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    return wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Flux2-Klein')
+    wf.connect('5.0', '8.clip')
+    wf.connect('5.0', '26.clip')
+    wf.connect('4.0', '10.model')
+    wf.connect('8.0', '10.negative')
+    wf.connect('26.0', '10.positive')
+    wf.connect('10.0', '11.guider')
+    wf.connect('3.0', '11.latent_image')
+    wf.connect('7.0', '11.noise')
+    wf.connect('1.0', '11.sampler')
+    wf.connect('2.0', '11.sigmas')
+    wf.connect('11.0', '12.samples')
+    wf.connect('6.0', '12.vae')
+    wf.connect('17.0', '20.clip')
+    wf.connect('20.0', '21.conditioning')
+    wf.connect('16.0', '22.model')
+    wf.connect('21.0', '22.negative')
+    wf.connect('20.0', '22.positive')
+    wf.connect('22.0', '23.guider')
+    wf.connect('15.0', '23.latent_image')
+    wf.connect('19.0', '23.noise')
+    wf.connect('13.0', '23.sampler')
+    wf.connect('14.0', '23.sigmas')
+    wf.connect('23.0', '24.samples')
+    wf.connect('18.0', '24.vae')
+    wf.connect('12.0', '9.images')
+    wf.connect('24.0', '78.images')
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Flux2-Klein')
+    wf.nodes['1'].inputs = {'sampler_name': 'euler'}
+    wf.nodes['1'].widgets = {}
+    wf.nodes['1'].metadata = {'provenance': 'agent_authored', 'output_names': ['SAMPLER'], 'keep_defaults': ['sampler_name']}
+    wf.nodes['1'].native_input_names = ['sampler_name']
+    wf.nodes['1'].native_output_names = ['SAMPLER']
+    wf.nodes['1'].native_input_types = ['COMBO']
+    wf.nodes['1'].native_output_types = ['SAMPLER']
+    wf.nodes['1'].native_input_optional = [False]
+    wf.nodes['1'].native_input_asset_kinds = None
+    wf.nodes['1'].native_output_slots = None
+    wf.nodes['10'].inputs = {'cfg': 5}
+    wf.nodes['10'].widgets = {}
+    wf.nodes['10'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER'], 'keep_defaults': ['cfg', 'model', 'negative', 'positive']}
+    wf.nodes['10'].native_input_names = ['cfg', 'model', 'negative', 'positive']
+    wf.nodes['10'].native_output_names = ['GUIDER']
+    wf.nodes['10'].native_input_types = ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['10'].native_output_types = ['GUIDER']
+    wf.nodes['10'].native_input_optional = [False, False, False, False]
+    wf.nodes['10'].native_input_asset_kinds = None
+    wf.nodes['10'].native_output_slots = None
+    wf.nodes['11'].inputs = {}
+    wf.nodes['11'].widgets = {}
+    wf.nodes['11'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'keep_defaults': ['guider', 'latent_image', 'noise', 'sampler', 'sigmas']}
+    wf.nodes['11'].native_input_names = ['noise', 'guider', 'sampler', 'sigmas', 'latent_image']
+    wf.nodes['11'].native_output_names = ['OUTPUT', 'DENOISED_OUTPUT']
+    wf.nodes['11'].native_input_types = ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT']
+    wf.nodes['11'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['11'].native_input_optional = [False, False, False, False, False]
+    wf.nodes['11'].native_input_asset_kinds = None
+    wf.nodes['11'].native_output_slots = None
+    wf.nodes['12'].inputs = {}
+    wf.nodes['12'].widgets = {}
+    wf.nodes['12'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['samples', 'vae']}
+    wf.nodes['12'].native_input_names = ['samples', 'vae']
+    wf.nodes['12'].native_output_names = ['IMAGE']
+    wf.nodes['12'].native_input_types = ['LATENT', 'VAE']
+    wf.nodes['12'].native_output_types = ['IMAGE']
+    wf.nodes['12'].native_input_optional = [False, False]
+    wf.nodes['12'].native_input_asset_kinds = None
+    wf.nodes['12'].native_output_slots = None
+    wf.nodes['13'].inputs = {'sampler_name': 'euler'}
+    wf.nodes['13'].widgets = {}
+    wf.nodes['13'].metadata = {'provenance': 'agent_authored', 'output_names': ['SAMPLER'], 'keep_defaults': ['sampler_name']}
+    wf.nodes['13'].native_input_names = ['sampler_name']
+    wf.nodes['13'].native_output_names = ['SAMPLER']
+    wf.nodes['13'].native_input_types = ['COMBO']
+    wf.nodes['13'].native_output_types = ['SAMPLER']
+    wf.nodes['13'].native_input_optional = [False]
+    wf.nodes['13'].native_input_asset_kinds = None
+    wf.nodes['13'].native_output_slots = None
+    wf.nodes['14'].inputs = {'steps': 4}
+    wf.nodes['14'].widgets = {}
+    wf.nodes['14'].metadata = {'provenance': 'agent_authored', 'output_names': ['SIGMAS'], 'keep_defaults': ['steps']}
+    wf.nodes['14'].native_input_names = ['steps', 'width', 'height']
+    wf.nodes['14'].native_output_names = ['SIGMAS']
+    wf.nodes['14'].native_input_types = ['INT', 'INT', 'INT']
+    wf.nodes['14'].native_output_types = ['SIGMAS']
+    wf.nodes['14'].native_input_optional = [False, False, False]
+    wf.nodes['14'].native_input_asset_kinds = None
+    wf.nodes['14'].native_output_slots = None
+    wf.nodes['15'].inputs = {}
+    wf.nodes['15'].widgets = {}
+    wf.nodes['15'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT']}
+    wf.nodes['15'].native_input_names = ['width', 'height', 'batch_size']
+    wf.nodes['15'].native_output_names = ['LATENT']
+    wf.nodes['15'].native_input_types = ['INT', 'INT', 'INT']
+    wf.nodes['15'].native_output_types = ['LATENT']
+    wf.nodes['15'].native_input_optional = [False, False, False]
+    wf.nodes['15'].native_input_asset_kinds = None
+    wf.nodes['15'].native_output_slots = None
+    wf.nodes['16'].inputs = {'unet_name': 'flux-2-klein-4b.safetensors'}
+    wf.nodes['16'].widgets = {}
+    wf.nodes['16'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name']}
+    wf.nodes['16'].native_input_names = ['unet_name', 'weight_dtype']
+    wf.nodes['16'].native_output_names = ['MODEL']
+    wf.nodes['16'].native_input_types = ['CHOICE', 'CHOICE']
+    wf.nodes['16'].native_output_types = ['MODEL']
+    wf.nodes['16'].native_input_optional = [False, False]
+    wf.nodes['16'].native_input_asset_kinds = None
+    wf.nodes['16'].native_output_slots = None
+    wf.nodes['17'].inputs = {'clip_name': 'qwen_3_4b.safetensors', 'type': 'flux2'}
+    wf.nodes['17'].widgets = {}
+    wf.nodes['17'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['clip_name', 'type']}
+    wf.nodes['17'].native_input_names = ['clip_name', 'type', 'device']
+    wf.nodes['17'].native_output_names = ['CLIP']
+    wf.nodes['17'].native_input_types = ['CHOICE', 'CHOICE', 'CHOICE']
+    wf.nodes['17'].native_output_types = ['CLIP']
+    wf.nodes['17'].native_input_optional = [False, False, True]
+    wf.nodes['17'].native_input_asset_kinds = None
+    wf.nodes['17'].native_output_slots = None
+    wf.nodes['18'].inputs = {'vae_name': 'flux2-vae.safetensors'}
+    wf.nodes['18'].widgets = {}
+    wf.nodes['18'].metadata = {'provenance': 'agent_authored', 'output_names': ['VAE'], 'keep_defaults': ['vae_name']}
+    wf.nodes['18'].native_input_names = ['vae_name']
+    wf.nodes['18'].native_output_names = ['VAE']
+    wf.nodes['18'].native_input_types = ['CHOICE']
+    wf.nodes['18'].native_output_types = ['VAE']
+    wf.nodes['18'].native_input_optional = [False]
+    wf.nodes['18'].native_input_asset_kinds = None
+    wf.nodes['18'].native_output_slots = None
+    wf.nodes['19'].inputs = {'noise_seed': 432262096973490, 'control_after_generate': 'randomize'}
+    wf.nodes['19'].widgets = {}
+    wf.nodes['19'].metadata = {'provenance': 'agent_authored', 'output_names': ['NOISE'], 'keep_defaults': ['control_after_generate', 'noise_seed']}
+    wf.nodes['19'].native_input_names = ['noise_seed', 'control_after_generate']
+    wf.nodes['19'].native_output_names = ['NOISE']
+    wf.nodes['19'].native_input_types = ['INT', None]
+    wf.nodes['19'].native_output_types = ['NOISE']
+    wf.nodes['19'].native_input_optional = None
+    wf.nodes['19'].native_input_asset_kinds = None
+    wf.nodes['19'].native_output_slots = None
+    wf.nodes['2'].inputs = {}
+    wf.nodes['2'].widgets = {}
+    wf.nodes['2'].metadata = {'provenance': 'agent_authored', 'output_names': ['SIGMAS']}
+    wf.nodes['2'].native_input_names = ['steps', 'width', 'height']
+    wf.nodes['2'].native_output_names = ['SIGMAS']
+    wf.nodes['2'].native_input_types = ['INT', 'INT', 'INT']
+    wf.nodes['2'].native_output_types = ['SIGMAS']
+    wf.nodes['2'].native_input_optional = [False, False, False]
+    wf.nodes['2'].native_input_asset_kinds = None
+    wf.nodes['2'].native_output_slots = None
+    wf.nodes['20'].inputs = {'text': ''}
+    wf.nodes['20'].widgets = {}
+    wf.nodes['20'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['20'].native_input_names = ['text', 'clip']
+    wf.nodes['20'].native_output_names = ['CONDITIONING']
+    wf.nodes['20'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['20'].native_output_types = ['CONDITIONING']
+    wf.nodes['20'].native_input_optional = [False, False]
+    wf.nodes['20'].native_input_asset_kinds = None
+    wf.nodes['20'].native_output_slots = None
+    wf.nodes['21'].inputs = {}
+    wf.nodes['21'].widgets = {}
+    wf.nodes['21'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['conditioning']}
+    wf.nodes['21'].native_input_names = ['conditioning']
+    wf.nodes['21'].native_output_names = ['CONDITIONING']
+    wf.nodes['21'].native_input_types = ['CONDITIONING']
+    wf.nodes['21'].native_output_types = ['CONDITIONING']
+    wf.nodes['21'].native_input_optional = [False]
+    wf.nodes['21'].native_input_asset_kinds = None
+    wf.nodes['21'].native_output_slots = None
+    wf.nodes['22'].inputs = {'cfg': 1}
+    wf.nodes['22'].widgets = {}
+    wf.nodes['22'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER'], 'keep_defaults': ['cfg', 'model', 'negative', 'positive']}
+    wf.nodes['22'].native_input_names = ['cfg', 'model', 'negative', 'positive']
+    wf.nodes['22'].native_output_names = ['GUIDER']
+    wf.nodes['22'].native_input_types = ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['22'].native_output_types = ['GUIDER']
+    wf.nodes['22'].native_input_optional = [False, False, False, False]
+    wf.nodes['22'].native_input_asset_kinds = None
+    wf.nodes['22'].native_output_slots = None
+    wf.nodes['23'].inputs = {}
+    wf.nodes['23'].widgets = {}
+    wf.nodes['23'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'keep_defaults': ['guider', 'latent_image', 'noise', 'sampler', 'sigmas']}
+    wf.nodes['23'].native_input_names = ['noise', 'guider', 'sampler', 'sigmas', 'latent_image']
+    wf.nodes['23'].native_output_names = ['OUTPUT', 'DENOISED_OUTPUT']
+    wf.nodes['23'].native_input_types = ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT']
+    wf.nodes['23'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['23'].native_input_optional = [False, False, False, False, False]
+    wf.nodes['23'].native_input_asset_kinds = None
+    wf.nodes['23'].native_output_slots = None
+    wf.nodes['24'].inputs = {}
+    wf.nodes['24'].widgets = {}
+    wf.nodes['24'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['samples', 'vae']}
+    wf.nodes['24'].native_input_names = ['samples', 'vae']
+    wf.nodes['24'].native_output_names = ['IMAGE']
+    wf.nodes['24'].native_input_types = ['LATENT', 'VAE']
+    wf.nodes['24'].native_output_types = ['IMAGE']
+    wf.nodes['24'].native_input_optional = [False, False]
+    wf.nodes['24'].native_input_asset_kinds = None
+    wf.nodes['24'].native_output_slots = None
+    wf.nodes['26'].inputs = {'text': ''}
+    wf.nodes['26'].widgets = {}
+    wf.nodes['26'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['26'].native_input_names = ['text', 'clip']
+    wf.nodes['26'].native_output_names = ['CONDITIONING']
+    wf.nodes['26'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['26'].native_output_types = ['CONDITIONING']
+    wf.nodes['26'].native_input_optional = [False, False]
+    wf.nodes['26'].native_input_asset_kinds = None
+    wf.nodes['26'].native_output_slots = None
+    wf.nodes['3'].inputs = {}
+    wf.nodes['3'].widgets = {}
+    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT']}
+    wf.nodes['3'].native_input_names = ['width', 'height', 'batch_size']
+    wf.nodes['3'].native_output_names = ['LATENT']
+    wf.nodes['3'].native_input_types = ['INT', 'INT', 'INT']
+    wf.nodes['3'].native_output_types = ['LATENT']
+    wf.nodes['3'].native_input_optional = [False, False, False]
+    wf.nodes['3'].native_input_asset_kinds = None
+    wf.nodes['3'].native_output_slots = None
+    wf.nodes['4'].inputs = {'unet_name': 'flux-2-klein-base-4b.safetensors'}
+    wf.nodes['4'].widgets = {}
+    wf.nodes['4'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name']}
+    wf.nodes['4'].native_input_names = ['unet_name', 'weight_dtype']
+    wf.nodes['4'].native_output_names = ['MODEL']
+    wf.nodes['4'].native_input_types = ['CHOICE', 'CHOICE']
+    wf.nodes['4'].native_output_types = ['MODEL']
+    wf.nodes['4'].native_input_optional = [False, False]
+    wf.nodes['4'].native_input_asset_kinds = None
+    wf.nodes['4'].native_output_slots = None
+    wf.nodes['5'].inputs = {'clip_name': 'qwen_3_4b.safetensors', 'type': 'flux2'}
+    wf.nodes['5'].widgets = {}
+    wf.nodes['5'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['clip_name', 'type']}
+    wf.nodes['5'].native_input_names = ['clip_name', 'type', 'device']
+    wf.nodes['5'].native_output_names = ['CLIP']
+    wf.nodes['5'].native_input_types = ['CHOICE', 'CHOICE', 'CHOICE']
+    wf.nodes['5'].native_output_types = ['CLIP']
+    wf.nodes['5'].native_input_optional = [False, False, True]
+    wf.nodes['5'].native_input_asset_kinds = None
+    wf.nodes['5'].native_output_slots = None
+    wf.nodes['6'].inputs = {'vae_name': 'flux2-vae.safetensors'}
+    wf.nodes['6'].widgets = {}
+    wf.nodes['6'].metadata = {'provenance': 'agent_authored', 'output_names': ['VAE'], 'keep_defaults': ['vae_name']}
+    wf.nodes['6'].native_input_names = ['vae_name']
+    wf.nodes['6'].native_output_names = ['VAE']
+    wf.nodes['6'].native_input_types = ['CHOICE']
+    wf.nodes['6'].native_output_types = ['VAE']
+    wf.nodes['6'].native_input_optional = [False]
+    wf.nodes['6'].native_input_asset_kinds = None
+    wf.nodes['6'].native_output_slots = None
+    wf.nodes['7'].inputs = {'control_after_generate': 'randomize'}
+    wf.nodes['7'].widgets = {}
+    wf.nodes['7'].metadata = {'provenance': 'agent_authored', 'output_names': ['NOISE'], 'keep_defaults': ['control_after_generate']}
+    wf.nodes['7'].native_input_names = ['noise_seed', 'control_after_generate']
+    wf.nodes['7'].native_output_names = ['NOISE']
+    wf.nodes['7'].native_input_types = ['INT', None]
+    wf.nodes['7'].native_output_types = ['NOISE']
+    wf.nodes['7'].native_input_optional = None
+    wf.nodes['7'].native_input_asset_kinds = None
+    wf.nodes['7'].native_output_slots = None
+    wf.nodes['78'].inputs = {'filename_prefix': 'Flux2-Klein'}
+    wf.nodes['78'].widgets = {}
+    wf.nodes['78'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'images']}
+    wf.nodes['78'].native_input_names = ['filename_prefix', 'extra_pnginfo', 'prompt', 'images']
+    wf.nodes['78'].native_output_names = None
+    wf.nodes['78'].native_input_types = ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE']
+    wf.nodes['78'].native_output_types = None
+    wf.nodes['78'].native_input_optional = [False, True, True, False]
+    wf.nodes['78'].native_input_asset_kinds = None
+    wf.nodes['78'].native_output_slots = None
+    wf.nodes['8'].inputs = {'text': ''}
+    wf.nodes['8'].widgets = {}
+    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['8'].native_input_names = ['text', 'clip']
+    wf.nodes['8'].native_output_names = ['CONDITIONING']
+    wf.nodes['8'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['8'].native_output_types = ['CONDITIONING']
+    wf.nodes['8'].native_input_optional = [False, False]
+    wf.nodes['8'].native_input_asset_kinds = None
+    wf.nodes['8'].native_output_slots = None
+    wf.nodes['9'].inputs = {'filename_prefix': 'Flux2-Klein'}
+    wf.nodes['9'].widgets = {}
+    wf.nodes['9'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'images']}
+    wf.nodes['9'].native_input_names = ['filename_prefix', 'extra_pnginfo', 'prompt', 'images']
+    wf.nodes['9'].native_output_names = None
+    wf.nodes['9'].native_input_types = ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE']
+    wf.nodes['9'].native_output_types = None
+    wf.nodes['9'].native_input_optional = [False, True, True, False]
+    wf.nodes['9'].native_input_asset_kinds = None
+    wf.nodes['9'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('model', '4', 'unet_name', 'flux-2-klein-base-4b.safetensors', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['model'].default = None
+    wf.register_input('prompt', '8', 'text', '', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['prompt'].default = None
+    wf.register_input('seed', '19', 'noise_seed', 432262096973490, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['seed'].default = None
+    public_output_0 = wf.outputs[0]
+    public_output_1 = wf.outputs[1]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveImage'
+    public_output_0.name = 'image'
+    public_output_0.artifact_kind = 'image'
+    public_output_0.mime_type = 'image/png'
+    public_output_0.filename_prefix = 'Flux2-Klein'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    public_output_1.output_type = 'SaveImage'
+    public_output_1.name = None
+    public_output_1.artifact_kind = None
+    public_output_1.mime_type = None
+    public_output_1.filename_prefix = None
+    public_output_1.expected_cardinality = None
+    wf.outputs.append(public_output_1)
+    wf.requirements.models = ['flux-2-klein-4b.safetensors', 'flux-2-klein-base-4b.safetensors', 'flux2-vae.safetensors', 'qwen_3_4b.safetensors']
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
+    return wf
 

@@ -425,9 +425,24 @@ def _iter_candidate_carriers(
 
 def _candidate_carriers_are_well_formed(response: Mapping[str, Any]) -> bool:
     """Validate every present candidate carrier at its actual nesting path."""
-    for field, value in _iter_candidate_carriers(response):
+    carriers = _iter_candidate_carriers(response)
+    for field, value in carriers:
         carrier = field.rsplit(".", 1)[-1]
         if value is None:
+            # ExecutorResult.to_dict deliberately retains a top-level
+            # ``candidate: null`` on successful non-edit terminals.  It means
+            # that no product graph exists; it is not candidate authority.
+            # Accept only that exact unambiguous shape.  A changed/edit
+            # response, a nested null, or any second carrier still fails
+            # closed before landed-count or outcome fallbacks can run.
+            if (
+                len(carriers) == 1
+                and field == "candidate"
+                and response.get("ok") is True
+                and response.get("graph_unchanged") is True
+                and _explicitly_non_edit_route(response)
+            ):
+                continue
             # Presence is authoritative: an explicitly named null carrier is
             # malformed evidence, not an omitted legacy carrier.  Otherwise a
             # response can smuggle a null product alongside graph_unchanged=

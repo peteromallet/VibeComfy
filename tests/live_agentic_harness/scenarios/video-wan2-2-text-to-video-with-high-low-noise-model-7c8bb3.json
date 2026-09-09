@@ -1,7 +1,7 @@
 {
   "id": "video-wan2-2-text-to-video-with-high-low-noise-model-7c8bb3",
   "query": "Explain how this workflow uses the high and low noise variants of Wan2.2 differently. I'm confused about why there are two separate generation paths and how their outputs are combined or selected.",
-  "workflow_path": "external_workflows/corpus/7c8bb3b65e8084ae.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/7c8bb3b65e8084ae.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/7c8bb3b65e8084ae.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/7c8bb3b65e8084ae.json",
     "required_node_evidence": [
       "UNETLoader",
       "ModelSamplingSD3",

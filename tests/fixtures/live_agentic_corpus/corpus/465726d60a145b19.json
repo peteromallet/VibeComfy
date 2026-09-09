@@ -1,0 +1,176 @@
+{
+  "107": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "21.jpeg"
+    }
+  },
+  "121": {
+    "class_type": "CFGNorm",
+    "inputs": {
+      "model": [
+        "122",
+        0
+      ],
+      "widget_0": 1
+    }
+  },
+  "122": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "123",
+        0
+      ],
+      "shift": 3
+    }
+  },
+  "123": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "Qwen-Image-Lightning-4steps-V2.0.safetensors",
+      "model": [
+        "137",
+        0
+      ],
+      "strength_model": 1
+    }
+  },
+  "124": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "Qwen\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "device": "default",
+      "type": "qwen_image"
+    }
+  },
+  "125": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "127": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "107",
+        0
+      ],
+      "megapixels": 1,
+      "upscale_method": "lanczos"
+    }
+  },
+  "130": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "127",
+        0
+      ],
+      "vae": [
+        "125",
+        0
+      ]
+    }
+  },
+  "132": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "135",
+        0
+      ],
+      "vae": [
+        "125",
+        0
+      ]
+    }
+  },
+  "133": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "124",
+        0
+      ],
+      "image1": [
+        "127",
+        0
+      ],
+      "vae": [
+        "125",
+        0
+      ],
+      "widget_0": "In the same style and environment create an image of a soldier kneeling on the ground with one hand raising a gun"
+    }
+  },
+  "134": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "124",
+        0
+      ],
+      "image1": [
+        "127",
+        0
+      ],
+      "vae": [
+        "125",
+        0
+      ],
+      "widget_0": "overexposed"
+    }
+  },
+  "135": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 1,
+      "denoise": 1,
+      "latent_image": [
+        "130",
+        0
+      ],
+      "model": [
+        "121",
+        0
+      ],
+      "negative": [
+        "134",
+        0
+      ],
+      "positive": [
+        "133",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "seed": 634216810968493,
+      "steps": 4
+    }
+  },
+  "136": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "widget_0": 1344,
+      "widget_1": 768,
+      "widget_2": 1
+    }
+  },
+  "137": {
+    "class_type": "LoaderGGUF",
+    "inputs": {
+      "widget_0": "Qwen-Image-Edit-2509-Q5_0.gguf"
+    }
+  },
+  "140": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "132",
+        0
+      ]
+    }
+  }
+}

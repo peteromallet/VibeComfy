@@ -744,31 +744,20 @@ def test_agent_edit_safety_no_position_inheritance():
 def test_duplicate_safety_twin_randomnoise():
     """Duplicate safety against the corpus fixture.
 
-    1. Load a real corpus workflow (z_image.json).
+    1. Load the canonical Z-Image workflow.
     2. Add two twin RandomNoise nodes (uid='', same structure, different
        positions) — they produce identical ``legacy_hash``.
     3. Build a prior_store with entries for both twins at distinct positions.
     4. Call ``reconcile`` and assert each twin is assigned to the *nearest*
        prior position via stable bipartite assignment — no swap, no scatter.
     """
-    import json as _json
-    import os as _os
-
-    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.registry.library import workflow_from_template
     from vibecomfy.porting.layout.reconcile import legacy_hash
 
-    corpus_path = _os.path.join(
-        _os.path.dirname(__file__), "..", "ready_templates/sources",
-        "official", "image", "z_image.json",
-    )
-    if not _os.path.exists(corpus_path):
-        import pytest
-        pytest.skip("z_image corpus fixture not found")
-
-    with open(corpus_path) as fh:
-        raw = _json.load(fh)
-
-    wf = from_ui(raw, use_comfy_converter=False)
+    # The retained Python template owns the materialized Z-Image graph;
+    # its upstream native boundary encoding is import evidence only.
+    wf = workflow_from_template("image/z_image")
+    raw = emit_ui_json(wf)
 
     # ── Add two twin RandomNoise nodes ──
     rn1 = wf.add_node("RandomNoise")

@@ -347,6 +347,51 @@ def test_nodes_compatible_with_searches_input_sockets(capsys: pytest.CaptureFixt
     assert any(match["class_type"] == "KSampler" and match["socket"] == "latent_image" for match in payload["matches"])
 
 
+def test_compatible_socket_search_refreshes_partial_listing_schema() -> None:
+    class ListingProvider:
+        def schemas(self):
+            return {"KSampler": SimpleNamespace(inputs={"model": SimpleNamespace(type="MODEL")}, outputs=[])}
+
+        def get_schema(self, class_type: str):
+            assert class_type == "KSampler"
+            return SimpleNamespace(inputs={"latent_image": SimpleNamespace(type="LATENT")}, outputs=[])
+
+    payload = nodes_cmd._compatible_socket_search(ListingProvider(), "LATENT", socket_role="input")
+
+    assert payload["matches"] == [
+        {
+            "class_type": "KSampler",
+            "socket": "latent_image",
+            "socket_role": "input",
+            "socket_type": "LATENT",
+        }
+    ]
+
+
+def test_compatible_socket_search_drops_listing_entry_when_authoritative_getter_misses() -> None:
+    class ListingProvider:
+        def schemas(self):
+            return {"KSampler": SimpleNamespace(inputs={"latent_image": SimpleNamespace(type="LATENT")}, outputs=[])}
+
+        def get_schema(self, class_type: str):
+            assert class_type == "KSampler"
+            return None
+
+    payload = nodes_cmd._compatible_socket_search(ListingProvider(), "LATENT", socket_role="input")
+
+    assert payload["matches"] == []
+
+
+def test_compatible_socket_search_preserves_full_schema_provider_without_getter() -> None:
+    class FullListingProvider:
+        def schemas(self):
+            return {"KSampler": SimpleNamespace(inputs={"latent_image": SimpleNamespace(type="LATENT")}, outputs=[])}
+
+    payload = nodes_cmd._compatible_socket_search(FullListingProvider(), "LATENT", socket_role="input")
+
+    assert payload["matches"][0]["socket"] == "latent_image"
+
+
 def test_nodes_compatible_with_searches_output_sockets(capsys: pytest.CaptureFixture[str]) -> None:
     code = _cmd_nodes_compatible_with(argparse.Namespace(type_or_from_class="IMAGE", to_class=None, to_input=None, socket_role="output", object_info_cache=None, json=True))
 

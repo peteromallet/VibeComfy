@@ -161,7 +161,9 @@ def test_e2e_fixture_missing_ensure_preflight_green(tmp_path, monkeypatch, capsy
     assert payload["ensure_command"] == format_schema_gap(manifest, ["FixtureNode"])
 
     _patch_registry(monkeypatch)
-    monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: _sandbox_provider(sandbox))
+    provider = _sandbox_provider(sandbox)
+    monkeypatch.setattr(provider, "_ensure_clone", lambda _ref: clone)
+    monkeypatch.setattr(schemas_command, "_on_demand_provider", lambda: provider)
     monkeypatch.setattr(schemas_command, "_manifest_gated_classes", lambda p: (["FixtureNode"], []))
 
     code = schemas_command._cmd_schemas_ensure(
@@ -229,7 +231,8 @@ def test_host_optional_real_registry_skip_if_unreachable(monkeypatch):
         pytest.skip("registry miss — blocked, do not fake schemas")
 
 
-def test_doctor_prints_ensure_command(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("json_output", [False, True])
+def test_doctor_prints_ensure_command(tmp_path, monkeypatch, capsys, json_output):
     """Doctor on unknown_class_type prints the shared ensure command (no clone/extract)."""
     from vibecomfy.commands.doctor import _cmd_doctor
 
@@ -244,17 +247,30 @@ def test_doctor_prints_ensure_command(tmp_path, monkeypatch, capsys):
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 def build():
     wf = VibeWorkflow(id="gap", source=WorkflowSource(id="gap"))
-    wf.nodes["1"] = VibeNode(id="1", class_type="FixtureNode", inputs={})
+    wf.nodes["1"] = VibeNode(id="1", class_type="FixtureNode", uid="fixture-node-1", inputs={})
     wf.finalize_metadata()
     return wf
 """
     )
     monkeypatch.setattr("vibecomfy.commands.doctor.read_lockfile", lambda: [])
-    code = _cmd_doctor(argparse.Namespace(path=str(scratchpad), json=False, lint=False, allow_drift=False))
+    from vibecomfy.security import GateContext, set_gate_context
+    from vibecomfy.security.gate import _gate_context_var
+
+    token = set_gate_context(GateContext(non_interactive=True, assume_yes=True, audit=[]))
+    try:
+        code = _cmd_doctor(argparse.Namespace(path=str(scratchpad), json=json_output, lint=False, allow_drift=False))
+    finally:
+        _gate_context_var.reset(token)
     assert code == 1
     out = capsys.readouterr().out
     assert f"vibecomfy schemas ensure {scratchpad}" in out
-    assert "vibecomfy schemas ensure --manifest" in out
+    assert "FixtureNode" in out
+    assert "Schema reconciliation" in out
+    if json_output:
+        payload = json.loads(out)
+        assert payload["status"] == "error"
+        assert payload["missing_classes"] == ["FixtureNode"]
+        assert payload["recommended_command"].endswith(f"vibecomfy schemas ensure {scratchpad}")
 
 
 def test_validate_coverage_manifest_gap_helper(tmp_path, monkeypatch, capsys):

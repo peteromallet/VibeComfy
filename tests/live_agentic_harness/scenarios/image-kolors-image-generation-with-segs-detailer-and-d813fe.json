@@ -1,7 +1,7 @@
 {
   "id": "image-kolors-image-generation-with-segs-detailer-and-d813fe",
   "query": "Replace the Ultralytics detector with GroundingDINO for mask generation, and adjust the pipeline so that SAM segmentation still receives valid SEGS input from the new detector.",
-  "workflow_path": "external_workflows/corpus/d813fedaabea87b7.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d813fedaabea87b7.json",
   "network": true,
   "timeout": 260,
   "apply": false,
@@ -10,11 +10,6 @@
     "allow_safe_refusal_outcome_kinds": ["requires_custom_nodes"],
     "expected_no_candidate_reason": "GroundingDINO exists neither in this corpus workflow (detection is UltralyticsDetectorProvider + SAMLoader + Impact SEGS detectors) nor anywhere in the authoritative object_info schema — exact and declared-family-prefix lookups return no rows — so no graph edit can swap the detector. The query deliberately demands an absent class; the typed terminal for a proven named-schema absence is a requires_custom_nodes refusal, not a generic clarify.",
     "expected_no_candidate_absent_classes": ["GroundingDINO"]
-  },
-  "desired": {
-    "outcome": "The agent inspects the detection chain, determines that no GroundingDINO class is authorable in this environment, and truthfully reports that no candidate change exists; the graph stays unchanged.",
-    "quality": "The refusal names the detectors actually present (UltralyticsDetectorProvider, SAMLoader, Impact SEGS) and gives the grounded absence reason; no fabricated edit is submitted and existing nodes remain intact.",
-    "alternatives_ok": true
   },
   "_tags": {
     "modality": "image",

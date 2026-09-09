@@ -1,7 +1,7 @@
 {
   "id": "image-background-removal-and-grid-composition-54a681",
   "query": "The preview grid looks too small and blurry. Make each image in the 2x2 grid 512x512 pixels before compositing.",
-  "workflow_path": "external_workflows/corpus/54a681138bec8a37.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/54a681138bec8a37.json",
   "network": true,
   "timeout": 160,
   "apply": true,

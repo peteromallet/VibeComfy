@@ -30,7 +30,7 @@ PUBLIC_INPUT_METADATA = {
     'seed': InputSpec(node='3', field='noise_seed', default=DEFAULT_SEED, type='INT'),
     'frames': InputSpec(node='18', field='length', default=DEFAULT_FRAMES, type='INT'),
     'fps': InputSpec(node='28', field='fps', default=DEFAULT_FPS, type='FLOAT'),
-    'prompt': InputSpec(node='10', field='text', default='blurry, distorted, low quality', type='STRING', required=True, media_semantics='text'),
+    'prompt': InputSpec(node='13', field='text', default=DEFAULT_PROMPT, type='STRING', required=True, media_semantics='text'),
 }
 
 READY_METADATA = ReadyMetadata.build(
@@ -47,7 +47,7 @@ READY_METADATA = ReadyMetadata.build(
     ready_id='video/ltx2_3_lightricks_first_last_parity',
     approach='Official Lightricks distilled fp8 first/last frame route',
     smoke_resolution='256x256x5_frames',
-    runtime_note='Patches named inputs for prompt, negative, seed, dimensions, frames, fps, first/last guide strengths, and first/last images.',
+    runtime_note='Exposes the first image, positive prompt, seed, frames, fps, and model selection for the distilled first/last route.',
     discord_signal='Banodoco LTX notes point to the dedicated distilled fp8/quantized route for 4090 viability; dev+LoRA two-stage routes can OOM at 24GB.',
     ltx_best_practices=['Use the dedicated distilled fp8 checkpoint for first/last workflows on 24GB GPUs.', "Keep guide strengths in Wan2GP's 0..1 range.", 'Use tiled VAE decode for full-size app outputs.', 'Do not force the LTX2 memory-efficient Sage/Triton patch in the portable 4090 profile; LTX 2.3 guide masks must remain on the stable SDPA-compatible path unless a separate optimized profile proves the patch end-to-end.'],
     comfy_configuration={'memory_profile': 3, 'fp8_e4m3fn_text_enc': True},

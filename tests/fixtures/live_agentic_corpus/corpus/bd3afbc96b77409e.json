@@ -1,0 +1,577 @@
+{
+  "edges": [
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "10"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "4"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "9"
+    }
+  ],
+  "groups": [],
+  "id": "71b3bb7bc49be322",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "TestLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'/content/drive/MyDrive/ComfyUI/output/da2.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00025_.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00051_.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00077_.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000103_.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000129_.png\\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000156_.png'"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "SVDSimpleImg2Vid",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "9",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'svd_xt.safetensors'"
+          ],
+          [
+            "widget_1",
+            "25"
+          ],
+          [
+            "widget_2",
+            "108"
+          ],
+          [
+            "widget_3",
+            "127"
+          ],
+          [
+            "widget_4",
+            "16"
+          ],
+          [
+            "widget_5",
+            "0.02"
+          ],
+          [
+            "widget_6",
+            "235"
+          ],
+          [
+            "widget_7",
+            "'randomize'"
+          ],
+          [
+            "widget_8",
+            "8"
+          ],
+          [
+            "widget_9",
+            "'cuda'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "SaveAnimatedWEBP",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ComfyUI'"
+          ],
+          [
+            "widget_1",
+            "16"
+          ],
+          [
+            "widget_2",
+            "True"
+          ],
+          [
+            "widget_3",
+            "80"
+          ],
+          [
+            "widget_4",
+            "'default'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "bd3afbc96b77409e452f8e157a1f355261a2ddbfc8a627ed9aed2993bf0f2bda",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1179902957056172062",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1179902957056172062:workflow_5.json:71b3bb7bc49be322",
+      "filename": "workflow_5.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1179902957056172062,
+      "node_class_multiset": {
+        "SVDSimpleImg2Vid": 1,
+        "SaveAnimatedWEBP": 1,
+        "SaveImage": 1,
+        "TestLoader": 1
+      },
+      "node_count": 4,
+      "origin_date": "2023-11-30T21:53:06.499000+00:00",
+      "originator_global_name": "\uff27\uff4f\uff4f\uff53\uff45 duckjnr",
+      "originator_id": "268696718256635904",
+      "originator_type": "discord_message_author",
+      "originator_username": "gooseduckjr",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "71b3bb7bc49be3227c94ef5084b9c270de63e6436f3945cb6afa63c5648980a8",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1179902956758380625/workflow_5.json?ex=6834e2c2&is=68339142&hm=5cb64ee4996e9622df25bbb318cdbf1d2006569561bd99165d935f2b531d8440&",
+      "source_workflow_sha256": "5b6fddca852aa2690dc8acb239315109036fabf341ad32443b5e922231c55a85",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "ffeb7cfc9e8be52bae8375e15ea58e1a4395584f2f7dedefe6e432a62cefc292",
+      "complexity": 1,
+      "description": "Loads an image using TestLoader, generates a video with SVDSimpleImg2Vid, and saves the result as both an animated WEBP and a static PNG image.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "image-to-video",
+        "svd",
+        "animation",
+        "webp",
+        "png",
+        "video-generation"
+      ],
+      "task_type": "animation",
+      "title": "SVD Image-to-Video with WEBP and PNG Output"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SaveImage",
+      "id": "10",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "pos": [
+            1177,
+            45
+          ],
+          "properties": {},
+          "size": {
+            "0": 315,
+            "1": 270
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "13": {
+      "class_type": "TestLoader",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                8
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -72,
+            286
+          ],
+          "properties": {
+            "Node name for S&R": "TestLoader"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "TestLoader",
+          "widgets_values": [
+            "/content/drive/MyDrive/ComfyUI/output/da2.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00025_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00051_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00077_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000103_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000129_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000156_.png"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "/content/drive/MyDrive/ComfyUI/output/da2.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00025_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00051_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00077_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000103_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000129_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000156_.png"
+        ]
+      },
+      "uid": "13",
+      "widgets": {
+        "widget_0": "/content/drive/MyDrive/ComfyUI/output/da2.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00025_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00051_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_00077_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000103_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000129_.png\n/content/drive/MyDrive/ComfyUI/output/ComfyUI_000156_.png"
+      }
+    },
+    "4": {
+      "class_type": "SVDSimpleImg2Vid",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 8,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                4,
+                5
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            565,
+            140
+          ],
+          "properties": {
+            "Node name for S&R": "SVDSimpleImg2Vid"
+          },
+          "size": {
+            "0": 315,
+            "1": 274
+          },
+          "type": "SVDSimpleImg2Vid",
+          "widgets_values": [
+            "svd_xt.safetensors",
+            25,
+            108,
+            127,
+            16,
+            0.02,
+            235,
+            "randomize",
+            8,
+            "cuda"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "svd_xt.safetensors",
+          25,
+          108,
+          127,
+          16,
+          0.02,
+          235,
+          "randomize",
+          8,
+          "cuda"
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": "svd_xt.safetensors",
+        "widget_1": 25,
+        "widget_2": 108,
+        "widget_3": 127,
+        "widget_4": 16,
+        "widget_5": 0.02,
+        "widget_6": 235,
+        "widget_7": "randomize",
+        "widget_8": 8,
+        "widget_9": "cuda"
+      }
+    },
+    "9": {
+      "class_type": "SaveAnimatedWEBP",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 4,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "pos": [
+            1053,
+            521
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAnimatedWEBP"
+          },
+          "size": {
+            "0": 315,
+            "1": 366
+          },
+          "type": "SaveAnimatedWEBP",
+          "widgets_values": [
+            "ComfyUI",
+            16,
+            true,
+            80,
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI",
+          16,
+          true,
+          80,
+          "default"
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": "ComfyUI",
+        "widget_1": 16,
+        "widget_2": true,
+        "widget_3": 80,
+        "widget_4": "default"
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "9",
+      "output_type": "SaveAnimatedWEBP"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "10",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "71b3bb7bc49be322",
+    "path": "external_workflows/.shadow/source/71b3bb7bc49be322-workflow_5.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "bd3afbc96b77409e452f8e157a1f355261a2ddbfc8a627ed9aed2993bf0f2bda",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1179902957056172062",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1179902957056172062:workflow_5.json:71b3bb7bc49be322",
+      "filename": "workflow_5.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1179902957056172062,
+      "node_class_multiset": {
+        "SVDSimpleImg2Vid": 1,
+        "SaveAnimatedWEBP": 1,
+        "SaveImage": 1,
+        "TestLoader": 1
+      },
+      "node_count": 4,
+      "origin_date": "2023-11-30T21:53:06.499000+00:00",
+      "originator_global_name": "\uff27\uff4f\uff4f\uff53\uff45 duckjnr",
+      "originator_id": "268696718256635904",
+      "originator_type": "discord_message_author",
+      "originator_username": "gooseduckjr",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "71b3bb7bc49be3227c94ef5084b9c270de63e6436f3945cb6afa63c5648980a8",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1179902956758380625/workflow_5.json?ex=6834e2c2&is=68339142&hm=5cb64ee4996e9622df25bbb318cdbf1d2006569561bd99165d935f2b531d8440&",
+      "source_workflow_sha256": "5b6fddca852aa2690dc8acb239315109036fabf341ad32443b5e922231c55a85",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

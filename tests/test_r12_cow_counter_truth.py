@@ -654,3 +654,237 @@ def test_pin_set_field_preserves_unlinked_widget_input_descriptor() -> None:
     assert pinned["nodes"][0]["inputs"] == original["nodes"][0]["inputs"]
     assert pinned["nodes"][0]["widgets_values"] == ["detailed"]
     assert pinned["nodes"][0]["properties"] == original["nodes"][0]["properties"]
+
+
+def test_registry_hydrated_set_field_preserves_captured_socket_projection() -> None:
+    """Hydration may change the projection, but only the named widget may change."""
+    original = {
+        "nodes": [
+            {
+                "id": 12,
+                "type": "RegistryHydratedNode",
+                "properties": {"vibecomfy_uid": "node"},
+                "inputs": [
+                    {
+                        "name": name,
+                        "type": socket_type,
+                        "link": None,
+                        "widget": {"name": name},
+                    }
+                    for name, socket_type in (
+                        ("first", "INT"),
+                        ("second", "STRING"),
+                        ("third", "BOOLEAN"),
+                    )
+                ],
+                "widgets_values": [8, "before", False],
+            }
+        ],
+        "links": [],
+    }
+    emitted = deepcopy(original)
+    emitted["nodes"][0]["inputs"] = [
+        {"name": name, "type": "UNKNOWN", "link": None}
+        for name in ("first", "second", "third")
+    ]
+    emitted["nodes"][0]["widgets_values"] = [16, "before", False]
+    operation = SetNodeFieldOp(
+        "set_node_field", NodeFieldTarget("", "node", "first"), 16
+    )
+
+    pinned = pin_untouched_ui(original, emitted, (operation,))
+
+    assert pinned["nodes"][0]["inputs"] == original["nodes"][0]["inputs"]
+    assert guard_exit_ui(original, pinned, (operation,)).ok is True
+
+
+def test_set_field_guard_rejects_unrelated_widget_drift() -> None:
+    original = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "RegistryHydratedNode",
+                "properties": {"vibecomfy_uid": "node"},
+                "inputs": [
+                    {"name": "first", "type": "INT", "link": None, "widget": {"name": "first"}},
+                    {"name": "second", "type": "INT", "link": None, "widget": {"name": "second"}},
+                ],
+                "widgets_values": [8, 2],
+            }
+        ],
+        "links": [],
+    }
+    candidate = deepcopy(original)
+    candidate["nodes"][0]["widgets_values"] = [16, 99]
+    operation = SetNodeFieldOp(
+        "set_node_field", NodeFieldTarget("", "node", "first"), 16
+    )
+
+    result = guard_exit_ui(original, candidate, (operation,))
+
+    assert result.ok is False
+    assert any(
+        issue.code == "full_ui_node_changed_unattributed"
+        and "widgets_values[1]" in (issue.detail or {}).get("field_paths", [])
+        for issue in result.diagnostics
+    )
+
+    socket_drift = deepcopy(original)
+    socket_drift["nodes"][0]["inputs"][0]["type"] = "UNKNOWN"
+    socket_result = guard_exit_ui(original, socket_drift, (operation,))
+    assert socket_result.ok is False
+    assert any(
+        issue.code == "full_ui_node_changed_unattributed"
+        and "inputs[0].type" in (issue.detail or {}).get("field_paths", [])
+        for issue in socket_result.diagnostics
+    )
+
+
+def test_cumulative_rewire_wins_over_literal_field_pinning() -> None:
+    original = {
+        "last_node_id": 4,
+        "last_link_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "old"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [2]}],
+            },
+            {
+                "id": 4,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "new"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+            },
+            {
+                "id": 2,
+                "type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [
+                    {"name": "images", "type": "IMAGE", "link": 2},
+                    {
+                        "name": "filename_prefix",
+                        "type": "STRING",
+                        "widget": {"name": "filename_prefix"},
+                        "link": None,
+                    },
+                ],
+                "widgets_values": ["before"],
+            },
+        ],
+        "links": [[2, 1, 0, 2, 0, "IMAGE"]],
+    }
+    emitted = deepcopy(original)
+    emitted["last_link_id"] = 3
+    emitted["links"] = [[3, 4, 0, 2, 0, "IMAGE"]]
+    emitted["nodes"][0]["outputs"][0]["links"] = []
+    emitted["nodes"][1]["outputs"][0]["links"] = [3]
+    emitted["nodes"][2]["inputs"] = [
+        {"name": "images", "type": "UNKNOWN", "link": 3}
+    ]
+    emitted["nodes"][2]["widgets_values"] = ["after"]
+    operations = (
+        UpsertLinkOp(
+            "upsert_link",
+            LinkSourceRef("", "new", "IMAGE"),
+            LinkTargetRef("", "save", "images"),
+        ),
+        SetNodeFieldOp(
+            "set_node_field", NodeFieldTarget("", "save", "filename_prefix"), "after"
+        ),
+    )
+
+    pinned = pin_untouched_ui(original, emitted, operations)
+
+    save = pinned["nodes"][2]
+    assert save["inputs"][0]["link"] == 3
+    assert save["inputs"][1] == original["nodes"][2]["inputs"][1]
+    assert pinned["nodes"][1]["outputs"][0]["links"] == [3]
+    assert pinned["links"] == [[3, 4, 0, 2, 0, "IMAGE"]]
+    assert guard_exit_ui(original, pinned, operations).ok is True
+
+
+def test_rewire_refs_survive_failed_teaching_turn() -> None:
+    """A rejected follow-up must not resurrect the pre-rewire input link."""
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    class Provider:
+        def __init__(self) -> None:
+            self.schemas = {
+                "SourceOne": NodeSchema("SourceOne", None, {}, [OutputSpec("IMAGE", "in")]),
+                "SourceTwo": NodeSchema("SourceTwo", None, {}, [OutputSpec("IMAGE", "in")]),
+                "SaveImage": NodeSchema(
+                    "SaveImage",
+                    None,
+                    {
+                        "images": InputSpec("IMAGE", required=True),
+                        "filename_prefix": InputSpec("STRING"),
+                    },
+                    [],
+                ),
+            }
+
+        def get_schema(self, class_type: str):
+            return self.schemas.get(class_type)
+
+    raw = {
+        "last_node_id": 3,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SourceOne",
+                "properties": {"vibecomfy_uid": "one"},
+                "outputs": [{"name": "in", "type": "IMAGE", "links": [1]}],
+            },
+            {
+                "id": 2,
+                "type": "SourceTwo",
+                "properties": {"vibecomfy_uid": "two"},
+                "outputs": [{"name": "in", "type": "IMAGE", "links": []}],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [
+                    {"name": "images", "type": "IMAGE", "link": 1},
+                    {
+                        "name": "filename_prefix",
+                        "type": "STRING",
+                        "widget": {"name": "filename_prefix"},
+                        "link": None,
+                    },
+                ],
+                "widgets_values": ["before"],
+            },
+        ],
+        "links": [[1, 1, 0, 3, 0, "IMAGE"]],
+    }
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    declared_provider = Provider()
+    snapshot = capture_ingress_schema_snapshot(
+        schema_provider=declared_provider, graph=raw
+    )
+    session = EditSession(
+        raw,
+        schema_provider=FrozenSchemaSnapshotProvider(snapshot),
+    )
+
+    rewired = session.apply_batch("saveimage.images = sourcetwo.in_\n")
+    failed = session.apply_batch("saveimage.not_a_field = 'teaching turn'\n")
+
+    assert rewired.ok is True
+    assert failed.ok is False
+    save = session.node_ui("save")
+    source = session.node_ui("two")
+    assert save is not None and source is not None
+    assert next(item for item in save["inputs"] if item["name"] == "images")["link"] == 2
+    assert source["outputs"][0]["links"] == [2]
+    assert session.working_ui["links"] == [[2, 2, 0, 3, 0, "IMAGE"]]

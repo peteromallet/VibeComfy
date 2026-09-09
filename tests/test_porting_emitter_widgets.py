@@ -159,3 +159,25 @@ def test_public_input_specs_do_not_create_bogus_blank_alias_inputs(
     assert spec_by_name["seed"].field == "seed"
     assert "widget_1" not in spec_by_name
     assert "" not in spec_by_name
+
+
+def test_public_input_inference_does_not_alias_an_existing_retained_target() -> None:
+    workflow = VibeWorkflow("test/retained-target", WorkflowSource("test/retained-target"))
+    negative = VibeNode("1", "CLIPTextEncode", widgets={"text": "low quality"})
+    positive = VibeNode("2", "CLIPTextEncode", widgets={"text": "a moving subject"})
+    workflow.nodes.update({"1": negative, "2": positive})
+
+    specs = emitter._public_input_specs(
+        workflow.nodes,
+        {},
+        {"1": "negative", "2": "positive"},
+        {},
+        registered_inputs={"negative_prompt": ("1", "text")},
+        constant_map={},
+    )
+
+    by_name = {spec.name: spec for spec in specs}
+    assert set(by_name) == {"negative_prompt", "prompt"}
+    assert (by_name["negative_prompt"].metadata_node_ref, by_name["negative_prompt"].field) == ("'1'", "text")
+    assert by_name["negative_prompt"].aliases == ()
+    assert (by_name["prompt"].metadata_node_ref, by_name["prompt"].field) == ("'2'", "text")

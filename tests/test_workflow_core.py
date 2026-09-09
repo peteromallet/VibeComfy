@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.ingest.index import index_workflows
+from vibecomfy.identity.scope import sg_key
 from vibecomfy.ingest.normalize import (
     from_api,
     from_envelope,
@@ -23,6 +24,7 @@ from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.handles import Handle
 from vibecomfy.workflow import (
     NodeMode,
+    RawWidgetPayload,
     VibeEdge,
     VibeInput,
     VibeNode,
@@ -31,6 +33,7 @@ from vibecomfy.workflow import (
     WorkflowCompileError,
     WorkflowRequirements,
     WorkflowSource,
+    _resolve_workflow_virtual_wire_records,
 )
 import vibecomfy.workflow as workflow_module
 
@@ -285,23 +288,106 @@ def test_untouched_opaque_fields_and_subgraph_payload_are_detached_and_lossless(
     envelope = workflow.to_envelope()
     envelope["opaque_top"] = {"nested": ["preserve", 7]}
     envelope["nodes"]["1"]["opaque_node"] = {"vendor": [1, 2, 3]}
-    envelope["definitions"] = {
-        "subgraphs": [
+    definition = {
+        "id": "opaque-subgraph",
+        "name": "Opaque Subgraph",
+        "inputs": [{"name": "image", "type": "IMAGE", "label": "Image"}],
+        "outputs": [{"name": "image", "type": "IMAGE"}],
+        "nodes": [
             {
-                "id": "opaque-subgraph",
-                "nodes": {"inner-key": {"id": "different-inner-id"}},
-                "links": [["missing", "still", "opaque"]],
+                "id": "inner-node",
+                "uid": "inner-node",
+                "class_type": "InnerEcho",
+                "inputs": {},
+                "outputs": [],
+                "native_output_slots": [3],
+                "opaque_inner": {"vendor": ["retain"]},
             }
-        ]
+        ],
+        "links": [],
+        "opaque_definition": {"vendor": ["definition-retain"]},
     }
+    key = sg_key(definition)
+    definition.update({"sg_key": key, "scope_path": key})
+    envelope["definitions"] = {"subgraphs": [definition]}
     decoded = from_envelope(envelope)
 
     emitted = decoded.to_envelope()
 
     assert emitted == envelope
     emitted["opaque_top"]["nested"].append("mutated-return")
-    emitted["definitions"]["subgraphs"][0]["links"].append(["mutated"])
+    emitted["definitions"]["subgraphs"][0]["opaque_definition"]["vendor"].append(
+        "mutated-definition-return"
+    )
+    emitted["definitions"]["subgraphs"][0]["nodes"][0]["opaque_inner"][
+        "vendor"
+    ].append("mutated-inner-return")
     assert decoded.to_envelope() == envelope
+
+
+def test_unknown_output_slots_require_exact_authored_witness_and_known_rosters_win(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.schema as schema_module
+
+    def poisoned_provider():
+        raise AssertionError("numeric output witness consulted ambient schema provider")
+
+    workflow = VibeWorkflow("slot-witness", WorkflowSource("slot-witness"))
+    source = workflow.node("SchemaLessSource")
+    retained_unknown = workflow.node("RetainedUnknownSource")
+    retained_unknown.node.native_output_names = ["VALUE"]
+    retained_unknown.node.native_output_types = [None]
+
+    # Public authoring may resolve and retain a schema while creating a node.
+    # Once the unknown state is retained, handle resolution must be wholly
+    # provider-free.
+    monkeypatch.setattr(schema_module, "get_authoring_schema_provider", poisoned_provider)
+    handle = source.out(3)
+    assert handle.output_type is None
+    assert retained_unknown.out(0).output_type is None
+    workflow.nodes["target"] = VibeNode(
+        "target",
+        "Target",
+        uid="target",
+        inputs={"image": None},
+        native_input_names=["image"],
+    )
+    workflow.virtual_wires = {
+        "bus": {
+            "legs": [
+                {
+                    "scope_path": "",
+                    "leg_index": 0,
+                    "occurrence_index": 0,
+                    "from_node": source.node.uid,
+                    "from_output": 3,
+                    "to_node": "target",
+                    "to_input": "image",
+                }
+            ]
+        }
+    }
+
+    [record] = _resolve_workflow_virtual_wire_records(workflow)[("", "bus")]
+    assert (record.from_output, record.from_port) == ("3", 3)
+    assert source.node.native_output_names is None
+    assert source.node.native_output_slots == [3]
+
+    workflow.virtual_wires["bus"]["legs"][0]["from_output"] = 2
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        _resolve_workflow_virtual_wire_records(workflow)
+    assert exc_info.value.code == "unknown_virtual_wire_port"
+
+    source.node.native_output_names = ["preview", None]
+    source.node.native_output_slots = [1]
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        source.out(1)
+    assert exc_info.value.code == "unknown_output_handle"
+    workflow.virtual_wires["bus"]["legs"][0]["from_output"] = 1
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        _resolve_workflow_virtual_wire_records(workflow)
+    assert exc_info.value.code == "unknown_virtual_wire_port"
 
 
 def test_from_api_preserves_noncanonical_two_item_literal_lists() -> None:
@@ -947,7 +1033,7 @@ def test_90a1d5_mode_distribution_and_compile_survive_p10() -> None:
 
     from vibecomfy.ingest.normalize import from_envelope
 
-    envelope_path = Path("external_workflows/corpus/90a1d5ff9044902e.json")
+    envelope_path = Path("tests/fixtures/b02_corpus_mini/90a1d5ff9044902e.json")
     envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
     wf = from_envelope(envelope)
 
@@ -1145,6 +1231,71 @@ def test_compile_rewrites_set_get_nodes_to_direct_links() -> None:
     assert api["4"]["inputs"]["images"] == ["1", 0]
 
 
+def test_public_image_media_input_accepts_only_retained_image_asset_widget() -> None:
+    workflow = VibeWorkflow("image-asset", WorkflowSource("image-asset"))
+    workflow.nodes["load"] = VibeNode(
+        "load", "LoadImage", inputs={"image": "old.png"},
+        native_input_names=["image"], native_input_types=["CHOICE"],
+        native_input_optional=[False], native_input_asset_kinds=["image"],
+    )
+    workflow.inputs["image"] = VibeInput(
+        "image", "load", "image", value="new.png", type="IMAGE",
+        media_semantics="image",
+    )
+
+    assert workflow.compile()["load"]["inputs"]["image"] == "new.png"
+
+    workflow.nodes["load"].native_input_asset_kinds = [None]
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_input_incompatible"
+
+    workflow.nodes["load"].native_input_asset_kinds = ["image"]
+    workflow.inputs["image"].media_semantics = None
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_input_incompatible"
+
+
+def test_public_image_media_input_rejects_arbitrary_choice_widget() -> None:
+    workflow = VibeWorkflow("semantic-choice", WorkflowSource("semantic-choice"))
+    workflow.nodes["choice"] = VibeNode(
+        "choice", "Chooser", inputs={"mode": "fast"},
+        native_input_names=["mode"], native_input_types=["CHOICE"],
+        native_input_optional=[False], native_input_asset_kinds=[None],
+    )
+    workflow.inputs["image"] = VibeInput(
+        "image", "choice", "mode", value="file.png", type="IMAGE",
+        media_semantics="image",
+    )
+
+    with pytest.raises(WorkflowCompileError) as exc:
+        workflow.compile()
+    assert exc.value.code == "public_input_incompatible"
+
+
+def test_typed_port_type_optionality_and_asset_kind_affect_semantic_digest() -> None:
+    def make(**changes):
+        workflow = VibeWorkflow("typed-digest", WorkflowSource("typed-digest"))
+        node = VibeNode(
+            "1", "Node", uid="one", native_input_names=["value"],
+            native_input_types=["IMAGE"], native_input_optional=[False],
+            native_input_asset_kinds=[None], native_output_names=["out"],
+            native_output_types=["IMAGE"],
+        )
+        for name, value in changes.items():
+            setattr(node, name, value)
+        workflow.nodes["1"] = node
+        return workflow.semantic_digest()
+
+    baseline = make()
+    assert make(native_input_types=["MASK"]) != baseline
+    assert make(native_input_optional=[True]) != baseline
+    assert make(native_input_asset_kinds=["image"]) != baseline
+    assert make(native_output_types=["MASK"]) != baseline
+    assert make(native_output_slots=[3]) != baseline
+
+
 def test_compile_rewrites_edge_fed_set_get_nodes_to_direct_links() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "reference.png"})
@@ -1259,7 +1410,7 @@ def test_helper_diagnostics_report_unresolved_broadcasts_before_compile() -> Non
     assert len(compile_issues) == 1
     assert compile_issues[0].severity == "error"
     assert compile_issues[0].detail["compile_code"] == "helper_edge_unresolved"
-    assert compile_issues[0].detail["helper_node_id"] == "2"
+    assert "GetNode '2'" in compile_issues[0].message
 
 
 def test_compile_rewrites_multi_hop_set_get_edge_chains() -> None:
@@ -1326,8 +1477,8 @@ def test_compile_raises_stable_code_for_helper_edge_cycles() -> None:
         workflow.compile("api")
 
     assert exc_info.value.code == "helper_edge_cycle"
-    assert exc_info.value.detail["target_node_id"] == "4"
-    assert exc_info.value.detail["target_input"] == "images"
+    assert "helper edge cycle" in str(exc_info.value).lower()
+    assert "1" in str(exc_info.value) and "2" in str(exc_info.value)
 
 
 def test_compile_raises_stable_code_for_missing_edge_endpoint() -> None:
@@ -1373,8 +1524,12 @@ def test_compile_ready_projection_rejects_out_of_range_unknown_alias() -> None:
     workflow.nodes["2"] = VibeNode("2", "Target", inputs={})
     workflow.edges.append(VibeEdge("1", "unknown_1", "2", "value"))
 
-    with pytest.raises(WorkflowCompileError, match="non-numeric output slot"):
+    with pytest.raises(WorkflowCompileError) as exc_info:
         _compile_ready_workflow_copy(workflow).compile("api")
+    assert exc_info.value.code == "unknown_output_handle"
+    assert exc_info.value.detail == {"node_id": "1", "output": "unknown_1"}
+    assert isinstance(exc_info.value.__cause__, WorkflowCompileError)
+    assert exc_info.value.__cause__.code == "unknown_virtual_wire_port"
 
 
 def test_compile_ready_projection_preserves_interior_unknown_slot_index() -> None:
@@ -1560,7 +1715,7 @@ def test_runtime_views_strip_helper_nodes_without_changing_compile_rewrite() -> 
     ]
 
 
-def test_compile_strips_only_ui_and_broadcast_helpers_not_conversion_helpers() -> None:
+def test_compile_strips_all_resolvable_ui_broadcast_and_conversion_helpers() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "Note", inputs={"widget_0": "editor note"})
     workflow.nodes["2"] = VibeNode("2", "MarkdownNote", inputs={"widget_0": "editor note"})
@@ -1572,10 +1727,7 @@ def test_compile_strips_only_ui_and_broadcast_helpers_not_conversion_helpers() -
 
     api = workflow.compile("api")
 
-    assert set(api) == {"5", "6", "7"}
-    assert api["5"]["class_type"] == "Reroute"
-    assert api["6"]["class_type"] == "PrimitiveNode"
-    assert api["7"]["class_type"] == "PrimitiveInt"
+    assert api == {}
 
 
 def test_compile_resolves_supported_note_markdown_set_get_helper_chain() -> None:
@@ -2382,7 +2534,7 @@ def test_named_importers_match_fixture_invariants() -> None:
         nid: node.class_type for nid, node in from_api_wf.nodes.items()
     } == {nid: node.class_type for nid, node in from_ui_wf.nodes.items()}
 
-    envelope_path = Path("external_workflows/corpus/90a1d5ff9044902e.json")
+    envelope_path = Path("tests/fixtures/b02_corpus_mini/90a1d5ff9044902e.json")
     envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
     via_named = from_envelope(envelope)
     via_class = VibeWorkflow.from_envelope(envelope)
@@ -2409,8 +2561,40 @@ def test_convert_to_vibe_format_is_not_a_public_ingest_export() -> None:
     assert not hasattr(ingest, "convert_to_vibe_format")
 
 
-def test_agent_edit_ingest_uses_nodes_is_list_not_shape_sniff() -> None:
-    """edit_ingest successor: list-nodes pass through; no detect_workflow_shape."""
+def test_agent_edit_ingest_uses_named_door_not_shape_sniff() -> None:
+    """The ingest stage delegates shape handling to the one named ingress door."""
     frag = Path("vibecomfy/comfy_nodes/agent/_frag_ingest.py").read_text(encoding="utf-8")
     assert "detect_workflow_shape" not in frag
-    assert 'isinstance(graph.get("nodes"), list)' in frag
+    assert "ingest_workflow_and_ui" in frag
+    assert "door_get_nodes" in frag
+
+
+def test_folded_widget_uses_typed_raw_payload_without_mutating_retained_ui() -> None:
+    from vibecomfy._compile._resolve import _fold_literal_into_consumer
+    from vibecomfy.porting.emit.ui import emit_ui_json
+
+    workflow = VibeWorkflow("folded-widget", WorkflowSource("folded-widget"))
+    node = VibeNode(
+        "1",
+        "FutureWidgetNode",
+        inputs={"widget_0": 1},
+        raw_widgets=RawWidgetPayload(
+            values=[1],
+            shape="list",
+            source="ui.widgets_values",
+            has_dict_rows=False,
+            length=1,
+        ),
+        metadata={"_ui": {"widgets_values": [999]}},
+    )
+    workflow.nodes[node.id] = node
+
+    _fold_literal_into_consumer(node, "widget_0", 9)
+
+    assert node.inputs["widget_0"] == 9
+    assert node.raw_widgets.values == [9]
+    assert node.metadata["_ui"]["widgets_values"] == [999]
+    with pytest.warns(UserWarning, match="schema-less node"):
+        emitted = emit_ui_json(workflow)
+    assert emitted["nodes"][0]["widgets_values"] == [9]
+    assert node.metadata["_ui"]["widgets_values"] == [999]

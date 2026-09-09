@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from copy import copy, deepcopy
+from dataclasses import dataclass, field, fields, is_dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from vibecomfy.porting.edit.ops import AnchorRef, LinkSourceRef
@@ -22,8 +24,11 @@ class CompactDiagnostic:
     code: str
     message: str
     severity: str = "warning"
-    detail: dict[str, Any] = field(default_factory=dict)
+    detail: Mapping[str, Any] = field(default_factory=dict)
     teaching_hint: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "detail", _freeze_report(self.detail))
 
     @classmethod
     def from_emission(cls, diagnostic: EmissionDiagnostic) -> "CompactDiagnostic":
@@ -35,7 +40,92 @@ class CompactDiagnostic:
         )
 
 
-@dataclass(slots=True)
+def _freeze_report(value: Any) -> Any:
+    """Detach nested transition evidence without exposing session state."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_report(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        # A ``list`` subclass cannot be made immutable: callers can bypass any
+        # overridden ``append``/``__setitem__`` with the builtin descriptor
+        # (``list.append(value, item)``).  Published report sequences are real
+        # tuples; the wire serializers thaw them back to JSON arrays.
+        return tuple(_freeze_report(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_report(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted((_freeze_report(item) for item in value), key=repr))
+    if is_dataclass(value) and not isinstance(value, type):
+        # A nested diagnostic may already contain MappingProxyType; shallow
+        # copy avoids asking ``deepcopy`` to pickle the immutable proxy.
+        clone = copy(value)
+        for item in fields(clone):
+            object.__setattr__(
+                clone,
+                item.name,
+                _freeze_report(getattr(clone, item.name)),
+            )
+        return clone
+    try:
+        return deepcopy(value)
+    except Exception:
+        return repr(value)
+
+
+def _freeze_normalized_operation(value: Any) -> Any:
+    """Detach and recursively seal one canonical normalized operation."""
+    return _freeze_report(value)
+
+
+def _freeze_operation_tuple(values: Any) -> tuple[Any, ...]:
+    """Detach canonical operations before durable/public publication."""
+    return tuple(_freeze_normalized_operation(value) for value in (values or ()))
+
+
+@dataclass(frozen=True, slots=True)
+class OperationTransition:
+    """Compact diagnostic for one ordered lint/application occurrence."""
+
+    occurrence: int
+    submitted: Any
+    normalized: Any = None
+    lowered: tuple[Any, ...] = ()
+    outcome: str = "rejected"  # staged / noop / rejected
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    lint_disposition: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "submitted", _freeze_report(self.submitted))
+        object.__setattr__(
+            self,
+            "normalized",
+            _freeze_normalized_operation(self.normalized),
+        )
+        object.__setattr__(
+            self,
+            "lowered",
+            tuple(_freeze_report(item) for item in self.lowered),
+        )
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(_freeze_report(item) for item in self.diagnostics),
+        )
+        if self.lint_disposition is not None:
+            object.__setattr__(self, "lint_disposition", str(self.lint_disposition))
+
+    @property
+    def statement_index(self) -> int:
+        """Route-facing spelling of the immutable occurrence identity."""
+        return self.occurrence
+
+    @property
+    def reason(self) -> str:
+        return "no_op" if self.outcome == "noop" else self.outcome
+
+
+@dataclass(frozen=True, slots=True)
 class StatementResult:
     statement_index: int
     source: str
@@ -43,15 +133,28 @@ class StatementResult:
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed: bool = False
     op_kind: str | None = None
-    detail: dict[str, Any] = field(default_factory=dict)
+    detail: Mapping[str, Any] = field(default_factory=dict)
     touched_uids: tuple[str, ...] = ()
     dependency_cause: str | None = None
     teaching_hint: str | None = None
     status: str | None = None
     reason: str | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(_freeze_report(item) for item in self.diagnostics),
+        )
+        object.__setattr__(self, "detail", _freeze_report(self.detail))
+        object.__setattr__(
+            self,
+            "touched_uids",
+            tuple(str(uid) for uid in self.touched_uids),
+        )
 
-@dataclass(slots=True)
+
+@dataclass(frozen=True, slots=True)
 class BatchResult:
     ok: bool
     statements: tuple[StatementResult, ...] = ()
@@ -59,6 +162,50 @@ class BatchResult:
     landed_ops: tuple[Any, ...] = ()
     field_changes: tuple[FieldChange, ...] = ()
     apply_eligible: bool = False
+    transitions: tuple[OperationTransition, ...] = ()
+    lint_result: Any = None
+    occurrence_to_statement_index: Mapping[int, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.lint_result is None:
+            from vibecomfy.porting.edit.lint import LintResult
+            object.__setattr__(self, "lint_result", LintResult((), (), ()))
+        object.__setattr__(
+            self,
+            "statements",
+            tuple(_freeze_report(item) for item in self.statements),
+        )
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(_freeze_report(item) for item in self.diagnostics),
+        )
+        object.__setattr__(self, "landed_ops", _freeze_operation_tuple(self.landed_ops))
+        object.__setattr__(
+            self,
+            "field_changes",
+            tuple(_freeze_report(item) for item in self.field_changes),
+        )
+        object.__setattr__(self, "lint_result", _freeze_report(self.lint_result))
+        transitions = tuple(self.transitions) or tuple(
+            getattr(self.lint_result, "transitions", ()) or ()
+        )
+        object.__setattr__(
+            self,
+            "transitions",
+            tuple(_freeze_report(item) for item in transitions),
+        )
+        occurrence_map = dict(self.occurrence_to_statement_index)
+        if not occurrence_map:
+            occurrence_map = {
+                int(transition.occurrence): int(transition.statement_index)
+                for transition in transitions
+            }
+        object.__setattr__(
+            self,
+            "occurrence_to_statement_index",
+            MappingProxyType({int(key): int(value) for key, value in occurrence_map.items()}),
+        )
 
     def render_diff(self) -> str:
         """Produce a compact diff view of the batch results.
@@ -136,6 +283,35 @@ class ApplyOpsResult:
     delta_id: str | None = None
     revision: int | None = None
     retryable: bool = True
+    transitions: tuple[OperationTransition, ...] = ()
+    lint_result: Any = None
+    occurrence_to_statement_index: Mapping[int, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Seal reports before they can expose post-state literals."""
+        object.__setattr__(
+            self,
+            "diagnostics",
+            tuple(_freeze_report(item) for item in self.diagnostics),
+        )
+        object.__setattr__(self, "landed_ops", _freeze_operation_tuple(self.landed_ops))
+        object.__setattr__(
+            self,
+            "transitions",
+            tuple(_freeze_report(item) for item in self.transitions),
+        )
+        if self.lint_result is not None:
+            object.__setattr__(self, "lint_result", _freeze_report(self.lint_result))
+        object.__setattr__(
+            self,
+            "occurrence_to_statement_index",
+            MappingProxyType(
+                {
+                    int(key): int(value)
+                    for key, value in self.occurrence_to_statement_index.items()
+                }
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

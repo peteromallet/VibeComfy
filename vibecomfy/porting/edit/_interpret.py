@@ -23,6 +23,7 @@ from vibecomfy.porting.edit._ir_utils import (
     _cow_workflow_copy,
     _input_spec_for_field,
     _mint_ir_uid,
+    EditNoOpError,
     apply_edit_cow,
 )
 from vibecomfy.porting.edit._parse import (
@@ -35,6 +36,7 @@ from vibecomfy.porting.edit._parse import (
 )
 from vibecomfy.porting.edit._session_types import (
     CompactDiagnostic,
+    OperationTransition,
     StatementResult,
     _ExpandedStatement,
     _diag,
@@ -73,6 +75,7 @@ from vibecomfy.identity.codec import (
 )
 from vibecomfy.porting.emit.emit_kwargs import _compute_variable_names
 from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_ports
+from vibecomfy.porting.emit.ui import guard_exit_ui as _canonical_guard_exit_ui
 from vibecomfy.porting.edit._resolve import (
     _EXEC_CLASS_TYPE,
     _exec_semantic_slot_name,
@@ -80,8 +83,8 @@ from vibecomfy.porting.edit._resolve import (
     _normalize_exec_io,
 )
 from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget, input_spec_is_socket_only
-from vibecomfy.schema import get_schema_provider, schema_for, socket_types_compatible
-from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
+from vibecomfy.schema import schema_for, socket_types_compatible
+from vibecomfy.workflow import VibeWorkflow
 
 
 StatementStatus = Literal["applied", "rejected", "skipped"]
@@ -94,6 +97,39 @@ _SLOT_COMMENT = re.compile(
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 _PLACEMENT_KWARGS = frozenset({"near", "relation", "group"})
 _RAW_COORDINATE_KWARGS = frozenset({"pos", "position", "coords", "x", "y"})
+_VALUE_DEFAULT_RECEIPT_CODES = frozenset({
+    "value_default_binding_receipt",
+    "value_default_edit_receipt",
+})
+
+
+def _published_diagnostics(
+    diagnostics: Sequence[CompactDiagnostic],
+) -> tuple[CompactDiagnostic, ...]:
+    """Publish errors/warnings plus retained value-default receipts.
+
+    Ordinary info chatter stays session-local. Binding and edit receipts are
+    accepted-batch proof, so they survive the published diagnostic filter.
+    """
+    return tuple(
+        diagnostic
+        for diagnostic in diagnostics
+        if getattr(diagnostic, "severity", "error") in {"error", "warning"}
+        or getattr(diagnostic, "code", "") in _VALUE_DEFAULT_RECEIPT_CODES
+    )
+
+
+def _has_frozen_schema_authority(provider: Any) -> bool:
+    """Return whether *provider* carries the retained ingress witness."""
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
+
+    if isinstance(provider, FrozenSchemaSnapshotProvider):
+        return True
+    snapshot = getattr(provider, "snapshot", None)
+    # A retained witness is data, not a lookup hook.  Do not invoke a
+    # callable ``snapshot`` surface here: that could consult mutable provider
+    # state after ingress and silently turn advisory evidence into authority.
+    return isinstance(snapshot, SchemaSnapshot)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +163,962 @@ class InterpretationResult:
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[EditOp, ...] = ()
     preflight_ok: bool = True
+    transitions: tuple[OperationTransition, ...] = ()
+    lint_result: Any = None
+    occurrence_to_statement_index: Mapping[int, int] = field(default_factory=dict)
+    value_default_context: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class OperationEvaluation:
+    """Detached result of one canonical operation-boundary evaluation."""
+
+    workflow: VibeWorkflow
+    normalized: EditOp
+    lowered: tuple[EditOp, ...] = ()
+    outcome: Literal["staged", "noop", "rejected"] = "rejected"
+    diagnostics: tuple[CompactDiagnostic, ...] = ()
+    lint_issue: Any = None
+    lint_disposition: str = "passed"
+    presentation_ui: Any = None
+    presentation_index: Any = None
+    value_default_context: Any = None
+
+
+def _capture_presentation(
+    workflow: VibeWorkflow,
+    schema_provider: Any,
+) -> tuple[Any, Any, CompactDiagnostic | None]:
+    """Capture the mandatory retained presentation projection once."""
+    from vibecomfy.porting.edit.lint import LintIndex
+    from vibecomfy.porting.emit.ui import emit_ui_json
+    from vibecomfy.porting.refuse import RefusedEmit
+
+    try:
+        payload = emit_ui_json(
+            workflow,
+            schema_provider=schema_provider,
+            include_virtual_wires=True,
+        )
+    except RefusedEmit as exc:
+        return (
+            None,
+            None,
+            _diag(
+                "presentation_rejected",
+                f"canonical presentation projection was refused: {exc}",
+                severity="error",
+            ),
+        )
+    return payload, LintIndex.build(payload), None
+
+
+def _presentation_guard_ops(
+    workflow: VibeWorkflow,
+    operations: Sequence[EditOp],
+    schema_provider: Any,
+) -> tuple[EditOp, ...]:
+    """Project canonical ops onto the retained UI's physical identities.
+
+    Semantic operations keep authored names (``texture_quality`` or a schema
+    output name such as ``emotion_control``).  The strict UI guard compares
+    against a positional canvas projection, so its attribution view must use
+    the same frozen name/slot evidence rather than infer from list order or a
+    live registry.  This changes only the guard view; the canonical lowered
+    operations remain authored and are what replay applies.
+    """
+    from dataclasses import replace
+
+    from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid
+    from vibecomfy.porting.widgets.compact_resolver import widget_index_for_field
+
+    widget_names = frozen_widget_names_by_uid(workflow)
+    projected: list[EditOp] = []
+    for operation in operations:
+        current = operation
+        if isinstance(operation, SetNodeFieldOp):
+            target_node = next(
+                (
+                    node
+                    for node in (getattr(workflow, "nodes", {}) or {}).values()
+                    if str(getattr(node, "uid", "") or "")
+                    == str(operation.target.uid)
+                ),
+                None,
+            )
+            widget_index = (
+                widget_index_for_field(
+                    target_node,
+                    str(operation.target.field_path),
+                    schema_provider=schema_provider,
+                    name_authority=widget_names,
+                )
+                if target_node is not None
+                else None
+            )
+            if widget_index is not None:
+                current = replace(
+                    operation,
+                    target=replace(
+                        operation.target,
+                        field_path=f"widgets_values[{widget_index}]",
+                    ),
+                )
+        elif isinstance(operation, UpsertLinkOp):
+            source = next(
+                (
+                    node
+                    for node in (getattr(workflow, "nodes", {}) or {}).values()
+                    if str(getattr(node, "uid", "") or "")
+                    == str(operation.source.uid)
+                ),
+                None,
+            )
+            if source is not None:
+                resolved = canonical_renderer_output(
+                    source,
+                    operation.source.output_slot,
+                    provider=schema_provider,
+                )
+                if resolved is not None:
+                    names, _types, _sources, _count = _frozen_output_evidence(
+                        source, schema_provider
+                    )
+                    physical_slot = next(
+                        (
+                            index
+                            for index, name in names.items()
+                            if str(name) == str(resolved)
+                        ),
+                        None,
+                    )
+                    if physical_slot is not None:
+                        current = replace(
+                            operation,
+                            source=replace(
+                                operation.source,
+                                output_slot=physical_slot,
+                            ),
+                        )
+        projected.append(current)
+        if isinstance(operation, AddNodeOp) and operation.uid:
+            # AddNode is the canonical aggregate for constructor syntax: its
+            # linked kwargs materialize edges in the same COW transition.
+            # Attribute those exact edges to the guard as typed link ops so
+            # strict presentation custody sees the whole admitted aggregate.
+            for input_name, source in operation.inputs.items():
+                link_op = UpsertLinkOp(
+                    op="upsert_link",
+                    source=source,
+                    target=LinkTargetRef(
+                        scope_path=operation.scope_path,
+                        uid=operation.uid,
+                        input_field=str(input_name),
+                    ),
+                )
+                source_node = next(
+                    (
+                        node
+                        for node in (getattr(workflow, "nodes", {}) or {}).values()
+                        if str(getattr(node, "uid", "") or "")
+                        == str(source.uid)
+                    ),
+                    None,
+                )
+                if source_node is not None:
+                    resolved = canonical_renderer_output(
+                        source_node,
+                        source.output_slot,
+                        provider=schema_provider,
+                    )
+                    if resolved is not None:
+                        names, _types, _sources, _count = _frozen_output_evidence(
+                            source_node, schema_provider
+                        )
+                        physical_slot = next(
+                            (
+                                index
+                                for index, name in names.items()
+                                if str(name) == str(resolved)
+                            ),
+                            None,
+                        )
+                        if physical_slot is not None:
+                            link_op = replace(
+                                link_op,
+                                source=replace(source, output_slot=physical_slot),
+                            )
+                projected.append(link_op)
+    return tuple(projected)
+
+
+def _normalize_operation_output_identity(
+    workflow: VibeWorkflow,
+    operation: EditOp,
+    schema_provider: Any,
+) -> EditOp:
+    """Normalize a link source through the one frozen renderer-output seam.
+
+    Canonical graph application stores physical output indexes.  Diff/replay
+    consequently spells an edge as the renderer alias ``TYPE_N`` even when
+    the original author used the raw output name.  Presentation lint sees the
+    raw UI name, so both spellings must resolve to that same frozen endpoint
+    before classification.  Invalid aliases remain untouched and are rejected
+    by lint with their original evidence.
+    """
+    if not isinstance(operation, UpsertLinkOp):
+        return operation
+    source_ref = operation.source
+    if source_ref.scope_path:
+        return operation
+    source_node = next(
+        (
+            node
+            for node_key, node in (getattr(workflow, "nodes", {}) or {}).items()
+            if str(node_key) == str(source_ref.uid)
+            or str(getattr(node, "uid", "") or "") == str(source_ref.uid)
+        ),
+        None,
+    )
+    if source_node is None:
+        return operation
+    if str(getattr(source_node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        metadata = getattr(source_node, "metadata", None) or {}
+        if (
+            isinstance(metadata, Mapping)
+            and metadata.get("_edit_created_in_transaction") is True
+        ):
+            # A fresh exec's retained presentation is built from its authored
+            # IO and therefore names this endpoint semantically (``image``).
+            # Converting it to the captured UI spelling (``out_0``) would make
+            # ordered lint reject a valid future wire against the fresh native
+            # Python roster.
+            authored_io, authored, valid = _exec_authored_io(source_node)
+            if not authored or not valid or authored_io is None:
+                return operation
+            slot = str(source_ref.output_slot)
+            index: int | None = None
+            typed = _TYPED_PORT.fullmatch(slot)
+            if typed is not None:
+                candidate = int(typed.group(2))
+                if (
+                    0 <= candidate < len(authored_io["outputs"])
+                    and typed.group(1).casefold()
+                    == authored_io["outputs"][candidate][1].casefold()
+                ):
+                    index = candidate
+            elif slot.startswith("out_") and slot[4:].isdigit():
+                candidate = int(slot[4:])
+                if 0 <= candidate < len(authored_io["outputs"]):
+                    index = candidate
+            else:
+                for candidate, (name, _socket_type) in enumerate(
+                    authored_io["outputs"]
+                ):
+                    if name == slot:
+                        index = candidate
+                        break
+            if index is None:
+                return operation
+            semantic = authored_io["outputs"][index][0]
+            if semantic == slot:
+                return operation
+            from dataclasses import replace
+
+            return replace(
+                operation,
+                source=replace(source_ref, output_slot=semantic),
+            )
+        # A captured exec uses physical ``out_N`` UI rows.  Normalize its
+        # renderer alias to that exact retained endpoint.
+        from dataclasses import replace
+
+        physical = _raw_output_slot(source_node, str(source_ref.output_slot))
+        if physical == str(source_ref.output_slot):
+            return operation
+        return replace(
+            operation,
+            source=replace(source_ref, output_slot=physical),
+        )
+    # Literal frozen names already have canonical identity, while integer
+    # slots are an established public lint normalization surface and must
+    # retain their authored type.  The replay mismatch is specific to the
+    # renderer's typed ``TYPE_N`` spelling.
+    if not (
+        isinstance(source_ref.output_slot, str)
+        and _TYPED_PORT.fullmatch(source_ref.output_slot) is not None
+    ):
+        return operation
+    resolved = canonical_renderer_output(
+        source_node,
+        source_ref.output_slot,
+        provider=schema_provider,
+    )
+    if resolved is None or str(resolved) == str(source_ref.output_slot):
+        return operation
+
+    from dataclasses import replace
+
+    return replace(
+        operation,
+        source=replace(source_ref, output_slot=resolved),
+    )
+
+
+def _lint_result_from_transitions(
+    transitions: Sequence[OperationTransition],
+    source_ops: Sequence[EditOp] | None = None,
+) -> Any:
+    """Build the immutable lint report from shared evaluator transitions."""
+    from vibecomfy.porting.edit.lint import LintIssue, LintNormalization, LintResult
+
+    issues: list[LintIssue] = []
+    normalizations: list[LintNormalization] = []
+    surviving: list[EditOp] = []
+    for position, transition in enumerate(transitions):
+        disposition = transition.lint_disposition or {
+            "staged": "passed",
+            "noop": "dropped_noop",
+            "rejected": "rejected",
+        }.get(transition.outcome, "rejected")
+        issue = None
+        if transition.diagnostics:
+            diagnostic = transition.diagnostics[0]
+            issue = LintIssue(
+                code=diagnostic.code,
+                message=diagnostic.message,
+                severity=diagnostic.severity,
+                op_index=transition.occurrence,
+                op_kind=getattr(transition.submitted, "op", None),
+                scope_path=diagnostic.detail.get("scope_path") if isinstance(diagnostic.detail, Mapping) else None,
+                uid=diagnostic.detail.get("uid") if isinstance(diagnostic.detail, Mapping) else None,
+                lg_id=diagnostic.detail.get("lg_id") if isinstance(diagnostic.detail, Mapping) else None,
+                detail=dict(diagnostic.detail),
+            )
+            if diagnostic.severity in {"error", "warning", "info"}:
+                issues.append(issue)
+        normalized = transition.normalized or transition.submitted
+        normalizations.append(
+            LintNormalization(transition.occurrence, normalized, disposition, issue)
+        )
+        if disposition == "passed":
+            source = (
+                source_ops[position]
+                if source_ops is not None and position < len(source_ops)
+                else transition.submitted
+            )
+            surviving.append(
+                source
+                if normalized == transition.submitted
+                else normalized
+            )
+    return LintResult(
+        surviving=tuple(surviving),
+        issues=tuple(issues),
+        normalizations=tuple(normalizations),
+        transitions=tuple(transitions),
+    )
+
+
+def _evaluate_operation(
+    workflow: VibeWorkflow,
+    operation: EditOp,
+    *,
+    schema_provider: Any,
+    batch_operations: Sequence[EditOp] | None = None,
+    occurrence: int = 0,
+    presentation_index: Any = None,
+    presentation_ui: Any = None,
+    baseline_presentation_index: Any = None,
+    source: str = "",
+    future_wired_uids: frozenset[str] = frozenset(),
+) -> OperationEvaluation:
+    """Evaluate exactly one operation against the current detached cursor.
+
+    This is the sole semantic operation boundary shared by Python, typed
+    operations, and detached lint preview.  Lowering, validation, finalization
+    and COW application are one atomic step; expected typed rejections return
+    an unchanged cursor, while unexpected exceptions deliberately escape.
+    """
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        admission_snapshot_for,
+        admit_operation,
+        _schema_provider_for,
+    )
+    from vibecomfy.porting.edit._ir_utils import (
+        _RECURSIVE_GUIDANCE,
+        RecursiveEditError,
+        _operation_scope_paths,
+        build_recursive_edit_index,
+        lower_edit_operation,
+    )
+    from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
+
+    def reject(code: str, message: str, *, detail: Mapping[str, Any] | None = None) -> OperationEvaluation:
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=operation,
+            outcome="rejected",
+            diagnostics=(_diag(code, message, severity="error", detail=detail or {}),),
+            lint_disposition="rejected",
+        )
+
+    # Nested topology edits are outside the supported operation matrix.  This
+    # semantic fence precedes presentation lint because socket/name quality is
+    # irrelevant once the operation would change a derived recursive scope
+    # identity; allowing the UI classifier to run first leaks incidental
+    # ``unknown_*`` reasons for an operation the canonical contract rejects as
+    # structural in every case.
+    scoped_paths = tuple(path for path in _operation_scope_paths(operation) if path)
+    scoped_paths_known = True
+    if scoped_paths:
+        try:
+            recursive_index = build_recursive_edit_index(workflow)
+            for scope_path in scoped_paths:
+                recursive_index.scope(scope_path)
+        except RecursiveEditError:
+            scoped_paths_known = False
+    if (
+        scoped_paths
+        and scoped_paths_known
+        and not isinstance(operation, (SetNodeFieldOp, SetModeOp))
+    ):
+        return reject(
+            "unsupported_structural_scope",
+            f"{getattr(operation, 'op', type(operation).__name__)} at scope "
+            f"{scoped_paths[0]!r} changes unsupported recursive structure; "
+            f"{_RECURSIVE_GUIDANCE}",
+            detail={
+                "scope_path": scoped_paths[0],
+                "operation": getattr(operation, "op", type(operation).__name__),
+            },
+        )
+
+    authority = admission_snapshot_for(workflow, schema_provider)
+    if authority.schema is None:
+        return reject(
+            "missing_schema_authority",
+            "canonical operation evaluation requires a retained frozen schema snapshot",
+        )
+    frozen_provider = _schema_provider_for(authority)
+
+    # Admission owns touched-schema classification.  In particular, an
+    # add-node class absent from the retained generation is a canonical
+    # ``missing_touched_schema`` authority failure, not presentation lint's
+    # generic ``unknown_class_type``.  Check only for that fail-closed reason
+    # before lint; all other admission and normalization decisions still run
+    # in their established order below.  This reads the frozen snapshot pair
+    # exclusively and never probes an advisory/live provider.
+    schema_admission = admit_operation(
+        authority,
+        operation,
+        working_workflow=workflow,
+    )
+    if (
+        isinstance(schema_admission, AdmissionRejected)
+        and schema_admission.typed_reason == "missing_touched_schema"
+        and isinstance(operation, AddNodeOp)
+        and (not scoped_paths or scoped_paths_known)
+    ):
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=operation,
+            outcome="rejected",
+            diagnostics=(_diag(
+                schema_admission.typed_reason,
+                schema_admission.typed_reason,
+                severity="error",
+                detail={"evidence_refs": tuple(schema_admission.evidence_refs)},
+            ),),
+            lint_disposition="rejected",
+        )
+
+    # Presentation lint is evidence produced at the same operation boundary
+    # as canonical lowering/application.  Its rejected/no-op dispositions are
+    # eligibility decisions; a surviving operation must still pass the
+    # canonical validator below before it can stage.  Both decisions remain
+    # visible in the transition report.
+    from vibecomfy.porting.edit.lint import LintIndex, _classify_operation
+    from vibecomfy.porting.emit.ui import emit_ui_json, pin_untouched_ui
+    from vibecomfy.porting.refuse import RefusedEmit
+
+    lint_candidate = _normalize_operation_output_identity(
+        workflow,
+        operation,
+        frozen_provider,
+    )
+
+    if presentation_index is None:
+        lint_ui, presentation_index, presentation_error = _capture_presentation(
+            workflow, frozen_provider
+        )
+        if presentation_error is not None:
+            return OperationEvaluation(
+                workflow=workflow,
+                normalized=operation,
+                outcome="rejected",
+                diagnostics=(presentation_error,),
+                presentation_ui=None,
+                presentation_index=None,
+            )
+    else:
+        lint_ui = presentation_ui
+        if lint_ui is None:
+            return OperationEvaluation(
+                workflow=workflow,
+                normalized=operation,
+                outcome="rejected",
+                diagnostics=(_diag(
+                    "presentation_rejected",
+                    "retained presentation index has no matching UI payload",
+                    severity="error",
+                ),),
+            )
+    if lint_ui is None:
+        lint_normalized, lint_issue, lint_disposition = lint_candidate, None, "passed"
+    elif isinstance(operation, SubgraphInterfaceOp):
+        # Subgraph interfaces mutate canonical definition metadata and have no
+        # node/link presentation classifier.  They still cross this same
+        # evaluator for lowering, admission, application, and projection; an
+        # absent presentation rule is not a lint rejection.
+        lint_normalized, lint_issue, lint_disposition = operation, None, "passed"
+    else:
+        if presentation_index is not None:
+            lint_index = presentation_index
+        else:
+            lint_index = LintIndex.build(lint_ui)
+        lint_normalized, lint_issue, lint_disposition = _classify_operation(
+            lint_candidate,
+            occurrence,
+            lint_index,
+            schema_provider=frozen_provider,
+            workflow=workflow,
+            # The classifier's orphan-add check is intentionally the one
+            # batch-level exception to current-cursor evaluation: later
+            # authored wiring may prove that an otherwise isolated add is
+            # intentional, but it never makes a future node available to
+            # canonical application.  Typed batches can supply that complete
+            # syntax here while lowering/application still advance one
+            # occurrence at a time against ``workflow``.
+            delta=(
+                tuple(batch_operations)
+                if batch_operations is not None
+                else (operation,)
+            ),
+            future_wired_uids=future_wired_uids,
+        )
+    lint_op = lint_normalized or operation
+    lint_diags = ()
+    if lint_issue is not None:
+        lint_diags = (
+            _diag(
+                lint_issue.code,
+                lint_issue.message,
+                severity=lint_issue.severity,
+                detail=lint_issue.detail,
+            ),
+        )
+    if lint_disposition == "dropped_noop":
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=lint_op,
+            outcome="noop",
+            diagnostics=lint_diags,
+            lint_issue=lint_issue,
+            lint_disposition=lint_disposition,
+            presentation_ui=lint_ui,
+            presentation_index=presentation_index,
+        )
+
+    # A link-id is a stable authored reference for this batch.  Once an
+    # earlier occurrence has removed that edge, the current presentation
+    # index quite correctly reports the id as absent; that is an ordered
+    # no-op, not an unknown-link rejection.  Keep the baseline index only as
+    # evidence for this transition classification (never as apply authority).
+    if (
+        lint_disposition == "rejected"
+        and lint_issue is not None
+        and lint_issue.code == "unknown_link"
+        and isinstance(operation, RemoveLinkOp)
+        and operation.link_id is not None
+        and baseline_presentation_index is not None
+        and baseline_presentation_index.link_exists("", operation.link_id)
+    ):
+        lint_issue = None
+        lint_disposition = "dropped_noop"
+        lint_diags = (_diag(
+            "noop_remove_link",
+            "link was already removed by an earlier occurrence in this batch",
+            severity="info",
+        ),)
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=operation,
+            outcome="noop",
+            diagnostics=lint_diags,
+            lint_issue=None,
+            lint_disposition=lint_disposition,
+            presentation_ui=lint_ui,
+            presentation_index=presentation_index,
+        )
+
+    # A presentation-lint rejection is an eligibility decision, not merely a
+    # report annotation.  Never let a rejected operation reach lowering,
+    # admission, validation, canonical application, or projection.  The
+    # complete-batch delta above has already had its one legitimate role in
+    # preserving future orphan intent; graph authority remains current-cursor
+    # only.
+    if lint_disposition == "rejected":
+        rejected_diags = lint_diags or (
+            _diag(
+                "lint_rejected",
+                "canonical presentation lint rejected this operation",
+                severity="error",
+            ),
+        )
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=lint_op,
+            outcome="rejected",
+            diagnostics=rejected_diags,
+            lint_issue=lint_issue,
+            lint_disposition=lint_disposition,
+            presentation_ui=lint_ui,
+            presentation_index=presentation_index,
+        )
+
+    try:
+        lowered = tuple(lower_edit_operation(workflow, lint_op))
+        if not lowered:
+            code = "unsupported_op"
+            message = "operation lowered to no canonical effect"
+            if lint_issue is not None and lint_disposition == "rejected":
+                code = lint_issue.code
+                message = lint_issue.message
+            return OperationEvaluation(
+                workflow=workflow,
+                normalized=lint_op,
+                lowered=(),
+                outcome="rejected",
+                diagnostics=lint_diags + (_diag(code, message, severity="error"),),
+                lint_issue=lint_issue,
+                lint_disposition=lint_disposition,
+                presentation_ui=lint_ui,
+                presentation_index=presentation_index,
+            )
+        cursor = workflow
+        staged_components: list[EditOp] = []
+        finalized_lowered = list(lowered)
+        for component_index, component in enumerate(lowered):
+            before_node_uids = {
+                str(getattr(node, "uid", "") or "")
+                for node in (getattr(cursor, "nodes", {}) or {}).values()
+                if str(getattr(node, "uid", "") or "")
+            }
+            pair = admission_snapshot_for(
+                cursor,
+                schema_provider,
+                schema_snapshot=authority.schema,
+                retained_authority=authority,
+            )
+            admitted = admit_operation(pair, component, working_workflow=cursor)
+            if isinstance(admitted, AdmissionRejected):
+                if admitted.typed_reason == "no_op":
+                    if len(lowered) > 1:
+                        continue
+                    return OperationEvaluation(
+                        workflow=workflow,
+                        normalized=lint_op,
+                        lowered=lowered,
+                        outcome="noop",
+                        diagnostics=lint_diags + (_diag(
+                            "no_op",
+                            "operation is already represented by the current canonical cursor",
+                            severity="info",
+                        ),),
+                        lint_issue=lint_issue,
+                        lint_disposition="dropped_noop",
+                        presentation_ui=lint_ui,
+                        presentation_index=presentation_index,
+                    )
+                return OperationEvaluation(
+                    workflow=workflow,
+                    normalized=lint_op,
+                    outcome="rejected",
+                    diagnostics=lint_diags + (_diag(
+                        admitted.typed_reason,
+                        admitted.typed_reason,
+                        severity="error",
+                        detail={"evidence_refs": tuple(admitted.evidence_refs)},
+                    ),),
+                    lint_issue=lint_issue,
+                    lint_disposition=lint_disposition,
+                    presentation_ui=lint_ui,
+                    presentation_index=presentation_index,
+                )
+            try:
+                _validate_one(cursor, component, frozen_provider)
+                cursor = apply_edit_cow(cursor, component, schema_provider=frozen_provider)
+                # Finalize semantic add-node metadata before any projection,
+                # index construction, or promotion.  The evaluator's cursor
+                # is therefore identical for Python, typed, and preview
+                # callers; the runner must not perform a second post-pass.
+                finalized_component = component
+                if isinstance(component, AddNodeOp):
+                    added_key: str | None = None
+                    added_node: Any | None = None
+                    for node_key, node in tuple(cursor.nodes.items()):
+                        node_uid = str(getattr(node, "uid", "") or "")
+                        if component.uid and node_uid == str(component.uid):
+                            added_key, added_node = str(node_key), node
+                            break
+                        if (
+                            not component.uid
+                            and node_uid
+                            and node_uid not in before_node_uids
+                            and str(getattr(node, "class_type", ""))
+                            == str(component.class_type)
+                        ):
+                            added_key, added_node = str(node_key), node
+                            break
+                    if added_key is not None and added_node is not None:
+                        cursor.nodes[added_key] = _stamped_node(
+                            added_node, source, frozen_provider
+                        )
+                        # LiteGraph assigns the UID/ID during canonical COW
+                        # application when the authored AddNodeOp omitted
+                        # them.  Carry those minted identities into the
+                        # evaluator's lowered attribution tuple; otherwise
+                        # order/new-node guard checks would mistake a valid
+                        # add for forged presentation drift.
+                        from dataclasses import replace
+
+                        finalized_component = replace(
+                            component,
+                            uid=str(getattr(added_node, "uid", "") or "") or component.uid,
+                            node_id=str(getattr(added_node, "id", "") or "") or component.node_id,
+                        )
+                        finalized_lowered[component_index] = finalized_component
+                staged_components.append(finalized_component)
+            except ApplyOpsError as exc:
+                if getattr(exc, "code", None) == "no_op":
+                    if len(lowered) > 1:
+                        continue
+                    return OperationEvaluation(
+                        workflow=workflow,
+                        normalized=lint_op,
+                        lowered=lowered,
+                        outcome="noop",
+                        diagnostics=lint_diags + (_diag(
+                            "no_op",
+                            str(exc) or "operation is already represented by the current canonical cursor",
+                            severity="info",
+                        ),),
+                        lint_issue=lint_issue,
+                        lint_disposition="dropped_noop",
+                        presentation_ui=lint_ui,
+                        presentation_index=presentation_index,
+                    )
+                raise
+        if not staged_components:
+            return OperationEvaluation(
+                workflow=workflow,
+                normalized=lint_op,
+                lowered=lowered,
+                outcome="noop",
+                diagnostics=lint_diags + (_diag(
+                    "no_op",
+                    "all aggregate constituents were already set to their requested values",
+                    severity="info",
+                ),),
+                lint_issue=lint_issue,
+                lint_disposition="dropped_noop",
+                presentation_ui=lint_ui,
+                presentation_index=presentation_index,
+            )
+        guard_ops = _presentation_guard_ops(
+            cursor,
+            tuple(staged_components),
+            frozen_provider,
+        )
+        if lint_ui is not None:
+            try:
+                candidate_ui = emit_ui_json(
+                    cursor,
+                    schema_provider=frozen_provider,
+                    include_virtual_wires=True,
+                    # Preserve the retained presentation furniture while
+                    # projecting the detached cursor.  The supplied payload
+                    # remains evidence; it is never used as semantic state.
+                    prior_ui_payload=lint_ui,
+                )
+            except RefusedEmit as exc:
+                return OperationEvaluation(
+                    workflow=workflow,
+                    normalized=lint_op,
+                    lowered=lowered,
+                    outcome="rejected",
+                    diagnostics=lint_diags + (_diag(
+                        "presentation_rejected",
+                        f"canonical candidate presentation was refused: {exc}",
+                        severity="error",
+                    ),),
+                    lint_issue=lint_issue,
+                    lint_disposition=lint_disposition,
+                    presentation_ui=None,
+                    presentation_index=None,
+                )
+            if candidate_ui is not None:
+                # Reconstructive emission may hydrate untouched sockets from a
+                # schema and thereby rewrite presentation-only bytes (for
+                # example an existing input type ``IMAGE`` becoming ``*``).
+                # Pin the retained ingest projection before the strict guard;
+                # only the exact topology paths owned by the lowered ops may
+                # differ.  This is still one projection/evaluation boundary,
+                # not a second semantic authority.
+                candidate_ui = pin_untouched_ui(
+                    lint_ui,
+                    candidate_ui,
+                    guard_ops,
+                )
+                candidate_index = LintIndex.build(candidate_ui)
+                presentation_guard = _canonical_guard_exit_ui(
+                    lint_ui,
+                    candidate_ui,
+                    # Attribute the emitted projection to the canonical
+                    # lowered edits, not a presentation alias (for example a
+                    # widget_N spelling or a link id).  The guard must see
+                    # the same exact endpoint/field identity that was
+                    # applied to the cursor.
+                    guard_ops,
+                )
+                if not presentation_guard.ok:
+                    guard_diags = tuple(
+                        _diag(
+                            getattr(issue, "code", "presentation_rejected"),
+                            getattr(issue, "message", str(issue)),
+                            severity=getattr(issue, "severity", "error") or "error",
+                        )
+                        for issue in presentation_guard.diagnostics
+                    )
+                    return OperationEvaluation(
+                        workflow=workflow,
+                        normalized=lint_op,
+                        lowered=lowered,
+                        outcome="rejected",
+                        diagnostics=lint_diags + guard_diags,
+                        lint_issue=lint_issue,
+                        lint_disposition=lint_disposition,
+                        presentation_ui=candidate_ui,
+                        presentation_index=candidate_index,
+                    )
+        else:
+            candidate_ui = None
+            candidate_index = None
+        return OperationEvaluation(
+            workflow=cursor,
+            normalized=lint_op,
+            # Preserve the complete authored aggregate mapping in the report;
+            # unchanged constituents are intentionally admitted but simply do
+            # not allocate another COW write.
+            lowered=tuple(finalized_lowered),
+            outcome="staged",
+            diagnostics=lint_diags,
+            lint_issue=lint_issue,
+            lint_disposition=lint_disposition,
+            presentation_ui=candidate_ui,
+            presentation_index=candidate_index,
+        )
+    except (RecursiveEditError, ApplyOpsError) as exc:
+        code = getattr(exc, "code", None) or getattr(exc, "typed_reason", None) or "apply_rejected"
+        message = getattr(exc, "message", None) or str(exc)
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=lint_op,
+            lowered=lowered if "lowered" in locals() else (),
+            outcome="rejected",
+            diagnostics=lint_diags + (_diag(code, message, severity="error"),),
+            lint_issue=lint_issue,
+            lint_disposition=lint_disposition,
+            presentation_ui=lint_ui,
+            presentation_index=presentation_index,
+        )
+    except EditNoOpError as exc:
+        return OperationEvaluation(
+            workflow=workflow,
+            normalized=lint_op,
+            lowered=lowered if "lowered" in locals() else (),
+            outcome="noop",
+            diagnostics=lint_diags + (_diag("no_op", str(exc), severity="info"),),
+            lint_issue=lint_issue,
+            lint_disposition="dropped_noop",
+            presentation_ui=lint_ui,
+            presentation_index=presentation_index,
+        )
+
+
+def _frozen_provider_for_interpret(schema_provider: Any) -> Any | None:
+    """Return only the immutable schema witness carried across ingress."""
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider, SchemaSnapshot
+
+    if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
+        return schema_provider
+    if isinstance(schema_provider, SchemaSnapshot):
+        return FrozenSchemaSnapshotProvider(schema_provider)
+    snapshot = getattr(schema_provider, "snapshot", None)
+    if isinstance(snapshot, SchemaSnapshot):
+        return FrozenSchemaSnapshotProvider(snapshot)
+    return None
+
+
+def _missing_schema_interpretation(
+    pre_workflow: VibeWorkflow,
+    batch_source: str | Sequence[EditOp],
+) -> InterpretationResult:
+    """Fail before presentation/parsing can consult ambient schema state."""
+    diagnostic = _diag(
+        "missing_schema_authority",
+        "interpret requires a retained frozen schema snapshot",
+        severity="error",
+    )
+    operations = () if isinstance(batch_source, str) else tuple(batch_source)
+    transitions = tuple(
+        OperationTransition(
+            occurrence=index,
+            submitted=operation,
+            normalized=operation,
+            outcome="rejected",
+            diagnostics=(diagnostic,),
+            lint_disposition="rejected",
+        )
+        for index, operation in enumerate(operations)
+    )
+    return InterpretationResult(
+        workflow=_cow_workflow_copy(pre_workflow),
+        statements=tuple(
+            StatementOutcome(
+                statement_index=index,
+                source=type(operation).__name__,
+                status="rejected",
+                reason=diagnostic.code,
+                op_kind=getattr(operation, "op", type(operation).__name__),
+                diagnostics=(diagnostic,),
+                op=operation,
+            )
+            for index, operation in enumerate(operations)
+        ),
+        ok=False,
+        diagnostics=(diagnostic,),
+        landed_ops=(),
+        preflight_ok=False,
+        transitions=transitions,
+        lint_result=_lint_result_from_transitions(transitions),
+        occurrence_to_statement_index={
+            transition.occurrence: transition.statement_index
+            for transition in transitions
+        },
+    )
 
 
 def interpret(
@@ -140,6 +1132,7 @@ def interpret(
     max_for_iterations: int = 100,
     cas_old: Mapping[tuple[str, str], Any] | None = None,
     name_hints: Mapping[str, str] | None = None,
+    value_default_context: Any = None,
 ) -> InterpretationResult:
     """Interpret ``batch_source`` against ``pre_workflow``, returning a NEW IR.
 
@@ -150,9 +1143,16 @@ def interpret(
         raise TypeError(
             f"interpret requires VibeWorkflow, got {type(pre_workflow).__name__}"
         )
-    provider = schema_provider or get_schema_provider("auto")
+    provider = _frozen_provider_for_interpret(schema_provider)
+    if provider is None:
+        return _missing_schema_interpretation(pre_workflow, batch_source)
     if not isinstance(batch_source, str):
-        return _interpret_ops(pre_workflow, tuple(batch_source), schema_provider=provider)
+        return _interpret_ops(
+            pre_workflow,
+            tuple(batch_source),
+            schema_provider=provider,
+            value_default_context=value_default_context,
+        )
     return _interpret_source(
         pre_workflow,
         batch_source,
@@ -163,6 +1163,7 @@ def interpret(
         max_for_iterations=max_for_iterations,
         cas_old=cas_old,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
 
 
@@ -177,6 +1178,7 @@ def _interpret_source(
     max_for_iterations: int,
     cas_old: Mapping[tuple[str, str], Any] | None,
     name_hints: Mapping[str, str] | None,
+    value_default_context: Any,
 ) -> InterpretationResult:
     parsed = _parse_and_validate_batch(
         source,
@@ -200,6 +1202,7 @@ def _interpret_source(
         cas_old=cas_old,
         source=source,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     return runner.run(parsed.expanded)
 
@@ -209,349 +1212,193 @@ def _interpret_ops(
     ops: tuple[EditOp, ...],
     *,
     schema_provider: Any,
+    value_default_context: Any = None,
 ) -> InterpretationResult:
-    post = _cow_workflow_copy(pre_workflow)
-    statements: list[StatementOutcome] = []
-    landed: list[EditOp] = []
-    diagnostics: list[CompactDiagnostic] = []
-    for index, op in enumerate(ops):
-        try:
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admission_snapshot_for,
-                admit_operation,
-                _is_provisional_touched_for_admit,
-                _operation_mapping,
-                _schema_catalog_for,
-            )
-            from vibecomfy.porting.edit._op_validate import ApplyOpsError, _validate_one
-            from vibecomfy.schema import SchemaSnapshotError
+    """Interpret already-typed operations through the shared boundary."""
+    from vibecomfy.porting.edit._ir_utils import _RECURSIVE_GUIDANCE, _has_mixed_recursive_scope
 
-            admitted = admit_operation(
-                admission_snapshot_for(post, schema_provider),
-                op,
-                working_workflow=post,
-            )
-            if isinstance(admitted, AdmissionRejected):
-                message = next(
-                    (ref.split(":", 1)[1] for ref in admitted.evidence_refs if ref.startswith("reason:")),
-                    admitted.typed_reason,
-                )
-                raise ApplyOpsError(admitted.typed_reason, message)
-            if not _op_has_scoped_target(op):
-                try:
-                    _validate_one(post, op, schema_provider)
-                except ApplyOpsError as exc:
-                    if getattr(exc, "code", None) in ("unknown_schema", "unknown_port", "unknown_field", "wrong_channel", "unknown_target"):
-                        # Route through single canonical helper from admit.py
-                        # FAIL-CLOSED: authoritative catalog must be present; missing
-                        # catalog must REJECT, never admit via fallback.
-                        pair = admission_snapshot_for(post, schema_provider)
-                        catalog = _schema_catalog_for(pair, pair)
-                        if catalog is None:
-                            raise
-                        if _is_provisional_touched_for_admit(_operation_mapping(op), post, catalog, working_workflow=post):
-                            pass
-                        else:
-                            raise
-                    else:
-                        raise
-            # Compute apply diagnostics before the result is consumed.
-            before = post
-            from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp2
-            _apply_provider = None if isinstance(op, _AddNodeOp2) else schema_provider
-            post = apply_edit_cow(post, op, schema_provider=_apply_provider)
-            diagnostics.extend(_apply_diagnostics(before, post, op))
-        except Exception as exc:
-            code = getattr(exc, "code", "apply_failed")
-            if code == "no_op" and isinstance(op, SetNodeFieldOp):
-                # Already-set write: prune from this batch, keep later ops.
-                continue
-            _LOGGER.debug("interpret ops rollback for %s: %s", type(exc).__name__, exc)
-            # S1: scope missing_touched_schema to touched fields; do not atomic-rollback
-            # valid add_node/set_node_field because a downstream custom node is
-            # schema-less. Preserve landed ops and surface typed requires_custom_nodes.
-            is_schema_gap = code in ("missing_touched_schema", "requires_custom_nodes")
-            is_wire_missing_schema = (
-                code == "missing_touched_schema"
-                and getattr(op, "op", None) == "upsert_link"
-            )
-            has_landed_valid = any(
-                getattr(s.op, "op", None) in ("add_node", "set_node_field") and s.status == "applied"
-                for s in statements
-            )
-            has_landed_add = any(
-                getattr(s.op, "op", None) == "add_node" and s.status == "applied" for s in statements
-            )
-            # S1 typed requires_custom_nodes if pack truly absent (field-scoped) — r12 refinement.
-            # Field-scoped auto-touch covers all r12 cases (485ff2, 949658, bd3afb, 5b31ce):
-            # - if field observable in graph (widgets/inputs/surface) allow COW even when live_schema missing;
-            # - truly absent only when class not observed in graph AND live missing (MTCNN/RetinaFace);
-            # - present-but-schema-less (INPAINT, BboxDetectorSEGS, SaveImage, VHS_VideoCombine) fallback to observable.
-            if code == "missing_touched_schema":
-                ct_for_typed = None
-                try:
-                    if getattr(op, "op", None) == "set_node_field":
-                        tgt = getattr(op, "target", None)
-                        uid = getattr(tgt, "uid", None) if tgt is not None else None
-                        if uid and hasattr(post, "nodes"):
-                            node = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) else None
-                            if node is not None:
-                                ct_for_typed = str(getattr(node, "class_type", "") or "")
-                    elif getattr(op, "op", None) == "add_node":
-                        ct_for_typed = str(getattr(op, "class_type", "") or "")
-                except Exception:
-                    ct_for_typed = None
-                if ct_for_typed:
-                    try:
-                        from vibecomfy.schema.provider import schema_for as _s1_sf
-                        live_schema = _s1_sf(schema_provider, ct_for_typed)
-                    except Exception:
-                        live_schema = None
-                    observed_in_graph = False
-                    try:
-                        if hasattr(post, "nodes"):
-                            for n in (post.nodes.values() if isinstance(post.nodes, dict) else []):
-                                if str(getattr(n, "class_type", "") or "") == ct_for_typed:
-                                    observed_in_graph = True
-                                    break
-                    except Exception:
-                        observed_in_graph = False
-                    if getattr(op, "op", None) == "set_node_field":
-                        field_name_typed = None
-                        try:
-                            tgt2 = getattr(op, "target", None)
-                            field_name_typed = str(getattr(tgt2, "field_path", "") or getattr(tgt2, "field", "") or "")
-                        except Exception:
-                            field_name_typed = None
-                        if field_name_typed:
-                            observable = False
-                            try:
-                                node_for_field = post.nodes.get(str(uid)) if isinstance(post.nodes, dict) and uid else None
-                                if node_for_field is not None:
-                                    if field_name_typed in getattr(node_for_field, "widgets", {}) or field_name_typed in getattr(node_for_field, "inputs", {}):
-                                        observable = True
-                                    else:
-                                        try:
-                                            from vibecomfy.porting.edit.widget_slots import editable_surface_for
-                                            surface = editable_surface_for(node_for_field, schema_provider=schema_provider, edges=post.edges)
-                                            if surface is not None and field_name_typed in surface.literal_names():
-                                                observable = True
-                                        except Exception:
-                                            pass
-                                    if not observable and live_schema is not None:
-                                        inputs_live = getattr(live_schema, "inputs", {}) or {}
-                                        if field_name_typed in inputs_live:
-                                            observable = True
-                            except Exception:
-                                observable = False
-                            if observable:
-                                try:
-                                    before_retry = post
-                                    post_retry = apply_edit_cow(post, op, schema_provider=schema_provider)
-                                    diag_retry = _apply_diagnostics(before_retry, post_retry, op)
-                                    statements.append(
-                                        StatementOutcome(
-                                            statement_index=index,
-                                            source=type(op).__name__,
-                                            status="applied",
-                                            op_kind=getattr(op, "op", type(op).__name__),
-                                            op=op,
-                                        )
-                                    )
-                                    landed.append(op)
-                                    diagnostics.extend(diag_retry)
-                                    post = post_retry
-                                    continue
-                                except Exception:
-                                    pass
-                    if live_schema is None and not observed_in_graph:
-                        typed_diag_absent = _diag(
-                            "requires_custom_nodes",
-                            f"Custom node pack required for {ct_for_typed!r}; not in live object_info.",
-                            severity="error",
-                            detail={"missing_touched_schema": True, "class_type": ct_for_typed, "truly_absent": True},
-                        )
-                        failed_absent = StatementOutcome(
-                            statement_index=index,
-                            source=type(op).__name__,
-                            status="rejected",
-                            reason="requires_custom_nodes",
-                            op_kind=getattr(op, "op", type(op).__name__),
-                            diagnostics=(_diag(code, str(exc), severity="error"), typed_diag_absent),
-                            op=op,
-                            detail={"requires_custom_nodes": True, "class_type": ct_for_typed},
-                        )
-                        if has_landed_valid:
-                            return InterpretationResult(
-                                workflow=post,
-                                statements=tuple(statements) + (failed_absent,),
-                                ok=False,
-                                diagnostics=tuple(diagnostics) + (typed_diag_absent, _diag(code, str(exc), severity="error")),
-                                landed_ops=tuple(landed),
-                            )
-                        return InterpretationResult(
-                            workflow=_cow_workflow_copy(pre_workflow),
-                            statements=tuple(statements) + (failed_absent,),
-                            ok=False,
-                            diagnostics=(typed_diag_absent, _diag(code, str(exc), severity="error")),
-                            landed_ops=tuple(landed),
-                        )
-                    elif live_schema is None and observed_in_graph:
-                        pass
-                    else:
-                        field_name_typed = None
-                        if getattr(op, "op", None) == "set_node_field":
-                            try:
-                                tgt2 = getattr(op, "target", None)
-                                field_name_typed = str(getattr(tgt2, "field_path", "") or getattr(tgt2, "field", "") or "")
-                            except Exception:
-                                field_name_typed = None
-                            inputs_live = getattr(live_schema, "inputs", {}) or {}
-                            if field_name_typed and field_name_typed in inputs_live:
-                                try:
-                                    before_retry = post
-                                    post_retry = apply_edit_cow(post, op, schema_provider=schema_provider)
-                                    diag_retry = _apply_diagnostics(before_retry, post_retry, op)
-                                    statements.append(
-                                        StatementOutcome(
-                                            statement_index=index,
-                                            source=type(op).__name__,
-                                            status="applied",
-                                            op_kind=getattr(op, "op", type(op).__name__),
-                                            op=op,
-                                        )
-                                    )
-                                    landed.append(op)
-                                    diagnostics.extend(diag_retry)
-                                    post = post_retry
-                                    continue
-                                except Exception:
-                                    pass
-            if is_wire_missing_schema and has_landed_add:
-                typed_diag = _diag(
-                    "requires_custom_nodes",
-                    "Custom node pack required for wiring target; valid add_node preserved.",
-                    severity="error",
-                    detail={"missing_touched_schema": True, "preserved_add": True},
-                )
-                failed = StatementOutcome(
-                    statement_index=index,
-                    source=type(op).__name__,
-                    status="rejected",
-                    reason="requires_custom_nodes",
-                    op_kind=getattr(op, "op", type(op).__name__),
-                    diagnostics=(
-                        _diag(code, str(exc), severity="error"),
-                        typed_diag,
-                    ),
-                    op=op,
-                    detail={"requires_custom_nodes": True},
-                )
-                return InterpretationResult(
-                    workflow=post,
-                    statements=tuple(statements) + (failed,),
-                    ok=False,
-                    diagnostics=tuple(diagnostics) + (typed_diag, _diag(code, str(exc), severity="error")),
-                    landed_ops=tuple(landed),
-                )
-            if is_schema_gap and has_landed_valid:
-                typed_diag = _diag(
-                    "requires_custom_nodes",
-                    "Custom node pack required; valid prior edits preserved.",
-                    severity="error",
-                    detail={"missing_touched_schema": True, "preserved_add": True},
-                )
-                failed = StatementOutcome(
-                    statement_index=index,
-                    source=type(op).__name__,
-                    status="rejected",
-                    reason="requires_custom_nodes",
-                    op_kind=getattr(op, "op", type(op).__name__),
-                    diagnostics=(
-                        _diag(code, str(exc), severity="error"),
-                        typed_diag,
-                    ),
-                    op=op,
-                    detail={"requires_custom_nodes": True},
-                )
-                return InterpretationResult(
-                    workflow=post,
-                    statements=tuple(statements) + (failed,),
-                    ok=False,
-                    diagnostics=tuple(diagnostics) + (typed_diag, _diag(code, str(exc), severity="error")),
-                    landed_ops=tuple(landed),
-                )
-            failed = StatementOutcome(
-                statement_index=index,
-                source=type(op).__name__,
-                status="rejected",
-                reason=code,
-                op_kind=getattr(op, "op", type(op).__name__),
-                diagnostics=(
-                    _diag(code, str(exc), severity="error"),
-                ),
-                op=op,
-            )
-            rolled = []
-            rollback_diag = _diag(
-                "batch_transaction_rolled_back",
-                "A later edit statement failed, so all edits from this batch were rolled back.",
-                severity="error",
-            )
-            for prior in statements:
-                if prior.status == "applied":
-                    rolled.append(
-                        StatementOutcome(
-                            statement_index=prior.statement_index,
-                            source=prior.source,
-                            status="rejected",
-                            reason="batch_transaction_rolled_back",
-                            op_kind=prior.op_kind,
-                            diagnostics=prior.diagnostics + (rollback_diag,),
-                            op=prior.op,
-                            detail=dict(prior.detail),
-                        )
-                    )
-                else:
-                    rolled.append(prior)
-            rolled.append(failed)
-            return InterpretationResult(
-                workflow=_cow_workflow_copy(pre_workflow),
-                statements=tuple(rolled),
-                ok=False,
-                diagnostics=tuple(diagnostics) + (rollback_diag, *failed.diagnostics),
-                landed_ops=(),
-            )
-        statements.append(
-            StatementOutcome(
-                statement_index=index,
-                source=type(op).__name__,
-                status="applied",
-                op_kind=getattr(op, "op", type(op).__name__),
-                op=op,
-            )
-        )
-        landed.append(op)
-    if ops and not landed:
-        no_op_diag = _diag(
-            "no_op",
-            "every set_node_field in this batch was already set to that value.",
+    if _has_mixed_recursive_scope(ops):
+        diagnostic = _diag(
+            "unsupported_structural_scope",
+            f"mixed root and nested scopes are unsupported; {_RECURSIVE_GUIDANCE}",
             severity="error",
         )
         return InterpretationResult(
             workflow=_cow_workflow_copy(pre_workflow),
-            statements=tuple(statements),
+            statements=(),
             ok=False,
-            diagnostics=(no_op_diag,),
+            diagnostics=(diagnostic,),
             landed_ops=(),
         )
+    cursor = _cow_workflow_copy(pre_workflow)
+    context_cursor = value_default_context
+    presentation_ui, presentation_index, presentation_error = _capture_presentation(
+        cursor, schema_provider
+    )
+    if presentation_error is not None:
+        return InterpretationResult(
+            workflow=_cow_workflow_copy(pre_workflow),
+            statements=tuple(
+                StatementOutcome(
+                    statement_index=index,
+                    source=type(operation).__name__,
+                    status="rejected",
+                    reason=presentation_error.code,
+                    op_kind=getattr(operation, "op", type(operation).__name__),
+                    diagnostics=(presentation_error,),
+                    op=operation,
+                )
+                for index, operation in enumerate(ops)
+            ),
+            ok=False,
+            diagnostics=(presentation_error,),
+            landed_ops=(),
+        )
+    baseline_presentation_index = presentation_index
+    outcomes: list[StatementOutcome] = []
+    landed: list[EditOp] = []
+    diagnostics: list[CompactDiagnostic] = []
+    transitions: list[OperationTransition] = []
+    failed = False
+    for index, operation in enumerate(ops):
+        effective_operation, next_context, value_diagnostics, value_error = (
+            _prepare_value_default_operation(
+                cursor,
+                operation,
+                schema_provider=schema_provider,
+                context=context_cursor,
+            )
+        )
+        if value_error is not None:
+            evaluation = OperationEvaluation(
+                workflow=cursor,
+                normalized=operation,
+                outcome="rejected",
+                diagnostics=(value_error,),
+                lint_disposition="rejected",
+                presentation_ui=presentation_ui,
+                presentation_index=presentation_index,
+            )
+        else:
+            evaluation = _evaluate_operation(
+                cursor,
+                effective_operation,
+                schema_provider=schema_provider,
+                batch_operations=ops,
+                occurrence=index,
+                presentation_ui=presentation_ui,
+                presentation_index=presentation_index,
+                baseline_presentation_index=baseline_presentation_index,
+            )
+            if value_diagnostics:
+                evaluation = OperationEvaluation(
+                    workflow=evaluation.workflow,
+                    normalized=evaluation.normalized,
+                    lowered=evaluation.lowered,
+                    outcome=evaluation.outcome,
+                    diagnostics=tuple(value_diagnostics) + tuple(evaluation.diagnostics),
+                    lint_issue=evaluation.lint_issue,
+                    lint_disposition=evaluation.lint_disposition,
+                    presentation_ui=evaluation.presentation_ui,
+                    presentation_index=evaluation.presentation_index,
+                )
+        diagnostics.extend(evaluation.diagnostics)
+        transitions.append(OperationTransition(
+            occurrence=index,
+            submitted=operation,
+            normalized=evaluation.normalized,
+            lowered=evaluation.lowered,
+            outcome=evaluation.outcome,
+            diagnostics=evaluation.diagnostics,
+            lint_disposition=evaluation.lint_disposition,
+        ))
+        if evaluation.outcome == "staged":
+            effective_operation = (
+                evaluation.lowered[0]
+                if len(evaluation.lowered) == 1
+                else evaluation.normalized
+            )
+            apply_diags = _apply_diagnostics(cursor, evaluation.workflow, effective_operation)
+            diagnostics.extend(apply_diags)
+            cursor = evaluation.workflow
+            context_cursor = next_context
+            presentation_ui = evaluation.presentation_ui
+            presentation_index = evaluation.presentation_index
+            landed.append(effective_operation)
+            outcomes.append(StatementOutcome(
+                statement_index=index,
+                source=type(operation).__name__,
+                status="applied",
+                op_kind=getattr(operation, "op", type(operation).__name__),
+                op=effective_operation,
+                diagnostics=apply_diags,
+            ))
+        elif evaluation.outcome == "noop":
+            outcomes.append(StatementOutcome(
+                statement_index=index,
+                source=type(operation).__name__,
+                status="skipped",
+                reason="no_op",
+                op_kind=getattr(operation, "op", type(operation).__name__),
+                diagnostics=evaluation.diagnostics,
+                op=operation,
+            ))
+        else:
+            failed = True
+            outcomes.append(StatementOutcome(
+                statement_index=index,
+                source=type(operation).__name__,
+                status="rejected",
+                reason=(evaluation.diagnostics[0].code if evaluation.diagnostics else "apply_rejected"),
+                op_kind=getattr(operation, "op", type(operation).__name__),
+                diagnostics=evaluation.diagnostics,
+                op=operation,
+            ))
+    if failed:
+        rollback_diag = _diag(
+            "batch_transaction_rolled_back",
+            "A later edit statement failed, so all edits from this batch were rolled back.",
+            severity="error",
+        )
+        rolled = tuple(
+            StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="rejected" if item.status == "applied" else item.status,
+                reason="batch_transaction_rolled_back" if item.status == "applied" else item.reason,
+                op_kind=item.op_kind,
+                diagnostics=item.diagnostics + ((rollback_diag,) if item.status == "applied" else ()),
+                op=item.op,
+                detail=dict(item.detail),
+            )
+            for item in outcomes
+        )
+        return InterpretationResult(
+            workflow=_cow_workflow_copy(pre_workflow),
+            statements=rolled,
+            ok=False,
+            diagnostics=tuple(diagnostics) + (rollback_diag,),
+            landed_ops=(),
+            transitions=tuple(transitions),
+            lint_result=_lint_result_from_transitions(tuple(transitions)),
+            occurrence_to_statement_index={
+                transition.occurrence: transition.statement_index
+                for transition in transitions
+            },
+        )
     return InterpretationResult(
-        workflow=post,
-        statements=tuple(statements),
+        workflow=cursor,
+        statements=tuple(outcomes),
         ok=True,
         diagnostics=tuple(diagnostics),
         landed_ops=tuple(landed),
+        transitions=tuple(transitions),
+        lint_result=_lint_result_from_transitions(tuple(transitions)),
+        occurrence_to_statement_index={
+            transition.occurrence: transition.statement_index
+            for transition in transitions
+        },
+        value_default_context=context_cursor,
     )
 
 
@@ -620,6 +1467,152 @@ def _apply_diagnostics(
     return ()
 
 
+def _prepare_value_default_operation(
+    workflow: VibeWorkflow,
+    operation: EditOp,
+    *,
+    schema_provider: Any,
+    context: Any,
+) -> tuple[EditOp, Any, tuple[CompactDiagnostic, ...], CompactDiagnostic | None]:
+    """Resolve the explicit default context into one canonical typed op.
+
+    This runs inside ``interpret`` before the shared operation evaluator.  Its
+    result is therefore the operation admitted, validated, replayed, and
+    published; the session never rewrites a post-state or UI representation.
+    """
+    from dataclasses import replace
+
+    from vibecomfy.porting.edit.value_defaults import (
+        VALUE_DEFAULT_FIELDS_MARKER,
+        authorize_protected_value_change,
+        bind_add_node_value_defaults,
+    )
+
+    if context is None or not getattr(context, "active", False):
+        return operation, context, (), None
+    if isinstance(operation, AddNodeOp):
+        schema = schema_for(schema_provider, operation.class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
+        existing_marker = operation.fields.get(VALUE_DEFAULT_FIELDS_MARKER)
+        if existing_marker is not None:
+            if (
+                operation.uid is None
+                or operation.node_id is None
+                or not isinstance(existing_marker, (list, tuple))
+                or not all(isinstance(field, str) and field for field in existing_marker)
+                or any(field not in schema_inputs for field in existing_marker)
+            ):
+                return operation, context, (), _diag(
+                    "invalid_value_default_replay_marker",
+                    "value-default protection is valid only on a canonical landed add-node operation",
+                    severity="error",
+                )
+            return (
+                operation,
+                context.protect_node(
+                    scope_path=operation.scope_path,
+                    uid=str(operation.uid),
+                    class_type=operation.class_type,
+                    fields=tuple(existing_marker),
+                ),
+                (),
+                None,
+            )
+        if schema is None:
+            return operation, context, (), None
+        uid = str(operation.uid or "")
+        fields, receipts, next_context, warning_records = bind_add_node_value_defaults(
+            class_type=operation.class_type,
+            scope_path=operation.scope_path,
+            uid=uid,
+            proposed_fields=operation.fields,
+            schema_inputs=schema_inputs,
+            context=context,
+        )
+        diagnostics = [
+            _diag(
+                str(record["code"]),
+                str(record["message"]),
+                severity="warning",
+                detail=record.get("detail", {}),
+            )
+            for record in warning_records
+        ]
+        diagnostics.extend(
+            _diag(
+                "value_default_binding_receipt",
+                f"Bound {receipt.class_type}.{receipt.canonical_field} from {receipt.provenance} authority.",
+                severity="info",
+                detail=receipt.to_dict(),
+            )
+            for receipt in receipts
+        )
+        if receipts:
+            fields[VALUE_DEFAULT_FIELDS_MARKER] = tuple(
+                receipt.canonical_field for receipt in receipts
+            )
+        return replace(operation, fields=fields), next_context, tuple(diagnostics), None
+    if not isinstance(operation, SetNodeFieldOp):
+        return operation, context, (), None
+    node = next(
+        (
+            candidate
+            for candidate in workflow.nodes.values()
+            if str(getattr(candidate, "uid", "") or "") == str(operation.target.uid)
+        ),
+        None,
+    )
+    if node is None:
+        return operation, context, (), None
+    class_type = str(getattr(node, "class_type", "") or "")
+    field_name = str(operation.target.field_path)
+    if not context.protects(
+        operation.target.scope_path,
+        str(operation.target.uid),
+        class_type,
+        field_name,
+    ):
+        return operation, context, (), None
+    schema = schema_for(schema_provider, class_type)
+    spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
+    old_value = _current_field_value(node, field_name)
+    receipt = authorize_protected_value_change(
+        context=context,
+        scope_path=operation.target.scope_path,
+        uid=str(operation.target.uid),
+        class_type=class_type,
+        field_name=field_name,
+        old_value=old_value,
+        new_value=operation.value,
+        spec=spec,
+    )
+    if receipt is None:
+        return operation, context, (), _diag(
+            "unauthorized_set_node_field_override",
+            (
+                f"{class_type}.{field_name} is protected by value-default binding; "
+                "a different value requires an exact user or schema-correction receipt."
+            ),
+            severity="error",
+            detail={
+                "scope_path": operation.target.scope_path,
+                "uid": str(operation.target.uid),
+                "class_type": class_type,
+                "field": field_name,
+                "old_value": old_value,
+                "proposed_value": operation.value,
+            },
+        )
+    return operation, context, (
+        _diag(
+            "value_default_edit_receipt",
+            "Protected widget edit applied with an authority receipt.",
+            severity="info",
+            detail=receipt.to_dict(),
+        ),
+    ), None
+
+
 def _op_has_scoped_target(op: EditOp) -> bool:
     """Whether an op addresses retained subgraph data rather than root IR."""
     scope_path = getattr(op, "scope_path", "")
@@ -671,6 +1664,7 @@ class _InterpretRunner:
         cas_old: Mapping[tuple[str, str], Any] | None,
         source: str = "",
         name_hints: Mapping[str, str] | None = None,
+        value_default_context: Any = None,
     ) -> None:
         self._pre = pre_workflow
         self.workflow = _cow_workflow_copy(pre_workflow)
@@ -678,6 +1672,8 @@ class _InterpretRunner:
         self.cas_old = dict(cas_old or {})
         self._source = source
         self._source_lines = source.splitlines()
+        self._initial_value_default_context = value_default_context
+        self.value_default_context = value_default_context
         self.unbound: set[str] = set()
         self.transient: dict[str, str] = dict(name_hints or {})
         # Names are uid-anchored for this interpreter/batch.  Once a live
@@ -685,6 +1681,12 @@ class _InterpretRunner:
         # a different surviving node after class+order renumbering.
         self._retired_name_uids: dict[str, str] = {}
         self._pending_apply_diagnostics: list[CompactDiagnostic] = []
+        self._transitions: list[OperationTransition] = []
+        self._occurrence_to_statement_index: dict[int, int] = {}
+        self._last_transition: OperationTransition | None = None
+        self._last_effective_op: EditOp | None = None
+        self._future_wired_uids: frozenset[str] = frozenset()
+        self._planned_add_uids: dict[int, str] = {}
         self._pre_helper_uids = {
             str(node.uid)
             for node in pre_workflow.nodes.values()
@@ -696,11 +1698,94 @@ class _InterpretRunner:
         from vibecomfy.ingest.snapshot import frozen_widget_names_by_uid  # noqa: PLC0415
 
         self.name_authority = frozen_widget_names_by_uid(pre_workflow)
+        (
+            self._presentation_ui,
+            self._presentation_index,
+            self._presentation_error,
+        ) = _capture_presentation(self.workflow, schema_provider)
+        self._baseline_presentation_index = self._presentation_index
         self._refresh_bindings()
         self.placement_facts = None
 
     def run(self, statements: tuple[_ExpandedStatement, ...]) -> InterpretationResult:
         from vibecomfy.porting.layout.placement import build_batch_placement_facts
+
+        if self._presentation_error is not None:
+            diagnostic = self._presentation_error
+            return InterpretationResult(
+                workflow=_cow_workflow_copy(self._pre),
+                statements=tuple(
+                    StatementOutcome(
+                        statement_index=item.statement_index,
+                        source=item.source,
+                        status="rejected",
+                        reason=diagnostic.code,
+                        op_kind=item.op_kind,
+                        diagnostics=(diagnostic,),
+                    )
+                    for item in statements
+                ),
+                ok=False,
+                diagnostics=(diagnostic,),
+                landed_ops=(),
+                value_default_context=self._initial_value_default_context,
+            )
+
+        # Parse-only evidence for the orphan-add classifier. Plan the same
+        # deterministic uid that _add_node will use for an unstamped
+        # constructor, then associate later graph-reference attributes by the
+        # assignment name. This never resolves or applies the future
+        # statement; current-cursor authority and transactional rollback
+        # remain unchanged.
+        add_uid_by_name: dict[str, str] = {}
+        referenced_names: set[str] = set()
+        reserved_uids = {
+            str(getattr(node, "uid", "") or "")
+            for node in self.workflow.nodes.values()
+            if str(getattr(node, "uid", "") or "")
+        }
+        highest_minted_uid = max(
+            (
+                int(uid[1:])
+                for uid in reserved_uids
+                if uid.startswith("n") and uid[1:].isdigit()
+            ),
+            default=0,
+        )
+        for item in statements:
+            node = item.node
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+            ):
+                uid = self._uid_from_lines(item)
+                if uid is None:
+                    highest_minted_uid += 1
+                    uid = f"n{highest_minted_uid}"
+                    while uid in reserved_uids:
+                        highest_minted_uid += 1
+                        uid = f"n{highest_minted_uid}"
+                elif uid.startswith("n") and uid[1:].isdigit():
+                    highest_minted_uid = max(highest_minted_uid, int(uid[1:]))
+                reserved_uids.add(uid)
+                self._planned_add_uids[id(item)] = uid
+                add_uid_by_name[node.targets[0].id] = uid
+            if isinstance(node, ast.Assign):
+                target = node.targets[0] if len(node.targets) == 1 else None
+                if (
+                    _is_graph_reference_value(node.value)
+                    and isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                ):
+                    referenced_names.add(target.value.id)
+                for child in ast.walk(node.value):
+                    if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
+                        referenced_names.add(child.value.id)
+        self._future_wired_uids = frozenset(
+            uid for name, uid in add_uid_by_name.items() if name in referenced_names
+        )
 
         self.placement_facts = build_batch_placement_facts(
             statements,
@@ -714,8 +1799,14 @@ class _InterpretRunner:
         saw_failed_edit = False
         rollback = False
         for item in statements:
+            self._last_transition = None
             outcome = self._run_one(item)
             outcomes.append(outcome)
+            if self._last_transition is not None:
+                self._transitions.append(self._last_transition)
+                self._occurrence_to_statement_index[
+                    self._last_transition.occurrence
+                ] = item.statement_index
             diagnostics.extend(outcome.diagnostics)
             diagnostics.extend(self._pending_apply_diagnostics)
             self._pending_apply_diagnostics.clear()
@@ -725,12 +1816,9 @@ class _InterpretRunner:
                 if outcome.op is not None:
                     landed.append(outcome.op)
                 continue
-            if (
-                outcome.status == "skipped"
-                and outcome.reason == "cas_unchanged"
-                and outcome.op is not None
-            ):
-                landed.append(outcome.op)
+            if outcome.status == "skipped" and outcome.reason == "cas_unchanged":
+                # A repeated occurrence is accounted for in transitions but
+                # never becomes a durable landed operation.
                 continue
             if outcome.status == "rejected" and is_edit:
                 # All-or-nothing commit: keep evaluating later statements so
@@ -738,58 +1826,6 @@ class _InterpretRunner:
                 rollback = True
                 saw_failed_edit = True
         if rollback:
-            # S3 Liberating Structure: do not wipe a valid add_node when a
-            # downstream upsert_link fails with missing_touched_schema.
-            # Preserve the landed add(s) and surface a typed requires_custom_nodes
-            # diagnostic instead of batch_transaction_rolled_back on the add.
-            has_valid_add = any(
-                o.status == "applied" and o.op_kind == "node_call" for o in outcomes
-            )
-            rejected_edits: list[StatementOutcome] = [
-                o
-                for o in outcomes
-                if o.status == "rejected"
-                and o.op_kind not in {None, "query", "done", "statement"}
-            ]
-            only_missing_schema_on_wire = (
-                has_valid_add
-                and bool(rejected_edits)
-                and all(
-                    o.reason == "missing_touched_schema" and o.op_kind == "upsert_link"
-                    for o in rejected_edits
-                )
-            )
-            if only_missing_schema_on_wire:
-                typed_diag = _diag(
-                    "requires_custom_nodes",
-                    "Custom node pack required for wiring target; valid add_node preserved.",
-                    severity="error",
-                    detail={"missing_touched_schema": True, "preserved_add": True},
-                )
-                preserved: list[StatementOutcome] = []
-                for o in outcomes:
-                    if o.status == "rejected" and o.reason == "missing_touched_schema":
-                        preserved.append(
-                            StatementOutcome(
-                                statement_index=o.statement_index,
-                                source=o.source,
-                                status="rejected",
-                                reason="requires_custom_nodes",
-                                op_kind=o.op_kind,
-                                diagnostics=o.diagnostics + (typed_diag,),
-                                op=o.op,
-                                detail=dict(o.detail, requires_custom_nodes=True),
-                            )
-                        )
-                    else:
-                        preserved.append(o)
-                return InterpretationResult(
-                    workflow=self.workflow,
-                    statements=tuple(preserved),
-                    ok=False,
-                    diagnostics=tuple(diagnostics) + (typed_diag,),
-                    landed_ops=tuple(landed),
-                )
             rollback_diag = _diag(
                 "batch_transaction_rolled_back",
                 "A later edit statement failed, so all edits from this batch were rolled back.",
@@ -817,20 +1853,27 @@ class _InterpretRunner:
                 ok=False,
                 diagnostics=tuple(diagnostics) + (rollback_diag,),
                 landed_ops=(),
+                transitions=tuple(self._transitions),
+                lint_result=_lint_result_from_transitions(tuple(self._transitions)),
+                occurrence_to_statement_index=dict(self._occurrence_to_statement_index),
+                value_default_context=self._initial_value_default_context,
             )
         ok = not any(
             outcome.status == "rejected"
             and outcome.op_kind not in {None, "query", "done"}
             for outcome in outcomes
         ) and not any(diag.severity == "error" for diag in diagnostics)
+        lint_result = _lint_result_from_transitions(tuple(self._transitions))
         return InterpretationResult(
             workflow=self.workflow,
             statements=tuple(outcomes),
             ok=ok,
-            diagnostics=tuple(
-                diag for diag in diagnostics if diag.severity in {"error", "warning"}
-            ),
+            diagnostics=_published_diagnostics(diagnostics),
             landed_ops=tuple(landed),
+            transitions=tuple(self._transitions),
+            lint_result=lint_result,
+            occurrence_to_statement_index=dict(self._occurrence_to_statement_index),
+            value_default_context=self.value_default_context,
         )
 
     def _run_one(self, item: _ExpandedStatement) -> StatementOutcome:
@@ -972,12 +2015,22 @@ class _InterpretRunner:
                     schema = schema_for(self.schema_provider, class_type)
         if schema is None and not reconstructing:
             self.unbound.add(target_name)
-            return self._reject(
-                item,
-                "unknown_add_node_class_type",
-                "node_call",
-                f"Unknown class_type {class_type!r} for add_node.",
-            )
+            # A live provider cannot establish the canonical touched-schema
+            # closure.  Fail at the frozen-authority boundary so callers see
+            # the custody failure, rather than laundering it into an
+            # ``unknown_add_node_class_type`` parse diagnostic.
+            if not _has_frozen_schema_authority(self.schema_provider):
+                return self._reject(
+                    item,
+                    "missing_schema_authority",
+                    "node_call",
+                    "add_node requires a retained frozen schema snapshot.",
+                )
+            # The frozen provider's catalog absence is itself touched-schema
+            # evidence.  Preserve the authored class on an AddNodeOp and let
+            # the shared evaluator/admission boundary produce the canonical
+            # typed reason.  Looking at an advisory provider here would make
+            # the result depend on mutable post-ingress state.
         schema_inputs = getattr(schema, "inputs", {}) or {}
         relation: str | None = None
         near_ref: NodeTarget | None = None
@@ -1163,7 +2216,32 @@ class _InterpretRunner:
         if issues:
             self.unbound.add(target_name)
             return self._reject_diagnostics(item, "node_call", issues)
-        uid = _uid_from_source(item.source) or self._uid_from_lines(item) or _mint_ir_uid(self.workflow)
+        # Frozen schema snapshots retain the raw positional input order even
+        # when reconstructed ``NodeSchema.inputs`` deliberately exposes only
+        # named socket/widget fields. Preserve an explicitly authored
+        # ``widget_N`` carrier as widget-channel evidence for the one shared
+        # lowerer; do not infer arbitrary fields from the UI payload.
+        if not widget_field_names:
+            snapshot = getattr(self.schema_provider, "snapshot", None)
+            raw_schema = (
+                snapshot.schemas.get(class_type)
+                if snapshot is not None and isinstance(getattr(snapshot, "schemas", None), Mapping)
+                else None
+            )
+            raw_order = raw_schema.get("input_order") if isinstance(raw_schema, Mapping) else ()
+            if isinstance(raw_order, (list, tuple)):
+                widget_field_names = tuple(
+                    name for name in fields
+                    if isinstance(name, str)
+                    and name.startswith("widget_")
+                    and name in raw_order
+                )
+        uid = (
+            _uid_from_source(item.source)
+            or self._uid_from_lines(item)
+            or self._planned_add_uids.get(id(item))
+            or _mint_ir_uid(self.workflow)
+        )
         node_id = uid if uid not in {str(n.id) for n in self.workflow.nodes.values()} else None
         anchor = inferred_anchor
         if anchor is None and (near_ref is not None or group_title is not None):
@@ -1190,19 +2268,13 @@ class _InterpretRunner:
         minted = uid or self._uid_for_newest(class_type)
         if minted:
             self.transient[target_name] = minted
-            added = self._node_by_uid(minted)
-            if added is not None:
-                port_source = self._source_block(item) or item.source
-                self.workflow.nodes[str(added.id)] = _stamped_node(
-                    added, port_source, self.schema_provider
-                )
         self._refresh_bindings()
         return StatementOutcome(
             statement_index=item.statement_index,
             source=item.source,
             status="applied",
             op_kind="node_call",
-            op=op,
+            op=self._last_effective_op or op,
             diagnostics=() if inferred_anchor_diag is None else (inferred_anchor_diag,),
             detail={"target_name": target_name, "minted_uid": minted, "class_type": class_type},
         )
@@ -1234,7 +2306,8 @@ class _InterpretRunner:
             return self._remove_link(item, node, field_name)
         if _is_graph_reference_value(rhs):
             return self._upsert_link(item, node, field_name, rhs)
-        return self._set_field(item, node, field_name, rhs)
+        target_name = target.value.id if isinstance(target.value, ast.Name) else ""
+        return self._set_field(item, node, target_name, field_name, rhs)
 
     def _set_mode(self, item: _ExpandedStatement, node: Any, rhs: ast.expr) -> StatementOutcome:
         literal, issue = _fold_constant(rhs, env=item.env)
@@ -1254,17 +2327,7 @@ class _InterpretRunner:
                 "set_mode",
                 "Mode assignments must use 0, 2, 4 or their MODE_LABELS-derived labels.",
             )
-        current = mode_to_litegraph(node.mode)
         op = SetModeOp(op="set_mode", target=NodeTarget("", str(node.uid)), mode=mode)  # type: ignore[arg-type]
-        if current == mode:
-            return StatementOutcome(
-                statement_index=item.statement_index,
-                source=item.source,
-                status="skipped",
-                reason="cas_unchanged",
-                op_kind="set_mode",
-                op=op,
-            )
         applied = self._apply(item, op)
         if isinstance(applied, StatementOutcome):
             return applied
@@ -1281,6 +2344,7 @@ class _InterpretRunner:
         self,
         item: _ExpandedStatement,
         node: Any,
+        target_name: str,
         field_name: str,
         rhs: ast.expr,
     ) -> StatementOutcome:
@@ -1380,11 +2444,37 @@ class _InterpretRunner:
             and field_name not in schema_inputs
             and not is_positional_alias(field_name)
         ):
+            detail: dict[str, Any] = {
+                "name": target_name,
+                "uid": str(getattr(node, "uid", "") or ""),
+                "field": field_name,
+            }
+            try:
+                from vibecomfy.porting.edit.apply_field_aliases import (
+                    field_diagnostics_for_node,
+                )
+
+                metadata = getattr(node, "metadata", None)
+                raw_ui = metadata.get("_ui") if isinstance(metadata, Mapping) else None
+                diagnostic_node = raw_ui if isinstance(raw_ui, Mapping) else {}
+                field_detail = field_diagnostics_for_node(
+                    diagnostic_node,
+                    str(node.class_type),
+                    schema_inputs,
+                    schema_provider=self.schema_provider,
+                )
+                if field_detail.get("valid_fields"):
+                    detail["valid_fields"] = field_detail["valid_fields"]
+                if field_detail.get("semantic_aliases"):
+                    detail["semantic_aliases"] = field_detail["semantic_aliases"]
+            except Exception:
+                pass
             return self._reject(
                 item,
                 "unknown_target_field",
                 "set_node_field",
                 f"{node.class_type} has no editable field or input named {field_name!r}.",
+                detail=detail,
             )
         literal, issue = _fold_constant(rhs, env=item.env)
         if issue is not None:
@@ -1413,20 +2503,6 @@ class _InterpretRunner:
                 "set_node_field",
                 f"{node.class_type}.{field_name} CAS failed: expected {expected!r}, current {current!r}.",
             )
-        if current == literal:
-            op = SetNodeFieldOp(
-                op="set_node_field",
-                target=NodeFieldTarget("", str(node.uid), field_name),
-                value=literal,
-            )
-            return StatementOutcome(
-                statement_index=item.statement_index,
-                source=item.source,
-                status="skipped",
-                reason="cas_unchanged",
-                op_kind="set_node_field",
-                op=op,
-            )
         op = SetNodeFieldOp(
             op="set_node_field",
             target=NodeFieldTarget("", str(node.uid), field_name),
@@ -1442,7 +2518,7 @@ class _InterpretRunner:
             source=item.source,
             status="applied",
             op_kind="set_node_field",
-            op=op,
+            op=self._last_effective_op or op,
         )
 
     def _upsert_link(
@@ -1600,7 +2676,23 @@ class _InterpretRunner:
             if issues:
                 return None, issues
             assert node is not None
-            ports = _agent_edit_output_ports(node)
+            if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+                authored_io, authored, valid = _exec_authored_io(node)
+                if authored:
+                    ports = (
+                        {
+                            index: f"{socket_type}_{index}"
+                            for index, (_name, socket_type) in enumerate(
+                                authored_io["outputs"]
+                            )
+                        }
+                        if valid and authored_io is not None
+                        else {}
+                    )
+                else:
+                    ports = _agent_edit_output_ports(node)
+            else:
+                ports = _agent_edit_output_ports(node)
             if len(ports) == 1:
                 slot = _raw_output_slot(node, next(iter(ports.values())))
                 return LinkSourceRef("", str(node.uid), slot), ()
@@ -1869,89 +2961,95 @@ class _InterpretRunner:
         self.name_to_uid = bindings
 
     def _apply(self, item: _ExpandedStatement, op: EditOp) -> StatementOutcome | None:
-        try:
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admission_snapshot_for,
-                admit_operation,
-            )
-
-            admitted = admit_operation(
-                admission_snapshot_for(self.workflow, self.schema_provider),
+        effective_op, next_context, value_diagnostics, value_error = (
+            _prepare_value_default_operation(
+                self.workflow,
                 op,
-                working_workflow=self.workflow,
+                schema_provider=self.schema_provider,
+                context=self.value_default_context,
             )
-            if isinstance(admitted, AdmissionRejected):
-                # S1 r12 refinement: field-scoped allow for set_node_field where field observable in graph
-                if admitted.typed_reason == "missing_touched_schema" and getattr(op, "op", None) == "set_node_field":
-                    try:
-                        tgt = getattr(op, "target", None)
-                        uid = str(getattr(tgt, "uid", "") or "")
-                        field = str(getattr(tgt, "field_path", "") or "")
-                        node = self._node_by_uid(uid) if uid else None
-                        if node is not None and field:
-                            observable = False
-                            if field in getattr(node, "widgets", {}) or field in getattr(node, "inputs", {}):
-                                observable = True
-                            else:
-                                try:
-                                    from vibecomfy.porting.edit.widget_slots import editable_surface_for
-                                    surface = editable_surface_for(node, schema_provider=self.schema_provider, edges=self.workflow.edges)
-                                    if surface is not None and field in surface.literal_names():
-                                        observable = True
-                                except Exception:
-                                    pass
-                                if not observable:
-                                    try:
-                                        from vibecomfy.schema.provider import schema_for as _sf
-                                        schema = _sf(self.schema_provider, str(getattr(node, "class_type", "") or ""))
-                                        if schema is not None and field in (getattr(schema, "inputs", {}) or {}):
-                                            observable = True
-                                    except Exception:
-                                        pass
-                            if observable:
-                                before = self.workflow
-                                self.workflow = apply_edit_cow(self.workflow, op, schema_provider=self.schema_provider)
-                                self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
-                                return None
-                    except Exception:
-                        pass
-                return StatementOutcome(
-                    statement_index=item.statement_index,
-                    source=item.source,
-                    status="rejected",
-                    reason=admitted.typed_reason,
-                    op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
-                    diagnostics=(
-                        _diag(
-                            admitted.typed_reason,
-                            admitted.typed_reason,
-                            severity="error",
-                            detail={"evidence_refs": list(admitted.evidence_refs)},
-                        ),
-                    ),
-                    op=op,
-                )
-            before = self.workflow
-            # Add-node reconstruction matches from_ui: named literals land in
-            # inputs, widget_* names in widgets.  Passing the catalog would
-            # re-channel named widgets and break π_edit channel honesty.
-            provider = None if isinstance(op, AddNodeOp) else self.schema_provider
-            self.workflow = apply_edit_cow(
-                self.workflow, op, schema_provider=provider
+        )
+        if value_error is not None:
+            self._last_transition = OperationTransition(
+                occurrence=len(self._transitions),
+                submitted=op,
+                normalized=op,
+                outcome="rejected",
+                diagnostics=(value_error,),
+                lint_disposition="rejected",
             )
-            self._pending_apply_diagnostics.extend(_apply_diagnostics(before, self.workflow, op))
-        except Exception as exc:
-            _LOGGER.debug("interpret _apply failed: %s", exc)
             return StatementOutcome(
                 statement_index=item.statement_index,
                 source=item.source,
                 status="rejected",
-                reason="apply_failed",
+                reason=value_error.code,
                 op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
-                diagnostics=(_diag("apply_failed", str(exc), severity="error"),),
+                diagnostics=(value_error,),
                 op=op,
             )
+        evaluation = _evaluate_operation(
+            self.workflow,
+            effective_op,
+            schema_provider=self.schema_provider,
+            source=self._source_block(item) or item.source,
+            presentation_ui=self._presentation_ui,
+            presentation_index=self._presentation_index,
+            baseline_presentation_index=self._baseline_presentation_index,
+            future_wired_uids=self._future_wired_uids,
+        )
+        if evaluation.outcome == "noop":
+            combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
+            self._last_transition = OperationTransition(
+                occurrence=len(self._transitions), submitted=op,
+                normalized=evaluation.normalized,
+                outcome="noop", diagnostics=combined,
+                lint_disposition=evaluation.lint_disposition,
+            )
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="skipped",
+                reason="no_op",
+                op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
+                diagnostics=combined,
+                op=effective_op,
+            )
+        if evaluation.outcome != "staged":
+            combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
+            self._last_transition = OperationTransition(
+                occurrence=len(self._transitions), submitted=op,
+                normalized=evaluation.normalized,
+                lowered=evaluation.lowered,
+                outcome="rejected", diagnostics=combined,
+                lint_disposition=evaluation.lint_disposition,
+            )
+            return StatementOutcome(
+                statement_index=item.statement_index,
+                source=item.source,
+                status="rejected",
+                reason=(combined[0].code if combined else "apply_rejected"),
+                op_kind=item.op_kind or getattr(op, "op", type(op).__name__),
+                diagnostics=combined,
+                op=effective_op,
+            )
+        before = self.workflow
+        self.workflow = evaluation.workflow
+        self.value_default_context = next_context
+        self._last_effective_op = effective_op
+        self._presentation_ui = evaluation.presentation_ui
+        self._presentation_index = evaluation.presentation_index
+        combined = tuple(value_diagnostics) + tuple(evaluation.diagnostics)
+        self._pending_apply_diagnostics.extend(value_diagnostics)
+        self._pending_apply_diagnostics.extend(
+            _apply_diagnostics(before, self.workflow, effective_op)
+        )
+        self._last_transition = OperationTransition(
+            occurrence=len(self._transitions), submitted=op,
+            normalized=evaluation.normalized,
+            lowered=evaluation.lowered, outcome="staged",
+            diagnostics=combined,
+            lint_disposition=evaluation.lint_disposition,
+        )
         return None
 
     def _guard_original_virtual(
@@ -2058,8 +3156,15 @@ class _InterpretRunner:
         code: str,
         op_kind: str,
         message: str | None = None,
+        *,
+        detail: Mapping[str, Any] | None = None,
     ) -> StatementOutcome:
-        diagnostic = _diag(code, message or code, severity="error")
+        diagnostic = _diag(
+            code,
+            message or code,
+            severity="error",
+            detail=detail,
+        )
         return StatementOutcome(
             statement_index=item.statement_index,
             source=item.source,
@@ -2242,9 +3347,41 @@ def _slots_from_source(source: str) -> list[tuple[str, str | None]]:
 def _stamped_node(node: Any, source: str, schema_provider: Any) -> Any:
     """Return a NEW node with emit ports stamped (never mutate the input)."""
     from copy import deepcopy
+    from vibecomfy.workflow import RawWidgetPayload
 
     stamped = deepcopy(node)
     _attach_emitted_ports(stamped, source, schema_provider)
+    if getattr(stamped, "raw_widgets", None) is None:
+        schema = schema_for(schema_provider, stamped.class_type)
+        schema_inputs = getattr(schema, "inputs", {}) or {}
+        ordered_names: list[str] = []
+        for name in getattr(schema, "widget_input_order", ()) or ():
+            if name in schema_inputs:
+                ordered_names.append(str(name))
+        for name in schema_inputs:
+            if str(name) not in ordered_names:
+                ordered_names.append(str(name))
+        for carrier in tuple(getattr(stamped, "inputs", {}) or {}) + tuple(
+            getattr(stamped, "widgets", {}) or {}
+        ):
+            if str(carrier) not in ordered_names:
+                ordered_names.append(str(carrier))
+        values: list[Any] = []
+        for name in ordered_names:
+            if name in getattr(stamped, "inputs", {}) and not _is_link_value(
+                stamped.inputs[name]
+            ):
+                values.append(stamped.inputs[name])
+            elif name in getattr(stamped, "widgets", {}):
+                values.append(stamped.widgets[name])
+        if values:
+            stamped.raw_widgets = RawWidgetPayload(
+                values=values,
+                shape="list",
+                source="canonical.add_node",
+                has_dict_rows=False,
+                length=len(values),
+            )
     return stamped
 
 
@@ -2256,23 +3393,45 @@ def _attach_emitted_ports(node: Any, source: str, schema_provider: Any) -> None:
     Callers must pass a node that is not aliased to the pre-IR.
     """
     metadata = dict(getattr(node, "metadata", None) or {})
-    ports = _slots_from_source(source)
-    if not ports and str(getattr(node, "class_type", "")) == "vibecomfy.exec":
-        from vibecomfy.porting.edit._resolve import _normalize_exec_io
-
+    is_exec = str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE
+    schema = None
+    normalized_exec_io = None
+    if is_exec:
+        # Authored exec IO is the complete dynamic roster authority.  Do not
+        # perform another provider lookup after ingress or derive physical
+        # ports from a generic exec schema.
         io_value = None
         if isinstance(getattr(node, "inputs", None), Mapping):
             io_value = node.inputs.get("io")
         if io_value is None and isinstance(getattr(node, "widgets", None), Mapping):
             io_value = node.widgets.get("io")
-        normalized = _normalize_exec_io(io_value)
-        if normalized and normalized["outputs"]:
+        normalized_exec_io = _normalize_exec_io(io_value)
+        if normalized_exec_io is not None:
+            node.native_input_names = [
+                f"in_{index}"
+                for index, _entry in enumerate(normalized_exec_io["inputs"])
+            ]
+    else:
+        schema = schema_for(schema_provider, node.class_type)
+        schema_inputs = getattr(schema, "inputs", None) or {}
+        if isinstance(schema_inputs, Mapping):
+            native_inputs = [
+                str(name)
+                for name, spec in schema_inputs.items()
+                if input_spec_is_socket_only(spec)
+            ]
+            if native_inputs:
+                node.native_input_names = native_inputs
+    ports = _slots_from_source(source)
+    if not ports and is_exec:
+        if normalized_exec_io and normalized_exec_io["outputs"]:
             ports = [
                 (f"{str(socket_type or 'unknown').replace(' ', '_').upper()}_{index}", name)
-                for index, (name, socket_type) in enumerate(normalized["outputs"])
+                for index, (name, socket_type) in enumerate(
+                    normalized_exec_io["outputs"]
+                )
             ]
-    if not ports:
-        schema = schema_for(schema_provider, node.class_type)
+    if not ports and not is_exec:
         schema_outputs = list(getattr(schema, "outputs", None) or [])
         ports = [
             (
@@ -2310,6 +3469,31 @@ def _attach_emitted_ports(node: Any, source: str, schema_provider: Any) -> None:
 
 def _resolve_output_slot(node: Any, attr: str) -> str | None:
     if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return None
+            outputs = authored_io["outputs"]
+            mapped_index: int | None = None
+            if attr.startswith("out_") and attr[4:].isdigit():
+                mapped_index = int(attr[4:])
+            else:
+                typed = _TYPED_PORT.fullmatch(attr)
+                if typed is not None:
+                    mapped_index = int(typed.group(2))
+                    if not 0 <= mapped_index < len(outputs):
+                        return None
+                    if outputs[mapped_index][1].casefold() != typed.group(1).casefold():
+                        return None
+                else:
+                    for index, (name, _socket_type) in enumerate(outputs):
+                        if name == attr:
+                            mapped_index = index
+                            break
+            if mapped_index is None or not 0 <= mapped_index < len(outputs):
+                return None
+            socket_type = outputs[mapped_index][1]
+            return f"{socket_type}_{mapped_index}"
         io_value = None
         if isinstance(getattr(node, "inputs", None), Mapping):
             io_value = node.inputs.get("io")
@@ -2389,6 +3573,24 @@ def _resolve_output_slot(node: Any, attr: str) -> str | None:
 def _raw_output_slot(node: Any, slot: str) -> str:
     """Map a typed emit alias (IMAGE_0) back to the UI/raw slot name."""
     if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return slot
+            typed = _TYPED_PORT.fullmatch(slot)
+            if typed is not None:
+                index = int(typed.group(2))
+                if (
+                    0 <= index < len(authored_io["outputs"])
+                    and typed.group(1).casefold()
+                    == authored_io["outputs"][index][1].casefold()
+                ):
+                    return f"out_{index}"
+                return slot
+            for index, (name, _socket_type) in enumerate(authored_io["outputs"]):
+                if name == slot:
+                    return f"out_{index}"
+            return slot
         if slot.startswith("out_") or slot.startswith("in_"):
             return slot
         typed = _TYPED_PORT.fullmatch(slot)
@@ -2530,6 +3732,24 @@ def _frozen_output_evidence(
     sources: list[str] = []
     slot_count = 0
 
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if not authored:
+            # A dynamic exec instance has no generic output capacity.  Its
+            # authored IO declaration is the sole socket authority; stale UI
+            # rows, provider rosters, and metadata cannot manufacture slots.
+            return {}, {}, ("missing_authored_exec_io",), 0
+        if authored:
+            if not valid or authored_io is None:
+                return {}, {}, ("invalid_authored_exec_io",), 0
+            outputs = authored_io["outputs"]
+            return (
+                {index: name for index, (name, _socket_type) in enumerate(outputs)},
+                {index: socket_type for index, (_name, socket_type) in enumerate(outputs)},
+                ("authored_exec_io",),
+                len(outputs),
+            )
+
     def _absorb(names_obj: Any, types_obj: Any, label: str) -> None:
         nonlocal slot_count
         if isinstance(names_obj, (list, tuple)):
@@ -2601,6 +3821,118 @@ def _frozen_output_evidence(
         except Exception:  # noqa: BLE001 - schema lookup failure is simply no evidence
             pass
     return names, types, tuple(dict.fromkeys(sources)), slot_count
+
+
+def _exec_authored_io(
+    node: Any,
+) -> tuple[dict[str, list[tuple[str, str]]] | None, bool, bool]:
+    """Return the retained authored exec IO, without admitting a loose copy.
+
+    ``_normalize_exec_io`` remains the one parser for the contract.  The
+    shape checks here only reject the parser's intentionally permissive
+    repair/default behavior (missing names/types, malformed rows, duplicate
+    names), so a malformed authored declaration cannot fall through to a
+    provider's generic output roster.
+    """
+    values: list[Any] = []
+    for channel in ("inputs", "widgets"):
+        carrier = getattr(node, channel, None)
+        if isinstance(carrier, Mapping) and "io" in carrier:
+            values.append(carrier["io"])
+    if not values:
+        return None, False, True
+
+    def _decoded(value: Any) -> Any:
+        if not isinstance(value, str):
+            # ``AddNodeOp`` reports are deeply frozen before authority replay:
+            # mappings become ``mappingproxy`` instances and row vectors become
+            # tuples.  Rehydrate that immutable *wire representation* to the
+            # ordinary JSON-shaped containers expected by the one shared exec
+            # IO parser.  This is representation normalization only; it does
+            # not infer sockets or consult a provider.
+            def _thaw(item: Any) -> Any:
+                if isinstance(item, Mapping):
+                    return {key: _thaw(child) for key, child in item.items()}
+                if isinstance(item, tuple):
+                    return [_thaw(child) for child in item]
+                if isinstance(item, list):
+                    return [_thaw(child) for child in item]
+                return item
+
+            return _thaw(value)
+        try:
+            import json
+
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _strict(value: Any) -> dict[str, list[tuple[str, str]]] | None:
+        decoded = _decoded(value)
+        normalized = _normalize_exec_io(decoded)
+        if normalized is None or not isinstance(decoded, Mapping):
+            return None
+        for direction in ("inputs", "outputs"):
+            if direction not in decoded:
+                continue
+            raw_entries = decoded[direction]
+            if isinstance(raw_entries, Mapping):
+                rows = list(raw_entries.items())
+                if any(
+                    not isinstance(name, str) or not name.strip()
+                    or not isinstance(socket_type, str) or not socket_type.strip()
+                    for name, socket_type in rows
+                ):
+                    return None
+                seen: set[str] = set()
+                for name, _socket_type in rows:
+                    folded = name.strip().casefold()
+                    if folded in seen:
+                        return None
+                    seen.add(folded)
+            elif isinstance(raw_entries, list):
+                rows: list[tuple[Any, Any]] = []
+                for row in raw_entries:
+                    if isinstance(row, Mapping):
+                        if (
+                            "name" not in row
+                            or "type" not in row
+                            or not isinstance(row["name"], str)
+                            or not row["name"].strip()
+                            or not isinstance(row["type"], str)
+                            or not row["type"].strip()
+                        ):
+                            return None
+                        rows.append((row["name"], row["type"]))
+                    elif isinstance(row, (list, tuple)) and len(row) == 2:
+                        if (
+                            not isinstance(row[0], str)
+                            or not row[0].strip()
+                            or not isinstance(row[1], str)
+                            or not row[1].strip()
+                        ):
+                            return None
+                        rows.append((row[0], row[1]))
+                    else:
+                        return None
+                seen = set()
+                for name, _socket_type in rows:
+                    folded = name.strip().casefold()
+                    if folded in seen:
+                        return None
+                    seen.add(folded)
+            else:
+                return None
+        return normalized
+
+    normalized_values = [_strict(value) for value in values]
+    if any(value is None for value in normalized_values):
+        return None, True, False
+    first = normalized_values[0]
+    if any(value != first for value in normalized_values[1:]):
+        return None, True, False
+    assert first is not None
+    return first, True, True
 
 
 def renderer_output_slots(
@@ -2679,6 +4011,12 @@ def canonical_renderer_output(
         folded = base.casefold()
         name = names.get(index)
         out_type = types.get(index)
+        if (
+            str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE
+            and folded == "out"
+            and name is not None
+        ):
+            return name
         agrees = bool(
             (name and name.casefold() == folded)
             or (out_type and out_type.casefold() == folded)
@@ -2701,6 +4039,24 @@ def _output_socket_type(node: Any, slot: str | int) -> str | None:
         resolved = canonical_renderer_output(node, slot)
         if resolved is not None:
             lookup = resolved
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        # Dynamic exec has no renderer/provider capacity unless this exact
+        # instance carries a valid authored declaration.  Keep the one
+        # canonical IO parser as the sole socket authority; stale UI rows and
+        # generic metadata cannot create a socket.
+        if not authored or not valid or authored_io is None:
+            return None
+        resolved_name = lookup if isinstance(lookup, str) else None
+        for index, (name, socket_type) in enumerate(authored_io["outputs"]):
+            if resolved_name == name or (
+                isinstance(slot, str)
+                and slot.startswith("out_")
+                and slot[4:].isdigit()
+                and int(slot[4:]) == index
+            ):
+                return socket_type
+        return None
     ports = _agent_edit_output_ports(node)
     if isinstance(lookup, str):
         for index, name in ports.items():
@@ -2715,6 +4071,19 @@ def _output_socket_type(node: Any, slot: str | int) -> str | None:
 
 
 def _input_socket_type(node: Any, field_name: str, schema_provider: Any) -> str | None:
+    if str(getattr(node, "class_type", "")) == _EXEC_CLASS_TYPE:
+        authored_io, authored, valid = _exec_authored_io(node)
+        if authored:
+            if not valid or authored_io is None:
+                return None
+            inputs = authored_io["inputs"]
+            if field_name.startswith("in_") and field_name[3:].isdigit():
+                index = int(field_name[3:])
+                return inputs[index][1] if 0 <= index < len(inputs) else None
+            for name, socket_type in inputs:
+                if name == field_name:
+                    return socket_type
+            return None
     schema = schema_for(schema_provider, node.class_type)
     spec = _input_spec_for_field(getattr(schema, "inputs", {}) or {}, field_name)
     if spec is not None and getattr(spec, "type", None):

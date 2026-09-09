@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any, Union
 
 from vibecomfy.artifacts import Artifact, Image, Video
-from vibecomfy.cli_loader import load_workflow_any
-from vibecomfy.origin import stamp_workflow_origin
-from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
+from vibecomfy.cli_loader import load_bundle
+from vibecomfy.ops._common import bind_run_inputs, first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
+from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.router import pick
 
 I2VImage = Union[Image, str, Path, bytes]
@@ -52,14 +52,23 @@ def _t2v(
     **overrides: Any,
 ) -> Video:
     result = pick("video", "t2v", model=model, width=width, height=height, length=length, fps=fps, seed=seed, **overrides)
-    workflow = load_workflow_any(result.template_id)
-    stamp_workflow_origin(workflow, "op", "ops/video.py:t2v")
-    set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
-    if seed is not None:
-        workflow.set_seed(seed)
-    output = first_output(workflow, "SaveVideo")
+    bundle = load_bundle(result.template_id)
+    workflow = bundle.workflow
+    run_inputs = _public_run_inputs(
+        workflow,
+        result.template_id,
+        {"prompt": prompt, "model": model, "width": width, "height": height, "frames": length, "fps": fps, "seed": seed},
+        overrides,
+        operation="video.t2v",
+        defaults={"fps": 16},
+    )
+    candidate = workflow.copy()
+    stamp_workflow_origin(candidate, "op", "ops/video.py:t2v")
+    set_prompt_preserving_registration(candidate, prompt, result.explicit_patches)
+    bind_run_inputs(candidate, run_inputs)
+    output = first_output(candidate, "SaveVideo")
     return Video(
-        workflow=workflow,
+        workflow=candidate,
         node_id=output.node_id,
         output_slot=0,
         metadata={"template_id": result.template_id, "model": model},
@@ -101,24 +110,68 @@ def _i2v(
 ) -> Video:
     image_path = _resolve_i2v_image_path(image)
     result = pick("video", "i2v", model=model, image=image_path, length=length, fps=fps, seed=seed, **overrides)
-    workflow = load_workflow_any(result.template_id)
-    stamp_workflow_origin(workflow, "op", "ops/video.py:i2v")
-    set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
-    try:
-        workflow.set_input("image", image_path)
-    except ValueError as exc:
-        raise ValueError(
-            f"video.i2v could not bind image input on template {result.template_id!r}: {exc}"
-        ) from exc
-    if seed is not None:
-        workflow.set_seed(seed)
-    output = first_output(workflow, "SaveVideo")
+    bundle = load_bundle(result.template_id)
+    workflow = bundle.workflow
+    run_inputs = _public_run_inputs(
+        workflow,
+        result.template_id,
+        {"prompt": prompt, "model": model, "image": image_path, "frames": length, "fps": fps, "seed": seed},
+        overrides,
+        operation="video.i2v",
+        defaults={"fps": 16},
+    )
+    candidate = workflow.copy()
+    stamp_workflow_origin(candidate, "op", "ops/video.py:i2v")
+    set_prompt_preserving_registration(candidate, prompt, result.explicit_patches)
+    bind_run_inputs(candidate, run_inputs)
+    output = first_output(candidate, "SaveVideo")
     return Video(
-        workflow=workflow,
+        workflow=candidate,
         node_id=output.node_id,
         output_slot=0,
         metadata={"template_id": result.template_id, "model": model},
     )
+
+
+def _public_run_inputs(
+    workflow: Any,
+    template_id: str,
+    values: dict[str, object],
+    overrides: dict[str, object],
+    *,
+    operation: str,
+    defaults: dict[str, object],
+) -> dict[str, object]:
+    public = workflow.inputs
+    run_inputs: dict[str, object] = {}
+    for name, value in values.items():
+        if value is None:
+            continue
+        if name == "model" and public.get("model") is None:
+            continue
+        target = name
+        if name == "frames":
+            if "frames" in public:
+                target = "frames"
+            elif "length" in public:
+                target = "length"
+        if target not in public:
+            if name in {"prompt", "image"} or name not in defaults or value != defaults[name]:
+                raise ValueError(
+                    f"{operation} override {name!r} is not a public input on template {template_id!r}"
+                )
+            continue
+        run_inputs[target] = value
+    for name, value in overrides.items():
+        if name not in public:
+            raise ValueError(
+                f"{operation} override {name!r} is not a public input on template {template_id!r}"
+            )
+        run_inputs[name] = value
+    required = "image" if operation == "video.i2v" else "prompt"
+    if required not in run_inputs:
+        raise ValueError(f"{operation} could not bind {required} input on template {template_id!r}")
+    return run_inputs
 
 
 def _resolve_i2v_image_path(image: Any) -> str:

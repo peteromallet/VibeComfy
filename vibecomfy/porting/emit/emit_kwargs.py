@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import keyword
 import re
-import warnings
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -294,19 +293,39 @@ def _node_output_names(node: Any) -> list[str]:
     return result
 
 
+def _validate_named_output_schema(node: Any, names: list[str]) -> None:
+    """Reject ambiguous named output schemas before any ordinal fallback."""
+    if not names:
+        return
+    if any(not isinstance(name, str) or not name.strip() for name in names):
+        raise ValueError(
+            f"malformed_named_output_schema: {node.class_type} contains a blank or non-string output name"
+        )
+    if len(set(names)) != len(names):
+        raise ValueError(
+            f"malformed_named_output_schema: {node.class_type} contains duplicate output names"
+        )
+    conflicted = getattr(node, "metadata", {}).get("conflicted_outputs")
+    if isinstance(conflicted, (list, tuple, set, frozenset)) and any(name in conflicted for name in names):
+        raise ValueError(
+            f"malformed_named_output_schema: {node.class_type} contains conflicted output names"
+        )
+
+
 def _warn_metadata_ui_output_arity_disagreement(
     node: Any,
     metadata_names: list[str],
     ui_names: list[str],
 ) -> None:
+    import warnings
+
     warnings.warn(
         (
-            f"output arity disagreement for {node.class_type}: metadata declares "
-            f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
-            "continuing with the UI output names because live/UI object_info "
-            "takes precedence over stale embedded metadata."
+            f"output arity disagreement for {node.class_type}: authored metadata declares "
+            f"{len(metadata_names)} outputs but UI declares {len(ui_names)}; "
+            "emitting the UI slots so a loaded graph is not blocked."
         ),
-        stacklevel=3,
+        stacklevel=2,
     )
 
 
@@ -319,6 +338,8 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
 
     ui_names = _declared_ui_output_names(node)
     metadata_names = _node_output_names(node)
+    _validate_named_output_schema(node, ui_names)
+    _validate_named_output_schema(node, metadata_names)
     cache_names: list[str] = []
     try:
         cache_names = [str(name) for name in _node_local_output_names(node) if str(name)]
@@ -326,13 +347,15 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
         cache_names = []
     if ui_names and metadata_names and len(ui_names) != len(metadata_names):
         _warn_metadata_ui_output_arity_disagreement(node, metadata_names, ui_names)
+    # Only UI evidence is a UI arity.  Treating schema metadata as though it
+    # were the UI count defeats reconciliation when a retained/native roster
+    # has three real slots but an older schema still declares four.
     ui_output_count = len(ui_names) if ui_names else None
-    _node_local_arity_check(node, ui_output_count)
-    if ui_names:
-        return ui_names
-    if metadata_names:
-        return metadata_names
-    return cache_names
+    reconciled = _node_local_arity_check(node, ui_output_count)
+    names = ui_names or metadata_names or cache_names
+    if names and reconciled and len(names) > reconciled:
+        return list(names)[:reconciled]
+    return names
 
 
 def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
@@ -341,12 +364,16 @@ def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
 
     ui_names = _declared_ui_output_names(node)
     metadata_names = _node_output_names(node)
+    _validate_named_output_schema(node, ui_names)
+    _validate_named_output_schema(node, metadata_names)
     if ui_names and metadata_names and len(ui_names) != len(metadata_names):
         _warn_metadata_ui_output_arity_disagreement(node, metadata_names, ui_names)
     ui_output_count = len(ui_names) if ui_names else None
-    _node_local_arity_check(node, ui_output_count)
+    reconciled = _node_local_arity_check(node, ui_output_count)
     if ui_names:
-        return ui_names
+        return list(ui_names)[:reconciled]
+    if metadata_names and reconciled and len(metadata_names) > reconciled:
+        return list(metadata_names)[:reconciled]
     return metadata_names
 
 
@@ -574,17 +601,25 @@ def _safe_output_name(
     if not isinstance(output_names, (list, tuple)):
         return None
     if from_slot < 0 or from_slot >= len(output_names):
-        return None
+        raise ValueError(
+            f"malformed_named_output_schema: {src_node.class_type} has no named output for slot {from_slot}"
+        )
     name = output_names[from_slot]
-    if not isinstance(name, str) or not name:
-        return None
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(
+            f"malformed_named_output_schema: {src_node.class_type} has a blank output name at slot {from_slot}"
+        )
     # Duplicate check: the name must appear exactly once.
     if list(output_names).count(name) > 1:
-        return None
+        raise ValueError(
+            f"malformed_named_output_schema: {src_node.class_type} has duplicate output name {name!r}"
+        )
     # Conflicted check: the name must not be in the conflicted_outputs list.
     conflicted = getattr(src_node, "metadata", {}).get("conflicted_outputs")
     if isinstance(conflicted, (list, tuple, set, frozenset)) and name in conflicted:
-        return None
+        raise ValueError(
+            f"malformed_named_output_schema: {src_node.class_type} marks output {name!r} conflicted"
+        )
     return name
 
 
@@ -801,14 +836,9 @@ def _collect_emission_diagnostics(
     """Collect readability diagnostics for a single node during emission.
 
     This is called from `_node_kwargs` when a diagnostics collector is
-    provided.  Currently flags:
-
-    * **avoidable_positional_output** - the node has output names available
-      (from schema metadata) but the emitter is using numeric `.out(n)`
-      because one or more names are unsafe (blank, duplicate, conflicted).
-
-    * **output_name_ambiguity** - output name is duplicated within the
-      same node, forcing a numeric fallback.
+    provided. Named output schemas are validated before this collector runs;
+    malformed or ambiguous names fail closed instead of selecting a numeric
+    or ordinal fallback.
 
     * **schema_backed_widget_alias_not_resolved** - one or more
       `widget_N` keys remain positional because no alias mapping could
@@ -848,7 +878,7 @@ def _collect_emission_diagnostics(
                 diags.append(
                     EmissionDiagnostic(
                         code=READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
-                        message=f"Node {nid} ({ctype}) has duplicate output names; falling back to numeric .out(n).",
+                        message=f"Node {nid} ({ctype}) has duplicate output names; canonical emission rejects ambiguous named outputs.",
                         severity="warning",
                         node_id=str(nid) if nid is not None else None,
                         class_type=ctype,
@@ -859,7 +889,7 @@ def _collect_emission_diagnostics(
                 diags.append(
                     EmissionDiagnostic(
                         code=READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
-                        message=f"Node {nid} ({ctype}) has partial/blank output names; some outputs use numeric .out(n).",
+                        message=f"Node {nid} ({ctype}) has partial/blank output names; canonical emission rejects malformed named outputs.",
                         severity="warning",
                         node_id=str(nid) if nid is not None else None,
                         class_type=ctype,
@@ -1078,7 +1108,12 @@ def _node_kwargs(
     out: list[tuple[str, str]] = []
     extras: list[tuple[str, str]] = []
     output_names = _declared_output_names_for_call_metadata(node)
-    if output_names and not (omit_single_output_metadata and _is_schema_confirmed_single_output(cls, output_names)):
+    native_output_names = getattr(node, "native_output_names", None)
+    if (
+        output_names
+        and native_output_names is None
+        and not (omit_single_output_metadata and _is_schema_confirmed_single_output(cls, output_names))
+    ):
         out.append(("_outputs", _format_value(tuple(output_names))))
     for key in ordered_static_keys:
         if key in incoming or key in incoming_exprs:

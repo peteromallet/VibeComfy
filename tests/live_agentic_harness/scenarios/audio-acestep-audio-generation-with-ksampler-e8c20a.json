@@ -1,7 +1,7 @@
 {
   "id": "audio-acestep-audio-generation-with-ksampler-e8c20a",
   "query": "Change the sampling steps to 30 and switch the scheduler to 'karras'.",
-  "workflow_path": "external_workflows/corpus/e8c20a18bba6455d.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/e8c20a18bba6455d.json",
   "network": true,
   "timeout": 280,
   "apply": true,

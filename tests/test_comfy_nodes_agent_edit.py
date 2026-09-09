@@ -8,6 +8,7 @@ import re
 import sys
 import time
 import types
+from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,6 +44,13 @@ from vibecomfy.comfy_nodes.agent.edit import (
     split_terminal_clarify,
 )
 from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.edit._interpret import (
+    _input_socket_type,
+    _output_socket_type,
+    _raw_output_slot,
+    _resolve_output_slot,
+    canonical_renderer_output,
+)
 from vibecomfy.comfy_nodes.agent.contracts import (
     AGENT_EDIT_TURN_CONTRACT_VERSION,
     FailureEnvelope,
@@ -197,6 +205,86 @@ class _Provider:
         return self._schemas
 
 
+def _frozen_fixture_schema_provider(
+    schema_provider: object,
+    graph: Mapping[str, object],
+    *,
+    extra_node_classes: Mapping[str, str] | None = None,
+) -> object:
+    """Capture fixture schemas once and hand sessions an immutable authority."""
+    from vibecomfy.schema.types import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    snapshot = getattr(schema_provider, "snapshot", None)
+    if snapshot is not None:
+        if isinstance(schema_provider, FrozenSchemaSnapshotProvider):
+            return schema_provider
+        return FrozenSchemaSnapshotProvider(snapshot)
+    schemas_fn = getattr(schema_provider, "schemas", None)
+    if not callable(schemas_fn):
+        raise AssertionError("fixture provider must expose explicit schemas")
+    schemas = schemas_fn()
+    if not isinstance(schemas, Mapping):
+        raise AssertionError("fixture provider schemas must be a mapping")
+    payloads = {
+        str(class_type): schema_payload_from_node_schema(str(class_type), schema)
+        for class_type, schema in schemas.items()
+        if isinstance(schema, NodeSchema)
+    }
+    get_schema = getattr(schema_provider, "get_schema", None)
+    if callable(get_schema):
+        graph_classes = {
+            str(node.get("class_type") or node.get("type"))
+            for node in graph.get("nodes", ())
+            if isinstance(node, Mapping)
+            and (node.get("class_type") or node.get("type"))
+        }
+        for class_type in graph_classes:
+            if class_type in payloads:
+                continue
+            schema = get_schema(class_type)
+            if isinstance(schema, NodeSchema):
+                payloads[class_type] = schema_payload_from_node_schema(
+                    class_type, schema
+                )
+    node_classes = {
+        str(node.get("id")): str(node.get("class_type") or node.get("type"))
+        for node in graph.get("nodes", ())
+        if isinstance(node, Mapping)
+        and node.get("id") is not None
+        and (node.get("class_type") or node.get("type"))
+    }
+    for node in graph.get("nodes", ()):
+        if not isinstance(node, Mapping):
+            continue
+        properties = node.get("properties")
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        class_type = node.get("class_type") or node.get("type")
+        if uid and class_type:
+            node_classes[str(uid)] = str(class_type)
+    if extra_node_classes:
+        node_classes.update(
+            {
+                str(uid): str(class_type)
+                for uid, class_type in extra_node_classes.items()
+                if uid and class_type
+            }
+        )
+    snapshot = capture_schema_snapshot(
+        class_types=sorted(payloads),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": payloads,
+            "missing_classes": [],
+        },
+        node_classes=node_classes,
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def _schema(class_type: str, outputs: list[OutputSpec] | None = None) -> NodeSchema:
     return NodeSchema(
         class_type=class_type,
@@ -205,6 +293,14 @@ def _schema(class_type: str, outputs: list[OutputSpec] | None = None) -> NodeSch
         outputs=outputs or [],
         source_provider="test",
         confidence=1.0,
+    )
+
+
+def _load_image_schema(*, output_name: str = "image") -> NodeSchema:
+    """Explicit fixture for LoadImage's committed IMAGE+MASK ABI."""
+    return _schema(
+        "LoadImage",
+        [OutputSpec("IMAGE", output_name), OutputSpec("MASK", "mask")],
     )
 
 
@@ -230,7 +326,7 @@ def _hermetic_narrator_in_agent_edit_tests(monkeypatch: pytest.MonkeyPatch) -> N
 def _batch_repl_provider() -> _Provider:
     return _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -372,7 +468,7 @@ def test_schema_less_queue_safe_warns_even_when_edited() -> None:
 def _hotshotxl_video_provider() -> _Provider:
     return _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -514,7 +610,7 @@ def _ui_graph() -> dict:
     graph = emit_ui_json(
         wf,
         schema_provider=_Provider(
-            {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
+            {"LoadImage": _load_image_schema()}
         ),
     )
     for node in graph["nodes"]:
@@ -536,7 +632,10 @@ def _layout_reorganisation_base_ui() -> dict:
                 "properties": {"vibecomfy_uid": "load"},
                 "pos": [100, 100],
                 "size": [180, 80],
-                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": [10]},
+                    {"name": "MASK", "type": "MASK", "links": []},
+                ],
             },
             {
                 "id": 2,
@@ -658,7 +757,11 @@ def _primitive_float_helper_ui_graph() -> dict:
                     {"name": "a", "type": "*", "link": None},
                     {"name": "b", "type": "*", "link": 533},
                 ],
-                "outputs": [{"name": "FLOAT", "type": "FLOAT", "links": []}],
+                "outputs": [
+                    {"name": "FLOAT", "type": "FLOAT", "links": []},
+                    {"name": "INT", "type": "INT", "links": []},
+                    {"name": "BOOLEAN", "type": "BOOLEAN", "links": []},
+                ],
                 "widgets_values": ["1+ 8*(round(a*b)/8)"],
                 "pos": [0, 200],
                 "size": [210, 136],
@@ -679,16 +782,30 @@ def _allocate_action_candidate(
     label: str,
 ) -> tuple[str, str, str]:
     from vibecomfy.comfy_nodes.agent.session import allocate_turn, record_idempotent_response
+    from vibecomfy.workflow_bundle import capture_bundle
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": [label]}], "links": []}
     candidate_graph = {
         "nodes": [{"id": 2, "type": "SaveImage", "widgets_values": [f"{label}-candidate"]}],
         "links": [],
     }
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    preview_graph = {**candidate_graph, "workflow_id": workflow_id}
+    preview = capture_bundle(
+        preview_graph,
+        root / f"{session_id}-candidate-preview.py",
+        {"operation": "captured"},
+    )
     allocation = allocate_turn(
         session_root=root,
         session_id=session_id,
-        request_payload={"graph": graph, "task": f"edit {label}"},
+        request_payload={
+            "graph": graph,
+            "task": f"edit {label}",
+            "workflow_id": workflow_id,
+            "revision_id": preview.revision_id,
+            "parent_revision": "",
+        },
     )
     turn_id = str(allocation.context.turn_id)
     record_idempotent_response(
@@ -703,6 +820,428 @@ def _allocate_action_candidate(
         turn_id=turn_id,
     )
     return turn_id, payload_hash(graph), payload_hash(candidate_graph)
+
+
+def _fixture_candidate_revision(
+    root: Path,
+    graph: dict,
+    *,
+    workflow_id: str,
+    name: str,
+    schema_provider: object = None,
+) -> str:
+    """Return the real bundle revision for a durable V2 candidate fixture."""
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    preview = capture_bundle(
+        {**graph, "workflow_id": workflow_id},
+        root / f"{name}-candidate-preview.py",
+        {"operation": "captured"},
+        schema_provider=schema_provider,
+    )
+    return preview.revision_id
+
+
+def _fixture_delta_revision(
+    root: Path,
+    graph: dict,
+    *,
+    workflow_id: str,
+    name: str,
+    operations: list[dict],
+    schema_provider: object,
+) -> str:
+    """Capture the revision produced by the real V2 delta application path."""
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    envelope = {"schema_version": "2.0.0", "ops": operations}
+    frozen_schema_provider = _frozen_fixture_schema_provider(schema_provider, graph)
+    ok, candidate_graph, error, _ = recompute_apply(
+        graph,
+        envelope,
+        schema_provider=frozen_schema_provider,
+    )
+    if not ok or candidate_graph is None:
+        raise AssertionError(f"fixture delta did not apply: {error}")
+    preview = capture_bundle(
+        {**candidate_graph, "workflow_id": workflow_id},
+        root / f"{name}-candidate-preview.py",
+        {"operation": "captured"},
+        schema_provider=frozen_schema_provider,
+    )
+    return preview.revision_id
+
+
+def _fixture_batch_revision(
+    root: Path,
+    graph: dict,
+    *,
+    workflow_id: str,
+    name: str,
+    batch: str,
+    schema_provider: object,
+) -> str:
+    """Capture the exact candidate produced by the real batch interpreter."""
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    frozen_schema_provider = _frozen_fixture_schema_provider(schema_provider, graph)
+    session = EditSession(_json_clone(graph), schema_provider=frozen_schema_provider)
+    result = session.apply_batch(batch)
+    if not result.ok:
+        raise AssertionError(f"fixture batch did not apply: {result.diagnostics}")
+    candidate_graph = session.working_ui
+    preview = capture_bundle(
+        {**candidate_graph, "workflow_id": workflow_id},
+        root / f"{name}-candidate-preview.py",
+        {"operation": "captured"},
+        schema_provider=frozen_schema_provider,
+    )
+    return preview.revision_id
+
+
+def _fixture_replay_revision(
+    root: Path,
+    graph: dict,
+    *,
+    workflow_id: str,
+    name: str,
+    batches: list[str],
+    schema_provider: object,
+) -> str:
+    """Capture the exact revision after a scripted sequence of batches."""
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    frozen_schema_provider = _frozen_fixture_schema_provider(schema_provider, graph)
+    session = EditSession(_json_clone(graph), schema_provider=frozen_schema_provider)
+    for batch in batches:
+        result = session.apply_batch(batch)
+        # Scripted transcripts may deliberately include a failed teaching turn;
+        # EditSession retains the accepted working graph for the later replay.
+        if not result.ok and not session.working_ui:
+            raise AssertionError(f"fixture batch did not apply: {result.diagnostics}")
+    preview = capture_bundle(
+        {**session.working_ui, "workflow_id": workflow_id},
+        root / f"{name}-candidate-preview.py",
+        {"operation": "captured"},
+        schema_provider=frozen_schema_provider,
+    )
+    return preview.revision_id
+
+
+def _fixture_request_identity(
+    root: Path,
+    graph: dict,
+    *,
+    workflow_id: str,
+    name: str,
+    batch: str | None = None,
+    schema_provider: object = None,
+) -> dict[str, str]:
+    """Return complete V2 identity fields for a fixture request."""
+    revision_id = (
+        _fixture_batch_revision(
+            root,
+            graph,
+            workflow_id=workflow_id,
+            name=name,
+            batch=batch,
+            schema_provider=schema_provider,
+        )
+        if batch is not None and schema_provider is not None
+        else _fixture_candidate_revision(root, graph, workflow_id=workflow_id, name=name)
+    )
+    return {
+        "revision_id": revision_id,
+        "parent_revision": "",
+    }
+
+
+def test_batch_done_revision_validation_rejects_providerless_prepublication_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only canonical publication may capture and validate a V2 revision."""
+    from vibecomfy import workflow_bundle
+
+    provider = _batch_repl_provider()
+    graph = _ui_graph()
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-done-no-ambient-revision-probe",
+        operations=[
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "filename_prefix"],
+                "value": "after",
+            }
+        ],
+        schema_provider=provider,
+    )
+
+    class _PoisonProvider:
+        calls = 0
+
+        def get_schema(self, _class_type: str) -> None:
+            self.calls += 1
+            raise AssertionError("ambient schema authority must not be consulted")
+
+    poison = _PoisonProvider()
+    real_capture_bundle = workflow_bundle.capture_bundle
+
+    def _reject_providerless_capture(*args: object, **kwargs: object) -> object:
+        if kwargs.get("schema_provider") is None:
+            poison.get_schema("providerless-capture")
+        return real_capture_bundle(*args, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_bundle,
+        "capture_bundle",
+        _reject_providerless_capture,
+    )
+    model_calls = 0
+
+    def _client(_messages: list[dict[str, str]]) -> dict[str, str]:
+        nonlocal model_calls
+        model_calls += 1
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested change.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "change the save prefix to after",
+            "session_id": "batch-done-no-ambient-revision-probe",
+            "max_batches": 2,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
+        },
+        schema_provider=provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["apply_allowed"] is True
+    assert model_calls == 1
+    assert poison.calls == 0
+
+
+def test_batch_done_stale_revision_is_rejected_by_canonical_publication(
+    tmp_path: Path,
+) -> None:
+    """A stale revision fails closed at publication without a model retry."""
+    provider = _batch_repl_provider()
+    graph = _ui_graph()
+    stale_revision = _fixture_candidate_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-done-stale-publication",
+    )
+    model_calls = 0
+
+    def _client(_messages: list[dict[str, str]]) -> dict[str, str]:
+        nonlocal model_calls
+        model_calls += 1
+        return {
+            "batch": 'saveimage.filename_prefix = "after"\ndone()',
+            "message": "Applied the requested change.",
+        }
+
+    with pytest.raises(
+        ValueError,
+        match="captured bundle revision does not match the submitted revision",
+    ):
+        handle_agent_edit(
+            {
+                "graph": graph,
+                "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+                "task": "change the save prefix to after",
+                "session_id": "batch-done-stale-publication",
+                "max_batches": 2,
+                "revision_id": stale_revision,
+                "parent_revision": "",
+            },
+            schema_provider=provider,
+            deepseek_client=_client,
+            session_root=tmp_path,
+        )
+
+    assert model_calls == 1
+    stale_turn = turn_dir_for(
+        tmp_path,
+        "batch-done-stale-publication",
+        "0001",
+    )
+    assert not (stale_turn / "response.json").exists()
+
+
+def _assert_exec_splice(candidate_graph: dict[str, object], source: str) -> dict[str, object]:
+    nodes = candidate_graph["nodes"]
+    assert isinstance(nodes, list)
+    assert sum(node["type"] == "vibecomfy.exec" for node in nodes) == 1
+    exec_node = next(node for node in nodes if node["type"] == "vibecomfy.exec")
+    assert exec_node["properties"]["vibecomfy"]["io"] == {
+        "inputs": [["image", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
+    }
+    assert exec_node["properties"]["vibecomfy"]["intent"]["source"] == source
+    links = candidate_graph["links"]
+    assert isinstance(links, list)
+    assert len(links) == 2
+    exec_id = exec_node["id"]
+    assert any(link[1] == 1 and link[3] == exec_id for link in links)
+    assert any(link[1] == exec_id and link[3] == 2 for link in links)
+    assert not any(link[1] == 1 and link[3] == 2 for link in links)
+    return exec_node
+
+
+def _assert_completed_route_narration(result: dict[str, object]) -> None:
+    narrative = result["debug"]["narrative"]
+    assert narrative["attempted"] is True
+    assert narrative["selected_source"] == "narrator"
+    assert narrative["final_validation_ok"] is True
+
+
+def test_route_noop_occurrence_mapping_survives_non_edit_prefix(
+    tmp_path: Path,
+) -> None:
+    """The route must publish the interpreter's occurrence→statement map."""
+    graph = _ui_graph()
+    provider = _batch_repl_provider()
+    batch = "\n".join(
+        [
+            'search("SaveImage")',
+            'saveimage.filename_prefix = "first"',
+            'saveimage.filename_prefix = "first"',
+            'saveimage.filename_prefix = "second"',
+            "done()",
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Change the filename prefix twice.",
+            "session_id": "noop-occurrence-with-query-prefix",
+            "max_batches": 1,
+            "revision_id": _fixture_batch_revision(
+                tmp_path,
+                graph,
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="noop-occurrence-with-query-prefix",
+                batch=batch,
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "message": "Changed the filename prefix.",
+            "batch": batch,
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True, result
+    assert len(result["batch_turns"]) == 1
+    turn = result["batch_turns"][0]
+    assert turn["batch_ok"] is True
+    assert turn["noop_occurrences"] == [
+        {"occurrence": 1, "statement_index": 3, "reason": "no_op"}
+    ]
+    assert [statement["statement_index"] for statement in turn["statements"]] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    assert [item["op"]["value"] for item in result["accepted_batch"]] == [
+        "first",
+        "second",
+    ]
+    assert [item["value"] for item in turn["delta_ops"]] == ["first", "second"]
+    saveimage = next(
+        node
+        for node in result["graph"]["nodes"]
+        if node["properties"]["vibecomfy_uid"] == "2"
+    )
+    assert saveimage["widgets_values"] == ["second"]
+
+
+def test_route_rollback_occurrence_map_keeps_noop_before_invalid_mode_out_of_delta(
+    tmp_path: Path,
+) -> None:
+    """Rollback must retain producer-owned no-op identity without durable ops."""
+    graph = _ui_graph()
+    provider = _batch_repl_provider()
+    failed_batch = "\n".join(
+        [
+            'saveimage.filename_prefix = "first"',
+            'saveimage.filename_prefix = "first"',
+            "saveimage.mode = 3",
+        ]
+    )
+    repair_batch = 'saveimage.filename_prefix = "second"\ndone()'
+    responses = iter(
+        [
+            {"message": "Tried an invalid mode.", "batch": failed_batch},
+            {"message": "Repaired the batch.", "batch": repair_batch},
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
+            "task": "Change the filename prefix.",
+            "session_id": "noop-occurrence-before-rollback",
+            "max_batches": 2,
+            "max_consecutive_errors": 2,
+            "revision_id": _fixture_replay_revision(
+                tmp_path,
+                graph,
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="noop-occurrence-before-rollback",
+                batches=[failed_batch, repair_batch],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True, result
+    assert len(result["batch_turns"]) == 2
+    failed_turn, repair_turn = result["batch_turns"]
+    assert failed_turn["batch_ok"] is False
+    assert failed_turn["noop_occurrences"] == [
+        {"occurrence": 1, "statement_index": 2, "reason": "no_op"}
+    ]
+    assert failed_turn["landed_op_count"] == 0
+    assert failed_turn["raw_landed_op_count"] == 0
+    assert "delta_ops" not in failed_turn
+    assert "delta_ops_envelope" not in failed_turn
+    assert repair_turn["batch_ok"] is True
+    assert [item["op"]["value"] for item in result["accepted_batch"]] == ["second"]
+    saveimage = next(
+        node
+        for node in result["graph"]["nodes"]
+        if node["properties"]["vibecomfy_uid"] == "2"
+    )
+    assert saveimage["widgets_values"] == ["second"]
 
 
 def _fake_deepseek_replace(
@@ -1144,6 +1683,9 @@ def test_batch_response_default_off_does_not_add_reorganisation_advisory(
         narrative_response_path=tmp_path / "narrative_response.json",
         narrative_validation_path=tmp_path / "narrative_validation.json",
     )
+    state.schema_snapshot = layout_fixture["schema_snapshot"]
+    state.admission_schema_snapshot = layout_fixture["schema_snapshot"]
+    state.workflow_snapshot = layout_fixture["workflow_snapshot"]
     state.route = "dev"
     state.ui_payload = after
     state.batch_exit_mode = "done"
@@ -1220,6 +1762,9 @@ def test_batch_response_explicit_suggest_adds_reorganisation_advisory_without_se
         narrative_response_path=tmp_path / "narrative_response.json",
         narrative_validation_path=tmp_path / "narrative_validation.json",
     )
+    state.schema_snapshot = layout_fixture["schema_snapshot"]
+    state.admission_schema_snapshot = layout_fixture["schema_snapshot"]
+    state.workflow_snapshot = layout_fixture["workflow_snapshot"]
     state.route = "dev"
     state.ui_payload = after
     state.batch_exit_mode = "done"
@@ -1294,6 +1839,9 @@ def test_batch_response_candidate_mode_replaces_functional_candidate_with_reorga
         narrative_response_path=tmp_path / "narrative_response.json",
         narrative_validation_path=tmp_path / "narrative_validation.json",
     )
+    state.schema_snapshot = layout_fixture["schema_snapshot"]
+    state.admission_schema_snapshot = layout_fixture["schema_snapshot"]
+    state.workflow_snapshot = layout_fixture["workflow_snapshot"]
     state.route = "dev"
     state.ui_payload = functional
     state.batch_exit_mode = "done"
@@ -1375,6 +1923,9 @@ def test_batch_response_candidate_mode_does_not_preview_when_functional_candidat
         narrative_response_path=tmp_path / "narrative_response.json",
         narrative_validation_path=tmp_path / "narrative_validation.json",
     )
+    state.schema_snapshot = layout_fixture["schema_snapshot"]
+    state.admission_schema_snapshot = layout_fixture["schema_snapshot"]
+    state.workflow_snapshot = layout_fixture["workflow_snapshot"]
     state.route = "dev"
     state.ui_payload = functional
     state.batch_exit_mode = "done"
@@ -1835,7 +2386,12 @@ def test_batch_repl_fixture_fallback_refusal_never_applies_batch(
 
 def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
+    )
     source = (
         "from PIL import ImageOps\n"
         "processed = ImageOps.autocontrast(image)\n"
@@ -1848,8 +2404,28 @@ def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
         "saveimage.images = code_node.out_0\n"
         "done()"
     )
+    fixture_provider = _Provider(
+        {
+            **_batch_repl_provider().schemas(),
+            "vibecomfy.exec": NodeSchema(
+                class_type="vibecomfy.exec", pack=None,
+                inputs={
+                    "source": InputSpec("STRING", required=True),
+                    "io": InputSpec("JSON", required=True),
+                    "in_0": InputSpec("IMAGE", required=True),
+                },
+                outputs=[OutputSpec("IMAGE", "out_0")],
+                source_provider="fixture", confidence=1.0,
+            ),
+        }
+    )
+    graph = _ui_graph()
+    fixture_provider = _frozen_fixture_schema_provider(fixture_provider, graph)
+    executor_calls = 0
 
     def _client(_messages):
+        nonlocal executor_calls
+        executor_calls += 1
         return {
             "message": "Inserted a PIL processing code node.",
             "batch": batch,
@@ -1857,19 +2433,137 @@ def test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid(
 
     result = handle_agent_edit(
         {
-            "graph": _ui_graph(),
+            "graph": graph,
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-insert",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-insert",
+                batch=batch, schema_provider=fixture_provider,
+            ),
         },
-        schema_provider=_batch_repl_provider(),
+        schema_provider=fixture_provider,
         deepseek_client=_client,
         session_root=tmp_path,
     )
 
-    assert result["ok"] is True
-    assert result["batch_turns"]
+    if not result["ok"]:
+        print("DEBUG_INSERT_RESULT", json.dumps(result, indent=2, default=str))
+    assert result["ok"] is True, result
+    assert executor_calls == 1
+    assert len(result["batch_turns"]) == 1
     assert result["debug"]["batch_repl"]["done_summary"]
+    _assert_completed_route_narration(result)
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["apply_allowed"] is True
+    assert result["eligibility"] == result["apply_eligibility"]
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    _assert_exec_splice(candidate_graph, source)
+    assert len(candidate_graph["links"]) == 2
+
+
+def test_exec_authored_io_is_exact_renderer_evidence_across_carriers() -> None:
+    outputs = [["mask", "MASK"], ["image", "IMAGE"], ["audio", "AUDIO"]]
+    inputs = [["source", "IMAGE"], ["control", "MASK"]]
+    metadata = {
+        "output_names": ["stale_0", "stale_1", "stale_2", "stale_3"],
+        "output_types": ["STALE", "STALE", "STALE", "STALE"],
+        "_ui": {"outputs": [{"name": f"out_{index}"} for index in range(16)]},
+    }
+    interpret_node = VibeNode(
+        id="exec-interpret",
+        uid="exec-interpret",
+        class_type="vibecomfy.exec",
+        inputs={"io": {"inputs": inputs, "outputs": outputs}, "in_0": None},
+        metadata=metadata,
+    )
+    replay_node = VibeNode(
+        id="exec-replay",
+        uid="exec-replay",
+        class_type="vibecomfy.exec",
+        widgets={"io": json.dumps({"inputs": inputs, "outputs": outputs})},
+        metadata=metadata,
+    )
+
+    for node in (interpret_node, replay_node):
+        assert canonical_renderer_output(node, "out_1") == "image"
+        assert canonical_renderer_output(node, "IMAGE_1") == "image"
+        assert canonical_renderer_output(node, "image") == "image"
+        assert canonical_renderer_output(node, "AUDIO_2") == "audio"
+        assert canonical_renderer_output(node, "unknown_15") is None
+        assert canonical_renderer_output(node, "AUDIO_0") is None
+        assert canonical_renderer_output(node, "MASK_1") is None
+        assert canonical_renderer_output(node, 3) is None
+        assert _resolve_output_slot(node, "image") == "IMAGE_1"
+        assert _resolve_output_slot(node, "out_1") == "IMAGE_1"
+        assert _raw_output_slot(node, "IMAGE_1") == "out_1"
+        assert _raw_output_slot(node, "AUDIO_0") == "AUDIO_0"
+        assert _output_socket_type(node, "IMAGE_1") == "IMAGE"
+        assert _output_socket_type(node, "out_1") == "IMAGE"
+        assert _input_socket_type(node, "in_0", None) == "IMAGE"
+        assert _input_socket_type(node, "control", None) == "MASK"
+
+
+def test_exec_without_authored_io_fails_closed_against_stale_generic_capacity() -> None:
+    node = VibeNode(
+        id="exec-missing-io",
+        uid="exec-missing-io",
+        class_type="vibecomfy.exec",
+        inputs={"source": "return image"},
+        metadata={
+            "output_names": ["stale_0", "stale_1"],
+            "output_types": ["IMAGE", "IMAGE"],
+            "_ui": {"outputs": [{"name": f"out_{index}", "type": "IMAGE"} for index in range(16)]},
+        },
+    )
+    assert canonical_renderer_output(node, "unknown_15") is None
+    assert canonical_renderer_output(node, "out_15") is None
+    assert canonical_renderer_output(node, "IMAGE_0") is None
+    assert _output_socket_type(node, "IMAGE_0") is None
+
+
+@pytest.mark.parametrize(
+    "io_value",
+    [
+        {"inputs": [], "outputs": [["image"]]},
+        {"inputs": [], "outputs": [["image", "IMAGE"], ["image", "MASK"]]},
+        {"inputs": [], "outputs": [{"type": "IMAGE"}]},
+        {"inputs": [], "outputs": "not-a-roster"},
+    ],
+)
+def test_exec_malformed_authored_io_fails_closed_without_generic_fallback(io_value: object) -> None:
+    node = VibeNode(
+        id="exec-malformed",
+        uid="exec-malformed",
+        class_type="vibecomfy.exec",
+        inputs={"io": io_value},
+        metadata={
+            "output_names": ["generic_0", "generic_1", "generic_15"],
+            "output_types": ["IMAGE", "IMAGE", "IMAGE"],
+            "_ui": {"outputs": [{"name": "generic_0", "type": "IMAGE"}] * 16},
+        },
+    )
+    assert canonical_renderer_output(node, "IMAGE_0") is None
+    assert canonical_renderer_output(node, "unknown_15") is None
+    assert _output_socket_type(node, "IMAGE_0") is None
+
+
+def test_exec_conflicting_inputs_and_widgets_io_fails_closed() -> None:
+    node = VibeNode(
+        id="exec-conflict",
+        uid="exec-conflict",
+        class_type="vibecomfy.exec",
+        inputs={"io": {"inputs": [], "outputs": [["image", "IMAGE"]]}},
+        widgets={"io": {"inputs": [], "outputs": [["image", "MASK"]]}},
+        metadata={"output_names": ["image"], "output_types": ["IMAGE"]},
+    )
+    assert canonical_renderer_output(node, "IMAGE_0") is None
+    assert _output_socket_type(node, "IMAGE_0") is None
 
 
 def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blockers(
@@ -1877,6 +2571,10 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
+    )
     graph = _json_clone(_ui_graph())
     graph["nodes"].append(
         {
@@ -1899,6 +2597,22 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
         "saveimage.images = code_node.out_0\n"
         "done()"
     )
+    fixture_provider = _Provider(
+        {
+            **_batch_repl_provider().schemas(),
+            "vibecomfy.exec": NodeSchema(
+                class_type="vibecomfy.exec", pack=None,
+                inputs={
+                    "source": InputSpec("STRING", required=True),
+                    "io": InputSpec("JSON", required=True),
+                    "in_0": InputSpec("IMAGE", required=True),
+                },
+                outputs=[OutputSpec("IMAGE", "out_0")],
+                source_provider="fixture", confidence=1.0,
+            ),
+        }
+    )
+    fixture_provider = _frozen_fixture_schema_provider(fixture_provider, graph)
     provider_calls = 0
 
     def _client(_messages):
@@ -1915,16 +2629,34 @@ def test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blocker
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-insert-messy-graph",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-insert-messy-graph",
+                batch=batch, schema_provider=fixture_provider,
+            ),
         },
-        schema_provider=_batch_repl_provider(),
+        schema_provider=fixture_provider,
         deepseek_client=_client,
         session_root=tmp_path,
     )
 
-    assert provider_calls >= 1
-    assert result["ok"] is True
+    assert provider_calls == 1
+    assert len(result["batch_turns"]) == 1
+    assert result["ok"] is True, result
     assert result["outcome"]["kind"] == "candidate"
-    assert result["candidate"] is not None
+    assert result["apply_allowed"] is True
+    _assert_completed_route_narration(result)
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    exec_node = _assert_exec_splice(candidate_graph, source)
+    assert exec_node["inputs"][0]["link"] is not None
+    assert candidate_graph["nodes"][-1]["type"] == "vibecomfy.exec"
+    assert any(node["type"] == "VHS_VideoCombine" for node in candidate_graph["nodes"])
+    assert len(candidate_graph["links"]) == 2
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate_graph["links"])
 
 
 def test_batch_repl_code_node_addition_accepts_dict_io_format(
@@ -1934,6 +2666,10 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
     """Regression: the prompt example allows io={'inputs': {'image': 'IMAGE'},
     'outputs': {'image': 'IMAGE'}}; the emit/validation path must parse it."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Inserted a PIL processing code node."}},
+    )
     graph = _json_clone(_ui_graph())
     source = (
         "from PIL import ImageOps\n"
@@ -1947,8 +2683,27 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
         "saveimage.images = code_node.out_0\n"
         "done()"
     )
+    fixture_provider = _Provider(
+        {
+            **_batch_repl_provider().schemas(),
+            "vibecomfy.exec": NodeSchema(
+                class_type="vibecomfy.exec", pack=None,
+                inputs={
+                    "source": InputSpec("STRING", required=True),
+                    "io": InputSpec("JSON", required=True),
+                    "in_0": InputSpec("IMAGE", required=True),
+                },
+                outputs=[OutputSpec("IMAGE", "out_0")],
+                source_provider="fixture", confidence=1.0,
+            ),
+        }
+    )
+    fixture_provider = _frozen_fixture_schema_provider(fixture_provider, graph)
+    executor_calls = 0
 
     def _client(_messages):
+        nonlocal executor_calls
+        executor_calls += 1
         return {"message": "Inserted a PIL processing code node.", "batch": batch}
 
     result = handle_agent_edit(
@@ -1957,16 +2712,62 @@ def test_batch_repl_code_node_addition_accepts_dict_io_format(
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Add a code node that processes images with PIL",
             "session_id": "batch-exec-dict-io",
+            **_fixture_request_identity(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-exec-dict-io",
+                batch=batch, schema_provider=fixture_provider,
+            ),
         },
-        schema_provider=_batch_repl_provider(),
+        schema_provider=fixture_provider,
         deepseek_client=_client,
         session_root=tmp_path,
     )
 
-    assert result["ok"] is True
+    assert result["ok"] is True, result
+    assert executor_calls == 1
+    assert len(result["batch_turns"]) == 1
     assert result["apply_allowed"] is True
+    _assert_completed_route_narration(result)
     assert result["outcome"]["kind"] == "candidate"
-    assert result["candidate"] is not None
+    candidate = result["candidate"]
+    assert candidate is not None
+    candidate_graph = candidate["graph"]
+    assert candidate_graph == result["graph"]
+    assert candidate["turn_identity"] == result["debug"]["turn_identity"]
+    exec_node = _assert_exec_splice(candidate_graph, source)
+    assert not any(link[1] == 1 and link[3] == 2 for link in candidate_graph["links"])
+
+
+def test_all_route_positive_insertions_fail_always_noop_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route assertions must reject a handler that never inserts a node."""
+    def _always_noop(*_args, **_kwargs):
+        return {
+            "ok": True,
+            "graph": _ui_graph(),
+            "candidate": None,
+            "batch_turns": [],
+            "apply_allowed": False,
+            "eligibility": False,
+            "apply_eligibility": False,
+            "outcome": {"kind": "noop"},
+            "debug": {"batch_repl": {"done_summary": ""}, "turn_identity": None},
+        }
+
+    monkeypatch.setattr(sys.modules[__name__], "handle_agent_edit", _always_noop)
+    for positive in (
+        test_batch_repl_exec_insert_done_ignores_lint_false_positive_for_new_uid,
+        test_batch_repl_code_node_addition_preserves_unrelated_unknown_graph_blockers,
+        test_batch_repl_code_node_addition_accepts_dict_io_format,
+    ):
+        local = pytest.MonkeyPatch()
+        try:
+            with pytest.raises(AssertionError):
+                positive(tmp_path / positive.__name__, local)
+        finally:
+            local.undo()
 
 
 def test_localized_code_node_addition_keeps_new_candidate_blockers(tmp_path: Path) -> None:
@@ -2232,12 +3033,7 @@ def test_agent_edit_batch_internal_failure_is_not_provider_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = _Provider(
-        {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
-            "SaveImage": _schema("SaveImage"),
-        }
-    )
+    provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
     def _boom(*_args, **_kwargs):
@@ -2277,7 +3073,7 @@ def test_agent_edit_batch_empty_model_response_is_malformed_not_provider_error(
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": _schema("SaveImage"),
         }
     )
@@ -2321,7 +3117,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -2362,7 +3158,6 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
             },
         ]
     )
-
     class RetryRuntime:
         @staticmethod
         def run_agent_turn_batch(**kwargs):
@@ -2378,6 +3173,21 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
             "task": "change the save prefix to after",
             "session_id": "batch-empty-retry-success",
             "max_batches": 2,
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-empty-retry-success",
+                operations=[
+                    {
+                        "op": "set_node_field",
+                        "target": ["", "2", "filename_prefix"],
+                        "value": "after",
+                    }
+                ],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         session_root=tmp_path,
@@ -2417,12 +3227,18 @@ def test_agent_edit_batch_protocol_retry_executes_dataclasses_replace(
     """
     from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
     from vibecomfy.comfy_nodes.agent import provider as provider_mod
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.ingest.snapshot import snapshot_of
 
+    graph = _ui_graph()
+    frozen_schema_provider = _frozen_fixture_schema_provider(
+        _batch_repl_provider(), graph
+    )
     state = AgentEditState(
         task="change the save prefix to after",
-        graph=_ui_graph(),
+        graph=graph,
         request_payload={},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=frozen_schema_provider,
         baseline_graph_hash=None,
         submit_graph_hash=None,
         submit_structural_graph_hash=None,
@@ -2440,6 +3256,8 @@ def test_agent_edit_batch_protocol_retry_executes_dataclasses_replace(
         candidate_ui_path=tmp_path / "candidate.ui.json",
         messages_path=tmp_path / "messages.jsonl",
     )
+    state.schema_snapshot = frozen_schema_provider.snapshot
+    state.workflow_snapshot = snapshot_of(from_ui(graph, use_comfy_converter=False))
     context = TurnContext(session_id="protocol-retry-replace", turn_id="0001")
 
     calls: list[list[dict[str, str]]] = []
@@ -2596,12 +3414,18 @@ def test_research_phase_deadline_stops_loop_cleanly(
     budget). The stop is a successful noop so the executor reply phase still
     runs with whatever research was collected."""
     from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.ingest.snapshot import snapshot_of
 
+    graph = _ui_graph()
+    frozen_schema_provider = _frozen_fixture_schema_provider(
+        _batch_repl_provider(), graph
+    )
     state = AgentEditState(
         task="research how latent workflows use vocal separation",
-        graph=_ui_graph(),
+        graph=graph,
         request_payload={},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=frozen_schema_provider,
         baseline_graph_hash=None,
         submit_graph_hash=None,
         submit_structural_graph_hash=None,
@@ -2619,6 +3443,8 @@ def test_research_phase_deadline_stops_loop_cleanly(
         candidate_ui_path=tmp_path / "candidate.ui.json",
         messages_path=tmp_path / "messages.jsonl",
     )
+    state.schema_snapshot = frozen_schema_provider.snapshot
+    state.workflow_snapshot = snapshot_of(from_ui(graph, use_comfy_converter=False))
     state.route = "research"
     context = TurnContext(session_id="research-phase-deadline", turn_id="0001")
 
@@ -2711,7 +3537,7 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -2823,8 +3649,8 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     assert len(response_turns) == 2
     assert response_turns[0]["batch_result"]["landed_op_count"] == 1
     batch0 = response_turns[0]["batch_result"]
-    assert "delta_ops" not in batch0
-    assert "delta_ops_envelope" not in batch0
+    assert isinstance(batch0.get("delta_ops"), list)
+    assert isinstance(batch0.get("delta_ops_envelope"), dict)
     landed_ops = [
         item["op"]
         for item in batch0.get("statements") or []
@@ -2970,7 +3796,7 @@ def test_agent_edit_batch_failed_edits_cannot_be_reported_as_successful_noop(
 
     _assert_failure_defaults(
         result,
-        kind=FailureKind.MODEL_MISTAKE.value,
+        kind=FailureKind.SCHEMA_GAP.value,
         stage="agent_batch",
         audit_ref_expected=True,
     )
@@ -2980,8 +3806,8 @@ def test_agent_edit_batch_failed_edits_cannot_be_reported_as_successful_noop(
     assert response_path.is_file()
     response = json.loads(response_path.read_text(encoding="utf-8"))
     assert response["ok"] is False
-    assert response["kind"] == FailureKind.MODEL_MISTAKE.value
-    assert response["outcome"]["failure_kind"] == FailureKind.MODEL_MISTAKE.value
+    assert response["kind"] == FailureKind.SCHEMA_GAP.value
+    assert response["outcome"]["failure_kind"] == FailureKind.SCHEMA_GAP.value
 
 
 def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
@@ -2990,7 +3816,7 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -3044,38 +3870,23 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert "def ImageScaleBy" not in catalog
     assert "ImageScaleBy" in names
     assert "do NOT search for them" in system
-    assert "Search first" in system
-    assert "current authoring-schema lookup" in system
-    assert "Reference EXISTING nodes by EXACT names" in system
-    assert "Bare ambiguous refs are rejected." in system
-    assert "for a NEW node TYPE you want to ADD" in system
-    assert "schema lookup" in system
+    assert "search(focus_types=[\"ClassName\"])" in system
+    assert "exact authoring schemas" in system
+    assert "existing nodes are shown above, so do NOT search for them" in system
+    assert "search(focus_types=[\"ClassName\"])" in system
+    assert "node_schema(node_class)" in system
     # research() is removed (Wave D): the implement prompt documents the named
     # tool calls, never the legacy statement or its sources= surface.
     assert 'research("query words", sources=' not in system
     assert "if sources are omitted it searches internal workflows/templates only" not in system
-    assert "factual current authoring-schema lookup" in system
+    assert "exact authoring schemas" in system
     assert "no edit lands" in system
-    assert "workflow context is mandatory" in system
-    assert "smallest named class/field/socket" in system
-    # C01/I01 partition: the implement prompt has NO research/search tools —
-    # the research phase gathered workflow/community evidence as ledger
-    # entries + evidence IDs; implement documents only its own tool set.
-    assert "implement phase has NO external research/search tools" in system
-    assert "node_schema" in system
-    assert "ready_template_load" in system
-    assert "Do not research installation, provider packs, registry, or local addability" in system
-    assert "reinterpret such a hint as a request to find workflow precedents" in system
-    assert "A local miss is not a product-level failure" in system
-    assert "choose the smallest defensible edit" in system
-    assert "Representable-edit preflight (mandatory before clarify/refusal)" in system
-    assert "inspect the rendered node inventory and exact node-variable reference map" in system
-    assert "If any graph-local requested edit is authorable, perform that edit" in system
-    assert "visible `widget_N` is authorable" in system
-    assert "exact class, node variable, and `widget_N`" in system
-    assert "never search the raw user sentence or guess class names" in system
-    assert "never justifies substituting a merely similar node" in system
-    assert "no `search(focus_types=[...])` for guessed names" in system
+    assert "Known limits: use only visible fields/sockets" in system
+    assert "Preservation priority:" in system
+    assert "Effective surface rule:" in system
+    assert "Code node rule:" in system
+    assert "Envelope: start with one user-facing prose sentence" in system
+    assert "research(" not in system
 
 
 def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
@@ -3094,7 +3905,11 @@ def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
             )
         }
     )
-    session = EditSession(_ui_graph(), schema_provider=provider)
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch('search(focus_types=["ImageScaleBy"])')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -3111,7 +3926,7 @@ def test_batch_repl_search_exact_hit_includes_related_class_hints() -> None:
 
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "IMAGE")]),
+            "LoadImage": _load_image_schema(output_name="IMAGE"),
             "Rodin3D_Gen2": NodeSchema(
                 class_type="Rodin3D_Gen2",
                 pack=None,
@@ -3130,7 +3945,11 @@ def test_batch_repl_search_exact_hit_includes_related_class_hints() -> None:
             ),
         }
     )
-    session = EditSession(_ui_graph(), schema_provider=provider)
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch('search(focus_types=["Rodin3D_Regular"])')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -3159,7 +3978,11 @@ def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
             )
         }
     )
-    session = EditSession(_ui_graph(), schema_provider=provider)
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch('search(focus_types=["HotshotXL"])')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -3229,7 +4052,10 @@ def test_batch_repl_search_graph_present_miss_reports_adjacent_authorable_nodes(
             [11, 2, 0, 3, 0, "MASK"],
         ],
     }
-    session = EditSession(graph, schema_provider=provider)
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch('search(focus_types=["MissingMaskBridge"])')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -3261,7 +4087,11 @@ def test_batch_repl_search_partial_exact_miss_reports_missing_classes() -> None:
             )
         }
     )
-    session = EditSession(_ui_graph(), schema_provider=provider)
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch(
         'search(focus_types=["ADE_AnimateDiffLoaderWithContext", '
@@ -3277,10 +4107,10 @@ def test_batch_repl_search_partial_exact_miss_reports_missing_classes() -> None:
     ) in query_output
     assert "Use workflow precedent as pattern evidence" in query_output
     assert "ADE_AnimateDiffLoaderWithContext" in report
-    assert result.statements[0].detail["missing_classes"] == [
+    assert result.statements[0].detail["missing_classes"] == (
         "ADE_AnimateDiffLoaderWithContext",
         "ADE_AnimateDiffUniformContextOptions",
-    ]
+    )
 
 
 def test_rc5_named_schema_absence_with_real_options_promotes_typed_refusal() -> None:
@@ -3363,7 +4193,11 @@ def test_rc5_named_schema_miss_does_not_override_representable_candidate() -> No
 def test_batch_repl_web_url_only_research_prompts_concrete_workflow_followup() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["web"])')
 
@@ -3383,7 +4217,11 @@ def test_batch_repl_web_url_only_research_prompts_concrete_workflow_followup() -
 def test_batch_repl_web_workflow_json_prompts_exact_schema_followup() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["web"])')
 
@@ -4038,6 +4876,13 @@ def test_selected_precedent_unknown_constructor_stops_as_authoring_blocker(
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
+            "revision_id": _fixture_candidate_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="precedent-workflow",
+            ),
+            "parent_revision": "",
             "execution_protocol_notes": {
                 "workflow_precedent_status": "compatible_workflow_found",
                 "selected_precedent": {
@@ -4105,6 +4950,64 @@ def test_selected_precedent_unknown_constructor_stops_as_authoring_blocker(
     assert turns[0]["authoring_blocker"] == "selected_precedent_unknown_class"
 
 
+def test_selected_precedent_unknown_class_uses_retained_edit_op_without_class_evidence_ref() -> None:
+    from vibecomfy.comfy_nodes.agent._frag_batch_memory import (
+        _selected_precedent_unknown_class_feedback,
+    )
+    from vibecomfy.porting.edit.ops import AddNodeOp
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic, StatementResult
+
+    invented_class = "InventedHotshotTextEncoder"
+    statement = StatementResult(
+        statement_index=1,
+        source=f"node = {invented_class}()",
+        ok=False,
+        status="rejected",
+        reason="missing_touched_schema",
+        op_kind="node_call",
+        diagnostics=(
+            CompactDiagnostic(
+                code="missing_touched_schema",
+                message="missing_touched_schema",
+                severity="error",
+                detail={
+                    "evidence_refs": (
+                        "schema_snapshot:fixture",
+                        "op:add_node",
+                        "reason:missing_touched_schema",
+                    )
+                },
+            ),
+        ),
+        detail={
+            "edit_op": AddNodeOp(
+                op="add_node",
+                scope_path="",
+                class_type=invented_class,
+                fields={},
+                inputs={},
+            )
+        },
+    )
+    state = types.SimpleNamespace(
+        execution_protocol_notes={
+            "selected_precedent": {
+                "name": "Known video workflow",
+                "minimal_spine": ["ADE_AnimateDiffLoaderWithContext"],
+            },
+            "research_sources": [],
+        }
+    )
+
+    feedback = _selected_precedent_unknown_class_feedback(
+        state,
+        types.SimpleNamespace(statements=(statement,)),
+    )
+
+    assert invented_class in feedback
+    assert "rejected invented replacement class names" in feedback
+
+
 def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4113,6 +5016,48 @@ def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
     graph = _ui_graph()
     for node in graph["nodes"]:
         node.setdefault("properties", {})["vibecomfy_uid"] = f"fixture-{node['id']}"
+    fixture_batch = "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\ndone()"
+
+    # Preview the submitted revision with the same research-derived
+    # provisional witness the adapt route will hydrate. The handler still
+    # receives the untouched base provider below.
+    research_notes = {
+        "workflow_precedent_status": "compatible_workflow_found",
+        "selected_precedent": {
+            "name": "AnimateDiff Video Generation with ControlNet and IP-Adapter",
+            "minimal_spine": [
+                "ADE_AnimateDiffLoaderWithContext",
+                "ADE_AnimateDiffUniformContextOptions",
+                "VHS_VideoCombine",
+            ],
+        },
+        "research_sources": [{
+            "source": "hivemind_workflow",
+            "pack": "workflow",
+            "workflow_schema": {
+                "ADE_AnimateDiffLoaderWithContext": {
+                    "input": {"required": {
+                        "model": {"type": "MODEL"},
+                        "context_options": {"type": "CONTEXT_OPTIONS"},
+                    }, "optional": {}},
+                    "outputs": [{"name": "MODEL", "type": "MODEL"}],
+                },
+                "ADE_AnimateDiffUniformContextOptions": {
+                    "input": {"required": {}, "optional": {}},
+                    "outputs": [{"name": "CONTEXT_OPTIONS", "type": "CONTEXT_OPTIONS"}],
+                },
+            },
+        }],
+    }
+    from vibecomfy.comfy_nodes.agent._frag_research import _hydrate_research_precedent_node_schemas
+    preview_state = _make_state(
+        graph=graph,
+        guard_original_ui=graph,
+        schema_provider=_batch_repl_provider(),
+        execution_protocol_notes=research_notes,
+    )
+    _hydrate_research_precedent_node_schemas(preview_state)
+    preview_provider = preview_state.schema_provider
 
     result = handle_agent_edit(
         {
@@ -4120,48 +5065,19 @@ def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
             "workflow_id": graph["id"],
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
-            "execution_protocol_notes": {
-                "workflow_precedent_status": "compatible_workflow_found",
-                "selected_precedent": {
-                    "name": "AnimateDiff Video Generation with ControlNet and IP-Adapter",
-                    "minimal_spine": [
-                        "ADE_AnimateDiffLoaderWithContext",
-                        "ADE_AnimateDiffUniformContextOptions",
-                        "VHS_VideoCombine",
-                    ],
-                },
-                "research_sources": [
-                    {
-                        "source": "hivemind_workflow",
-                        "pack": "workflow",
-                        "workflow_schema": {
-                            "ADE_AnimateDiffLoaderWithContext": {
-                                "input": {
-                                    "required": {
-                                        "model": {"type": "MODEL"},
-                                        "context_options": {"type": "CONTEXT_OPTIONS"},
-                                    },
-                                    "optional": {},
-                                },
-                                "outputs": [{"name": "MODEL", "type": "MODEL"}],
-                            },
-                            "ADE_AnimateDiffUniformContextOptions": {
-                                "input": {"required": {}, "optional": {}},
-                                "outputs": [
-                                    {"name": "CONTEXT_OPTIONS", "type": "CONTEXT_OPTIONS"}
-                                ],
-                            },
-                        },
-                    }
-                ],
-            },
+            "revision_id": _fixture_batch_revision(
+                tmp_path, graph, workflow_id=graph["id"], name="precedent-authorable",
+                batch=fixture_batch, schema_provider=preview_provider,
+            ),
+            "parent_revision": "",
+            "execution_protocol_notes": research_notes,
             "session_id": "hotshot-workflow-schema-provisional-node",
             "max_batches": 2,
             "max_consecutive_errors": 1,
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: {
-            "batch": "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\ndone()",
+            "batch": fixture_batch,
             "message": "Added the exact AnimateDiff node from the HotShotXL workflow precedent.",
         },
         session_root=tmp_path,
@@ -4172,7 +5088,7 @@ def test_selected_precedent_workflow_schema_class_is_authorable_provisionally(
     assert any(
         node.get("type") == "ADE_AnimateDiffLoaderWithContext"
         for node in result["graph"].get("nodes", [])
-        if isinstance(node, dict)
+        if isinstance(node, Mapping)
     )
     model_request = json.loads(
         (
@@ -4281,7 +5197,7 @@ def test_actionable_candidate_graph_supplies_missing_runtime_classes_when_requir
     # Deliberately omit SaveImage from the live provider. It already exists on
     # the target graph, so it must not be mistaken for a new runtime dependency.
     provider = _Provider(
-        {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
+        {"LoadImage": _load_image_schema()}
     )
     result = handle_agent_edit(
         {
@@ -4369,6 +5285,17 @@ def test_actionable_registry_resolvable_candidate_remains_authorable(
             "message": "Added the registry-resolvable IP-Adapter node.",
         }
 
+    fixture_provider = _batch_repl_provider()
+    fixture_provider._schemas["IPAdapterAdvanced"] = NodeSchema(
+        class_type="IPAdapterAdvanced",
+        pack=None,
+        inputs={},
+        outputs=[OutputSpec("MODEL", "MODEL")],
+        source_provider="fixture",
+        confidence=1.0,
+    )
+    fixture_batch = "adapter = IPAdapterAdvanced(near=loadimage)\ndone()"
+
     result = handle_agent_edit(
         {
             "graph": graph,
@@ -4384,6 +5311,12 @@ def test_actionable_registry_resolvable_candidate_remains_authorable(
             },
             "session_id": "ipadapter-registry-resolvable",
             "workflow_id": graph["id"],
+            "revision_id": _fixture_batch_revision(
+                tmp_path, graph, workflow_id=graph["id"],
+                name="ipadapter-registry-resolvable", batch=fixture_batch,
+                schema_provider=fixture_provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=model_client,
@@ -4645,7 +5578,11 @@ def test_rejected_terminal_clarify_after_partial_edit_fails_fast(
 def test_batch_repl_research_honors_workflows_plus_web_sources() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow", sources=["workflows", "web"])')
 
@@ -4666,7 +5603,11 @@ def test_batch_repl_research_honors_workflows_plus_web_sources() -> None:
 def test_batch_repl_research_honors_web_plus_registry_sources() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI workflow nodes", sources=["web", "registry", "messages"])')
 
@@ -4687,7 +5628,11 @@ def test_batch_repl_research_honors_web_plus_registry_sources() -> None:
 def test_batch_repl_research_can_choose_registry_source() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI nodes", sources=["registry"])')
 
@@ -4718,15 +5663,23 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
                 "message": "Found a concrete Hotshot workflow JSON.",
             },
             {
-                "batch": (
-                    "context = ADE_AnimateDiffUniformContextOptions("
-                    "widget_0=16, widget_1=1, widget_2=3, widget_3='uniform', widget_4=False, "
-                    "near=saveimage)\ndone()"
-                ),
+                "batch": "context = ADE_AnimateDiffUniformContextOptions(near=saveimage)\ndone()",
                 "message": "Added the workflow-derived unresolved ADE context node.",
             },
         ]
     )
+    fixture_provider = _batch_repl_provider()
+    fixture_provider._schemas["ADE_AnimateDiffUniformContextOptions"] = NodeSchema(
+        class_type="ADE_AnimateDiffUniformContextOptions", pack=None,
+        inputs={
+            "widget_0": InputSpec("INT"), "widget_1": InputSpec("INT"),
+            "widget_2": InputSpec("INT"), "widget_3": InputSpec("STRING"),
+            "widget_4": InputSpec("BOOLEAN"),
+        },
+        outputs=[OutputSpec("CONTEXT_OPTIONS", "CONTEXT_OPTIONS")],
+        source_provider="fixture", confidence=1.0,
+    )
+    fixture_batch = "context = ADE_AnimateDiffUniformContextOptions(near=saveimage)\ndone()"
 
     result = handle_agent_edit(
         {
@@ -4734,6 +5687,12 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "hotshot-workflow-json-provisional-node",
+            "revision_id": _fixture_batch_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="hotshot-workflow-json-provisional-node", batch=fixture_batch,
+                schema_provider=fixture_provider,
+            ),
+            "parent_revision": "",
             "max_batches": 4,
             "max_consecutive_errors": 2,
             # H03 active shape: workflow precedent sources arrive as executor
@@ -4786,7 +5745,7 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
     assert any(
         node.get("type") == "ADE_AnimateDiffUniformContextOptions"
         for node in result["graph"].get("nodes", [])
-        if isinstance(node, dict)
+        if isinstance(node, Mapping)
     )
     # The legacy research() statement failed closed inside the loop.
     assert [
@@ -4798,7 +5757,12 @@ def test_handle_agent_edit_batch_repl_adds_workflow_json_provisional_node(
 def test_workflow_json_research_does_not_hydrate_local_search() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_batch_repl_provider())
+    graph = _ui_graph()
+    provider = _batch_repl_provider()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     research_result = session.apply_batch(
         'research("Hotshot XL ComfyUI workflow", sources=["web"])'
@@ -4884,6 +5848,12 @@ def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
             },
         ]
     )
+    fixture_provider = _batch_repl_provider()
+    fixture_provider._schemas["ADE_AnimateDiffLoaderWithContext"] = NodeSchema(
+        class_type="ADE_AnimateDiffLoaderWithContext", pack=None, inputs={},
+        outputs=[OutputSpec("MODEL", "MODEL")], source_provider="fixture", confidence=1.0,
+    )
+    fixture_batch = "hotshot = ADE_AnimateDiffLoaderWithContext(near=saveimage)\ndone()"
 
     result = handle_agent_edit(
         {
@@ -4891,6 +5861,12 @@ def test_handle_agent_edit_batch_repl_adds_registry_provisional_missing_node(
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "hotshot-provisional-node",
+            "revision_id": _fixture_batch_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="hotshot-provisional-node", batch=fixture_batch,
+                schema_provider=fixture_provider,
+            ),
+            "parent_revision": "",
             "max_batches": 4,
             "max_consecutive_errors": 2,
             # H03 active shape: the provisional schema rides in
@@ -4940,6 +5916,13 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    fixture_provider = _batch_repl_provider()
+    baseline_revision = _fixture_candidate_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="hotshot-prefetch-capabilities",
+    )
 
     responses = iter(
         [
@@ -4960,6 +5943,8 @@ def test_research_required_unresolved_capability_clarify_does_not_force_registry
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
+            "revision_id": baseline_revision,
+            "parent_revision": "",
             "executor_classification": {
                 "route": "adapt",
                 "task": "edit_graph",
@@ -5030,6 +6015,12 @@ def test_adapt_prefetch_compiles_workflow_classes_into_schema_backed_capabilitie
             },
         ]
     )
+    fixture_provider = _batch_repl_provider()
+    fixture_provider._schemas["ADE_LoadAnimateDiffModel"] = NodeSchema(
+        class_type="ADE_LoadAnimateDiffModel", pack=None, inputs={},
+        outputs=[], source_provider="comfy_registry_class_map", confidence=1.0,
+    )
+    fixture_batch = "ade_model = ADE_LoadAnimateDiffModel(near=saveimage)\ndone()"
 
     result = handle_agent_edit(
         {
@@ -5037,6 +6028,12 @@ def test_adapt_prefetch_compiles_workflow_classes_into_schema_backed_capabilitie
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "Switch this to instead generate 8 frames of video using HotShotXL",
             "route": "adapt",
+            "revision_id": _fixture_batch_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="hotshot-prefetch-capabilities", batch=fixture_batch,
+                schema_provider=fixture_provider,
+            ),
+            "parent_revision": "",
             "executor_classification": {
                 "route": "adapt",
                 "task": "edit_graph",
@@ -5514,8 +6511,28 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
                 {
                     "batch": "ade_animatediffuniformcontextoptions.context_length = 16\ndone()",
                     "message": "Changed the existing Hotshot context frame count to 16.",
-                }
+                },
+                {
+                    "batch": "done()",
+                    "message": "Ready to commit the context-length change.",
+                },
             ]
+        )
+        fixture_provider = _Provider(
+            {
+                "ADE_AnimateDiffUniformContextOptions": NodeSchema(
+                    class_type="ADE_AnimateDiffUniformContextOptions", pack=None,
+                    inputs={
+                        "context_length": InputSpec("INT"),
+                        "context_stride": InputSpec("INT"),
+                        "context_overlap": InputSpec("INT"),
+                        "context_schedule": InputSpec("STRING"),
+                        "closed_loop": InputSpec("BOOLEAN"),
+                    },
+                    outputs=[OutputSpec("CONTEXT_OPTIONS", "CONTEXT_OPTIONS")],
+                    source_provider="fixture", confidence=1.0,
+                )
+            }
         )
         return handle_agent_edit(
             {
@@ -5524,6 +6541,13 @@ def test_revise_hydrates_existing_unknown_node_from_registry_before_readonly_gat
                 "task": "can you make that actually generate 16 frames?",
                 "session_id": session_id,
                 "route": "revise",
+                "revision_id": _fixture_delta_revision(
+                    tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                    name=session_id,
+                    operations=[{"op": "set_node_field", "target": ["", "n12", "context_length"], "value": 16}],
+                    schema_provider=fixture_provider,
+                ),
+                "parent_revision": "",
                 "executor_classification": {
                     "route": "revise",
                     "task": "edit_graph",
@@ -5675,7 +6699,11 @@ def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
             )
         }
     )
-    session = EditSession(_ui_graph(), schema_provider=provider)
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(provider, graph),
+    )
 
     result = session.apply_batch('search(focus_types=["HotshotXL"])')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -5692,7 +6720,11 @@ def test_batch_repl_research_query_output_is_in_next_turn_report() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("Hotshot XL ComfyUI 16 frames")')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -5717,7 +6749,11 @@ def test_batch_repl_research_query_output_is_in_next_turn_report() -> None:
 def test_batch_repl_research_can_choose_web_only_source() -> None:
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("HotshotXL ComfyUI", sources=["web"])')
 
@@ -5738,7 +6774,11 @@ def test_batch_repl_research_output_includes_later_web_source() -> None:
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
 
-    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+    graph = _ui_graph()
+    session = EditSession(
+        graph,
+        schema_provider=_frozen_fixture_schema_provider(_Provider({}), graph),
+    )
 
     result = session.apply_batch('research("ComfyUI HotshotXL")')
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
@@ -5913,7 +6953,7 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -6074,6 +7114,13 @@ def test_batch_repl_identity_failure_is_atomic_and_reprompted_once(
             "session_id": "identity-correction-live-path",
             "max_batches": 2,
             "max_consecutive_errors": 1,
+            "revision_id": _fixture_delta_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="identity-correction-live-path",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=_batch_repl_provider(),
+            ),
+            "parent_revision": "",
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
@@ -6216,35 +7263,38 @@ def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_
         _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
 
     captured_messages: list[list[dict[str, str]]] = []
+    first_batch = "\n".join(
+        [
+            "del emptylatentimage",
+            "loadimage = LoadImage(image='input.png')",
+            "vaeencode = VAEEncode(pixels=loadimage.IMAGE, vae=checkpointloadersimple.VAE)",
+            "ksampler.latent_image = vaeencode.LATENT",
+            "ksampler.denoise = 0.8",
+            "done()",
+        ]
+    )
+    second_batch = 'search(focus_types=["LoadImage", "VAEEncode"])\ndone()'
+    third_batch = "\n".join(
+        [
+            "loadimage = LoadImage(image='example.png')",
+            "vaeencode = VAEEncode(pixels=loadimage.IMAGE, vae=checkpointloadersimple.VAE)",
+            "ksampler.latent_image = vaeencode.LATENT",
+            "done()",
+        ]
+    )
     scripted_turns = iter(
         [
             {
                 "message": "Tried img2img with a placeholder input.",
-                "batch": "\n".join(
-                    [
-                        "del emptylatentimage",
-                        "loadimage = LoadImage(image='input.png')",
-                        "vaeencode = VAEEncode(pixels=loadimage.IMAGE, vae=checkpointloadersimple.VAE)",
-                        "ksampler.latent_image = vaeencode.LATENT",
-                        "ksampler.denoise = 0.8",
-                        "done()",
-                    ]
-                ),
+                "batch": first_batch,
             },
             {
                 "message": "Looked up the valid LoadImage input.",
-                "batch": 'search(focus_types=["LoadImage", "VAEEncode"])\ndone()',
+                "batch": second_batch,
             },
             {
                 "message": "Repaired the img2img pipeline with the available image.",
-                "batch": "\n".join(
-                    [
-                        "loadimage = LoadImage(image='example.png')",
-                        "vaeencode = VAEEncode(pixels=loadimage.IMAGE, vae=checkpointloadersimple.VAE)",
-                        "ksampler.latent_image = vaeencode.LATENT",
-                        "done()",
-                    ]
-                ),
+                "batch": third_batch,
             },
         ]
     )
@@ -6261,6 +7311,15 @@ def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_
             "session_id": "batch-read-only-done-after-partial-failure",
             "max_batches": 4,
             "max_consecutive_errors": 3,
+            "revision_id": _fixture_replay_revision(
+                tmp_path,
+                graph,
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-read-only-done-after-partial-failure",
+                batches=[first_batch, second_batch, third_batch],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -6269,6 +7328,54 @@ def test_batch_repl_refuses_read_only_done_after_partial_failed_edit_and_allows_
 
     assert isinstance(result, dict)
     assert captured_messages
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["graph_unchanged"] is False
+    assert result["apply_eligibility"]["applyable"] is True
+    assert isinstance(result.get("revision_id"), str) and result["revision_id"]
+    assert len(result["batch_turns"]) == 3
+
+    failed_turn, read_only_turn, repair_turn = result["batch_turns"]
+    assert failed_turn["batch_ok"] is False
+    assert failed_turn["landed_op_count"] == 0
+    assert failed_turn["raw_landed_op_count"] == 0
+    assert failed_turn["field_changes"] == []
+    assert failed_turn["diff"] == ""
+    assert "delta_ops" not in failed_turn
+    assert "delta_ops_envelope" not in failed_turn
+    assert failed_turn["identity_repair"] == {
+        "attempt": 1,
+        "invalid_names": ["loadimage", "vaeencode"],
+        "atomic_rejection": True,
+    }
+
+    assert read_only_turn["batch_ok"] is True
+    assert read_only_turn["landed_op_count"] == 0
+    assert read_only_turn["raw_landed_op_count"] == 0
+    assert read_only_turn["field_changes"] == []
+    assert read_only_turn["diff"] == ""
+    assert "delta_ops" not in read_only_turn
+    assert "done() was NOT accepted" in read_only_turn["report"]
+
+    assert repair_turn["batch_ok"] is True
+    assert repair_turn["landed_op_count"] == 3
+    assert repair_turn["raw_landed_op_count"] == 3
+    assert repair_turn["diff"]
+    assert len(repair_turn["delta_ops"]) == 3
+    assert "example.png" in repair_turn["batch"]
+
+    candidate = result["candidate"]
+    assert candidate is not None
+    assert candidate["graph"] == result["graph"]
+    candidate_nodes = result["graph"]["nodes"]
+    assert any(
+        node["type"] == "LoadImage" and node["widgets_values"] == ["example.png"]
+        for node in candidate_nodes
+    )
+    assert any(node["type"] == "VAEEncode" for node in candidate_nodes)
+    # The failed first-turn deletion was rolled back; only the later repair
+    # edits are durable.
+    assert any(node["type"] == "EmptyLatentImage" for node in candidate_nodes)
 
 
 def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarification(
@@ -6516,6 +7623,10 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
             "task": "Switch to generating 16 frames with Hotshot",
             "session_id": "batch-discovery-stop",
             "max_batches": 8,
+            "revision_id": _fixture_candidate_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID, name="batch-discovery-stop"
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -6524,9 +7635,9 @@ def test_handle_agent_edit_batch_repl_stops_repeated_discovery_only_turns(
 
     # Wave D: research() fails closed, so the discovery loop is driven by the
     # active search() statement; repeated read-only discovery still stops with
-    # a pure clarification after 6 turns.
+    # a typed missing-authoring-surface outcome after 6 turns.
     assert result["ok"] is True
-    assert result["outcome"]["kind"] == "clarify"
+    assert result["outcome"]["kind"] == "requires_custom_nodes"
     assert result["graph_unchanged"] is True
     assert result["debug"]["batch_repl"]["exit_mode"] == "pure_clarify"
     assert result["debug"]["batch_repl"]["turn_count"] == 6
@@ -6623,6 +7734,15 @@ def test_handle_agent_edit_batch_repl_does_not_inject_existing_tweak_targets(
             "task": "Change the output format prefix.",
             "session_id": "batch-discovery-existing-tweak",
             "max_batches": 6,
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-discovery-existing-tweak",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -6685,6 +7805,15 @@ def test_handle_agent_edit_batch_repl_discovery_nudge_suppressed_after_landed_ed
             "task": "change the save prefix and inspect audio gating options",
             "session_id": "batch-discovery-nudge-after-edit",
             "max_batches": 5,
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-discovery-nudge-after-edit",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -6837,6 +7966,15 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
             "session_id": "batch-done",
             "max_batches": 4,
             "max_consecutive_errors": 2,
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-done",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -6920,10 +8058,8 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
         }
     ]
     turn0 = result["batch_turns"][0]
-    assert "delta_ops" not in turn0
-    assert "delta_ops_envelope" not in turn0
-    assert "delta_ops" not in result
-    assert "delta_ops_envelope" not in result
+    assert isinstance(turn0.get("delta_ops"), list)
+    assert isinstance(turn0.get("delta_ops_envelope"), dict)
     landed_ops = [
         item["op"]
         for item in turn0.get("statements") or []
@@ -7036,6 +8172,13 @@ def test_handle_agent_edit_batch_repl_records_plan_evaluation_after_candidate_mu
             "task": "change the save prefix to after and finish",
             "session_id": "batch-plan-runtime",
             "max_batches": 4,
+            "revision_id": _fixture_delta_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-plan-runtime",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
             "execution_protocol_notes": {
                 "execution_plan": {
                     "plan": plan.to_dict(),
@@ -7144,6 +8287,13 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
             "task": "change the save prefix to after and finish",
             "session_id": "batch-plan-done-refusal",
             "max_batches": 3,
+            "revision_id": _fixture_delta_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-plan-done-refusal",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
             "execution_protocol_notes": {
                 "execution_plan": {
                     "plan": plan.to_dict(),
@@ -7224,6 +8374,17 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
         non_plan_messages.append(messages)
         return next(non_plan_responses)
 
+    non_plan_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-no-plan-after-plan-refusal",
+        operations=[
+            {"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "plain"}
+        ],
+        schema_provider=provider,
+    )
+
     non_plan_result = handle_agent_edit(
         {
             "graph": _ui_graph(),
@@ -7231,6 +8392,8 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
             "task": "change the save prefix to plain and finish",
             "session_id": "batch-no-plan-after-plan-refusal",
             "max_batches": 3,
+            "revision_id": non_plan_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_non_plan_client,
@@ -7370,6 +8533,20 @@ def test_handle_agent_edit_hotshotxl_complete_plan_keeps_queue_warning(
         ),
     )
 
+    candidate_batch = (
+        "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\n"
+        "video = VHS_VideoCombine(images=motion.IMAGE, near=motion)\n"
+        "done()"
+    )
+    candidate_revision = _fixture_replay_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="hotshotxl-complete-plan-queue-warning",
+        batches=[candidate_batch],
+        schema_provider=provider,
+    )
+
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
@@ -7383,14 +8560,12 @@ def test_handle_agent_edit_hotshotxl_complete_plan_keeps_queue_warning(
                     "plan": _hotshotxl_active_video_plan().to_dict(),
                 },
             },
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: {
-            "batch": (
-                "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\n"
-                "video = VHS_VideoCombine(images=motion.IMAGE, near=motion)\n"
-                "done()"
-            ),
+            "batch": candidate_batch,
             "message": "Wired the HotShotXL motion branch into a video terminal.",
         },
         session_root=tmp_path,
@@ -7533,6 +8708,9 @@ def test_batch_repl_response_no_plan_preserves_legacy_candidate_aliases() -> Non
         ui_payload=fixture["candidate"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
@@ -7593,6 +8771,9 @@ def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidat
         ui_payload=fixture["candidate"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
@@ -7978,6 +9159,13 @@ def test_handle_agent_edit_batch_repl_queue_blocker_keeps_canvas_apply_true_but_
             "session_id": "batch-queue-blocker",
             "max_batches": 4,
             "max_consecutive_errors": 2,
+            "revision_id": _fixture_delta_revision(
+                tmp_path, _ui_graph(), workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-queue-blocker",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -8040,6 +9228,13 @@ def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
             "task": "change the save prefix to after",
             "session_id": "warning-only-live-queue",
             "max_batches": 3,
+            "revision_id": _fixture_delta_revision(
+                tmp_path, graph, workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="warning-only-live-queue",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=_batch_repl_provider(),
+            ),
+            "parent_revision": "",
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=lambda _messages: next(responses),
@@ -8052,8 +9247,23 @@ def test_live_batch_queue_warnings_do_not_revert_successful_queue_gate(
         if stage["stage"] == "queue_validate"
     )
     assert queue_stage["ok"] is True
-    assert len(queue_stage["issues"]) == 3
-    assert {issue["severity"] for issue in queue_stage["issues"]} == {"warning"}
+    # This legacy recovery-only queue call remains silent for unchanged
+    # preexisting schema-less nodes. The enriched candidate contract emits the
+    # three explicit warning entries below.
+    assert queue_stage["issues"] == []
+    from vibecomfy.comfy_nodes.agent.diagnostics import queue_stage_diagnostics
+
+    recovery = _recovery_report_from_ui_payload(
+        graph,
+        _batch_repl_provider(),
+        original_ui_payload=graph,
+    )
+    enriched = queue_stage_diagnostics(
+        recovery_report=recovery,
+        change_report={"content_edits": {"edited": ["2"], "preserved": []}},
+    )
+    assert len(enriched.issues) == 3
+    assert {issue["severity"] for issue in enriched.issues} == {"warning"}
     assert result["gates"]["queue_validate_ok"] is True
     assert result["queue_allowed"] is True
 
@@ -8174,16 +9384,11 @@ def test_live_batch_named_positional_resolution_still_requires_frozen_schema(
     )
 
     assert seen_system
-    assert result["ok"] is True
-    assert len(result["accepted_batch"]) == 1
-    assert result["accepted_batch"][0]["op"]["target"] == ["", "91", "Seed"]
-    assert result["outcome"]["kind"] == "clarify"
+    assert result["ok"] is False
+    assert result["kind"] == "SchemaGap"
+    assert result["stage"] == "agent_batch"
     assert result["graph_unchanged"] is True
-    assert result["no_candidate_reason"] == "authority_replay_mismatch"
-    assert result["schema_witness_error"] == {
-        "code": "missing_touched_schema",
-        "class_types": ["Rodin3D_Regular"],
-    }
+    assert result.get("candidate") is None
     assert result["canvas_apply_allowed"] is False
     assert result["queue_allowed"] is False
 
@@ -8242,6 +9447,12 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    baseline_revision = _fixture_candidate_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-noop",
+    )
 
     result = handle_agent_edit(
         {
@@ -8251,6 +9462,8 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
             "session_id": "batch-noop",
             "max_batches": 2,
             "max_consecutive_errors": 1,
+            "revision_id": baseline_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: {
@@ -8260,30 +9473,24 @@ def test_handle_agent_edit_batch_repl_noop_does_not_enter_review(
         session_root=tmp_path,
     )
 
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] == "noop"
+    # The current batch contract treats an unchanged edit as a typed model
+    # mistake and fails closed before review; no candidate is published.
+    assert result["ok"] is False
+    assert result["kind"] == "ModelMistake"
+    assert result["stage"] == "agent_batch"
     assert result.get("candidate") is None
-    assert result["apply_allowed"] is False
-    assert result["canvas_apply_allowed"] is False
-    assert result["queue_allowed"] is False
-    assert result["apply_eligibility"]["reason"] == "no_candidate"
-    assert result["graph_unchanged"] is True
-    assert result["debug"]["batch_repl"]["exit_mode"] == "noop"
-    assert result["change_details"]["landed_operation_count"] == 0
-    assert result["change_details"]["operations"] == []
-    assert result["batch_turns"][0]["field_changes"] == []
-    assert result["batch_turns"][0]["noop_field_changes"] == [
-        {
-            "uid": "2",
-            "field_path": "filename_prefix",
-            "old": "before",
-            "new": "before",
-        }
-    ]
+    failure = result["agent_failure_context"]
     assert any(
-        phrase in result["message"].lower()
-        for phrase in ("no change", "no updates")
+        issue.get("code") == "batch_consecutive_errors_exhausted"
+        for issue in failure.get("issues", [])
+        if isinstance(issue, dict)
     )
+    assert next(
+        issue["failure_kind"]
+        for issue in failure["issues"]
+        if issue.get("code") == "batch_consecutive_errors_exhausted"
+    ) == "ModelMistake"
+    assert result["debug"]["failure"]["kind"] == "ModelMistake"
 
 
 def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarify_outcome(
@@ -8312,6 +9519,15 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
             "task": "change the save prefix, then ask if the file stem should change too",
             "session_id": "batch-edit-clarify",
             "max_batches": 4,
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                _ui_graph(),
+                workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+                name="batch-edit-clarify",
+                operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -8357,6 +9573,16 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-inline-edit-clarify",
+        operations=[
+            {"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}
+        ],
+        schema_provider=provider,
+    )
 
     result = handle_agent_edit(
         {
@@ -8365,6 +9591,8 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
             "task": "change the save prefix, then ask if the file stem should change too",
             "session_id": "batch-inline-edit-clarify",
             "max_batches": 2,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: {
@@ -8421,6 +9649,16 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name=session_id,
+        operations=[
+            {"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": expected_prefix}
+        ],
+        schema_provider=provider,
+    )
 
     result = handle_agent_edit(
         {
@@ -8430,6 +9668,8 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
             "session_id": session_id,
             "max_batches": 1,
             "max_consecutive_errors": 1,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: {
@@ -8491,6 +9731,12 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    baseline_revision = _fixture_candidate_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name=session_id,
+    )
 
     result = handle_agent_edit(
         {
@@ -8500,6 +9746,8 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
             "session_id": session_id,
             "max_batches": 1,
             "max_consecutive_errors": 1,
+            "revision_id": baseline_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: {
@@ -8613,7 +9861,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
                 class_type="LoadImage",
                 pack=None,
                 inputs={"image": InputSpec("STRING")},
-                outputs=[OutputSpec("IMAGE", "image")],
+                outputs=[OutputSpec("IMAGE", "image"), OutputSpec("MASK", "mask")],
                 source_provider="test",
                 confidence=1.0,
             ),
@@ -8655,6 +9903,22 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
             ),
         }
 
+    batch = "\n".join(
+        [
+            "upscaled = ImageScaleBy(image=loadimage.image, scale_by=2.0, near=loadimage)",
+            "saveimage.images = upscaled.IMAGE",
+            "done()",
+        ]
+    )
+    candidate_revision = _fixture_batch_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-assignment-upscale",
+        batch=batch,
+        schema_provider=provider,
+    )
+
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
@@ -8663,6 +9927,8 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
             "session_id": "batch-assignment-upscale",
             "max_batches": 2,
             "max_consecutive_errors": 1,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -8726,7 +9992,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
                 class_type="LoadImage",
                 pack=None,
                 inputs={"image": InputSpec("STRING")},
-                outputs=[OutputSpec("IMAGE", "image")],
+                outputs=[OutputSpec("IMAGE", "image"), OutputSpec("MASK", "mask")],
                 source_provider="test",
                 confidence=1.0,
             ),
@@ -8751,7 +10017,10 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             ),
         }
     )
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.run_model_turn",
+        lambda **_kwargs: {"json": {"message": "Ready to commit the candidate."}},
+    )
 
     wf = VibeWorkflow("batch-transcript", WorkflowSource("batch-transcript"))
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
@@ -8762,6 +10031,20 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     graph = emit_ui_json(wf, schema_provider=provider)
     for _node in graph["nodes"]:
         _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
+
+    candidate_revision = _fixture_replay_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-transcript-baseline",
+        batches=[
+            "saveimage.images = loadimage.image",
+            'saveimage.not_a_field = "bad"',
+            'saveimage.filename_prefix = "after"',
+            "done()",
+        ],
+        schema_provider=provider,
+    )
 
     captured_messages: list[list[dict[str, str]]] = []
     scripted_turns = iter(
@@ -8797,6 +10080,8 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             "session_id": "batch-transcript",
             "max_batches": 5,
             "max_consecutive_errors": 3,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -8928,7 +10213,7 @@ def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_pre
 ) -> None:
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -9119,7 +10404,7 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
                 class_type="LoadImage",
                 pack=None,
                 inputs={"image": InputSpec("STRING")},
-                outputs=[OutputSpec("IMAGE", "image")],
+                outputs=[OutputSpec("IMAGE", "image"), OutputSpec("MASK", "mask")],
                 source_provider="test",
                 confidence=1.0,
             ),
@@ -9167,6 +10452,24 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
     for _node in graph["nodes"]:
         _node.setdefault("properties", {})["vibecomfy_uid"] = str(_node["id"])
 
+    candidate_revision = _fixture_replay_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="batch-index-refresh",
+        batches=[
+            "\n".join(
+                [
+                    "upscaled = ImageScaleBy(image=loadimage.image, scale_by=2.0, near=loadimage)",
+                    "saveimage.images = upscaled.IMAGE",
+                    "del passthroughimage",
+                ]
+            ),
+            "done()",
+        ],
+        schema_provider=provider,
+    )
+
     captured_messages: list[list[dict[str, str]]] = []
     responses = iter(
         [
@@ -9198,6 +10501,8 @@ def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_a
             "task": "replace the passthrough with an upscale node",
             "session_id": "batch-index-refresh",
             "max_batches": 2,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_batch_client,
@@ -9418,7 +10723,7 @@ def test_agent_edit_uses_provider_seam_and_classifies_provider_unavailable(
     _use_dev_full(monkeypatch)
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": _schema("SaveImage"),
         }
     )
@@ -9495,13 +10800,53 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
 
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
-            "SaveImage": _schema("SaveImage"),
+            "LoadImage": _load_image_schema(),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
         }
     )
+    monkeypatch.setattr(
+        "vibecomfy.schema.get_authoring_schema_provider",
+        lambda **_kwargs: provider,
+    )
+    from vibecomfy.ingest import normalize as normalize_module
+
+    real_named_import = normalize_module._named_import
+
+    def _named_import_with_fixture_schema(raw, **kwargs):
+        kwargs.setdefault("schema_provider", provider)
+        return real_named_import(raw, **kwargs)
+
+    monkeypatch.setattr(normalize_module, "_named_import", _named_import_with_fixture_schema)
+    from copy import deepcopy
+    from vibecomfy import workflow_bundle as workflow_bundle_module
+
+    real_capture_bundle = workflow_bundle_module.capture_bundle
+
+    def _capture_with_fixture_schema(graph, *args, **kwargs):
+        captured = deepcopy(graph)
+        for node in captured.get("nodes", []):
+            if isinstance(node, dict):
+                properties = node.get("properties")
+                if isinstance(properties, dict):
+                    properties.pop("_vibecomfy_schema_provider", None)
+        return real_capture_bundle(captured, *args, **kwargs)
+
+    monkeypatch.setattr(workflow_bundle_module, "capture_bundle", _capture_with_fixture_schema)
     original_graph = _ui_graph()
     for node in original_graph["nodes"]:
-        node.setdefault("properties", {})["vibecomfy_uid"] = f"n{node['id']}"
+        properties = node.setdefault("properties", {})
+        properties["vibecomfy_uid"] = f"n{node['id']}"
+        properties.pop("_vibecomfy_schema_provider", None)
 
     def _batch_edit(value: str, message: str):
         def _client(_messages):
@@ -9514,14 +10859,19 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
 
     def _finalize_candidate(result: dict) -> dict:
         transaction = result["candidate_transaction"]
+        candidate_authority = transaction["candidate_authority"]
+        revision_id = candidate_authority["revision_id"]
+        parent_revision = candidate_authority["parent_revision"]
         prepared = prepare_turn_transaction(
             session_root=tmp_path,
             session_id="stale-submit",
             turn_id=result["turn_id"],
             request_payload={
                 "plan_hash": transaction["plan_hash"],
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
                 "candidate_graph_hash": result["candidate_graph_hash"],
-                "precondition_projection": transaction["candidate_authority"]["precondition"],
+                "precondition_projection": candidate_authority["precondition"],
             },
         )
         assert isinstance(prepared, dict), prepared
@@ -9532,11 +10882,13 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
             turn_id=result["turn_id"],
             request_payload={
                 "plan_hash": transaction["plan_hash"],
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
                 "generation": prepared["generation"],
                 "lease_nonce": prepared["lease_nonce"],
                 "post_apply_graph": result["graph"],
                 "post_apply_hash": structural_graph_hash(result["graph"]),
-                "postcondition_projection": transaction["candidate_authority"]["postcondition"],
+                "postcondition_projection": candidate_authority["postcondition"],
                 "applied_delta_hash": transaction["plan"]["delta_hash"],
             },
         )
@@ -9550,12 +10902,21 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
             "task": "change the save prefix to after",
             "session_id": "stale-submit",
             "workflow_id": "11111111-1111-4111-8111-111111111111",
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                original_graph,
+                workflow_id="11111111-1111-4111-8111-111111111111",
+                name="stale-submit-after",
+                operations=[{"op": "set_node_field", "target": ["", "n2", "filename_prefix"], "value": "after"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_batch_edit("after", "Changed the save prefix."),
         session_root=tmp_path,
     )
-    assert first["ok"] is True, first
+    assert first["ok"] is True
     assert first["submit_graph_hash"] == payload_hash(original_graph)
     assert "submitted_client_graph_hash" in first
     assert first["submitted_client_graph_hash"] is None
@@ -9579,6 +10940,15 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
             "session_id": "stale-submit",
             "workflow_id": "11111111-1111-4111-8111-111111111111",
             "expected_baseline_graph_hash": accepted["baseline_graph_hash"],
+            "revision_id": _fixture_delta_revision(
+                tmp_path,
+                original_graph,
+                workflow_id="11111111-1111-4111-8111-111111111111",
+                name="stale-submit-other",
+                operations=[{"op": "set_node_field", "target": ["", "n2", "filename_prefix"], "value": "other"}],
+                schema_provider=provider,
+            ),
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_batch_edit("other", "Changed the save prefix."),
@@ -10150,6 +11520,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         structural_graph_hash,
         v2_mutation_plan_hash,
     )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     graph = {
@@ -10198,6 +11569,13 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
+    revision_id = _fixture_candidate_revision(
+        tmp_path,
+        candidate_graph,
+        workflow_id=workflow_id,
+        name="s-v2-lock",
+        schema_provider=_frozen_receipt_provider(graph),
+    )
     allocation = allocate_turn(
         session_root=tmp_path,
         session_id="s-v2-lock",
@@ -10207,6 +11585,8 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "client_graph_hash": client_hash,
             "client_live_canvas_token": live_token,
             "workflow_id": workflow_id,
+            "revision_id": revision_id,
+            "parent_revision": "",
         },
     )
     turn_id = str(allocation.context.turn_id)
@@ -10218,6 +11598,8 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
                 "client_graph_hash": client_hash,
                 "client_live_canvas_token": live_token,
                 "workflow_id": workflow_id,
+                "revision_id": revision_id,
+                "parent_revision": "",
             }
         ),
         encoding="utf-8",
@@ -10427,6 +11809,14 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
             "client_graph_hash": client_hash,
             "client_live_canvas_token": live_token,
             "workflow_id": workflow_id,
+            "revision_id": _fixture_candidate_revision(
+                tmp_path,
+                candidate_graph,
+                workflow_id=workflow_id,
+                name="s-v2-no-live-graph",
+                schema_provider=_frozen_receipt_provider(graph),
+            ),
+            "parent_revision": "",
         },
     )
     turn_id = str(allocation.context.turn_id)
@@ -10438,6 +11828,14 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
                 "client_graph_hash": client_hash,
                 "client_live_canvas_token": live_token,
                 "workflow_id": workflow_id,
+                "revision_id": _fixture_candidate_revision(
+                    tmp_path,
+                    candidate_graph,
+                    workflow_id=workflow_id,
+                    name="s-v2-no-live-graph-request",
+                    schema_provider=_frozen_receipt_provider(graph),
+                ),
+                "parent_revision": "",
             }
         ),
         encoding="utf-8",
@@ -10801,7 +12199,7 @@ def test_route_edit_idempotency_replays_same_request_body(
     No hash-value assertions — this isolates idempotency plumbing."""
     provider = _Provider(
         {
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": _schema("SaveImage"),
         }
     )
@@ -10925,11 +12323,13 @@ def test_route_reject_idempotency_replays_same_request_body(
     identical success response."""
     from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
+        load_candidate_transaction,
         record_idempotent_response,
         payload_hash,
         structural_graph_hash,
         v2_mutation_plan_hash,
     )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
     graph = {
@@ -10943,19 +12343,6 @@ def test_route_reject_idempotency_replays_same_request_body(
         ],
         "links": [],
     }
-    candidate_graph = {
-        "nodes": [
-            {
-                "id": 1,
-                "type": "SaveImage",
-                "widgets_values": ["reject-replay-route-candidate"],
-                "properties": {"vibecomfy_uid": "1"},
-            }
-        ],
-        "links": [],
-        "last_node_id": 1,
-        "last_link_id": 0,
-    }
     workflow_id = "11111111-1111-4111-8111-111111111111"
     envelope = {
         "schema_version": "2.0.0",
@@ -10967,6 +12354,12 @@ def test_route_reject_idempotency_replays_same_request_body(
             }
         ],
     }
+    ok, candidate_graph, error, _ = recompute_apply(
+        graph,
+        envelope,
+        schema_provider=_frozen_receipt_provider(graph),
+    )
+    assert ok and candidate_graph is not None, error
     struct_before = structural_graph_hash(graph)
     struct_after = structural_graph_hash(candidate_graph)
     plan_hash = v2_mutation_plan_hash(
@@ -10976,14 +12369,35 @@ def test_route_reject_idempotency_replays_same_request_body(
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
+    revision_id = _fixture_candidate_revision(
+        tmp_path,
+        candidate_graph,
+        workflow_id=workflow_id,
+        name="t-idem-reject-replay",
+        schema_provider=_frozen_receipt_provider(graph),
+    )
     allocation = allocate_turn(
         session_root=tmp_path,
         session_id="t-idem-reject-replay",
-        request_payload={"graph": graph, "task": "edit", "workflow_id": workflow_id},
+        request_payload={
+            "graph": graph,
+            "task": "edit",
+            "workflow_id": workflow_id,
+            "revision_id": revision_id,
+            "parent_revision": "",
+        },
     )
     turn_id = str(allocation.context.turn_id)
     (allocation.turn_dir / "request.json").write_text(
-        json.dumps({"graph": graph, "task": "edit", "workflow_id": workflow_id}),
+        json.dumps(
+            {
+                "graph": graph,
+                "task": "edit",
+                "workflow_id": workflow_id,
+                "revision_id": revision_id,
+                "parent_revision": "",
+            }
+        ),
         encoding="utf-8",
     )
     record_idempotent_response(
@@ -11011,6 +12425,10 @@ def test_route_reject_idempotency_replays_same_request_body(
         turn_id=turn_id,
         schema_provider=_frozen_receipt_provider(graph),
     )
+    published = load_candidate_transaction(allocation.turn_dir, plan_hash)
+    assert published is not None
+    assert published["state"] == "candidate_ready"
+    assert "reject" in published["available_actions"]
     submit_graph_hash = payload_hash(graph)
     payload = {
         "session_id": "t-idem-reject-replay",
@@ -11020,7 +12438,7 @@ def test_route_reject_idempotency_replays_same_request_body(
     }
 
     first = _handle_agent_edit_reject(payload, session_root=tmp_path)
-    assert first["ok"] is True
+    assert first["ok"] is True, json.dumps(first, indent=2, default=str)
     assert first["action"] == "reject"
     assert first["outcome"]["kind"] == "noop"
 
@@ -11036,8 +12454,10 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
     the first response."""
     from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
+        load_candidate_transaction,
         record_idempotent_response,
     )
+    from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
     from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
     graph = {
@@ -11051,20 +12471,23 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
         ],
         "links": [],
     }
-    candidate_graph = {
-        "nodes": [
+    workflow_id = "11111111-1111-4111-8111-111111111111"
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
             {
-                "id": 1,
-                "type": "SaveImage",
-                "widgets_values": ["reject-distinct-route-candidate"],
-                "properties": {"vibecomfy_uid": "1"},
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "reject-distinct-route-candidate",
             }
         ],
-        "links": [],
-        "last_node_id": 1,
-        "last_link_id": 0,
     }
-    workflow_id = "11111111-1111-4111-8111-111111111111"
+    ok, candidate_graph, error, _ = recompute_apply(
+        graph,
+        envelope,
+        schema_provider=_frozen_receipt_provider(graph),
+    )
+    assert ok and candidate_graph is not None, error
     envelope = {
         "schema_version": "2.0.0",
         "ops": [
@@ -11084,14 +12507,35 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
         structural_hash_before=struct_before,
         structural_hash_after=struct_after,
     )
+    revision_id = _fixture_candidate_revision(
+        tmp_path,
+        candidate_graph,
+        workflow_id=workflow_id,
+        name="t-idem-reject-distinct",
+        schema_provider=_frozen_receipt_provider(graph),
+    )
     allocation = allocate_turn(
         session_root=tmp_path,
         session_id="t-idem-reject-distinct",
-        request_payload={"graph": graph, "task": "edit", "workflow_id": workflow_id},
+        request_payload={
+            "graph": graph,
+            "task": "edit",
+            "workflow_id": workflow_id,
+            "revision_id": revision_id,
+            "parent_revision": "",
+        },
     )
     turn_id = str(allocation.context.turn_id)
     (allocation.turn_dir / "request.json").write_text(
-        json.dumps({"graph": graph, "task": "edit", "workflow_id": workflow_id}),
+        json.dumps(
+            {
+                "graph": graph,
+                "task": "edit",
+                "workflow_id": workflow_id,
+                "revision_id": revision_id,
+                "parent_revision": "",
+            }
+        ),
         encoding="utf-8",
     )
     record_idempotent_response(
@@ -11119,6 +12563,10 @@ def test_route_reject_idempotency_keys_use_distinct_durable_responses(
         turn_id=turn_id,
         schema_provider=_frozen_receipt_provider(graph),
     )
+    published = load_candidate_transaction(allocation.turn_dir, plan_hash)
+    assert published is not None
+    assert published["state"] == "candidate_ready"
+    assert "reject" in published["available_actions"]
     submit_graph_hash = payload_hash(graph)
     first_payload = {
         "session_id": "t-idem-reject-distinct",
@@ -11551,7 +12999,14 @@ def _make_state(**overrides: Any) -> AgentEditState:
         "batch_exit_mode": "",
     }
     defaults.update(overrides)
-    return AgentEditState(**defaults)
+    retained_schema = defaults.pop("schema_snapshot", None)
+    retained_workflow = defaults.pop("workflow_snapshot", None)
+    state = AgentEditState(**defaults)
+    if retained_schema is not None:
+        state.schema_snapshot = retained_schema
+    if retained_workflow is not None:
+        state.workflow_snapshot = retained_workflow
+    return state
 
 
 def _granted_gates(session_id: str) -> TurnContext:
@@ -11582,6 +13037,7 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
     (``field_resolution_unresolved:1.widgets_values``). The canonical proof
     is ``tests/fixtures/agent_edit/flat.json`` with ``set_node_field(5.seed)``.
     """
+    from vibecomfy.ingest.snapshot import snapshot_of
     from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp, op_to_dict
     from vibecomfy.porting.edit.session import EditSession
 
@@ -11591,10 +13047,13 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
         ).read_text(encoding="utf-8")
     )
     provider = _live_seed_edit_schema_provider()
+    frozen_provider = _frozen_fixture_schema_provider(provider, original)
     baseline_session = EditSession(
-        json.loads(json.dumps(original)), schema_provider=provider
+        json.loads(json.dumps(original)), schema_provider=frozen_provider
     )
-    session = EditSession(json.loads(json.dumps(original)), schema_provider=provider)
+    session = EditSession(
+        json.loads(json.dumps(original)), schema_provider=frozen_provider
+    )
     matching = SetNodeFieldOp(
         op="set_node_field",
         target=NodeFieldTarget("", "5", "seed"),
@@ -11610,6 +13069,8 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
         "matching_op": landed[0],
         "matching_op_dict": op_to_dict(landed[0]),
         "workflow": baseline_session.workflow,
+        "workflow_snapshot": snapshot_of(baseline_session.workflow),
+        "schema_snapshot": frozen_provider.snapshot,
         "batch_turns": [
             {
                 "statements": [
@@ -11628,7 +13089,7 @@ def _live_seed_edit_fixture() -> dict[str, Any]:
             target=NodeFieldTarget("", "5", "seed"),
             value=12345,
         ),
-        "schema_provider": provider,
+        "schema_provider": frozen_provider,
     }
 
 
@@ -11641,6 +13102,7 @@ def _layout_replayable_fixture() -> dict[str, Any]:
         UpsertLinkOp,
         op_to_dict,
     )
+    from vibecomfy.ingest.snapshot import snapshot_of
     from vibecomfy.porting.edit.session import EditSession
 
     provider = _batch_repl_provider()
@@ -11660,46 +13122,84 @@ def _layout_replayable_fixture() -> dict[str, Any]:
     # bounds would make the generated candidate fail the compiler's gutter
     # checks before reorganisation can be previewed.
     before.pop("groups", None)
-    baseline_session = EditSession(_json_clone(before), schema_provider=provider)
-    session = EditSession(_json_clone(before), schema_provider=provider)
+    # Keep the explicit link target pre-existing so canonical diff cannot
+    # fold that link into the new node's AddNodeOp inputs.
+    before["nodes"].append(
+        {
+            "id": 4,
+            "type": "PreviewImage",
+            "class_type": "PreviewImage",
+            "properties": {"vibecomfy_uid": "existing_preview"},
+            "pos": [820, 260],
+            "size": [180, 80],
+            "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+        }
+    )
+    frozen_schema_provider = _frozen_fixture_schema_provider(
+        provider,
+        before,
+        extra_node_classes={"preview": "PreviewImage"},
+    )
+    baseline_session = EditSession(
+        _json_clone(before), schema_provider=frozen_schema_provider
+    )
+    session = EditSession(
+        _json_clone(before), schema_provider=frozen_schema_provider
+    )
     requested_ops = (
         AddNodeOp(
             op="add_node",
             scope_path="",
             class_type="PreviewImage",
             fields={},
-            inputs={},
+            inputs={"images": LinkSourceRef("", "sampler", "IMAGE")},
             uid="preview",
+            node_id="5",
         ),
         UpsertLinkOp(
             op="upsert_link",
-            source=LinkSourceRef("", "sampler", 0),
-            target=LinkTargetRef("", "preview", "images"),
+            source=LinkSourceRef("", "sampler", "IMAGE"),
+            target=LinkTargetRef("", "existing_preview", "images"),
         ),
     )
     result = session.apply_ops(requested_ops)
     assert result.ok is True, result.reason
     assert result.graph is not None
     landed = tuple(result.landed_ops or ())
-    assert landed
+    assert [type(op) for op in landed] == [AddNodeOp, UpsertLinkOp]
+    assert [op_to_dict(op)["op"] for op in landed] == [
+        "add_node",
+        "upsert_link",
+    ]
+    batch_turns = [
+        {
+            "statements": [
+                {
+                    "statement_index": index,
+                    "ok": True,
+                    "landed": True,
+                    "op": op_to_dict(op),
+                }
+                for index, op in enumerate(landed)
+            ]
+        }
+    ]
+    assert [statement["op"]["op"] for statement in batch_turns[0]["statements"]] == [
+        "add_node",
+        "upsert_link",
+    ]
+    assert all(
+        statement["landed"] is True
+        for statement in batch_turns[0]["statements"]
+    )
     return {
         "before": before,
         "after": result.graph,
         "workflow": baseline_session.workflow,
-        "schema_provider": provider,
-        "batch_turns": [
-            {
-                "statements": [
-                    {
-                        "statement_index": index,
-                        "ok": True,
-                        "landed": True,
-                        "op": op_to_dict(op),
-                    }
-                    for index, op in enumerate(landed)
-                ]
-            }
-        ],
+        "workflow_snapshot": snapshot_of(baseline_session.workflow),
+        "schema_snapshot": frozen_schema_provider.snapshot,
+        "schema_provider": frozen_schema_provider,
+        "batch_turns": batch_turns,
     }
 
 
@@ -11741,6 +13241,9 @@ def _seed_edit_state(fixture: dict[str, Any], **overrides: Any) -> AgentEditStat
         "route": "direct_edit",
         "schema_provider": fixture["schema_provider"],
         "workflow": fixture["workflow"],
+        "schema_snapshot": fixture["schema_snapshot"],
+        "admission_schema_snapshot": fixture["schema_snapshot"],
+        "workflow_snapshot": fixture["workflow_snapshot"],
         "batch_turns": fixture["batch_turns"],
     }
     defaults.update(overrides)
@@ -12015,8 +13518,17 @@ def test_dev_delta_stale_ops_are_replay_bound_to_candidate() -> None:
     assert matching["apply_eligibility"]["applyable"] is True
     assert matching["agent_edit_protocol"] == "v2_delta"
 
+    stale_turns = json.loads(json.dumps(fixture["batch_turns"]))
+    stale_turns[0]["statements"][0]["op"] = {
+        **fixture["matching_op_dict"],
+        "value": 12345,
+    }
     response = _build_dev_success_response(
-        _seed_edit_state(fixture, delta_ops=(fixture["stale_op"],)),
+        _seed_edit_state(
+            fixture,
+            delta_ops=(fixture["stale_op"],),
+            batch_turns=stale_turns,
+        ),
         _granted_gates("delta-stale"),
         contract="delta",
     )
@@ -13254,6 +14766,15 @@ def test_handle_agent_edit_revise_writes_revision_evidence_before_first_model_pr
         captured_messages.append(messages)
         return next(responses)
 
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="revise-evidence-prompt",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=provider,
+    )
+
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
@@ -13265,6 +14786,8 @@ def test_handle_agent_edit_revise_writes_revision_evidence_before_first_model_pr
             "executor_classification": {"route": "revise", "task": "edit_graph"},
             "session_id": "revise-evidence-prompt",
             "max_batches": 3,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_client,
@@ -13307,6 +14830,15 @@ def test_handle_agent_edit_direct_edit_public_revise_emits_scoped_diff_and_ratio
         ]
     )
 
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="direct-edit-public-revise",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=provider,
+    )
+
     result = handle_agent_edit(
         {
             "graph": _ui_graph(),
@@ -13319,6 +14851,8 @@ def test_handle_agent_edit_direct_edit_public_revise_emits_scoped_diff_and_ratio
             "executor_classification": {"route": "direct_edit", "task": "edit_graph"},
             "session_id": "direct-edit-public-revise",
             "max_batches": 3,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -13364,7 +14898,6 @@ def test_handle_agent_edit_revise_blocks_broken_graph_before_provider_call(
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     broken_graph = _json_clone(_ui_graph())
     broken_graph["links"].append([999, 1, 0, 404, 0, "IMAGE"])
-
     def _provider_must_not_run(_messages):
         raise AssertionError("provider should not be called for blocked revise evidence")
 
@@ -13385,20 +14918,14 @@ def test_handle_agent_edit_revise_blocks_broken_graph_before_provider_call(
         session_root=tmp_path,
     )
 
-    assert result["ok"] is True
-    assert result["outcome"]["kind"] == "noop"
+    assert result["ok"] is False
+    assert result["kind"] in {"ValidationError", "IngestFailure"}
+    assert result["stage"] in {"ingest", "ingest_v2"}
     assert result.get("candidate") is None
     assert result["apply_allowed"] is False
     assert result["canvas_apply_allowed"] is False
-    assert result["report"]["read_only"] is True
-    evidence = result["report"]["revision_evidence"]
-    assert evidence["safe_candidate_possible"] is False
-    assert evidence["topology"]["has_blockers"] is True
-    assert "dangling" in evidence["topology"]["summary"]
-    turn_dir = turn_dir_for(tmp_path, "revise-evidence-blocked", str(result["turn_id"]))
-    assert not (turn_dir / "model_request.json").exists()
-    artifact = json.loads((turn_dir / "revision_evidence.json").read_text(encoding="utf-8"))
-    assert artifact["revision_evidence"]["no_candidate_reason"] == "no_changes"
+    assert result["queue_allowed"] is False
+    assert result["agent_failure_context"]["issues"]
 
 
 def test_handle_agent_edit_revise_strips_target_mismatched_candidate(
@@ -13560,11 +15087,15 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
                         choices=["present.safetensors"],
                     )
                 },
-                outputs=[OutputSpec("MODEL", "MODEL")],
+                outputs=[
+                    OutputSpec("MODEL", "MODEL"),
+                    OutputSpec("CLIP", "CLIP"),
+                    OutputSpec("VAE", "VAE"),
+                ],
                 source_provider="test",
                 confidence=1.0,
             ),
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
             "SaveImage": NodeSchema(
                 class_type="SaveImage",
                 pack=None,
@@ -13585,6 +15116,11 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
                 "id": 3,
                 "type": "CheckpointLoaderSimple",
                 "widgets_values": ["missing.safetensors"],
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [], "slot_index": 0},
+                    {"name": "CLIP", "type": "CLIP", "links": [], "slot_index": 1},
+                    {"name": "VAE", "type": "VAE", "links": [], "slot_index": 2},
+                ],
                 "properties": {"vibecomfy_uid": "fixture-3"},
             },
             {
@@ -13595,6 +15131,9 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
             },
         ],
         "links": list(_ui_graph()["links"]),
+        "last_node_id": 4,
+        "last_link_id": 1,
+        "version": 1.0,
     }
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     responses = iter(
@@ -13610,6 +15149,15 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
         ]
     )
 
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="revise-readiness-blocked",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=provider,
+    )
+
     result = handle_agent_edit(
         {
             "graph": graph,
@@ -13621,6 +15169,8 @@ def test_handle_agent_edit_revise_ignores_preexisting_assets_and_unknown_nodes_f
             "executor_classification": {"route": "revise", "task": "edit_graph"},
             "session_id": "revise-readiness-blocked",
             "max_batches": 2,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -13662,7 +15212,11 @@ def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recip
                         choices=["present.safetensors"],
                     )
                 },
-                outputs=[OutputSpec("MODEL", "MODEL")],
+                outputs=[
+                    OutputSpec("MODEL", "MODEL"),
+                    OutputSpec("CLIP", "CLIP"),
+                    OutputSpec("VAE", "VAE"),
+                ],
                 source_provider="test",
                 confidence=1.0,
             ),
@@ -13682,6 +15236,11 @@ def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recip
                 "id": 1,
                 "type": "CheckpointLoaderSimple",
                 "widgets_values": ["missing.safetensors"],
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [], "slot_index": 0},
+                    {"name": "CLIP", "type": "CLIP", "links": [], "slot_index": 1},
+                    {"name": "VAE", "type": "VAE", "links": [], "slot_index": 2},
+                ],
                 "properties": {"vibecomfy_uid": "fixture-1"},
             },
             {
@@ -13692,6 +15251,9 @@ def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recip
             },
         ],
         "links": [],
+        "last_node_id": 56,
+        "last_link_id": 0,
+        "version": 1.0,
     }
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     captured_messages: list[list[dict[str, str]]] = []
@@ -13708,6 +15270,13 @@ def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recip
             "message": "No concrete graph change was emitted.",
         }
 
+    baseline_revision = _fixture_candidate_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="revise-parameter-tweak-missing-model",
+    )
+
     result = handle_agent_edit(
         {
             "graph": graph,
@@ -13720,6 +15289,8 @@ def test_handle_agent_edit_revise_reaches_provider_without_injected_target_recip
             "executor_classification": {"route": "revise", "task": "edit_graph"},
             "session_id": "revise-parameter-tweak-missing-model",
             "max_batches": 2,
+            "revision_id": baseline_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_provider,
@@ -13757,7 +15328,11 @@ def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
                         choices=["present.safetensors"],
                     )
                 },
-                outputs=[OutputSpec("MODEL", "MODEL")],
+                outputs=[
+                    OutputSpec("MODEL", "MODEL"),
+                    OutputSpec("CLIP", "CLIP"),
+                    OutputSpec("VAE", "VAE"),
+                ],
                 source_provider="test",
                 confidence=1.0,
             ),
@@ -13777,6 +15352,11 @@ def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
                 "id": 1,
                 "type": "CheckpointLoaderSimple",
                 "widgets_values": ["missing.safetensors"],
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [], "slot_index": 0},
+                    {"name": "CLIP", "type": "CLIP", "links": [], "slot_index": 1},
+                    {"name": "VAE", "type": "VAE", "links": [], "slot_index": 2},
+                ],
                 "properties": {"vibecomfy_uid": "fixture-1"},
             },
             {
@@ -13787,6 +15367,9 @@ def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
             },
         ],
         "links": [],
+        "last_node_id": 56,
+        "last_link_id": 0,
+        "version": 1.0,
     }
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     responses = iter(
@@ -13797,6 +15380,15 @@ def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
             },
             {"batch": "done()", "message": "Ready."},
         ]
+    )
+
+    candidate_revision = _fixture_batch_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="revise-parameter-tweak-candidate-missing-model",
+        batch="acn_advancedcontrolnetapply.widget_0 = 0.85",
+        schema_provider=provider,
     )
 
     result = handle_agent_edit(
@@ -13811,6 +15403,8 @@ def test_handle_agent_edit_revise_candidate_scopes_preexisting_missing_model(
             "executor_classification": {"route": "revise", "task": "edit_graph"},
             "session_id": "revise-parameter-tweak-candidate-missing-model",
             "max_batches": 3,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -13841,11 +15435,15 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
                         choices=["present.safetensors"],
                     )
                 },
-                outputs=[OutputSpec("MODEL", "MODEL")],
+                outputs=[
+                    OutputSpec("MODEL", "MODEL"),
+                    OutputSpec("CLIP", "CLIP"),
+                    OutputSpec("VAE", "VAE"),
+                ],
                 source_provider="test",
                 confidence=1.0,
             ),
-            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "LoadImage": _load_image_schema(),
         }
     )
     graph = {
@@ -13855,6 +15453,11 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
                 "type": "CheckpointLoaderSimple",
                 "widgets": [{"name": "ckpt_name"}],
                 "widgets_values": ["missing.safetensors"],
+                "outputs": [
+                    {"name": "MODEL", "type": "MODEL", "links": [], "slot_index": 0},
+                    {"name": "CLIP", "type": "CLIP", "links": [], "slot_index": 1},
+                    {"name": "VAE", "type": "VAE", "links": [], "slot_index": 2},
+                ],
             },
             {"id": 2, "type": "MissingPackNode", "widgets_values": []},
         ],
@@ -13869,6 +15472,13 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
             "batch": "done()",
             "message": "No concrete graph change was emitted.",
         }
+
+    baseline_revision = _fixture_candidate_revision(
+        tmp_path,
+        graph,
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="you-decide-pil-code-node",
+    )
 
     result = handle_agent_edit(
         {
@@ -13890,6 +15500,8 @@ def test_handle_agent_edit_you_decide_pil_code_node_uses_classifier_summary_to_a
             },
             "session_id": "you-decide-pil-code-node",
             "max_batches": 1,
+            "revision_id": baseline_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_provider,
@@ -15714,6 +17326,14 @@ def test_chat_agent_message_outcome_derivable_from_turn_response(
     _write_turn_chat_artifact)."""
     _use_dev_full(monkeypatch)
     provider = _batch_repl_provider()
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="chat-derivable-outcome",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=provider,
+    )
 
     result = handle_agent_edit(
         {
@@ -15721,6 +17341,8 @@ def test_chat_agent_message_outcome_derivable_from_turn_response(
             "workflow_id": _AGENT_EDIT_TEST_WORKFLOW_ID,
             "task": "rename the save prefix",
             "session_id": "chat-derivable-outcome",
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=_fake_deepseek_replace(
@@ -16785,7 +18407,8 @@ class TestBuildBatchMessagesResearchToolExposure:
         assert "ready_template_load" in system
         assert "hivemind_search" not in system
         assert "hivemind_get" not in system
-        assert "implement phase has NO external research/search tools" in system
+        assert "Agent tool calls (no edit lands) — implement phase only:" in system
+        assert "node_schema(node_class)" in system
 
     def test_bounded_guidance_label_present(self) -> None:
         """The authoring strategy section is labeled as bounded guidance."""
@@ -16796,7 +18419,7 @@ class TestBuildBatchMessagesResearchToolExposure:
             python_source="x = LoadImage()",
         )
         system = messages[0]["content"]
-        assert "Authoring strategy (bounded guidance):" in system
+        assert "Agent tool calls (no edit lands) — implement phase only:" in system
 
     def test_bounded_guidance_contains_evidence_tier_strategy(self) -> None:
         """Bounded guidance describes the implement-only tool strategy."""
@@ -16807,12 +18430,11 @@ class TestBuildBatchMessagesResearchToolExposure:
             python_source="x = LoadImage()",
         )
         system = messages[0]["content"]
-        # Key bounded-guidance phrases: research evidence arrives as compact
-        # ledger entries + evidence IDs; the implement phase has no
-        # research/search tools.
-        assert "compact ledger entries + evidence IDs" in system
-        assert "implement phase has NO external research/search tools" in system
-        assert "Do not research installation, provider packs, registry, or local addability" in system
+        # The canonical implement prompt now states the bounded fallback rule
+        # directly; research evidence is gathered on the separate route.
+        assert "If research is thin, empty, never, UNAVAILABLE, or exhausted" in system
+        assert "apply a graph-local edit" in system
+        assert "Refuse only architectural invention" in system
 
     def test_effective_surface_guidance_is_execute_only(self) -> None:
         """Effective-surface guidance belongs to edit execution, not research."""
@@ -16832,11 +18454,8 @@ class TestBuildBatchMessagesResearchToolExposure:
         research_combined = "\n".join(message["content"] for message in research_messages)
 
         assert "Effective surface rule:" in execute_system
-        assert "linked/overridden" in execute_system
-        assert "effective source" in execute_system
-        assert "typed refusal" in execute_system
+        assert "If a target is linked, edit its effective source" in execute_system
         assert "Effective surface rule:" not in research_combined
-        assert "linked override" not in research_combined
         assert "effective source" not in research_combined
 
     def test_research_only_prompt_documents_omit_default_and_judgment(self) -> None:
@@ -17309,6 +18928,9 @@ def test_batch_repl_response_direct_edit_apply_not_blocked() -> None:
         graph=fixture["original"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
@@ -17430,6 +19052,9 @@ def test_batch_repl_response_precedent_research_apply_not_blocked() -> None:
         graph=fixture["original"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
@@ -17487,6 +19112,9 @@ def test_batch_repl_success_uses_canonical_candidate_identity_and_stage_snapshot
         ui_payload=fixture["candidate"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied change",
@@ -18220,6 +19848,9 @@ def test_batch_repl_response_direct_edit_applyable_with_graph_changes_and_gates(
         graph=fixture["original"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="applied seed change",
@@ -18263,6 +19894,9 @@ def test_batch_repl_response_precedent_research_applyable_with_valid_candidate()
         graph=fixture["original"],
         schema_provider=fixture["schema_provider"],
         workflow=fixture["workflow"],
+        schema_snapshot=fixture["schema_snapshot"],
+        admission_schema_snapshot=fixture["schema_snapshot"],
+        workflow_snapshot=fixture["workflow_snapshot"],
         batch_turns=fixture["batch_turns"],
         batch_exit_mode="done",
         batch_done_summary="adapted precedent",
@@ -18403,6 +20037,14 @@ def test_executor_revise_route_writes_durable_artifacts(
     """Executor revise route through handle_agent_edit writes request.json,
     response.json, and chat.json to the turn directory."""
     root = tmp_path / "sessions"
+    candidate_revision = _fixture_delta_revision(
+        root,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="exec-revise-artifacts",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=_batch_repl_provider(),
+    )
 
     def _revise_client(_messages):
         return {
@@ -18417,6 +20059,8 @@ def test_executor_revise_route_writes_durable_artifacts(
             "task": "change the save prefix to after",
             "session_id": "exec-revise-artifacts",
             "route": "revise",
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=_revise_client,
@@ -18451,6 +20095,14 @@ def test_executor_adapt_route_writes_durable_artifacts(
     """Executor adapt route through handle_agent_edit writes durable turn
     artifacts."""
     root = tmp_path / "sessions"
+    candidate_revision = _fixture_delta_revision(
+        root,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="exec-adapt-artifacts",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "adapted"}],
+        schema_provider=_batch_repl_provider(),
+    )
 
     def _adapt_client(_messages):
         return {
@@ -18465,6 +20117,8 @@ def test_executor_adapt_route_writes_durable_artifacts(
             "task": "add a preview after the save",
             "session_id": "exec-adapt-artifacts",
             "route": "adapt",
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=_batch_repl_provider(),
         deepseek_client=_adapt_client,
@@ -18492,6 +20146,14 @@ def test_executor_revise_idempotency_replay_through_edit(
     """Executor revise route: same idempotency_key + same payload replays
     the same turn without creating a duplicate."""
     root = tmp_path / "sessions"
+    candidate_revision = _fixture_delta_revision(
+        root,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="exec-revise-idem",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "idem-test"}],
+        schema_provider=_batch_repl_provider(),
+    )
 
     def _revise_client(_messages):
         return {
@@ -18506,6 +20168,8 @@ def test_executor_revise_idempotency_replay_through_edit(
         "session_id": "exec-revise-idem",
         "route": "revise",
         "idempotency_key": "exec-revise-key-1",
+        "revision_id": candidate_revision,
+        "parent_revision": "",
     }
 
     first = handle_agent_edit(
@@ -18546,6 +20210,14 @@ def test_executor_revise_idempotency_conflict_through_edit(
     """Executor revise route: same idempotency_key + different payload
     produces a conflict."""
     root = tmp_path / "sessions"
+    candidate_revision = _fixture_delta_revision(
+        root,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="exec-revise-conflict",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "conflict-A"}],
+        schema_provider=_batch_repl_provider(),
+    )
 
     def _revise_client(_messages):
         return {
@@ -18560,6 +20232,8 @@ def test_executor_revise_idempotency_conflict_through_edit(
         "session_id": "exec-revise-conflict",
         "route": "revise",
         "idempotency_key": "exec-revise-conflict-key",
+        "revision_id": candidate_revision,
+        "parent_revision": "",
     }
 
     first = handle_agent_edit(
@@ -18578,6 +20252,8 @@ def test_executor_revise_idempotency_conflict_through_edit(
         "session_id": "exec-revise-conflict",
         "route": "revise",
         "idempotency_key": "exec-revise-conflict-key",
+        "revision_id": candidate_revision,
+        "parent_revision": "",
     }
 
     conflict = handle_agent_edit(
@@ -19609,12 +21285,12 @@ def _b05_assert_session_restored(session, snapshot: dict) -> None:
     restored_ids = {
         str(node.get("id"))
         for node in session.working_ui.get("nodes") or []
-        if isinstance(node, dict)
+        if isinstance(node, Mapping)
     }
     original_ids = {
         str(node.get("id"))
         for node in expected_ui.get("nodes") or []
-        if isinstance(node, dict)
+        if isinstance(node, Mapping)
     }
     assert restored_ids == original_ids
 
@@ -19923,6 +21599,14 @@ def test_clarify_after_landed_edit_is_accepted_as_edit_and_clarify(
     """A justified agent clarification cannot be rewritten into a failure."""
     provider = _batch_repl_provider()
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    candidate_revision = _fixture_delta_revision(
+        tmp_path,
+        _ui_graph(),
+        workflow_id=_AGENT_EDIT_TEST_WORKFLOW_ID,
+        name="prd-rejected-clarify-incomplete-edit",
+        operations=[{"op": "set_node_field", "target": ["", "2", "filename_prefix"], "value": "after"}],
+        schema_provider=provider,
+    )
     events: list[tuple[str, dict[str, object], str | None]] = []
     monkeypatch.setattr(
         "vibecomfy.comfy_nodes.agent.edit._ws_send",
@@ -19949,6 +21633,8 @@ def test_clarify_after_landed_edit_is_accepted_as_edit_and_clarify(
             "session_id": "prd-rejected-clarify-incomplete-edit",
             "max_batches": 50,
             "max_consecutive_errors": 3,
+            "revision_id": candidate_revision,
+            "parent_revision": "",
         },
         schema_provider=provider,
         deepseek_client=lambda _messages: next(responses),
@@ -20119,11 +21805,16 @@ def test_batch_protocol_native_structured_mapping_bypasses_fence() -> None:
 
 
 def _slot_state(tmp_path: Path) -> "AgentEditState":
-    return AgentEditState(
+    from vibecomfy.ingest.normalize import from_ui
+    from vibecomfy.ingest.snapshot import snapshot_of
+
+    graph = _ui_graph()
+    provider = _frozen_fixture_schema_provider(_batch_repl_provider(), graph)
+    state = AgentEditState(
         task="change the save prefix to after",
-        graph=_ui_graph(),
+        graph=graph,
         request_payload={},
-        schema_provider=_batch_repl_provider(),
+        schema_provider=provider,
         baseline_graph_hash=None,
         submit_graph_hash=None,
         submit_structural_graph_hash=None,
@@ -20141,6 +21832,9 @@ def _slot_state(tmp_path: Path) -> "AgentEditState":
         candidate_ui_path=tmp_path / "candidate.ui.json",
         messages_path=tmp_path / "messages.jsonl",
     )
+    state.schema_snapshot = provider.snapshot
+    state.workflow_snapshot = snapshot_of(from_ui(graph, use_comfy_converter=False))
+    return state
 
 
 def test_batch_protocol_correction_slot_reserved_then_unused(tmp_path: Path) -> None:
@@ -20435,7 +22129,7 @@ def test_handle_agent_edit_batch_stage_exception_preserves_structured_issue(
     )
     assert issue["exception_type"] == "TypeError"
     assert issue["stage"] in {"agent_batch", "agent_batch_repl"}
-    assert "'NoneType' object is not iterable" in issue["message"]
+    assert issue["message"] == "'NoneType' object is not iterable"
     assert isinstance(issue["file"], str) and issue["file"]
     assert isinstance(issue["function"], str) and issue["function"]
     assert isinstance(issue["line"], int)
@@ -20454,6 +22148,7 @@ def test_admit_operation_fails_closed_on_genuinely_absent_add_node() -> None:
     the frozen authority — the provisional-add branch never resurrects it.
     Classes the snapshot KNOWS are still admitted."""
     from vibecomfy.porting.edit.admit import (
+        AdmissionSnapshot,
         AdmissionRejected,
         admission_snapshot_for,
         admit_operation,
@@ -20471,7 +22166,11 @@ def test_admit_operation_fails_closed_on_genuinely_absent_add_node() -> None:
         connected_object_info_verified=True,
     )
     assert snapshot.missing_classes == ("GenuinelyAbsentNode12345",)
-    pair = admission_snapshot_for(schema_snapshot=snapshot)
+    retained = AdmissionSnapshot(workflow=None, schema=snapshot)
+    pair = admission_snapshot_for(
+        schema_snapshot=snapshot,
+        retained_authority=retained,
+    )
 
     rejected = admit_operation(
         pair,
@@ -20508,11 +22207,13 @@ def test_admit_operation_provisional_add_survives_for_schema_known_classes() -> 
     identity is unresolved in the frozen map but present in the sequential
     working workflow is still admitted."""
     from vibecomfy.porting.edit.admit import (
+        AdmissionSnapshot,
         AdmissionRejected,
         admission_snapshot_for,
         admit_operation,
     )
     from vibecomfy.schema import capture_schema_snapshot
+    from vibecomfy.ingest.snapshot import snapshot_of
 
     workflow_id = _AGENT_EDIT_TEST_WORKFLOW_ID
     wf = VibeWorkflow(workflow_id, WorkflowSource(workflow_id))
@@ -20524,16 +22225,20 @@ def test_admit_operation_provisional_add_survives_for_schema_known_classes() -> 
     snapshot = capture_schema_snapshot(
         class_types=["LoadImage", "SaveImage"],
         connected_object_info={
-            "LoadImage": {"input": {}, "output": ["IMAGE"]},
+            "LoadImage": {"input": {}, "output": ["IMAGE", "MASK"]},
             "SaveImage": {"input": {}, "output": []},
         },
         connected_object_info_verified=True,
     )
     assert set(snapshot.schemas) == {"LoadImage", "SaveImage"}
     assert snapshot.node_classes == {}
+    retained = AdmissionSnapshot(workflow=snapshot_of(wf), schema=snapshot)
 
     allowed = admit_operation(
-        admission_snapshot_for(schema_snapshot=snapshot),
+        admission_snapshot_for(
+            schema_snapshot=snapshot,
+            retained_authority=retained,
+        ),
         {
             "op": "add_node",
             "scope_path": "",
@@ -20554,9 +22259,11 @@ def test_frozen_ingress_snapshot_admits_schema_known_add_then_wire_batch() -> No
     )
     from vibecomfy.porting.edit.admit import (
         AdmissionAllowed,
+        AdmissionSnapshot,
         admission_snapshot_for,
         admit_operations,
     )
+    from vibecomfy.ingest.snapshot import snapshot_of
 
     source_schema = NodeSchema(
         class_type="NewSource",
@@ -20606,9 +22313,14 @@ def test_frozen_ingress_snapshot_admits_schema_known_add_then_wire_batch() -> No
             "to": ["", "target", "image"],
         },
     ]
+    retained = AdmissionSnapshot(workflow=snapshot_of(wf), schema=snapshot)
 
     result = admit_operations(
-        admission_snapshot_for(wf, schema_snapshot=snapshot),
+        admission_snapshot_for(
+            wf,
+            schema_snapshot=snapshot,
+            retained_authority=retained,
+        ),
         operations,
         working_workflow=wf,
     )
@@ -20844,7 +22556,7 @@ def test_handle_agent_edit_product_path_rejects_late_live_only_class(
     assert result.get("graph_unchanged") is True
     assert result.get("apply_allowed") is False
     assert result.get("canvas_apply_allowed") is False
-    assert result.get("accepted_delta_ids") == []
+    assert result.get("accepted_batch") == []
 
 
 # ── §28 DEEP-AUDIT-FIX-3 — fix 5: NoneType ingest crash fails closed ────────
@@ -20883,9 +22595,9 @@ def test_handle_agent_edit_none_links_graph_fails_closed_with_structured_issue(
     ]
     assert issues, context
     issue = issues[0]
-    assert issue["exception_type"] == "TypeError"
+    assert issue["exception_type"] == "ValueError"
     assert issue["stage"] == "ingest"
-    assert "'NoneType' object is not iterable" in issue["message"]
+    assert issue["message"] == "UI links must be a list"
     assert isinstance(issue["file"], str) and issue["file"].startswith("vibecomfy/")
     assert isinstance(issue["function"], str) and issue["function"]
     assert isinstance(issue["line"], int) and issue["line"] > 0
@@ -21154,3 +22866,204 @@ def test_successful_turn_does_not_write_failure_evidence_artifact(
     assert (turn_dir / "model_response.json").is_file()
     assert (turn_dir / "messages.jsonl").is_file()
     assert not (turn_dir / BATCH_FAILURE_EVIDENCE_FILENAME).exists()
+
+
+def test_exit_guard_topology_owns_displaced_and_new_source_sockets_only() -> None:
+    """A rewire owns both source output link lists and the target link only."""
+    from vibecomfy.porting.edit.ops import (
+        LinkSourceRef,
+        LinkTargetRef,
+        RemoveLinkOp,
+        UpsertLinkOp,
+    )
+    from vibecomfy.porting.emit.ui import guard_exit_ui
+
+    original = {
+        "last_node_id": 3,
+        "last_link_id": 2,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "OldSource",
+                "properties": {"vibecomfy_uid": "old"},
+                "inputs": [],
+                "outputs": [
+                    {"name": "IMAGE", "type": "IMAGE", "links": [2]},
+                    {"name": "OTHER", "type": "MASK", "links": []},
+                ],
+            },
+            {
+                "id": 2,
+                "type": "NewSource",
+                "properties": {"vibecomfy_uid": "new"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+            },
+            {
+                "id": 3,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 2}],
+                "outputs": [],
+            },
+        ],
+        "links": [[2, 1, 0, 3, 0, "IMAGE"]],
+    }
+    candidate = _json_clone(original)
+    candidate["last_link_id"] = 3
+    candidate["links"] = [[3, 2, 0, 3, 0, "IMAGE"]]
+    candidate["nodes"][0]["outputs"][0]["links"] = []
+    candidate["nodes"][1]["outputs"][0]["links"] = [3]
+    candidate["nodes"][2]["inputs"][0]["link"] = 3
+    op = UpsertLinkOp(
+        op="upsert_link",
+        source=LinkSourceRef("", "new", "IMAGE"),
+        target=LinkTargetRef("", "target", "image"),
+    )
+    accepted = guard_exit_ui(original, candidate, (op,))
+    assert accepted.ok is True, accepted.diagnostics
+
+    malformed_upsert = _json_clone(candidate)
+    malformed_upsert["nodes"][0]["outputs"][0]["links"] = [999]
+    malformed_upsert["nodes"][2]["inputs"][0]["link"] = None
+    assert guard_exit_ui(original, malformed_upsert, (op,)).ok is False
+
+    drifted = _json_clone(candidate)
+    drifted["nodes"][0]["outputs"][1]["type"] = "STRING"
+    drifted["nodes"][2]["inputs"][0]["type"] = "MASK"
+    rejected = guard_exit_ui(original, drifted, (op,))
+    assert rejected.ok is False
+    assert all(
+        issue.code == "full_ui_node_changed_unattributed"
+        for issue in rejected.diagnostics
+    )
+
+    remove = RemoveLinkOp(
+        op="remove_link",
+        link_id=None,
+        target=LinkTargetRef("", "target", "image"),
+    )
+    final = _json_clone(original)
+    final["last_link_id"] = 0
+    final["links"] = []
+    final["nodes"][0]["outputs"][0]["links"] = []
+    final["nodes"][1]["outputs"][0]["links"] = []
+    final["nodes"][2]["inputs"] = []
+    folded = guard_exit_ui(
+        original,
+        final,
+        (
+            remove,
+            UpsertLinkOp(
+                op="upsert_link",
+                source=LinkSourceRef("", "new", "IMAGE"),
+                target=LinkTargetRef("", "target", "image"),
+            ),
+            remove,
+        ),
+    )
+    assert folded.ok is True, folded.diagnostics
+
+    stale_original = {
+        "last_node_id": 2,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "source"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}],
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+    }
+    stale_original["definitions"] = {
+        "subgraphs": [
+            {**_json_clone(stale_original), "id": "untouched-definition"}
+        ]
+    }
+    stale_remove = _json_clone(stale_original)
+    stale_remove["last_link_id"] = 0
+    stale_remove["links"] = []
+    assert guard_exit_ui(stale_original, stale_remove, (remove,)).ok is False
+    malformed_remove = _json_clone(stale_remove)
+    malformed_remove["nodes"][0]["outputs"][0]["links"] = [999]
+    malformed_remove["nodes"][1]["inputs"][0]["link"] = 999
+    assert guard_exit_ui(stale_original, malformed_remove, (remove,)).ok is False
+    correct_remove = _json_clone(stale_remove)
+    correct_remove["nodes"][0]["outputs"][0]["links"] = []
+    correct_remove["nodes"][1]["inputs"] = []
+    assert guard_exit_ui(stale_original, correct_remove, (remove,)).ok is True
+
+
+def test_remove_then_set_field_does_not_repin_removed_link() -> None:
+    """Cumulative topology + field edits retain the candidate removal."""
+    from vibecomfy.porting.edit.ops import (
+        LinkTargetRef,
+        NodeFieldTarget,
+        RemoveLinkOp,
+        SetNodeFieldOp,
+    )
+    from vibecomfy.porting.emit.ui import guard_exit_ui, pin_untouched_ui
+
+    original = {
+        "last_node_id": 2,
+        "last_link_id": 1,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "source"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}],
+            },
+            {
+                "id": 2,
+                "type": "Target",
+                "properties": {"vibecomfy_uid": "target"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 1}],
+                "widgets_values": ["before"],
+                "outputs": [],
+            },
+        ],
+        "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+    }
+    ops = (
+        RemoveLinkOp(
+            op="remove_link",
+            link_id=None,
+            target=LinkTargetRef("", "target", "image"),
+        ),
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget("", "target", "widgets_values[0]"),
+            value="after",
+        ),
+    )
+    candidate = _json_clone(original)
+    candidate["last_link_id"] = 0
+    candidate["links"] = []
+    candidate["nodes"][0]["outputs"][0]["links"] = []
+    # Reconstructive field emission may still carry the stale input record;
+    # pinning must follow the folded removal, not this stale presentation.
+    candidate["nodes"][1]["widgets_values"] = ["after"]
+    pinned = pin_untouched_ui(original, candidate, ops)
+    target = next(node for node in pinned["nodes"] if node["id"] == 2)
+    assert target["inputs"] == []
+    assert pinned["links"] == []
+    assert all(
+        1 not in (socket.get("links") or [])
+        for node in pinned["nodes"]
+        for socket in node.get("outputs") or []
+        if isinstance(socket, dict)
+    )
+    checked = guard_exit_ui(original, pinned, ops)
+    assert checked.ok is True, checked.diagnostics

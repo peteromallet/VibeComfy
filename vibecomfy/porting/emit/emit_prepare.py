@@ -11,17 +11,17 @@ Public-input helpers and ready-template backend live in emit_ready.py (T8).
 """
 from __future__ import annotations
 
-from vibecomfy.ingest.normalize import door_nodes
+import copy
 import keyword
 import re
-import warnings
 from typing import Any, Mapping
+
+from vibecomfy.ingest.normalize import door_nodes
 
 from vibecomfy.errors import ConversionParityError
 from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES, VALUE_HELPER_CLASS_TYPES
 from vibecomfy.porting.emit.emit_constants import (
     UI_ONLY_CLASS_TYPES,
-    _ui_widget_aliases,
 )
 from vibecomfy.porting.emit.emit_kwargs import (
     _is_link,
@@ -81,25 +81,10 @@ def _prepare_workflow_for_emit(
     if prune_dead_branches and not getattr(workflow, "edges", ()):
         prune_dead_branches = False
 
-    # Agent-edit (keep_virtual_wires=True) keeps Get/Set/Reroute as surface
-    # nodes and strips leftover value helpers (Primitive*) so emit stays
-    # total. Scratchpad emission still treats surviving value helpers as a
-    # resolver bug.
-    if not keep_virtual_wires:
-        for nid, node in getattr(workflow, "nodes", {}).items():
-            if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
-                raise ConversionParityError(
-                    f"Resolver bug: unresolved helper node {nid} "
-                    f"(class_type={node.class_type!r}) survived to emission. "
-                    f"The resolver must eliminate all RESOLVABLE_HELPER_CLASS_TYPES nodes "
-                    f"before _prepare_workflow_for_emit is called."
-                )
-    # UI-only classes (Note/MarkdownNote/PreviewAny/…) are normally decorative and
-    # stripped. But some — notably PreviewAny — are wired as live PASSTHROUGHS
-    # (their output feeds a real node). In fidelity mode (agent-edit,
-    # prune_dead_branches=False) stripping such a node severs that edge and drops
-    # the data it carried (e.g. GeminiNode → PreviewAny → ByteDance.model.prompt).
-    # Keep a UI-only node when it has an output edge into a non-UI-only node.
+    # Pure UI furniture (notes/labels) is normally stripped. Keep it when it is
+    # wired as a live passthrough so fidelity emission never severs an authored
+    # edge. Auxiliary output nodes are semantic graph members and therefore are
+    # not classified as UI-only here, even when their main purpose is preview.
     ui_only_passthroughs: set[str] = set()
     if not prune_dead_branches:
         for edge in workflow.edges:
@@ -112,19 +97,13 @@ def _prepare_workflow_for_emit(
                 and dst.class_type not in UI_ONLY_CLASS_TYPES
             ):
                 ui_only_passthroughs.add(str(edge.from_node))
-    workflow_nodes = {
-        nid: node
+    authored_nodes = {
+        str(nid): copy.deepcopy(node)
         for nid, node in workflow.nodes.items()
         if (
             (node.class_type not in UI_ONLY_CLASS_TYPES or str(nid) in ui_only_passthroughs)
-            and not (
-                keep_virtual_wires
-                and node.class_type in RESOLVABLE_HELPER_CLASS_TYPES
-                and node.class_type not in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES
-            )
         )
     }
-    _sync_declared_exec_output_metadata(workflow_nodes)
     from vibecomfy.workflow import mode_to_litegraph  # noqa: PLC0415
 
     # Execution-edge projection intentionally disconnects muted/bypassed nodes,
@@ -132,14 +111,30 @@ def _prepare_workflow_for_emit(
     # the emitted source produces the same execution projection.
     mode_nodes = {
         str(nid): node
-        for nid, node in workflow_nodes.items()
+        for nid, node in authored_nodes.items()
         if mode_to_litegraph(getattr(node, "mode", 0)) != 0
+        and node.class_type not in RESOLVABLE_HELPER_CLASS_TYPES
     }
-    emission_edges = workflow.edges
     if project_execution_edges:
-        from vibecomfy.workflow import _execution_projection  # noqa: PLC0415
-
-        emission_edges = _execution_projection(workflow.nodes, workflow.edges).edges
+        # Select one detached execution graph and consume its nodes and edges
+        # together.  Authored nodes plus projected edges are a hybrid graph.
+        projection = workflow._execution_projection()
+        workflow_nodes = copy.deepcopy(projection.nodes)
+        emission_edges = copy.deepcopy(projection.edges)
+    else:
+        # Explicit keep/agent-edit output carries the authored graph unchanged;
+        # a rebuilt workflow will lower it through the shared compiler.
+        workflow_nodes = authored_nodes
+        emission_edges = copy.deepcopy(workflow.edges)
+    _sync_declared_exec_output_metadata(workflow_nodes)
+    if not keep_virtual_wires and not project_execution_edges:
+        for nid, node in workflow_nodes.items():
+            if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
+                raise ConversionParityError(
+                    f"Resolver bug: unresolved helper node {nid} "
+                    f"(class_type={node.class_type!r}) survived to emission. "
+                    "Use the detached execution projection or explicitly keep authored helpers."
+                )
     edges_in: dict[str, list[Any]] = {}
     for edge in emission_edges:
         if edge.from_node not in workflow_nodes or edge.to_node not in workflow_nodes:
@@ -163,6 +158,9 @@ def _prepare_workflow_for_emit(
             edges_in,
             template_id=template_id,
         )
+        for nid, node in mode_nodes.items():
+            workflow_nodes.setdefault(nid, node)
+    else:
         for nid, node in mode_nodes.items():
             workflow_nodes.setdefault(nid, node)
 
@@ -352,14 +350,12 @@ def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
             if name
         }
     if ui_names and isinstance(metadata_names, (list, tuple)) and len(ui_names) != len(metadata_names):
-        warnings.warn(
-            (
-                f"output arity disagreement for {node.class_type}: metadata declares "
-                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
-                "continuing with the UI output names because live/UI object_info "
-                "takes precedence over stale embedded metadata."
-            ),
-            stacklevel=2,
+        from vibecomfy.porting.emit.emit_kwargs import (  # noqa: PLC0415
+            _warn_metadata_ui_output_arity_disagreement,
+        )
+
+        _warn_metadata_ui_output_arity_disagreement(
+            node, list(metadata_names), list(ui_names)
         )
         return {index: name for index, name in enumerate(ui_names) if name}
     ui_output_count = len(ui_names) if ui_names else None
@@ -458,7 +454,6 @@ def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -
 
 def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
     from vibecomfy.identity.codec import encode_slot_names, to_python_identifier
-    from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 
     workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
@@ -471,6 +466,7 @@ def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
 
     lines = [
         "# vibecomfy: agent-edit",
+        "# vibecomfy: surface=non-authoritative",
         "# Edit node assignments only; uid comments are the stable identity fallback.",
         "",
     ]

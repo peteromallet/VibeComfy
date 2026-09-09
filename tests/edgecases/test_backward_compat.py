@@ -21,7 +21,7 @@ def test_emitted_text_is_valid_python_syntax() -> None:
     """Emitted text must be valid Python syntax (compile succeeds)."""
     wf = VibeWorkflow(
         "syntax-check",
-        WorkflowSource("source/syntax_check", source_type="api"),
+        WorkflowSource("syntax-check", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/test"})
@@ -39,7 +39,7 @@ def test_emitted_build_function_returns_vibeworkflow() -> None:
     """The build() function in emitted text must return a VibeWorkflow."""
     wf = VibeWorkflow(
         "build-return",
-        WorkflowSource("source/build_return", source_type="api"),
+        WorkflowSource("build-return", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/return"})
@@ -68,13 +68,15 @@ def test_emitted_build_function_returns_vibeworkflow() -> None:
 
 
 def test_scratchpad_mode_no_ready_metadata_leak() -> None:
-    """Scratchpad mode should not leak READY_METADATA into the emitted text."""
+    """The shared metadata scaffold preserves scratchpad mode without ready registration."""
     wf = VibeWorkflow(
         "no-leak",
-        WorkflowSource("source/no_leak", source_type="api"),
+        WorkflowSource("no-leak", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
 
     result = port_convert_workflow(wf)
-    assert "READY_METADATA" not in result.text
     assert result.mode == "scratchpad"
+    assert "READY_METADATA = ReadyMetadata.build(" in result.text
+    assert "template_id='no-leak'" in result.text
+    assert "ready_template='no-leak'" not in result.text

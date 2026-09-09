@@ -2,7 +2,8 @@
   "37": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "wan2.1_t2v_1.3B_fp16.safetensors"
+      "unet_name": "wan2.1_t2v_1.3B_fp16.safetensors",
+      "weight_dtype": "default"
     }
   },
   "38": {
@@ -21,8 +22,10 @@
   "40": {
     "class_type": "EmptyHunyuanLatentVideo",
     "inputs": {
-      "width": 832,
-      "length": 33
+      "batch_size": 1,
+      "height": 480,
+      "length": 33,
+      "width": 832
     }
   },
   "6": {
@@ -58,24 +61,25 @@
   "3": {
     "class_type": "KSampler",
     "inputs": {
-      "seed": 82628696717253,
-      "steps": 30,
       "cfg": 6,
       "sampler_name": "uni_pc",
-      "model": [
-        "48",
+      "scheduler": "simple",
+      "seed": 82628696717253,
+      "steps": 30,
+      "latent_image": [
+        "40",
         0
       ],
-      "positive": [
-        "6",
+      "model": [
+        "48",
         0
       ],
       "negative": [
         "7",
         0
       ],
-      "latent_image": [
-        "40",
+      "positive": [
+        "6",
         0
       ]
     }

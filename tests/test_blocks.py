@@ -58,45 +58,60 @@ def test_loader_block_uses_grouped_names() -> None:
     )
 
     assert handles.model == "1"
-    assert workflow.nodes["1"].widgets["widget_0"] == "unet.safetensors"
-    assert workflow.nodes["2"].widgets["widget_1"] == "flux"
-    assert workflow.nodes["3"].widgets["widget_0"] == "vae.safetensors"
+    assert workflow.nodes["1"].inputs["unet_name"] == "unet.safetensors"
+    assert workflow.nodes["2"].inputs["type"] == "flux"
+    assert workflow.nodes["3"].inputs["vae_name"] == "vae.safetensors"
 
 
-def test_authoring_dsl_builds_compileable_text_to_image_chain() -> None:
+def test_authoring_dsl_builds_compileable_text_to_image_chain(monkeypatch) -> None:
+    from vibecomfy import load_bundle
+    from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+    from vibecomfy.schema import get_authoring_schema_provider
+
     workflow = VibeWorkflow("blocks-test", WorkflowSource("blocks-test"))
-
-    loaded = unet_clip_vae(
-        workflow,
-        names=LoaderNames(unet_name="unet.safetensors", clip_name="clip.safetensors", vae_name="vae.safetensors"),
-    )
+    loaded = unet_clip_vae(workflow, names=LoaderNames(
+        unet_name="unet.safetensors", clip_name="clip.safetensors", vae_name="vae.safetensors",
+    ))
     encoded = text_pair(workflow, clip=loaded.clip, positive="a red cube", negative="blurry")
-    sampled = ksampler(
-        workflow,
-        model=loaded.model,
-        positive=encoded.positive,
-        negative=encoded.negative,
-        latent="99",
-        settings=KSamplerSettings(seed=42, steps=5),
-    )
-    saved = save_image(workflow, images=sampled.samples, filename_prefix="blocks/out")
-
-    api = workflow.compile()
-
-    assert saved.image == "7"
-    assert workflow.nodes["4"].metadata["block"] == "vibecomfy.blocks.encoding.text_pair"
-    assert workflow.nodes["7"].metadata["block"] == "vibecomfy.blocks.save.image"
-    # CLIPTextEncode is a committed widget alias class; widget_0 -> text at compile.
-    assert api["4"]["inputs"] == {"text": "a red cube", "clip": ["2", 0]}
-    assert api["5"]["inputs"] == {"text": "blurry", "clip": ["2", 0]}
-    assert api["6"]["inputs"]["model"] == ["1", 0]
-    assert api["6"]["inputs"]["positive"] == ["4", 0]
-    assert api["6"]["inputs"]["negative"] == ["5", 0]
-    assert api["6"]["inputs"]["latent_image"] == ["99", 0]
-    assert api["6"]["inputs"]["widget_0"] == 42
-    assert api["6"]["inputs"]["widget_2"] == 5
-    assert api["7"]["class_type"] == "SaveImage"
-    assert api["7"]["inputs"] == {"widget_0": "blocks/out", "images": ["6", 0]}
+    latent = workflow.node("EmptyLatentImage", width=512, height=512, batch_size=1)
+    sampled = ksampler(workflow, model=loaded.model, positive=encoded.positive,
+                       negative=encoded.negative, latent=latent.id,
+                       settings=KSamplerSettings(seed=42, steps=5))
+    decoded = decode_vae(workflow, samples=sampled.samples, vae=loaded.vae)
+    saved = save_image(workflow, images=decoded.images, filename_prefix="blocks/out")
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+    fixture_models = {"unet.safetensors": "diffusion_models", "clip.safetensors": "text_encoders",
+                      "vae.safetensors": "vae"}
+    entries = tuple(ModelEntry(name, ModelSource("local"), 0,
+                              (ModelTarget("comfy_core", f"{subdir}/{name}"),), canonical_name=name)
+                    for name, subdir in fixture_models.items())
+    monkeypatch.setattr("vibecomfy.registry.models_loader.load_registry", lambda: entries)
+    monkeypatch.setattr("vibecomfy.fetch.is_present", lambda ref, **_: (
+        fixture_models.get(ref["name"]) == ref["subdir"]
+    ))
+    bundle = load_bundle(workflow)
+    record = bundle.compile(schema_provider=provider)
+    api = record.to_dict()["api_projection"]
+    assert api == workflow.compile("api")
+    assert workflow.nodes[saved.image.node_id].metadata["block"] == "vibecomfy.blocks.save.image"
+    assert api[encoded.positive.node_id]["inputs"] == {"text": "a red cube", "clip": [loaded.clip.node_id, 0]}
+    assert api[encoded.negative.node_id]["inputs"] == {"text": "blurry", "clip": [loaded.clip.node_id, 0]}
+    sampler = api[sampled.samples.node_id]["inputs"]
+    assert sampler["model"] == [loaded.model.node_id, 0]
+    assert sampler["positive"] == [encoded.positive.node_id, 0]
+    assert sampler["negative"] == [encoded.negative.node_id, 0]
+    assert sampler["latent_image"] == [latent.id, 0]
+    assert sampler["seed"] == 42
+    assert sampler["steps"] == 5
+    assert "control_after_generate" not in sampler
+    assert workflow.nodes[sampled.samples.node_id].metadata["control_after_generate"] == "randomize"
+    assert api[decoded.images.node_id]["inputs"] == {
+        "samples": [sampled.samples.node_id, 0], "vae": [loaded.vae.node_id, 0],
+    }
+    assert api[saved.image.node_id]["inputs"] == {
+        "filename_prefix": "blocks/out", "images": [decoded.images.node_id, 0],
+    }
+    assert not any(key.startswith("widget_") for node in api.values() for key in node["inputs"])
 
 
 def test_ksampler_uses_grouped_settings() -> None:
@@ -112,9 +127,9 @@ def test_ksampler_uses_grouped_settings() -> None:
     )
 
     assert handles.samples == "1"
-    assert workflow.nodes["1"].widgets["widget_0"] == 123
-    assert workflow.nodes["1"].widgets["widget_2"] == 12
-    assert workflow.nodes["1"].widgets["widget_3"] == 4.5
+    assert workflow.nodes["1"].inputs["seed"] == 123
+    assert workflow.nodes["1"].inputs["steps"] == 12
+    assert workflow.nodes["1"].inputs["cfg"] == 4.5
 
 
 def test_latent_block_uses_grouped_shape() -> None:
@@ -122,11 +137,8 @@ def test_latent_block_uses_grouped_shape() -> None:
 
     empty_hunyuan_video(workflow, shape=HunyuanVideoShape(width=320, height=192, length=9))
 
-    assert workflow.nodes["1"].widgets == {
-        "widget_0": 320,
-        "widget_1": 192,
-        "widget_2": 9,
-        "widget_3": 1,
+    assert workflow.nodes["1"].inputs == {
+        "width": 320, "height": 192, "length": 9, "batch_size": 1,
     }
 
 
@@ -189,12 +201,59 @@ def test_block_compile_smoke_widget_keys() -> None:
     api = workflow.compile("api")
 
     assert len(api) == 15
-    assert api["1"]["inputs"].keys() == {"widget_0", "widget_1"}
-    assert api["2"]["inputs"].keys() == {"widget_0", "widget_1", "widget_2"}
+    assert api["1"]["inputs"].keys() == {"unet_name", "weight_dtype"}
+    assert api["2"]["inputs"].keys() == {"clip_name", "type", "device"}
     assert api["4"]["class_type"] == "CLIPVisionLoader"
-    # CLIPTextEncode is a committed widget alias class; widget_0 -> text at compile.
     assert api["6"]["inputs"]["text"] == "prompt"
     assert api["8"]["class_type"] == "CLIPVisionEncode"
-    assert api["9"]["inputs"].keys() == {"widget_0", "widget_1", "widget_2", "widget_3"}
+    assert api["9"]["inputs"].keys() == {"width", "height", "length", "batch_size"}
     assert api["14"]["class_type"] == "SaveImage"
     assert api["15"]["class_type"] == "SaveVideo"
+    assert workflow.nodes["5"].metadata["widget_kwargs"]["upload"] == "image"
+    assert not any(key.startswith("widget_") for node in api.values() for key in node["inputs"])
+    from vibecomfy.schema import get_authoring_schema_provider
+    from vibecomfy.schema.validate import validate_api_against_schema, validate_api_link_shapes
+
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+    assert not [issue for issue in [*validate_api_against_schema(api, provider),
+                                    *validate_api_link_shapes(api, provider)]
+                if issue.severity == "error"]
+
+
+@pytest.mark.parametrize("media_class,asset_field,save_fn,input_field", [
+    ("LoadImage", "image", save_image, "images"),
+    ("LoadVideo", "file", save_video, "video"),
+])
+def test_public_save_blocks_compile_named_inputs_in_approved_bundle(
+    media_class, asset_field, save_fn, input_field, monkeypatch,
+) -> None:
+    from vibecomfy import load_bundle
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+
+    workflow = VibeWorkflow("save-block-approved", WorkflowSource("save-block-approved"))
+    workflow.node(media_class, _id="media", **{asset_field: "fixture"})
+    source = workflow.nodes["media"]
+    kwargs = {input_field: f"{source.id}.0"}
+    if media_class == "LoadImage":
+        kwargs["filename_prefix"] = "approved/image"
+    else:
+        kwargs["settings"] = VideoSaveSettings(filename_prefix="approved/video")
+    saved = save_fn(workflow, **kwargs)
+    workflow.nodes[saved.output.node_id].uid = "save"
+    bundle = load_bundle(workflow)
+
+    def ambient_lookup_forbidden(*args, **kwargs):
+        raise AssertionError("save block replay attempted ambient schema lookup")
+
+    monkeypatch.setattr("vibecomfy.schema.get_authoring_schema_provider", ambient_lookup_forbidden)
+    record = bundle.compile(schema_provider=provider)
+    api = record.to_dict()["api_projection"]
+    inputs = api[saved.output.node_id]["inputs"]
+    assert inputs[input_field] == [source.id, 0]
+    assert inputs["filename_prefix"] == f"approved/{'image' if media_class == 'LoadImage' else 'video'}"
+    assert not any(key.startswith("widget_") for key in inputs)
+    if media_class == "LoadVideo":
+        assert inputs["format"] == "auto"
+        assert inputs["codec"] == "auto"

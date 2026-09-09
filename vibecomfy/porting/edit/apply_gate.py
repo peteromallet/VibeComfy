@@ -23,7 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from vibecomfy.porting.edit._ir_utils import _uids_for_op
+from vibecomfy.porting.edit._ir_utils import (
+    RecursiveEditError,
+    _freeze,
+    _uids_for_op,
+    recursive_state_snapshot,
+)
 from vibecomfy.porting.edit._session_types import CompactDiagnostic, _diag
 from vibecomfy.porting.edit.ops import EditOp, RemoveLinkOp, RemoveNodeOp
 from vibecomfy.workflow import VibeWorkflow, mode_to_litegraph
@@ -320,27 +325,33 @@ def _orphaned_output_diagnostic(
     )
 
 
-def _freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return tuple(sorted((str(k), _freeze(v)) for k, v in value.items()))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
 def _node_field_signature(node: Any) -> tuple[Any, ...]:
     widgets = dict(getattr(node, "widgets", None) or {})
     inputs = getattr(node, "inputs", None) or {}
-    scalars: dict[str, Any] = {}
+    fields: list[tuple[str, str, Any]] = []
     if isinstance(inputs, Mapping):
-        for name, value in inputs.items():
-            if isinstance(value, (list, tuple)):
-                continue
-            scalars[str(name)] = value
-    merged = {**scalars, **widgets}
+        # Canonical API link pairs are represented by the edge quotient and
+        # must not be confused with authored two-item list literals.  Every
+        # other grammar-visible input value, including list/tuple/mapping
+        # aggregates, remains part of replay equality.
+        from vibecomfy._compile._graph import is_canonical_api_link
+
+        fields.extend(
+            (
+                "input",
+                str(name),
+                _freeze(value),
+            )
+            for name, value in inputs.items()
+            if not is_canonical_api_link(value)
+        )
+    fields.extend(
+        ("widget", str(name), _freeze(value))
+        for name, value in widgets.items()
+    )
     return (
         str(getattr(node, "class_type", "")),
-        tuple(sorted((str(k), _freeze(v)) for k, v in merged.items())),
+        tuple(sorted(fields)),
         mode_to_litegraph(getattr(node, "mode", 0)),
     )
 
@@ -356,11 +367,31 @@ def _subgraph_interface_signature(workflow: VibeWorkflow) -> tuple[Any, ...]:
     )
 
 
+def _recursive_editable_signature(workflow: VibeWorkflow) -> tuple[Any, ...]:
+    """Return the typed, non-root portion of the editable quotient.
+
+    This is intentionally a projection of the existing ephemeral index and
+    field descriptor.  It does not copy, normalize, emit, or mutate recursive
+    definitions; it only makes admitted field/mode edits visible to the
+    existing replay gate.  Presentation, provenance, occurrence shells, and
+    volatile link IDs are excluded.
+    """
+    try:
+        snapshot = recursive_state_snapshot(workflow)
+    except RecursiveEditError as exc:
+        raise _EditableIdentityError(
+            f"recursive_{exc.code}",
+            **exc.detail,
+        ) from exc
+    return snapshot
+
+
 def editable_signature(
     workflow: VibeWorkflow,
 ) -> tuple[
     dict[str, tuple[Any, ...]],
     tuple[tuple[str, str, str, str], ...],
+    tuple[Any, ...],
     tuple[Any, ...],
 ]:
     """Return the complete canonical editable quotient signature.
@@ -375,7 +406,28 @@ def editable_signature(
         uid_by_id[str(node_id)]: _node_field_signature(node)
         for node_id, node in _node_items(workflow)
     }
-    return nodes, _edge_uid_records(workflow), _subgraph_interface_signature(workflow)
+    return (
+        nodes,
+        _edge_uid_records(workflow),
+        _subgraph_interface_signature(workflow),
+        _recursive_editable_signature(workflow),
+    )
+
+
+def _recursive_error_diagnostic(error: RecursiveEditError) -> CompactDiagnostic:
+    """Convert typed recursive identity/diff failures into gate diagnostics."""
+    structural = error.code == "unsupported_structural_scope"
+    return _diag(
+        "apply_gate_recursive_structural" if structural else "apply_gate_unverifiable_identity",
+        "Apply gate refused success: recursive typed state could not be "
+        "replayed safely; capture -> port through canonical Python -> "
+        "reopen/reload before retrying.",
+        severity="error",
+        detail={
+            "recursive_reason": error.code,
+            **error.detail,
+        },
+    )
 
 
 def verify_apply(
@@ -386,6 +438,7 @@ def verify_apply(
     landed_ops: Sequence[EditOp] = (),
     schema_provider: Any | None = None,
     name_hints: Mapping[str, str] | None = None,
+    value_default_context: Any = None,
 ) -> ApplyGateResult:
     """Replay-verify ``post`` against ``pre`` + Δ and reject corrupt topology.
 
@@ -453,8 +506,21 @@ def verify_apply(
     # literals even though replaying the accepted source is faithful to the
     # post-IR. Typed-tool callers do not supply a source string and continue
     # to replay their canonical ops.
+    #
+    # Value-default binding is the exception: selected literals are sealed
+    # onto the accepted AddNodeOp with an immutable marker. Replay that
+    # retained proof rather than re-resolving from constructor context.
+    from vibecomfy.porting.edit.value_defaults import VALUE_DEFAULT_FIELDS_MARKER
+
+    has_retained_value_defaults = any(
+        isinstance(getattr(operation, "fields", None), Mapping)
+        and VALUE_DEFAULT_FIELDS_MARKER in operation.fields
+        for operation in claimed_ops
+    )
     replay_source: str | Sequence[EditOp] | None = (
-        delta if isinstance(delta, str) else (claimed_ops or delta)
+        claimed_ops
+        if has_retained_value_defaults
+        else (delta if isinstance(delta, str) else (claimed_ops or delta))
     )
     claimed_edit = bool(claimed_ops) or bool(delta)
 
@@ -466,8 +532,22 @@ def verify_apply(
 
     from vibecomfy.porting.edit._diff import diff
 
-    replay_delta = diff(pre, post, schema_provider=schema_provider)
-    if not replay_delta:
+    try:
+        replay_delta = diff(pre, post, schema_provider=schema_provider)
+    except RecursiveEditError as exc:
+        diagnostics.append(_recursive_error_diagnostic(exc))
+        return _reject(
+            "unsupported_structural_scope"
+            if exc.code == "unsupported_structural_scope"
+            else "unverifiable_identity",
+            diagnostics,
+        )
+    # ``diff`` deliberately projects some ambiguous list-shaped input values
+    # out of its legacy link detector.  A non-empty claimed source/operation
+    # is still an authoritative replay value; exact signature comparison
+    # below proves whether it reconstructed the staged candidate.  Only fail
+    # for an empty diff when there is no source to replay at all.
+    if not replay_delta and replay_source is None:
         diagnostics.append(
             _diag(
                 "apply_gate_empty_replay",
@@ -488,6 +568,7 @@ def verify_apply(
         replay_source,
         schema_provider=schema_provider,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     if reconstruct_diag is not None:
         diagnostics.append(reconstruct_diag)
@@ -530,7 +611,8 @@ def _editable_identity_diagnostic(
     return _diag(
         "apply_gate_unverifiable_identity",
         "Apply gate refused success: the editable graph identity is missing, "
-        "non-unique, or has an unresolvable edge endpoint.",
+        "non-unique, or has an unresolvable edge endpoint; capture -> port "
+        "through canonical Python -> reopen/reload.",
         severity="error",
         detail={
             "graph": graph,
@@ -547,16 +629,47 @@ def _replay_reconstruct_diagnostic(
     *,
     schema_provider: Any | None,
     name_hints: Mapping[str, str] | None,
+    value_default_context: Any = None,
 ) -> CompactDiagnostic | None:
     from vibecomfy.porting.edit._interpret import interpret
 
+    expected = editable_signature(post)
     replayed = interpret(
         pre,
         replay_source,
         schema_provider=schema_provider,
         name_hints=name_hints,
+        value_default_context=value_default_context,
     )
     if not replayed.ok:
+        replay_codes = tuple(
+            str(getattr(item, "code", ""))
+            for item in replayed.diagnostics
+        )
+        # A malformed retained topology (notably duplicate canonical edges)
+        # can prevent the replay interpreter from producing a workflow at all.
+        # The staged candidate is still comparable to the retained pre-state,
+        # so report the stable replay-mismatch evidence rather than collapsing
+        # this structural disagreement into generic replay failure.
+        if any(
+            code
+            in {
+                "full_ui_identity_malformed",
+                "full_ui_link_added_unattributed",
+                "full_ui_link_changed_unattributed",
+                "full_ui_link_removed_unattributed",
+            }
+            for code in replay_codes
+        ):
+            try:
+                actual = editable_signature(pre)
+            except _EditableIdentityError as exc:
+                return _editable_identity_diagnostic("replay", exc)
+            return _replay_mismatch_diagnostic(
+                expected,
+                actual,
+                replay_codes=replay_codes,
+            )
         return _diag(
             "apply_gate_replay_failed",
             "Apply gate refused success: interpret(pre, Δ) failed while "
@@ -569,7 +682,6 @@ def _replay_reconstruct_diagnostic(
                 "emit_path": "vibecomfy/porting/edit/_interpret.py:interpret",
             },
         )
-    expected = editable_signature(post)
     try:
         actual = editable_signature(replayed.workflow)
     except _EditableIdentityError as exc:
@@ -577,10 +689,21 @@ def _replay_reconstruct_diagnostic(
     if expected == actual:
         return None
 
+    return _replay_mismatch_diagnostic(expected, actual)
+
+
+def _replay_mismatch_diagnostic(
+    expected: tuple[Any, ...],
+    actual: tuple[Any, ...],
+    *,
+    replay_codes: Sequence[str] = (),
+) -> CompactDiagnostic:
+    """Describe exact staged-versus-replay quotient disagreement."""
+
     from collections import Counter
 
-    expected_nodes, expected_edges, expected_interfaces = expected
-    actual_nodes, actual_edges, actual_interfaces = actual
+    expected_nodes, expected_edges, expected_interfaces, expected_recursive = expected
+    actual_nodes, actual_edges, actual_interfaces, actual_recursive = actual
     expected_edge_counts = Counter(expected_edges)
     actual_edge_counts = Counter(actual_edges)
     return _diag(
@@ -608,6 +731,15 @@ def _replay_reconstruct_diagnostic(
                     item for item in actual_interfaces if item not in expected_interfaces
                 ),
             },
+            "recursive_delta": {
+                "only_in_post": tuple(
+                    item for item in expected_recursive if item not in actual_recursive
+                ),
+                "only_in_replay": tuple(
+                    item for item in actual_recursive if item not in expected_recursive
+                ),
+            },
+            "replay_codes": tuple(replay_codes),
             "emit_path": "vibecomfy/porting/emit/ui.py:emit_ui_json",
         },
     )

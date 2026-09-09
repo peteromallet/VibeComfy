@@ -16,9 +16,9 @@ developer tools that are meant to run as `python -m tools.<name>`.
 | Script | Purpose |
 |---|---|
 | `runpod_runner.py` | Shared RunPod pod, shipping, and artifact helpers. |
-| `runpod_acceptance.py` | Live acceptance suite for setup, API JSON queueing, JSON-to-Python conversion, embedded runtime, existing-server runtime, and artifact evidence. |
-| `runpod_validate.py` | Cheap RunPod smoke validation entry point. |
-| `runpod_corpus_matrix.py` | Corpus and ready-template RunPod matrix runner. |
+| `runpod_acceptance.py` | Retired fail-closed placeholder; exits before provisioning or executing a payload. |
+| `runpod_validate.py` | Live remote smoke launcher; requires RunPod credentials, network, and a GPU. |
+| `runpod_corpus_matrix.py` | Live remote corpus/ready-template matrix launcher; requires network, dependencies, and GPU capacity. |
 | `runpod_e2e_matrix.py` | End-to-end RunPod matrix wrapper used by CI. |
 | `runpod_matrix_plan.py` | Matrix planning and manifest helpers. |
 | `runpod_matrix_remote.py` | Remote workflow preparation and compatibility patches. |

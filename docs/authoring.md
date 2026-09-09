@@ -198,22 +198,28 @@ Required and app-active ready templates must not rely on hidden widgets, unnamed
 
 ## Artifacts and Ops
 
-The verb-native API is lazy. `image.t2i`, `video.t2v`, and `video.i2v` return typed `Artifact` objects (`Image` or `Video`) without running ComfyUI. `Artifact.run()` triggers execution; `Artifact.preview_workflow()` returns the editable `VibeWorkflow`.
+The verb-native API is lazy. `image.t2i`, `video.t2v`, and `video.i2v` return typed `Artifact` objects (`Image` or `Video`) without running ComfyUI. `Artifact.preview_workflow()` returns the editable `VibeWorkflow`; `Artifact.compile()` is an inspection convenience. `Artifact.run()` is fail-closed for a bare workflow: execution requires an approved projection record bound to a canonical `WorkflowBundle`.
 
 ```python
-from vibecomfy import image
+from vibecomfy import image, load_bundle, run_embedded_sync
 
 artifact = image.t2i("a small glass teapot")
-wf = artifact.preview_workflow()
-api = wf.compile("api")
-result = artifact.run(runtime="embedded")
+workflow = artifact.preview_workflow()
+bundle = load_bundle(workflow)
+record = bundle.compile()
+result = run_embedded_sync(record, bundle)
 ```
 
-The public escape-hatch chain is:
+The public execution chain is:
 
 ```text
-op() -> Artifact -> preview_workflow() -> VibeWorkflow -> compile() -> API JSON -> run()
+op() -> Artifact -> preview_workflow() -> load_bundle() -> WorkflowBundle.compile()
+    -> ApprovedProjectionRecord -> run_embedded_sync(record, bundle)
 ```
+
+For an existing server, use `run_sync(record, bundle, server_url=...)` after the same
+finalize-and-approve step. The record and bundle remain the execution authority; a
+bare `Artifact.run()` does not bypass that boundary.
 
 `audio.t2a` raises `NotImplementedError("no audio template registered")` until an audio ready template is routed. `image.edit` and `edit.qwen` also raise `NotImplementedError` in v1. `image.t2i(model="flux2_klein_9b_gguf")` and `image.edit(model in {"qwen", "flux2_klein_4b"})` are not yet exposed via the verb-native API; use `load_workflow_any("image/flux2_klein_9b_gguf_t2i")` or `load_workflow_any("edit/qwen_image_edit")` and edit the `VibeWorkflow` directly until MP-6 ships schema-backed UUID-subgraph input validation.
 

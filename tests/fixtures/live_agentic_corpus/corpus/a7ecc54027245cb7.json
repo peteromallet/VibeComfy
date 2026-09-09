@@ -1,0 +1,3066 @@
+{
+  "edges": [
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "110",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "9"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "10"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "10"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "10"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "106",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "23"
+    },
+    {
+      "from_node": "107",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "23"
+    },
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "23"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "23"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "24"
+    },
+    {
+      "from_node": "102",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "24"
+    },
+    {
+      "from_node": "26",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "25"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "25"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "26"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "29"
+    },
+    {
+      "from_node": "100",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "101"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "103"
+    },
+    {
+      "from_node": "3000",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "106"
+    },
+    {
+      "from_node": "3000",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "107"
+    },
+    {
+      "from_node": "3000",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "108"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "109"
+    },
+    {
+      "from_node": "109",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "110"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3000"
+    },
+    {
+      "from_node": "104",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "3000"
+    }
+  ],
+  "groups": [],
+  "id": "a100f4a30ff071df",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "4",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ".Chroma\\chroma-unlocked-v29.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "6",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SwarmKSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "24",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1389562250"
+          ],
+          [
+            "widget_1",
+            "'fixed'"
+          ],
+          [
+            "widget_10",
+            "-1"
+          ],
+          [
+            "widget_11",
+            "-1"
+          ],
+          [
+            "widget_12",
+            "7.000000000000002"
+          ],
+          [
+            "widget_13",
+            "'enable'"
+          ],
+          [
+            "widget_14",
+            "'disable'"
+          ],
+          [
+            "widget_15",
+            "'default'"
+          ],
+          [
+            "widget_16",
+            "False"
+          ],
+          [
+            "widget_17",
+            "1024"
+          ],
+          [
+            "widget_2",
+            "26"
+          ],
+          [
+            "widget_3",
+            "5"
+          ],
+          [
+            "widget_4",
+            "'dpmpp_2m'"
+          ],
+          [
+            "widget_5",
+            "'sgm_uniform'"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "10000"
+          ],
+          [
+            "widget_8",
+            "0"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "100": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "101",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'t5xxl_enconly.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'chroma'"
+          ]
+        ]
+      },
+      "101": {
+        "class_type": "T5TokenizerOptions",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "100",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ],
+          [
+            "widget_1",
+            "0"
+          ]
+        ]
+      },
+      "102": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "24",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'Flux\\\\ae.safetensors'"
+          ]
+        ]
+      },
+      "103": {
+        "class_type": "RescaleCFG",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.7000000000000002"
+          ]
+        ]
+      },
+      "104": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3000",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'umt5_xxl_fp8_e4m3fn_scaled.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'wan'"
+          ]
+        ]
+      },
+      "105": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "vae"
+            ]
+          ],
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'Wan\\\\wan_2.1_vae.safetensors'"
+          ]
+        ]
+      },
+      "106": {
+        "class_type": "RescaleCFG",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "3000",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.7000000000000002"
+          ]
+        ]
+      },
+      "107": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3000",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "\"A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness.\""
+          ]
+        ]
+      },
+      "108": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3000",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'ears, ear'"
+          ]
+        ]
+      },
+      "109": {
+        "class_type": "ProPostFilmGrain",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "110",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "False"
+          ],
+          [
+            "widget_1",
+            "'Fine'"
+          ],
+          [
+            "widget_10",
+            "'randomize'"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_3",
+            "0.25000000000000006"
+          ],
+          [
+            "widget_4",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_5",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_6",
+            "1.0000000000000002"
+          ],
+          [
+            "widget_7",
+            "0"
+          ],
+          [
+            "widget_8",
+            "1.0000000000000002"
+          ],
+          [
+            "widget_9",
+            "-1"
+          ]
+        ]
+      },
+      "110": {
+        "class_type": "ProPostApplyLUT",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "109",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'BONUS\\\\8700\\\\F-8700-STD.cube'"
+          ],
+          [
+            "widget_1",
+            "0.25000000000000006"
+          ],
+          [
+            "widget_2",
+            "False"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3000",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'.Wan2.2\\\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "SwarmKSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "25",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "106",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "108",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "107",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1389562251"
+          ],
+          [
+            "widget_1",
+            "'fixed'"
+          ],
+          [
+            "widget_10",
+            "-1"
+          ],
+          [
+            "widget_11",
+            "-1"
+          ],
+          [
+            "widget_12",
+            "7.000000000000002"
+          ],
+          [
+            "widget_13",
+            "'enable'"
+          ],
+          [
+            "widget_14",
+            "'disable'"
+          ],
+          [
+            "widget_15",
+            "'animate'"
+          ],
+          [
+            "widget_16",
+            "False"
+          ],
+          [
+            "widget_17",
+            "960"
+          ],
+          [
+            "widget_2",
+            "40"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "'euler'"
+          ],
+          [
+            "widget_5",
+            "'simple'"
+          ],
+          [
+            "widget_6",
+            "32"
+          ],
+          [
+            "widget_7",
+            "10000"
+          ],
+          [
+            "widget_8",
+            "0"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "24": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "102",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "26",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "29",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "25": {
+        "class_type": "VAEEncode",
+        "incoming_edge_sig": [
+          [
+            "pixels",
+            [
+              "26",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "105",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "26": {
+        "class_type": "ImageScale",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "24",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "pixels"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop",
+            "'disabled'"
+          ],
+          [
+            "height",
+            "1824"
+          ],
+          [
+            "upscale_method",
+            "'lanczos'"
+          ],
+          [
+            "width",
+            "1248"
+          ]
+        ]
+      },
+      "29": {
+        "class_type": "SwarmSaveAnimationWS",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "24",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "24.000000000000004"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "95"
+          ],
+          [
+            "widget_3",
+            "'default'"
+          ],
+          [
+            "widget_4",
+            "'webp'"
+          ]
+        ]
+      },
+      "3000": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "104",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "106",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "107",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "108",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Lightx2v_v2\\\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.7500000000000001"
+          ],
+          [
+            "widget_2",
+            "0.7500000000000001"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "103",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'.Chroma\\\\chroma-unlocked-v29.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "EmptySD3LatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "912"
+          ],
+          [
+            "width",
+            "624"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "101",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "\"A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness.\""
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "101",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'ears, ear'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "23",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "105",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "109",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "9": {
+        "class_type": "SwarmSaveAnimationWS",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "110",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "24.000000000000004"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "95"
+          ],
+          [
+            "widget_3",
+            "'default'"
+          ],
+          [
+            "widget_4",
+            "'webp'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "a7ecc54027245cb77deccb1f40e90cd6971533407aa485be830347bafe204ff3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1372956328276000828,
+      "channel_name": "chroma",
+      "content_preview": "sure! full workflow here (it's autogenerated from SwarmUI so you may have to replace some nodes)",
+      "discord_message_url": "https://discord.com/channels/@me/1372956328276000828/1408113053953691668",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1408113053953691668:Chrowan29.json:a100f4a30ff071df",
+      "filename": "Chrowan29.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:31+00:00",
+      "message_id": 1408113053953691668,
+      "node_class_multiset": {
+        "CLIPLoader": 2,
+        "CLIPTextEncode": 4,
+        "EmptySD3LatentImage": 1,
+        "ImageScale": 1,
+        "LoraLoader": 1,
+        "ProPostApplyLUT": 1,
+        "ProPostFilmGrain": 1,
+        "RescaleCFG": 2,
+        "SwarmKSampler": 2,
+        "SwarmSaveAnimationWS": 2,
+        "T5TokenizerOptions": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 2,
+        "VAEEncode": 1,
+        "VAELoader": 2
+      },
+      "node_count": 25,
+      "origin_date": "2025-08-21T15:38:33.538000+00:00",
+      "originator_global_name": "Hippotes",
+      "originator_id": "128578659047964672",
+      "originator_type": "discord_message_author",
+      "originator_username": "hippotes",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "a100f4a30ff071dff3357242691d8a4868897f3edc60555bfc8cb5e06c4e8e41",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1372956328276000828/1408113053517746176/Chrowan29.json?ex=68a88ef9&is=68a73d79&hm=cd4bf99444e1b0d842269a033b6ef582a6c5c61b35f744cd127708fea66740dc&",
+      "source_workflow_sha256": "fa4fac3dbc752bfa57f83200c2a1376a478ae36d6b16b8152acc3e9a2e206415",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "5362d034f1aa88e3b7ec49432f31b19b494b7477934a69f042fafc4f732d8428",
+      "complexity": 4,
+      "description": "Generates videos using Wan2.2 and Chroma models with dual CLIP/UNET/VAE pipelines, applies LUT color grading and film grain effects, and saves animations.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "video-generation",
+        "wan2.2",
+        "chroma",
+        "lut",
+        "film-grain",
+        "t5-encoder",
+        "animation",
+        "image-to-video"
+      ],
+      "task_type": "animation",
+      "title": "Wan2.2 Video Generation with Chroma LUT and Film Grain"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SwarmKSampler",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 34,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 35,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 36,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 37,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                43
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1340,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmKSampler"
+          },
+          "size": [
+            305.08331298828125,
+            526
+          ],
+          "type": "SwarmKSampler",
+          "widgets_values": [
+            1389562250,
+            "fixed",
+            26,
+            5,
+            "dpmpp_2m",
+            "sgm_uniform",
+            0,
+            10000,
+            0,
+            0,
+            -1,
+            -1,
+            7.000000000000002,
+            "enable",
+            "disable",
+            "default",
+            false,
+            1024
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 18,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1389562250,
+          "fixed",
+          26,
+          5,
+          "dpmpp_2m",
+          "sgm_uniform",
+          0,
+          10000,
+          0,
+          0,
+          -1,
+          -1,
+          7.000000000000002,
+          "enable",
+          "disable",
+          "default",
+          false,
+          1024
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": 1389562250,
+        "widget_1": "fixed",
+        "widget_10": -1,
+        "widget_11": -1,
+        "widget_12": 7.000000000000002,
+        "widget_13": "enable",
+        "widget_14": "disable",
+        "widget_15": "default",
+        "widget_16": false,
+        "widget_17": 1024,
+        "widget_2": 26,
+        "widget_3": 5,
+        "widget_4": "dpmpp_2m",
+        "widget_5": "sgm_uniform",
+        "widget_6": 0,
+        "widget_7": 10000,
+        "widget_8": 0,
+        "widget_9": 0
+      }
+    },
+    "100": {
+      "class_type": "CLIPLoader",
+      "id": "100",
+      "inputs": {
+        "clip_name": "t5xxl_enconly.safetensors",
+        "device": "default",
+        "type": "chroma"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 100,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                48
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            100,
+            790
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "t5xxl_enconly.safetensors",
+            "chroma",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "t5xxl_enconly.safetensors",
+          "chroma",
+          "default"
+        ]
+      },
+      "uid": "100",
+      "widgets": {}
+    },
+    "101": {
+      "class_type": "T5TokenizerOptions",
+      "id": "101",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 101,
+          "inputs": [
+            {
+              "link": 48,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                29,
+                30
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            470,
+            318
+          ],
+          "properties": {
+            "Node name for S&R": "T5TokenizerOptions"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "T5TokenizerOptions",
+          "widgets_values": [
+            1,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          0
+        ]
+      },
+      "uid": "101",
+      "widgets": {
+        "widget_0": 1,
+        "widget_1": 0
+      }
+    },
+    "102": {
+      "class_type": "VAELoader",
+      "id": "102",
+      "inputs": {
+        "vae_name": "Flux\\ae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 102,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                42
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            100,
+            1026
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "Flux\\ae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Flux\\ae.safetensors"
+        ]
+      },
+      "uid": "102",
+      "widgets": {}
+    },
+    "103": {
+      "class_type": "RescaleCFG",
+      "id": "103",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 103,
+          "inputs": [
+            {
+              "link": 49,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                34
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            470,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "RescaleCFG"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "RescaleCFG",
+          "widgets_values": [
+            0.7000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.7000000000000002
+        ]
+      },
+      "uid": "103",
+      "widgets": {
+        "widget_0": 0.7000000000000002
+      }
+    },
+    "104": {
+      "class_type": "CLIPLoader",
+      "id": "104",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "device": "default",
+        "type": "wan"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 104,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                56
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            100,
+            1214
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "wan",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "wan",
+          "default"
+        ]
+      },
+      "uid": "104",
+      "widgets": {}
+    },
+    "105": {
+      "class_type": "VAELoader",
+      "id": "105",
+      "inputs": {
+        "vae_name": "Wan\\wan_2.1_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 105,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                31,
+                44
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            100,
+            1450
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "Wan\\wan_2.1_vae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan\\wan_2.1_vae.safetensors"
+        ]
+      },
+      "uid": "105",
+      "widgets": {}
+    },
+    "106": {
+      "class_type": "RescaleCFG",
+      "id": "106",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 106,
+          "inputs": [
+            {
+              "link": 50,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                38
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            840,
+            790
+          ],
+          "properties": {
+            "Node name for S&R": "RescaleCFG"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "RescaleCFG",
+          "widgets_values": [
+            0.7000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.7000000000000002
+        ]
+      },
+      "uid": "106",
+      "widgets": {
+        "widget_0": 0.7000000000000002
+      }
+    },
+    "107": {
+      "class_type": "CLIPTextEncode",
+      "id": "107",
+      "inputs": {
+        "text": "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 107,
+          "inputs": [
+            {
+              "link": 51,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                39
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            840,
+            978
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+        ]
+      },
+      "uid": "107",
+      "widgets": {}
+    },
+    "108": {
+      "class_type": "CLIPTextEncode",
+      "id": "108",
+      "inputs": {
+        "text": "ears, ear"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 108,
+          "inputs": [
+            {
+              "link": 52,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            840,
+            1308
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "ears, ear"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ears, ear"
+        ]
+      },
+      "uid": "108",
+      "widgets": {}
+    },
+    "109": {
+      "class_type": "ProPostFilmGrain",
+      "id": "109",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 109,
+          "inputs": [
+            {
+              "link": 53,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                54
+              ],
+              "name": "output_0",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3240.16650390625,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "ProPostFilmGrain"
+          },
+          "size": [
+            270,
+            298
+          ],
+          "type": "ProPostFilmGrain",
+          "widgets_values": [
+            false,
+            "Fine",
+            0.5000000000000001,
+            0.25000000000000006,
+            0.20000000000000004,
+            0.20000000000000004,
+            1.0000000000000002,
+            0,
+            1.0000000000000002,
+            -1,
+            "randomize"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 11,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false,
+          "Fine",
+          0.5000000000000001,
+          0.25000000000000006,
+          0.20000000000000004,
+          0.20000000000000004,
+          1.0000000000000002,
+          0,
+          1.0000000000000002,
+          -1,
+          "randomize"
+        ]
+      },
+      "uid": "109",
+      "widgets": {
+        "widget_0": false,
+        "widget_1": "Fine",
+        "widget_10": "randomize",
+        "widget_2": 0.5000000000000001,
+        "widget_3": 0.25000000000000006,
+        "widget_4": 0.20000000000000004,
+        "widget_5": 0.20000000000000004,
+        "widget_6": 1.0000000000000002,
+        "widget_7": 0,
+        "widget_8": 1.0000000000000002,
+        "widget_9": -1
+      }
+    },
+    "110": {
+      "class_type": "ProPostApplyLUT",
+      "id": "110",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 110,
+          "inputs": [
+            {
+              "link": 54,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                33
+              ],
+              "name": "output_0",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3610.16650390625,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "ProPostApplyLUT"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "ProPostApplyLUT",
+          "widgets_values": [
+            "BONUS\\8700\\F-8700-STD.cube",
+            0.25000000000000006,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "BONUS\\8700\\F-8700-STD.cube",
+          0.25000000000000006,
+          false
+        ]
+      },
+      "uid": "110",
+      "widgets": {
+        "widget_0": "BONUS\\8700\\F-8700-STD.cube",
+        "widget_1": 0.25000000000000006,
+        "widget_2": false
+      }
+    },
+    "20": {
+      "class_type": "UNETLoader",
+      "id": "20",
+      "inputs": {
+        "unet_name": ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                55
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            100,
+            578
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+          "default"
+        ]
+      },
+      "uid": "20",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "SwarmKSampler",
+      "id": "23",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 38,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 39,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 40,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 41,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                32
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            2595.083251953125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmKSampler"
+          },
+          "size": [
+            305.08331298828125,
+            526
+          ],
+          "type": "SwarmKSampler",
+          "widgets_values": [
+            1389562251,
+            "fixed",
+            40,
+            1,
+            "euler",
+            "simple",
+            32,
+            10000,
+            0,
+            0,
+            -1,
+            -1,
+            7.000000000000002,
+            "enable",
+            "disable",
+            "animate",
+            false,
+            960
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 18,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1389562251,
+          "fixed",
+          40,
+          1,
+          "euler",
+          "simple",
+          32,
+          10000,
+          0,
+          0,
+          -1,
+          -1,
+          7.000000000000002,
+          "enable",
+          "disable",
+          "animate",
+          false,
+          960
+        ]
+      },
+      "uid": "23",
+      "widgets": {
+        "widget_0": 1389562251,
+        "widget_1": "fixed",
+        "widget_10": -1,
+        "widget_11": -1,
+        "widget_12": 7.000000000000002,
+        "widget_13": "enable",
+        "widget_14": "disable",
+        "widget_15": "animate",
+        "widget_16": false,
+        "widget_17": 960,
+        "widget_2": 40,
+        "widget_3": 1,
+        "widget_4": "euler",
+        "widget_5": "simple",
+        "widget_6": 32,
+        "widget_7": 10000,
+        "widget_8": 0,
+        "widget_9": 0
+      }
+    },
+    "24": {
+      "class_type": "VAEDecode",
+      "id": "24",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 24,
+          "inputs": [
+            {
+              "link": 43,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 42,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                46,
+                47
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1745.083251953125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "24",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "VAEEncode",
+      "id": "25",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 45,
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": 44,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                41
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            2355.083251953125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "VAEEncode"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEEncode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "25",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "ImageScale",
+      "id": "26",
+      "inputs": {
+        "crop": "disabled",
+        "height": 1824,
+        "upscale_method": "lanczos",
+        "width": 1248
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 46,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                45
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1985.083251953125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "ImageScale"
+          },
+          "size": [
+            270,
+            130
+          ],
+          "type": "ImageScale",
+          "widgets_values": [
+            "lanczos",
+            1248,
+            1824,
+            "disabled"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "lanczos",
+          1248,
+          1824,
+          "disabled"
+        ]
+      },
+      "uid": "26",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "SwarmSaveAnimationWS",
+      "id": "29",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 29,
+          "inputs": [
+            {
+              "link": 47,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [],
+          "pos": [
+            1985.083251953125,
+            390
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmSaveAnimationWS"
+          },
+          "size": [
+            270,
+            154
+          ],
+          "type": "SwarmSaveAnimationWS",
+          "widgets_values": [
+            24.000000000000004,
+            false,
+            95,
+            "default",
+            "webp"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          24.000000000000004,
+          false,
+          95,
+          "default",
+          "webp"
+        ]
+      },
+      "uid": "29",
+      "widgets": {
+        "widget_0": 24.000000000000004,
+        "widget_1": false,
+        "widget_2": 95,
+        "widget_3": "default",
+        "widget_4": "webp"
+      }
+    },
+    "3000": {
+      "class_type": "LoraLoader",
+      "id": "3000",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3000,
+          "inputs": [
+            {
+              "link": 55,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 56,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                50
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                51,
+                52
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            470,
+            530
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+            0.7500000000000001,
+            0.7500000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+          0.7500000000000001,
+          0.7500000000000001
+        ]
+      },
+      "uid": "3000",
+      "widgets": {
+        "widget_0": "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+        "widget_1": 0.7500000000000001,
+        "widget_2": 0.7500000000000001
+      }
+    },
+    "4": {
+      "class_type": "UNETLoader",
+      "id": "4",
+      "inputs": {
+        "unet_name": ".Chroma\\chroma-unlocked-v29.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                49
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            100,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            ".Chroma\\chroma-unlocked-v29.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ".Chroma\\chroma-unlocked-v29.safetensors",
+          "default"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "EmptySD3LatentImage",
+      "id": "5",
+      "inputs": {
+        "batch_size": 1,
+        "height": 912,
+        "width": 624
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                37
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            100,
+            342
+          ],
+          "properties": {
+            "Node name for S&R": "EmptySD3LatentImage"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "EmptySD3LatentImage",
+          "widgets_values": [
+            624,
+            912,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          624,
+          912,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 29,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                35
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            840,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A figure constructed from delicate stained glass, mostly blues and purples, stands amidst a field of shattered porcelain. The light shining through reveals countless internal cracks running throughout its form \u2013 it\u2019s beautiful but visibly fracturing. It isn't actively broken yet, but the sense of impending collapse is palpable. The figure leans forward slightly, as if bracing against an unseen wind, one hand outstretched towards a single, perfect white lily blooming stubbornly from the porcelain shards. Its expression is melancholic; eyes wide and brimming with unshed tears that seem to refract the light into tiny rainbows. Behind the figure, barely visible through a hazy mist, looms a grand palace of polished silver, now dulled and showing signs of neglect \u2013 representing what was lost. The overall mood should be one of exquisite vulnerability, capturing both beauty and fragility in the face of profound loss; it\u2019s a creature holding itself together with sheer will, desperately clinging to a single remaining piece of hope while surrounded by the remnants of its former wholeness."
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "ears, ear"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 30,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                36
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            840,
+            460
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "ears, ear"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ears, ear"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 32,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 31,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                53
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3000.16650390625,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": [
+            140,
+            46
+          ],
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "SwarmSaveAnimationWS",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 33,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [],
+          "pos": [
+            3980.16650390625,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmSaveAnimationWS"
+          },
+          "size": [
+            270,
+            154
+          ],
+          "type": "SwarmSaveAnimationWS",
+          "widgets_values": [
+            24.000000000000004,
+            false,
+            95,
+            "default",
+            "webp"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          24.000000000000004,
+          false,
+          95,
+          "default",
+          "webp"
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": 24.000000000000004,
+        "widget_1": false,
+        "widget_2": 95,
+        "widget_3": "default",
+        "widget_4": "webp"
+      }
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      ".Chroma\\chroma-unlocked-v29.safetensors",
+      ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "Flux\\ae.safetensors",
+      "Wan\\wan_2.1_vae.safetensors",
+      "t5xxl_enconly.safetensors",
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "a100f4a30ff071df",
+    "path": "external_workflows/.shadow/source/a100f4a30ff071df-Chrowan29.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "a7ecc54027245cb77deccb1f40e90cd6971533407aa485be830347bafe204ff3",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1372956328276000828,
+      "channel_name": "chroma",
+      "content_preview": "sure! full workflow here (it's autogenerated from SwarmUI so you may have to replace some nodes)",
+      "discord_message_url": "https://discord.com/channels/@me/1372956328276000828/1408113053953691668",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1408113053953691668:Chrowan29.json:a100f4a30ff071df",
+      "filename": "Chrowan29.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:31+00:00",
+      "message_id": 1408113053953691668,
+      "node_class_multiset": {
+        "CLIPLoader": 2,
+        "CLIPTextEncode": 4,
+        "EmptySD3LatentImage": 1,
+        "ImageScale": 1,
+        "LoraLoader": 1,
+        "ProPostApplyLUT": 1,
+        "ProPostFilmGrain": 1,
+        "RescaleCFG": 2,
+        "SwarmKSampler": 2,
+        "SwarmSaveAnimationWS": 2,
+        "T5TokenizerOptions": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 2,
+        "VAEEncode": 1,
+        "VAELoader": 2
+      },
+      "node_count": 25,
+      "origin_date": "2025-08-21T15:38:33.538000+00:00",
+      "originator_global_name": "Hippotes",
+      "originator_id": "128578659047964672",
+      "originator_type": "discord_message_author",
+      "originator_username": "hippotes",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "a100f4a30ff071dff3357242691d8a4868897f3edc60555bfc8cb5e06c4e8e41",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1372956328276000828/1408113053517746176/Chrowan29.json?ex=68a88ef9&is=68a73d79&hm=cd4bf99444e1b0d842269a033b6ef582a6c5c61b35f744cd127708fea66740dc&",
+      "source_workflow_sha256": "fa4fac3dbc752bfa57f83200c2a1376a478ae36d6b16b8152acc3e9a2e206415",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

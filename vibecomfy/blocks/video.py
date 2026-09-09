@@ -28,7 +28,7 @@ def create(
         "vibecomfy.blocks.video.create",
         "CreateVideo",
         block_id=block_id,
-        widgets={"widget_0": settings.fps},
+        inputs={"fps": settings.fps},
     )
     connect(workflow, images, node, "images")
     connect(workflow, settings.audio, node, "audio")

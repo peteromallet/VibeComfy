@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-inpainting-with-controlnet-and-detail-daemo-c24aa2",
   "query": "Instead of using the back-projection inpainting method, I want to use the SDXL inpainting model directly on the masked areas, but I also want the ControlNet to guide the inpainting after the fact rather than condition it initially. Can you restructure the workflow to do that?",
-  "workflow_path": "external_workflows/corpus/c24aa2ac329006f2.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/c24aa2ac329006f2.json",
   "network": true,
   "timeout": 420,
   "apply": true,

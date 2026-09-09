@@ -9,21 +9,28 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._output import emit
 from vibecomfy.errors import SubgraphFreshnessError
 from vibecomfy.porting.emitter import _build_subgraph_def, _disambiguated_subgraph_slugs
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.validate import format_issue
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
+from vibecomfy.workflow_bundle import WorkflowAuthorityError
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     json_output = bool(getattr(args, "json", False))
     try:
         schema_provider = None if args.no_schema else get_schema_provider("auto")
-        workflow = load_workflow_any(args.path)
-        report = workflow.validate(schema_provider=schema_provider)
+        bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("workflow validation")
+        workflow = bundle.workflow
+        if not args.no_schema:
+            _approved_record = bundle.compile(schema_provider=schema_provider)
+            report = ValidationReport(ok=True, issues=[])
+        else:
+            report = workflow.validate(schema_provider=schema_provider)
         if getattr(args, "check_freshness", False) and report.ok:
             drift = _subgraph_freshness_diagnostics(Path(args.path))
             if drift:
@@ -33,6 +40,12 @@ def _cmd_validate(args: argparse.Namespace) -> int:
                 )
     except SubgraphFreshnessError:
         raise
+    except WorkflowAuthorityError as exc:
+        if json_output:
+            emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
+            return 1
+        print(f"workflow_authority_error: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:
         if json_output:
             emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
@@ -58,8 +71,14 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def build_validate_payload(path: str, *, no_schema: bool = False, check_freshness: bool = False) -> dict[str, object]:
     """Block A back-compat: build the validation payload directly without going through the CLI."""
     schema_provider = None if no_schema else get_schema_provider("auto")
-    workflow = load_workflow_any(path)
-    report = workflow.validate(schema_provider=schema_provider)
+    bundle = load_bundle(path)
+    bundle.require_canonical_authority("workflow validation")
+    workflow = bundle.workflow
+    if not no_schema:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+        report = ValidationReport(ok=True, issues=[])
+    else:
+        report = workflow.validate(schema_provider=schema_provider)
     issues = [
         {
             "code": issue.code,
@@ -171,7 +190,27 @@ def _subgraph_freshness_diagnostics(template_path: Path) -> list[str]:
         if raw_subgraph is None:
             diagnostics.append(f"{template_path}: source subgraph missing: {subgraph_id}")
             continue
-        actual = _build_subgraph_def(raw_subgraph, slug=slugs.get(subgraph_id, f"subgraph_{subgraph_id[:8]}"), source_path=source_workflow).source_hash
+        try:
+            actual = _build_subgraph_def(
+                raw_subgraph,
+                slug=slugs.get(subgraph_id, f"subgraph_{subgraph_id[:8]}"),
+                source_path=source_workflow,
+            ).source_hash
+        except ValueError as exc:
+            message = str(exc)
+            if (
+                "unsupported_boundary_encoding" in message
+                or "'-10'" in message
+                or "'-20'" in message
+                or '"-10"' in message
+                or '"-20"' in message
+            ):
+                diagnostics.append(
+                    f"{template_path}: subgraph {subgraph_id} rematerialization is "
+                    f"unsupported_boundary_encoding ({message})"
+                )
+                continue
+            raise
         if actual != expected_hash:
             diagnostics.append(f"{template_path}: subgraph {subgraph_id} source hash changed: {expected_hash} -> {actual}")
     return diagnostics
@@ -190,8 +229,11 @@ def _source_workflow_from_template(source: str) -> str | None:
                     value = ast.literal_eval(kw.value)
                 except Exception:
                     continue
-                if isinstance(value, str):
+                if isinstance(value, str) and value.endswith(".json"):
                     return value
-                if isinstance(value, dict) and isinstance(value.get("source_workflow"), str):
-                    return value["source_workflow"]
+                if isinstance(value, dict):
+                    for key in ("source_workflow", "source_workflow_path", "source_path"):
+                        candidate = value.get(key)
+                        if isinstance(candidate, str) and candidate.endswith(".json"):
+                            return candidate
     return None

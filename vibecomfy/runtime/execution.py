@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from vibecomfy.errors import WorkflowQueueError
+from vibecomfy.workflow_bundle import (
+    ApprovedProjectionRecord,
+    WorkflowBundle,
+    WorkflowBundleError,
+    canonical_digest,
+)
 
 from .client import ComfyClient
 
@@ -52,7 +58,45 @@ def embedded_outputs(queued: Any) -> list[str]:
     return collect_output_paths(payload)
 
 
-async def queue_embedded_prompt(queue: EmbeddedQueue, api_dict: dict[str, Any]) -> QueuedExecution:
+def authorized_queue_payload(
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+) -> dict[str, Any]:
+    """Validate one approved record and detach its exact API projection.
+
+    This is deliberately the only semantic fence immediately above either
+    transport.  Runtime callers may inspect the bundle for diagnostics, but
+    the payload sent to Comfy is always reconstructed from the immutable
+    record after the current bundle and digest have been rechecked.
+    """
+    if not isinstance(record, ApprovedProjectionRecord):
+        raise WorkflowBundleError(
+            "runtime queue requires an ApprovedProjectionRecord"
+        )
+    if not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime queue requires a WorkflowBundle")
+    bundle.require_canonical_authority("runtime queue")
+    record.assert_matches(
+        bundle,
+        record.selected_variant,
+        record.input_binding,
+        api_projection=record.api_projection,
+        ui_projection=record.ui_projection,
+    )
+    payload = record.to_dict()["api_projection"]
+    if not isinstance(payload, dict):
+        raise WorkflowBundleError("approved API projection must be a JSON object")
+    if canonical_digest(payload) != record.api_digest:
+        raise WorkflowBundleError("approved API projection digest does not match")
+    return payload
+
+
+async def queue_embedded_prompt(
+    queue: EmbeddedQueue,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+) -> QueuedExecution:
+    api_dict = authorized_queue_payload(record, bundle)
     try:
         queued = await queue.queue_prompt_api(api_dict)
     except asyncio.TimeoutError:
@@ -70,17 +114,19 @@ async def queue_embedded_prompt(queue: EmbeddedQueue, api_dict: dict[str, Any]) 
 
 
 async def queue_server_prompt(
-    api_dict: dict[str, Any],
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     server_url: str | None = None,
     client: ComfyClient | None = None,
 ) -> QueuedExecution:
+    api_dict = authorized_queue_payload(record, bundle)
     if client is None:
         if server_url is None:
             raise ValueError("server_url is required when client is not provided")
         client = ComfyClient(server_url)
     try:
-        queued = await client.queue_prompt(api_dict)
+        queued = await client._post_prompt(api_dict)
     except asyncio.TimeoutError:
         raise
     except Exception as exc:

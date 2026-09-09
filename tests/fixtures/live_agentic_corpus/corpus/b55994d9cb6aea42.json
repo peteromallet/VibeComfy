@@ -1,0 +1,902 @@
+{
+  "edges": [
+    {
+      "from_node": "424",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "426"
+    },
+    {
+      "from_node": "425",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "428"
+    },
+    {
+      "from_node": "423",
+      "from_output": "0",
+      "to_input": "audio_prompt",
+      "to_node": "425"
+    }
+  ],
+  "groups": [],
+  "id": "439bdd7a1f19a55c",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "422": {
+        "class_type": "LoadAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio",
+            "'2.mp3'"
+          ],
+          [
+            "unused_widget_1",
+            "None"
+          ],
+          [
+            "unused_widget_2",
+            "None"
+          ]
+        ]
+      },
+      "423": {
+        "class_type": "LoadAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "425",
+              "audio_prompt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio",
+            "\"11L-deep_demon's_voice_s-1748864001089.mp3\""
+          ],
+          [
+            "unused_widget_1",
+            "None"
+          ],
+          [
+            "unused_widget_2",
+            "None"
+          ]
+        ]
+      },
+      "424": {
+        "class_type": "FL_ChatterboxVC",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "426",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "keep_model_loaded",
+            "False"
+          ],
+          [
+            "use_cpu",
+            "False"
+          ]
+        ]
+      },
+      "425": {
+        "class_type": "FL_ChatterboxTTS",
+        "incoming_edge_sig": [
+          [
+            "audio_prompt",
+            [
+              "423",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "428",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg_weight",
+            "0.30000000000000004"
+          ],
+          [
+            "exaggeration",
+            "0.5000000000000001"
+          ],
+          [
+            "keep_model_loaded",
+            "False"
+          ],
+          [
+            "temperature",
+            "0.8000000000000002"
+          ],
+          [
+            "text",
+            "\"It's a deal!\""
+          ],
+          [
+            "use_cpu",
+            "False"
+          ]
+        ]
+      },
+      "426": {
+        "class_type": "PreviewAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "424",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "428": {
+        "class_type": "SaveAudioMP3",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "425",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/ComfyUI'"
+          ],
+          [
+            "quality",
+            "'320k'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b55994d9cb6aea421e93accc4c883e4da6a3b9e9183d44fd3b3c433a15af93db",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1377651495779962970,
+      "channel_name": "1377651495779962970",
+      "discord_message_url": "https://discord.com/channels/@me/1377651495779962970/1379870075905118368",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1379870075905118368:Chatterbox.json:439bdd7a1f19a55c",
+      "filename": "Chatterbox.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:19+00:00",
+      "message_id": 1379870075905118368,
+      "node_class_multiset": {
+        "FL_ChatterboxTTS": 1,
+        "FL_ChatterboxVC": 1,
+        "LoadAudio": 2,
+        "PreviewAudio": 1,
+        "SaveAudioMP3": 1
+      },
+      "node_count": 6,
+      "origin_date": "2025-06-04T17:11:02.842000+00:00",
+      "originator_global_name": "AmirKerr",
+      "originator_id": "783977668278222869",
+      "originator_type": "discord_message_author",
+      "originator_username": "amirkerr",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "439bdd7a1f19a55ceef4fd2f73c9a512061b18b747fda4cf0b8c5de63b403423",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1377651495779962970/1379870075447676988/Chatterbox.json?ex=6841cfa6&is=68407e26&hm=f344420ae29c9333b64e05d6df8fcb891cdf079b34443a6930f4455c11316904&",
+      "source_workflow_sha256": "7c8f7a2280b5d8ce6e7ff0d669794e100eb0e53ae5e62f598e1212f4c7584274",
+      "thread_id": 1377651495779962970,
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "915238da48d9f4eb67dac259093efb3a1145636495c48bcd736a0a3f66d3e8b9",
+      "complexity": 2,
+      "description": "Loads audio files, applies text-to-speech and voice conversion using Chatterbox nodes, then previews and saves the result as MP3.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio",
+        "text-to-speech",
+        "voice-conversion",
+        "mp3",
+        "chatterbox"
+      ],
+      "task_type": "other",
+      "title": "Audio Processing with Chatterbox TTS and VC"
+    }
+  },
+  "nodes": {
+    "422": {
+      "class_type": "LoadAudio",
+      "id": "422",
+      "inputs": {
+        "audio": "2.mp3",
+        "unused_widget_1": null,
+        "unused_widget_2": null
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 422,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "COMBO",
+              "widget": {
+                "name": "audio"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "choose file to upload",
+              "name": "upload",
+              "type": "AUDIOUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            -908.2532348632812,
+            821.3377075195312
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudio",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.35",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            136
+          ],
+          "type": "LoadAudio",
+          "widgets_values": [
+            "2.mp3",
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "2.mp3",
+          null,
+          null
+        ]
+      },
+      "uid": "422",
+      "widgets": {}
+    },
+    "423": {
+      "class_type": "LoadAudio",
+      "id": "423",
+      "inputs": {
+        "audio": "11L-deep_demon's_voice_s-1748864001089.mp3",
+        "unused_widget_1": null,
+        "unused_widget_2": null
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 423,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "COMBO",
+              "widget": {
+                "name": "audio"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "choose file to upload",
+              "name": "upload",
+              "type": "AUDIOUPLOAD",
+              "widget": {
+                "name": "upload"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                681
+              ],
+              "localized_name": "AUDIO",
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            -901.7243041992188,
+            1037.58642578125
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudio",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.35",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            274.080078125,
+            136
+          ],
+          "type": "LoadAudio",
+          "widgets_values": [
+            "11L-deep_demon's_voice_s-1748864001089.mp3",
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "11L-deep_demon's_voice_s-1748864001089.mp3",
+          null,
+          null
+        ]
+      },
+      "uid": "423",
+      "widgets": {}
+    },
+    "424": {
+      "class_type": "FL_ChatterboxVC",
+      "id": "424",
+      "inputs": {
+        "keep_model_loaded": false,
+        "use_cpu": false
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#4F0074",
+          "color": "#16727c",
+          "flags": {},
+          "id": 424,
+          "inputs": [
+            {
+              "link": null,
+              "localized_name": "input_audio",
+              "name": "input_audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "target_voice",
+              "name": "target_voice",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "use_cpu",
+              "name": "use_cpu",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "use_cpu"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "keep_model_loaded",
+              "name": "keep_model_loaded",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "keep_model_loaded"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                682
+              ],
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "localized_name": "message",
+              "name": "message",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -480.8719482421875,
+            820.8922729492188
+          ],
+          "properties": {
+            "Node name for S&R": "FL_ChatterboxVC",
+            "aux_id": "filliptm/ComfyUI_Fill-ChatterBox",
+            "ver": "3e768fa9dc5fd580b81468ddf5cf998b3d253b24",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            272.087890625,
+            102
+          ],
+          "type": "FL_ChatterboxVC",
+          "widgets_values": [
+            false,
+            false
+          ]
+        },
+        "bgcolor": "#4F0074",
+        "color": "#16727c",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false,
+          false
+        ]
+      },
+      "uid": "424",
+      "widgets": {}
+    },
+    "425": {
+      "class_type": "FL_ChatterboxTTS",
+      "id": "425",
+      "inputs": {
+        "cfg_weight": 0.30000000000000004,
+        "exaggeration": 0.5000000000000001,
+        "keep_model_loaded": false,
+        "temperature": 0.8000000000000002,
+        "text": "It's a deal!",
+        "use_cpu": false
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#4F0074",
+          "color": "#16727c",
+          "flags": {},
+          "id": 425,
+          "inputs": [
+            {
+              "link": 681,
+              "localized_name": "audio_prompt",
+              "name": "audio_prompt",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "text",
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "exaggeration",
+              "name": "exaggeration",
+              "type": "FLOAT",
+              "widget": {
+                "name": "exaggeration"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "cfg_weight",
+              "name": "cfg_weight",
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg_weight"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "temperature",
+              "name": "temperature",
+              "type": "FLOAT",
+              "widget": {
+                "name": "temperature"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "use_cpu",
+              "name": "use_cpu",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "use_cpu"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "keep_model_loaded",
+              "name": "keep_model_loaded",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "keep_model_loaded"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                684
+              ],
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "links": null,
+              "localized_name": "message",
+              "name": "message",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -545.3429565429688,
+            1059.972412109375
+          ],
+          "properties": {
+            "Node name for S&R": "FL_ChatterboxTTS",
+            "aux_id": "filliptm/ComfyUI_Fill-ChatterBox",
+            "ver": "3e768fa9dc5fd580b81468ddf5cf998b3d253b24",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            400,
+            228
+          ],
+          "type": "FL_ChatterboxTTS",
+          "widgets_values": [
+            "It's a deal!",
+            0.5000000000000001,
+            0.30000000000000004,
+            0.8000000000000002,
+            false,
+            false
+          ]
+        },
+        "bgcolor": "#4F0074",
+        "color": "#16727c",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "It's a deal!",
+          0.5000000000000001,
+          0.30000000000000004,
+          0.8000000000000002,
+          false,
+          false
+        ]
+      },
+      "uid": "425",
+      "widgets": {}
+    },
+    "426": {
+      "class_type": "PreviewAudio",
+      "id": "426",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 426,
+          "inputs": [
+            {
+              "link": 682,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            -43.902198791503906,
+            793.1338500976562
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewAudio",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.35",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            88
+          ],
+          "type": "PreviewAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "426",
+      "widgets": {}
+    },
+    "428": {
+      "class_type": "SaveAudioMP3",
+      "id": "428",
+      "inputs": {
+        "filename_prefix": "audio/ComfyUI",
+        "quality": "320k"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 428,
+          "inputs": [
+            {
+              "link": 684,
+              "localized_name": "audio",
+              "name": "audio",
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "localized_name": "filename_prefix",
+              "name": "filename_prefix",
+              "type": "STRING",
+              "widget": {
+                "name": "filename_prefix"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "quality",
+              "name": "quality",
+              "type": "COMBO",
+              "widget": {
+                "name": "quality"
+              }
+            },
+            {
+              "link": null,
+              "localized_name": "audioUI",
+              "name": "audioUI",
+              "type": "AUDIO_UI",
+              "widget": {
+                "name": "audioUI"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            -57.33357238769531,
+            988.3377075195312
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudioMP3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.35",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            136
+          ],
+          "type": "SaveAudioMP3",
+          "widgets_values": [
+            "audio/ComfyUI",
+            "320k"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/ComfyUI",
+          "320k"
+        ]
+      },
+      "uid": "428",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "428",
+      "output_type": "SaveAudioMP3"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "439bdd7a1f19a55c",
+    "path": "external_workflows/.shadow/source/439bdd7a1f19a55c-Chatterbox.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b55994d9cb6aea421e93accc4c883e4da6a3b9e9183d44fd3b3c433a15af93db",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1377651495779962970,
+      "channel_name": "1377651495779962970",
+      "discord_message_url": "https://discord.com/channels/@me/1377651495779962970/1379870075905118368",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1379870075905118368:Chatterbox.json:439bdd7a1f19a55c",
+      "filename": "Chatterbox.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:19+00:00",
+      "message_id": 1379870075905118368,
+      "node_class_multiset": {
+        "FL_ChatterboxTTS": 1,
+        "FL_ChatterboxVC": 1,
+        "LoadAudio": 2,
+        "PreviewAudio": 1,
+        "SaveAudioMP3": 1
+      },
+      "node_count": 6,
+      "origin_date": "2025-06-04T17:11:02.842000+00:00",
+      "originator_global_name": "AmirKerr",
+      "originator_id": "783977668278222869",
+      "originator_type": "discord_message_author",
+      "originator_username": "amirkerr",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "439bdd7a1f19a55ceef4fd2f73c9a512061b18b747fda4cf0b8c5de63b403423",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1377651495779962970/1379870075447676988/Chatterbox.json?ex=6841cfa6&is=68407e26&hm=f344420ae29c9333b64e05d6df8fcb891cdf079b34443a6930f4455c11316904&",
+      "source_workflow_sha256": "7c8f7a2280b5d8ce6e7ff0d669794e100eb0e53ae5e62f598e1212f4c7584274",
+      "thread_id": 1377651495779962970,
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

@@ -14,7 +14,7 @@ PUBLIC_INPUT_METADATA = {
 READY_METADATA = ReadyMetadata.build(
     capability='image',
     inputs=PUBLIC_INPUT_METADATA,
-    provenance={'source_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'source_id': 'qwen_image_edit', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'output_mode': 'ready_template', 'ready_id': 'edit/qwen_image_edit'},
+    provenance={'source_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'source_id': 'edit/qwen_image_edit', 'upstream_source_id': 'qwen_image_edit', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/edit/qwen_image_edit.json', 'output_mode': 'ready_template', 'ready_id': 'edit/qwen_image_edit'},
 )
 
 # === Subgraph functions ===
@@ -37,7 +37,7 @@ def qwen_image_edit(
     """
 
     unetloader = UNETLoader(unet_name=unet_name)
-    cliploader = CLIPLoader(type_='qwen_image', clip_name=clip_name)
+    cliploader = CLIPLoader(type='qwen_image', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
     comfyswitchnode_2 = ComfySwitchNode(switch=False)
     comfyswitchnode_3 = ComfySwitchNode(switch=False)

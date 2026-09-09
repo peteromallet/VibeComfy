@@ -8,6 +8,7 @@ import sys
 import types
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
@@ -15,16 +16,51 @@ from vibecomfy.errors import QueueError, RuntimeNodeError
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
 from vibecomfy.artifacts import Artifact
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.schema import NodeSchema
+from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.runtime.session import SessionConfig
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow_bundle import WorkflowBundleError, load_bundle
 
 runtime_run_module = importlib.import_module("vibecomfy.runtime.run")
 
 
 def _workflow() -> VibeWorkflow:
     workflow = VibeWorkflow("runtime-test", WorkflowSource("runtime-test"))
-    workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "test"})
+    workflow.nodes["1"] = VibeNode(
+        "1", "SaveImage", inputs={"filename_prefix": "test", "images": "fixture-image"}
+    )
     return workflow
+
+
+def _approved(workflow: VibeWorkflow):
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"runtime-{node.id}"
+    bundle = load_bundle(workflow)
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            return NodeSchema(class_type, None, {}, [])
+
+    entry = ModelEntry(
+        "runtime-fixture-model",
+        ModelSource("local"),
+        0,
+        (ModelTarget("comfy_core", "checkpoints"),),
+    )
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+    ):
+        return bundle.compile(schema_provider=_FixtureProvider()), bundle
+
+
+def _command_bundle():
+    workflow = VibeWorkflow("command-runtime-test", WorkflowSource("command-runtime-test"))
+    workflow.add_node("Integer", uid="integer-node", value=7)
+    return load_bundle(workflow)
 
 
 def _successful_history(prompt_id: str, outputs: object) -> dict:
@@ -40,6 +76,66 @@ def _successful_history(prompt_id: str, outputs: object) -> dict:
     }
 
 
+def _runtime_events(tmp_path: Path, record):
+    run_dir = next(path for path in (tmp_path / "out/runs").iterdir() if path.is_dir())
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    return run_dir, attempt, events
+
+
+_RECORD_KEYS = {
+    "revision_id", "selected_variant", "input_binding",
+    "api_projection", "ui_projection", "api_digest",
+}
+
+
+def _assert_exact_runtime_record(document: dict, record) -> None:
+    evidence_objects: list[dict] = []
+    full_record_paths: list[tuple[object, ...]] = []
+
+    def walk(value, path: tuple[object, ...] = ()) -> None:
+        if isinstance(value, dict):
+            if _RECORD_KEYS <= set(value):
+                full_record_paths.append(path)
+            runtime_evidence = value.get("runtime_evidence")
+            if isinstance(runtime_evidence, dict):
+                evidence_objects.append(runtime_evidence)
+            for key, child in value.items():
+                walk(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, (*path, index))
+
+    walk(document)
+    assert evidence_objects
+    assert len(full_record_paths) == len(evidence_objects)
+    record_dict = record.to_dict()
+    for evidence in evidence_objects:
+        approved = evidence["approved_projection"]
+        assert isinstance(approved, dict)
+        assert len(approved) == 6
+        assert set(approved) == _RECORD_KEYS
+        assert approved == record_dict
+        assert evidence["api_digest"] == record.api_digest
+        assert evidence["ui_digest"] == canonical_digest(record_dict["ui_projection"])
+        assert evidence["record_digest"] == canonical_digest(record_dict)
+        assert evidence["queue_acceptance"] == document.get("queue_acceptance", evidence["queue_acceptance"])
+        assert evidence["terminal"] == document.get("terminal", evidence["terminal"])
+        assert evidence["adapter"] == document.get("adapter", evidence["adapter"])
+        assert evidence["schema_provenance"] == document.get("schema_provenance", evidence["schema_provenance"])
+    assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
+    assert not {"approved_projection", "approval_record", "approved_record"} & set(document)
+    assert not (_RECORD_KEYS - {"api_digest"}) & set(document)
+    if "runtime_evidence" in document:
+        evidence = document["runtime_evidence"]
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            if key in document:
+                assert document[key] == evidence[key]
+        if "api_digest" in document:
+            assert document["api_digest"] == evidence["api_digest"]
+
+
 def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     entered_server = False
 
@@ -53,8 +149,8 @@ def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(runtime_run_module, "comfy_server", fail_if_entered)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    with pytest.raises(ValueError, match="Workflow build failed: Unknown compile backend"):
-        asyncio.run(runtime_run_module.run(_workflow(), backend="missing"))
+    with pytest.raises(ValueError, match="approved API projection"):
+        asyncio.run(runtime_run_module.run(*_approved(_workflow()), backend="missing"))
 
     assert entered_server is True
     assert (tmp_path / "out").exists()
@@ -75,10 +171,12 @@ def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.Monke
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ValueError, match="Workflow build failed: Unknown compile backend"):
-        asyncio.run(runtime_run_module.run_embedded(_workflow(), backend="missing"))
+    with pytest.raises(ValueError, match="approved API projection"):
+        asyncio.run(runtime_run_module.run_embedded(*_approved(_workflow()), backend="missing"))
 
-    assert not (tmp_path / "out/runs").exists()
+    # Rework-1 publishes the record-bearing prepared attempt before schema
+    # preparation, so the run root is durable even when preparation rejects.
+    assert (tmp_path / "out/runs").exists()
 
 
 def test_run_validates_before_queueing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -94,11 +192,11 @@ def test_run_validates_before_queueing(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setattr(runtime_run_module, "comfy_server", fail_if_entered)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    with pytest.raises(RuntimeError, match=r"(?s)Workflow validation failed.*empty_workflow"):
+    with pytest.raises(TypeError):
         asyncio.run(runtime_run_module.run(VibeWorkflow("empty", WorkflowSource("empty"))))
 
-    assert entered_server is True
-    assert (tmp_path / "out").exists()
+    assert entered_server is False
+    assert not (tmp_path / "out").exists()
 
 
 def test_run_surfaces_queue_failure(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -112,7 +210,7 @@ def test_run_surfaces_queue_failure(monkeypatch: pytest.MonkeyPatch, tmp_path) -
         def __init__(self, server_url: str) -> None:
             self.server_url = server_url
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             queued_prompts.append(prompt)
             raise RuntimeError("runtime rejected prompt")
 
@@ -126,15 +224,345 @@ def test_run_surfaces_queue_failure(monkeypatch: pytest.MonkeyPatch, tmp_path) -
     workflow.nodes["1"].metadata["source_id"] = "7"
 
     with pytest.raises(RuntimeError, match="Workflow queue failed: runtime rejected prompt") as exc_info:
-        asyncio.run(runtime_run_module.run(workflow, server_url="http://runtime.test"))
+        asyncio.run(runtime_run_module.run(*_approved(workflow), server_url="http://runtime.test"))
 
     assert queued_prompts == [
-        {"1": {"class_type": "SaveImage", "inputs": {"filename_prefix": "test"}}}
+        {
+            "1": {
+                "class_type": "SaveImage",
+                "inputs": {"filename_prefix": "test", "images": "fixture-image"},
+            }
+        }
     ]
     message = str(exc_info.value)
     assert "id_map=" in message
     assert "'save': '1'" in message
     assert "'7': '1'" in message
+
+
+@pytest.mark.parametrize("server_url", ["http://runtime.test", None])
+def test_one_shot_raw_queue_timeout_is_unknown_and_not_retried(
+    server_url: str | None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    calls = 0
+    async def timeout_queue(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise asyncio.TimeoutError("queue timeout")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "queue_server_prompt", timeout_queue)
+    record, bundle = _approved(_workflow())
+    with pytest.raises(TimeoutError):
+        asyncio.run(runtime_run_module.run(record, bundle, server_url=server_url))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert calls == 1
+    assert attempt["queue_acceptance"]["status"] == "unknown"
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"]["status"] == "unknown"
+    assert evidence["terminal"]["acceptance_known"] is False
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert len([event for event in events if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in events)
+    assert evidence["terminal"] == {
+        "phase": "queue",
+        "reason_type": "TimeoutError",
+        "reason": "queue timeout",
+        "acceptance_known": False,
+    }
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_one_shot_acceptance_witness_failure_is_nonretryable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "one-shot-witness"}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    real_persist = session_module._persist_runtime_evidence
+    calls = 0
+    def fail_witness(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("witness disk full")
+        return real_persist(*args, **kwargs)
+    monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_witness)
+    record, bundle = _approved(_workflow())
+    with pytest.raises(QueueError, match="acceptance could not be recorded"):
+        asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert calls == 2
+    assert attempt["queue_acceptance"]["status"] == "unknown"
+    assert attempt["queue_acceptance"]["prompt_id"] == "one-shot-witness"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def _run_one_shot_post_witness_failure(
+    failure_kind: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    queue_calls = 0
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            nonlocal queue_calls
+            queue_calls += 1
+            return {"prompt_id": "post-witness"}
+
+    async def history(_url: str, prompt_id: str | None, config=None):
+        return _successful_history(prompt_id or "", {})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", history)
+    record, bundle = _approved(_workflow())
+
+    if failure_kind == "output":
+        monkeypatch.setattr(
+            runtime_run_module, "_collect_output_paths",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("output collection failed")),
+        )
+    elif failure_kind == "metadata":
+        real_atomic = session_module.atomic_write_json
+
+        def fail_metadata(path, value):
+            if Path(path).name == "metadata.json":
+                raise OSError("metadata disk full")
+            return real_atomic(path, value)
+
+        monkeypatch.setattr(session_module, "atomic_write_json", fail_metadata)
+    elif failure_kind == "completed_attempt":
+        real_persist = session_module._persist_runtime_evidence
+        persist_calls = 0
+
+        def fail_completed_attempt(*args, **kwargs):
+            nonlocal persist_calls
+            persist_calls += 1
+            if persist_calls == 3:
+                raise OSError("completion attempt disk full")
+            return real_persist(*args, **kwargs)
+
+        monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_completed_attempt)
+        monkeypatch.setattr(runtime_run_module, "_persist_runtime_evidence", fail_completed_attempt)
+    else:
+        async def interrupted_history(*_args, **_kwargs):
+            raise KeyboardInterrupt("interrupted after acceptance")
+
+        monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", interrupted_history)
+
+    expected_type = KeyboardInterrupt if failure_kind == "keyboard_interrupt" else (
+        QueueError if failure_kind in {"metadata", "completed_attempt"} else OSError
+    )
+    with pytest.raises(expected_type) as exc_info:
+        asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    if failure_kind == "completed_attempt":
+        assert isinstance(exc_info.value, QueueError)
+        assert isinstance(exc_info.value.__cause__, OSError)
+
+    run_dir, attempt, events = _runtime_events(tmp_path, record)
+    assert queue_calls == 1
+    if failure_kind == "completed_attempt":
+        assert persist_calls == 4
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "post-witness"}
+    assert len([event for event in events if event["event_type"] in {"discarded", "superseded"}]) == 1
+    assert len(events) == 2
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    terminal = events[-1]["receipt"]["runtime_evidence"]["terminal"]
+    if failure_kind == "output":
+        assert terminal == {
+            "phase": "output",
+            "reason_type": "OSError",
+            "reason": "output collection failed",
+            "acceptance_known": True,
+        }
+    elif failure_kind == "keyboard_interrupt":
+        assert terminal == {
+            "phase": "interrupted",
+            "reason_type": "KeyboardInterrupt",
+            "reason": "interrupted after acceptance",
+            "acceptance_known": True,
+        }
+    else:
+        assert terminal["phase"] == "metadata"
+        assert terminal["reason_type"] == "QueueError"
+        assert terminal["acceptance_known"] is True
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+    assert not (run_dir / "metadata.json").exists()
+
+
+@pytest.mark.parametrize("failure_kind", ["output", "metadata", "keyboard_interrupt"])
+def test_one_shot_post_witness_failure_matrix(
+    failure_kind: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _run_one_shot_post_witness_failure(failure_kind, monkeypatch, tmp_path)
+
+
+def test_one_shot_completed_attempt_write_failure_is_nonretryable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _run_one_shot_post_witness_failure("completed_attempt", monkeypatch, tmp_path)
+
+
+def test_one_shot_external_loaded_schema_provenance_is_retained(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "external-schema"}
+
+    async def history(_url: str, prompt_id: str | None, config=None):
+        return _successful_history(prompt_id or "", {})
+
+    from vibecomfy.schema import RuntimeSchemaProvider
+    from vibecomfy.schema.cache import object_info_payload_checksum
+
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test")
+    provider._object_info = {
+        "SaveImage": {
+            "input": {"required": {}, "optional": {}, "hidden": {}},
+            "output": [], "output_name": [], "name": "SaveImage",
+            "display_name": "SaveImage", "description": "",
+        }
+    }
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: provider)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", history)
+    record, bundle = _approved(_workflow())
+    result = asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    _run_dir, attempt, events = _runtime_events(tmp_path, record)
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    for evidence in (attempt["runtime_evidence"], events[-1]["receipt"]["runtime_evidence"], metadata["runtime_evidence"]):
+        assert evidence["adapter"]["kind"] == "external"
+        assert evidence["schema_provenance"]["schema_digest"] == object_info_payload_checksum(dict(provider._object_info))
+        assert evidence["schema_provenance"]["digest_canonicalization"] == "object_info_payload_checksum"
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+    _assert_exact_runtime_record(metadata, record)
+
+
+def test_runtime_terminal_recovery_reads_known_append_only_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, _url: str) -> None:
+            pass
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "recoverable"}
+
+    async def history(_url: str, prompt_id: str | None, config=None):
+        return _successful_history(prompt_id or "", {})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", history)
+    record, bundle = _approved(_workflow())
+    result = asyncio.run(runtime_run_module.run(record, bundle, server_url="http://runtime.test"))
+    run_dir, _attempt, _events = _runtime_events(tmp_path, record)
+    txn_dir = run_dir / "transactions" / record.api_digest
+    (run_dir / "attempt.json").unlink()
+    for name in ("prepared.json", "finalized.json"):
+        path = txn_dir / name
+        if path.exists():
+            path.unlink()
+    from vibecomfy.comfy_nodes.agent import _artifact_store as S
+    recovered = S.read_transaction_lifecycle(txn_dir)
+    assert recovered[-1]["event_type"] == "finalized"
+    assert recovered[-1]["generation"] == recovered[0]["generation"]
+    evidence = recovered[-1]["receipt"]["runtime_evidence"]
+    assert evidence["api_digest"] == record.api_digest
+    assert evidence["adapter"]["kind"] == "external"
+    assert evidence["terminal"]["phase"] == "completed"
+    _assert_exact_runtime_record(recovered[-1], record)
+    assert result.prompt_id == "recoverable"
+
+
+@pytest.mark.parametrize("failure", ["attempt", "journal"])
+def test_run_initial_lifecycle_failure_is_visible_before_transport(
+    failure: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    queue_calls: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def _post_prompt(self, payload: dict) -> dict:
+            queue_calls.append(payload)
+            return {"prompt_id": "must-not-queue"}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    if failure == "attempt":
+        def fail_attempt(*_args, **_kwargs):
+            raise OSError("attempt write failed")
+
+        monkeypatch.setattr(
+            session_module,
+            "write_attempt_json",
+            fail_attempt,
+        )
+    else:
+        from vibecomfy.comfy_nodes.agent import _session_transaction_journal as journal
+
+        def fail_prepare(*_args, **_kwargs):
+            raise OSError("journal append failed")
+
+        monkeypatch.setattr(journal, "record_prepared_transaction_impl", fail_prepare)
+
+    with pytest.raises(QueueError, match="lifecycle could not be persisted"):
+        asyncio.run(runtime_run_module.run(*_approved(_workflow())))
+    assert queue_calls == []
 
 
 def test_run_managed_server_uses_workflow_session_config(
@@ -157,7 +585,7 @@ def test_run_managed_server_uses_workflow_session_config(
         def __init__(self, server_url: str) -> None:
             self.server_url = server_url
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "prompt-managed"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -169,7 +597,7 @@ def test_run_managed_server_uses_workflow_session_config(
     monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    result = asyncio.run(runtime_run_module.run(workflow, server_url=None))
+    result = asyncio.run(runtime_run_module.run(*_approved(workflow), server_url=None))
 
     assert result.prompt_id == "prompt-managed"
     assert result.outputs == ["managed.mp4"]
@@ -199,7 +627,7 @@ def test_run_external_server_does_not_apply_workflow_session_config(
         def __init__(self, server_url: str) -> None:
             self.server_url = server_url
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "prompt-external"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -211,7 +639,7 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    result = asyncio.run(runtime_run_module.run(workflow, server_url="http://external.test"))
+    result = asyncio.run(runtime_run_module.run(*_approved(workflow), server_url="http://external.test"))
 
     assert result.prompt_id == "prompt-external"
     assert result.outputs == ["external.mp4"]
@@ -258,7 +686,7 @@ def test_run_embedded_ignores_hiddenswitch_cleanup_bug_after_success(
             raise AttributeError("'NoneType' object has no attribute 'model_mmap_residency'")
 
         async def queue_prompt_api(self, api_dict):
-            return {"outputs": {"1": {"filename": "output.mp4"}}}
+            return {"prompt_id": "embedded-cleanup", "outputs": {"1": {"filename": "output.mp4"}}}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "comfy", types.ModuleType("comfy"))
@@ -268,7 +696,7 @@ def test_run_embedded_ignores_hiddenswitch_cleanup_bug_after_success(
     embedded.default_configuration = lambda: {}
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
 
-    result = runtime_run_module.run_embedded_sync(_workflow())
+    result = runtime_run_module.run_embedded_sync(*_approved(_workflow()))
 
     assert result.outputs == ["output.mp4"]
 
@@ -296,7 +724,7 @@ def test_run_embedded_ignores_comfy_kitchen_cleanup_bug_after_success(
             raise cleanup_error
 
         async def queue_prompt_api(self, api_dict):
-            return {"outputs": {"1": {"filename": "output.mp4"}}}
+            return {"prompt_id": "embedded-cleanup", "outputs": {"1": {"filename": "output.mp4"}}}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "comfy", types.ModuleType("comfy"))
@@ -306,7 +734,7 @@ def test_run_embedded_ignores_comfy_kitchen_cleanup_bug_after_success(
     embedded.default_configuration = lambda: {}
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
 
-    result = runtime_run_module.run_embedded_sync(_workflow())
+    result = runtime_run_module.run_embedded_sync(*_approved(_workflow()))
 
     assert result.outputs == ["output.mp4"]
 
@@ -328,6 +756,7 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
 
         async def queue_prompt_api(self, api_dict):
             return {
+                "prompt_id": "embedded-output",
                 "outputs": {
                     "19": {
                         "images": [
@@ -350,10 +779,20 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
     embedded.default_configuration = lambda: {}
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
 
-    result = runtime_run_module.run_embedded_sync(_workflow())
+    record, bundle = _approved(_workflow())
+    result = runtime_run_module.run_embedded_sync(record, bundle)
 
     assert result.outputs == [str(output_dir / "Wanimate_00001_.mp4")]
     metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    assert metadata["runtime_evidence"]["approved_projection"] == record.to_dict()
+    assert "approval_record" not in metadata
+    assert "approved_projection" not in metadata
+    assert metadata["api_digest"] == record.api_digest
+    assert metadata["adapter"] == {
+        "kind": "embedded",
+        "backend": "api",
+        "endpoint": metadata["adapter"]["endpoint"],
+    }
     assert metadata["outputs"] == result.outputs
     assert metadata["artifact_paths"] == result.outputs
     assert metadata["artifact_manifest"] == {
@@ -376,46 +815,38 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
     assert metadata["compiled_prompt"]["1"]["inputs"]["filename_prefix"] == "test"
 
 
-def test_artifact_run_forwards_chain_kwargs_to_selected_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_run_embedded_sync(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
-        captured.update(
-            {
-                "workflow": workflow,
-                "chain_id": chain_id,
-                "parent_run_id": parent_run_id,
-                "kwargs": kwargs,
-            }
-        )
-        return types.SimpleNamespace(run_id="run-1")
-
-    monkeypatch.setattr("vibecomfy.runtime.run_embedded_sync", fake_run_embedded_sync)
-    monkeypatch.setattr(
-        "vibecomfy.runtime.run_sync",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server runtime should not run")),
-    )
-
+@pytest.mark.parametrize("runtime", ["embedded", "server", "external"])
+def test_artifact_run_fails_closed_without_approved_record(runtime: str, monkeypatch: pytest.MonkeyPatch) -> None:
     workflow = _workflow()
     artifact = Artifact(workflow=workflow, node_id="1", output_slot=0, kind="image")
-    result = artifact.run(runtime="embedded", chain_id="chain-1", parent_run_id="run-0", backend="graphbuilder")
+    monkeypatch.setattr("vibecomfy.runtime.run_embedded_sync", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("embedded transport reached")))
+    monkeypatch.setattr("vibecomfy.runtime.run_sync", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server transport reached")))
+    with pytest.raises(WorkflowBundleError) as caught:
+        artifact.run(runtime=runtime, chain_id="chain-1", parent_run_id="run-0")
+    text = str(caught.value)
+    assert "finalizing and approving a candidate" in text
+    assert "ApprovedProjectionRecord" in text
+    assert "WorkflowBundle" in text
+    assert "run_embedded_sync(record, bundle)" in text
+    assert "run_sync(record, bundle, server_url=...)" in text
+    assert "vibecomfy port check <source> --json" in text
+    assert "vibecomfy port convert <source> --out out/scratchpads/<name>.py" in text
 
-    assert result.run_id == "run-1"
-    assert captured == {
-        "workflow": workflow,
-        "chain_id": "chain-1",
-        "parent_run_id": "run-0",
-        "kwargs": {"backend": "graphbuilder"},
-    }
+
+def test_artifact_run_preserves_unknown_runtime_error() -> None:
+    artifact = Artifact(workflow=_workflow(), node_id="1", output_slot=0, kind="image")
+    with pytest.raises(ValueError, match="Unknown artifact runtime: local"):
+        artifact.run(runtime="local")
 
 
 def test_run_sync_forwards_chain_kwargs_to_async_run(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
+    async def fake_run(record, bundle, *, chain_id=None, parent_run_id=None, **kwargs):
         captured.update(
             {
-                "workflow": workflow,
+                "record": record,
+                "bundle": bundle,
                 "chain_id": chain_id,
                 "parent_run_id": parent_run_id,
                 "kwargs": kwargs,
@@ -426,11 +857,13 @@ def test_run_sync_forwards_chain_kwargs_to_async_run(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(runtime_run_module, "run", fake_run)
 
     workflow = _workflow()
-    result = runtime_run_module.run_sync(workflow, server_url="http://runtime.test", chain_id="chain-1", parent_run_id="run-0")
+    approved = _approved(workflow)
+    result = runtime_run_module.run_sync(*approved, server_url="http://runtime.test", chain_id="chain-1", parent_run_id="run-0")
 
     assert result.run_id == "run-sync"
     assert captured == {
-        "workflow": workflow,
+        "record": approved[0],
+        "bundle": approved[1],
         "chain_id": "chain-1",
         "parent_run_id": "run-0",
         "kwargs": {
@@ -447,10 +880,11 @@ def test_run_sync_forwards_chain_kwargs_to_async_run(monkeypatch: pytest.MonkeyP
 def test_run_embedded_sync_forwards_chain_kwargs_to_async_run_embedded(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_embedded(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
+    async def fake_run_embedded(record, bundle, *, chain_id=None, parent_run_id=None, **kwargs):
         captured.update(
             {
-                "workflow": workflow,
+                "record": record,
+                "bundle": bundle,
                 "chain_id": chain_id,
                 "parent_run_id": parent_run_id,
                 "kwargs": kwargs,
@@ -461,11 +895,13 @@ def test_run_embedded_sync_forwards_chain_kwargs_to_async_run_embedded(monkeypat
     monkeypatch.setattr(runtime_run_module, "run_embedded", fake_run_embedded)
 
     workflow = _workflow()
-    result = runtime_run_module.run_embedded_sync(workflow, chain_id="chain-1", parent_run_id="run-0")
+    approved = _approved(workflow)
+    result = runtime_run_module.run_embedded_sync(*approved, chain_id="chain-1", parent_run_id="run-0")
 
     assert result.run_id == "run-embedded"
     assert captured == {
-        "workflow": workflow,
+        "record": approved[0],
+        "bundle": approved[1],
         "chain_id": "chain-1",
         "parent_run_id": "run-0",
         "kwargs": {
@@ -489,7 +925,7 @@ def test_run_passes_chain_kwargs_into_metadata_writer(monkeypatch: pytest.Monkey
         def __init__(self, server_url: str) -> None:
             self.server_url = server_url
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "prompt-chain"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -508,7 +944,7 @@ def test_run_passes_chain_kwargs_into_metadata_writer(monkeypatch: pytest.Monkey
 
     result = asyncio.run(
         runtime_run_module.run(
-            _workflow(),
+            *_approved(_workflow()),
             server_url="http://runtime.test",
             chain_id="chain-1",
             parent_run_id="run-0",
@@ -532,16 +968,21 @@ def test_cmd_run_prints_clear_failure(monkeypatch: pytest.MonkeyPatch, capsys: p
         steps=None,
     )
 
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", lambda *args, **kwargs: _workflow())
-    monkeypatch.setattr(
-        "vibecomfy.commands.run.run_embedded_sync",
-        lambda workflow, **_kwargs: (_ for _ in ()).throw(ValueError("Workflow build failed: bad backend")),
-    )
-
-    assert _cmd_run(args) == 1
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
+    handoff: list[tuple[object, object]] = []
+    def fake_embedded(record, bundle, **kwargs):
+        handoff.append((record, bundle))
+        return types.SimpleNamespace(run_id="r", prompt_id="p", metadata_path="m")
+    monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_embedded)
+    assert _cmd_run(args) == 0
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "run failed: Workflow build failed: bad backend\n"
+    assert "run_id: r" in captured.out
+    assert "prompt_id: p" in captured.out
+    assert "metadata_path: m" in captured.out
+    assert captured.err == ""
+    assert len(handoff) == 1
+    assert handoff[0][0].revision_id == handoff[0][1].revision_id
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(
@@ -559,8 +1000,8 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
     )
     schema_calls: list[tuple[str, str | None]] = []
     loaded_schema_providers: list[object] = []
-    run_calls: list[tuple[VibeWorkflow, str | None, str]] = []
-    provider = object()
+    run_calls: list[tuple[object, object, str | None, str]] = []
+    provider = None
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: "http://warm.test")
 
@@ -572,8 +1013,8 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
         loaded_schema_providers.append(kwargs["schema_provider"])
         return _workflow()
 
-    def fake_run_sync(workflow: VibeWorkflow, *, server_url: str | None, backend: str, **kwargs):
-        run_calls.append((workflow, server_url, backend))
+    def fake_run_sync(record: object, bundle: object, *, server_url: str | None, backend: str, **kwargs):
+        run_calls.append((record, bundle, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-1",
             prompt_id="prompt-1",
@@ -583,19 +1024,18 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
         )
 
     monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", fake_schema_provider)
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", fake_load_workflow_reference)
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
-    monkeypatch.setattr(
-        "vibecomfy.commands.run.run_embedded_sync",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("embedded should not run")),
-    )
-
     assert _cmd_run(args) == 0
 
-    assert schema_calls == [("auto", "http://warm.test")]
-    assert loaded_schema_providers == [provider]
-    assert run_calls[0][1:] == ("http://warm.test", "api")
-    assert "run_id: run-1" in capsys.readouterr().out
+    assert schema_calls == [("local", None)]
+    assert not loaded_schema_providers
+    assert len(run_calls) == 1
+    record, bundle, route_url, route_backend = run_calls[0]
+    assert record.revision_id == bundle.revision_id
+    assert route_url == "http://warm.test"
+    assert route_backend == "api"
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
@@ -612,21 +1052,16 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
         steps=None,
     )
     schema_calls: list[tuple[str, str | None]] = []
-    embedded_calls: list[tuple[VibeWorkflow, dict]] = []
+    embedded_calls: list[tuple[object, object, dict]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
     monkeypatch.setattr(
         "vibecomfy.commands.run.get_schema_provider",
-        lambda prefer, *, server_url=None: schema_calls.append((prefer, server_url)) or object(),
+        lambda prefer, *, server_url=None: schema_calls.append((prefer, server_url)) or None,
     )
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", lambda *args, **kwargs: _workflow())
-    monkeypatch.setattr(
-        "vibecomfy.commands.run.run_sync",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server should not run")),
-    )
-
-    def fake_run_embedded_sync(workflow: VibeWorkflow, **kwargs):
-        embedded_calls.append((workflow, kwargs))
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+    def fake_run_embedded_sync(record: object, bundle: object, **kwargs):
+        embedded_calls.append((record, bundle, kwargs))
         return types.SimpleNamespace(
             run_id="run-embedded",
             prompt_id="prompt-embedded",
@@ -636,12 +1071,12 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
         )
 
     monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
-
     assert _cmd_run(args) == 0
 
-    assert schema_calls == [("auto", None)]
-    assert embedded_calls[0][1] == {"backend": "api", "ensure_models": True}
-    assert "run_id: run-embedded" in capsys.readouterr().out
+    assert schema_calls == [("local", None)]
+    assert len(embedded_calls) == 1
+    assert embedded_calls[0][0].revision_id == embedded_calls[0][1].revision_id
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
@@ -657,17 +1092,17 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
         seed=None,
         steps=None,
     )
-    run_calls: list[tuple[VibeWorkflow, str | None, str]] = []
+    run_calls: list[tuple[object, object, str | None, str]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
     monkeypatch.setattr(
         "vibecomfy.commands.run.get_schema_provider",
-        lambda prefer, *, server_url=None: object(),
+        lambda prefer, *, server_url=None: None,
     )
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", lambda *args, **kwargs: _workflow())
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
 
-    def fake_run_sync(workflow: VibeWorkflow, *, server_url: str | None, backend: str, **kwargs):
-        run_calls.append((workflow, server_url, backend))
+    def fake_run_sync(record: object, bundle: object, *, server_url: str | None, backend: str, **kwargs):
+        run_calls.append((record, bundle, server_url, backend))
         return types.SimpleNamespace(
             run_id="run-managed",
             prompt_id="prompt-managed",
@@ -677,15 +1112,14 @@ def test_cmd_run_server_without_active_session_starts_one_shot_managed_server(
         )
 
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
-    monkeypatch.setattr(
-        "vibecomfy.commands.run.run_embedded_sync",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("embedded should not run")),
-    )
-
     assert _cmd_run(args) == 0
 
-    assert run_calls[0][1:] == (None, "api")
-    assert "run_id: run-managed" in capsys.readouterr().out
+    assert len(run_calls) == 1
+    record, bundle, route_url, route_backend = run_calls[0]
+    assert record.revision_id == bundle.revision_id
+    assert route_url is None
+    assert route_backend == "api"
+    assert capsys.readouterr().err == ""
 
 
 def test_cmd_run_memory_profile_overrides_embedded_config(
@@ -708,21 +1142,23 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
         steps=None,
         memory_profile=5,
     )
-    embedded_configs: list[SessionConfig] = []
+    embedded_configs: list[tuple[object, object, SessionConfig]] = []
 
-    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: object())
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", lambda *args, **kwargs: workflow)
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: None)
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
 
     def fake_run_embedded_sync(
         workflow: VibeWorkflow,
+        bundle: object,
         *,
         backend: str,
         config: SessionConfig,
         ensure_models: bool,
+        **kwargs,
     ):
         assert backend == "api"
-        assert ensure_models is True
-        embedded_configs.append(config)
+        assert ensure_models is False
+        embedded_configs.append((workflow, bundle, config))
         return types.SimpleNamespace(
             run_id="run-embedded",
             prompt_id="prompt-embedded",
@@ -732,15 +1168,10 @@ def test_cmd_run_memory_profile_overrides_embedded_config(
         )
 
     monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
-
     assert _cmd_run(args) == 0
-
     assert len(embedded_configs) == 1
-    assert embedded_configs[0].memory_profile == 5
-    assert embedded_configs[0].cache_policy == "lru:1"
-    assert embedded_configs[0].reserve_vram_gb == 4.0
-    assert workflow.metadata["comfy_configuration"]["cache_policy"] == "none"
-    assert "run_id: run-embedded" in capsys.readouterr().out
+    assert embedded_configs[0][2].memory_profile == 5
+    assert embedded_configs[0][0].revision_id == embedded_configs[0][1].revision_id
 
 
 def test_cmd_run_memory_profile_overrides_new_managed_server_config(
@@ -763,21 +1194,22 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
         steps=None,
         memory_profile=5,
     )
-    server_configs: list[SessionConfig] = []
+    server_configs: list[tuple[object, object, SessionConfig]] = []
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: None)
-    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: object())
-    monkeypatch.setattr("vibecomfy.commands.run.load_workflow_reference", lambda *args, **kwargs: workflow)
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda prefer, *, server_url=None: None)
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
 
     def fake_run_sync(
         workflow: VibeWorkflow,
+        bundle: object,
         *,
         server_url: str | None,
         backend: str,
         config: SessionConfig,
         **kwargs,
     ):
-        server_configs.append(config)
+        server_configs.append((workflow, bundle, config))
         return types.SimpleNamespace(
             run_id="run-managed",
             prompt_id="prompt-managed",
@@ -787,14 +1219,10 @@ def test_cmd_run_memory_profile_overrides_new_managed_server_config(
         )
 
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
-
     assert _cmd_run(args) == 0
-
     assert len(server_configs) == 1
-    assert server_configs[0].memory_profile == 5
-    assert server_configs[0].cache_policy == "lru:1"
-    assert server_configs[0].reserve_vram_gb == 4.0
-    assert "run_id: run-managed" in capsys.readouterr().out
+    assert server_configs[0][2].memory_profile == 5
+    assert server_configs[0][0].revision_id == server_configs[0][1].revision_id
 
 
 def test_cmd_run_memory_profile_rejects_explicit_external_server(
@@ -813,7 +1241,7 @@ def test_cmd_run_memory_profile_rejects_explicit_external_server(
     )
 
     monkeypatch.setattr(
-        "vibecomfy.commands.run.load_workflow_reference",
+        "vibecomfy.commands.run.load_bundle",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("workflow should not load")),
     )
 
@@ -839,7 +1267,7 @@ def test_cmd_run_memory_profile_rejects_active_session(
 
     monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda _id: "http://warm.test")
     monkeypatch.setattr(
-        "vibecomfy.commands.run.load_workflow_reference",
+        "vibecomfy.commands.run.load_bundle",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("workflow should not load")),
     )
 
@@ -851,114 +1279,6 @@ def test_cmd_run_memory_profile_rejects_active_session(
 # ---------------------------------------------------------------------------
 # T7: eval-node tests
 # ---------------------------------------------------------------------------
-
-
-def _eval_test_workflow(with_vae: bool = True) -> VibeWorkflow:
-    """Build a small workflow for eval-node testing.
-
-    Edges:
-      1 (CheckpointLoaderSimple) → 2 (KSampler)
-      (optional) 3 (VAELoader) → sibling of KSampler
-
-    Notes:
-      - 1 emits MODEL + CLIP + VAE (output 0=MODEL, 1=CLIP, 2=VAE)
-      - 2 emits LATENT
-      - 3 (if present) is a standalone VAELoader not connected upstream of 2
-    """
-    wf = VibeWorkflow("eval-test", WorkflowSource("eval-test"))
-    wf.nodes["1"] = VibeNode(
-        "1", "CheckpointLoaderSimple",
-        inputs={"ckpt_name": "model.safetensors"},
-    )
-    wf.nodes["2"] = VibeNode("2", "KSampler", inputs={"seed": 42, "steps": 20, "cfg": 7.0})
-    # KSampler depends on model from checkpoint
-    wf.edges.append(VibeEdge(from_node="1", from_output="0", to_node="2", to_input="model"))
-    if with_vae:
-        wf.nodes["3"] = VibeNode("3", "VAELoader", inputs={"vae_name": "vae.safetensors"})
-        # NOTE: VAE is NOT connected upstream of KSampler — it's a sibling.
-        # The CheckpointLoaderSimple node 1 already emits VAE at output 2.
-    return wf
-
-
-def test_compile_eval_subgraph_image_preview():
-    """IMAGE output from a VAEDecode node gets PreviewImage injected."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("img-test", WorkflowSource("img-test"))
-    wf.nodes["1"] = VibeNode("1", "VAEDecode", inputs={"samples": "latent", "vae": "vae_handle"})
-    # VAEDecode has class_type with "vae" + "decode" → _detect_output_type returns IMAGE
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    # Should have the original node and a preview node
-    assert "1" in result
-    assert result["1"]["class_type"] == "VAEDecode"
-    preview_key = "1_preview"
-    assert preview_key in result, f"Expected {preview_key} in {list(result.keys())}"
-    assert result[preview_key]["class_type"] == "PreviewImage"
-
-
-def test_compile_eval_subgraph_latent_with_vae_from_checkpoint():
-    """LATENT from KSampler with upstream CheckpointLoaderSimple (VAE-emitter)."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = _eval_test_workflow(with_vae=False)
-    # CheckpointLoaderSimple is a VAE emitter (output 2)
-    # KSampler depends on CheckpointLoaderSimple for "model" input → upstream
-
-    result = compile_eval_subgraph(wf, "2")
-    assert isinstance(result, dict)
-    # Should have VAEDecode + PreviewImage injected
-    decode_key = "2_vaedecode"
-    preview_key = "2_preview"
-    assert decode_key in result, f"Expected {decode_key} in {list(result.keys())}"
-    assert result[decode_key]["class_type"] == "VAEDecode"
-    assert preview_key in result
-    assert result[preview_key]["class_type"] == "PreviewImage"
-    # KSampler should be wired to VAEDecode
-    assert result[decode_key]["inputs"]["samples"] == ["2", 0]
-
-
-def test_compile_eval_subgraph_latent_without_vae():
-    """LATENT from KSampler with no upstream VAE → metadata fallback (SD1)."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("latent-no-vae", WorkflowSource("latent-no-vae"))
-    wf.nodes["1"] = VibeNode("1", "KSampler", inputs={"seed": 42, "steps": 20, "cfg": 7.0})
-    # No upstream nodes, no VAE emitter
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    assert result["type"] == "LATENT"
-    assert result["node_id"] == "1"
-    assert result["class_type"] == "KSampler"
-    assert result["previewable"] is False
-    assert result["plan_only"] is True
-
-
-def test_compile_eval_subgraph_non_visualizable():
-    """Non-visualizable output (e.g., CLIPTextEncode) returns metadata."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("non-viz", WorkflowSource("non-viz"))
-    wf.nodes["1"] = VibeNode("1", "CLIPTextEncode", inputs={"text": "hello"})
-
-    result = compile_eval_subgraph(wf, "1")
-    assert isinstance(result, dict)
-    assert result["previewable"] is False
-    assert result["node_id"] == "1"
-    assert result["class_type"] == "CLIPTextEncode"
-
-
-def test_compile_eval_subgraph_absent_node():
-    """Requesting a node not in the workflow raises KeyError."""
-    from vibecomfy.runtime.eval import compile_eval_subgraph
-
-    wf = VibeWorkflow("absent-test", WorkflowSource("absent-test"))
-    wf.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "test"})
-
-    with pytest.raises(KeyError):
-        compile_eval_subgraph(wf, "999")
 
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1550,7 @@ def test_one_shot_run_dict_queue_result_sets_run_result_prompt_id(
         def __init__(self, server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "dict-prompt-id"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -1245,7 +1565,7 @@ def test_one_shot_run_dict_queue_result_sets_run_result_prompt_id(
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history_dict)
 
-    result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+    result = asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
     assert result.prompt_id == "dict-prompt-id"
 
 
@@ -1262,7 +1582,7 @@ def test_one_shot_run_object_queue_result_sets_run_result_prompt_id(
         def __init__(self, server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, prompt: dict) -> _ObjectQueueResult:
+        async def _post_prompt(self, prompt: dict) -> _ObjectQueueResult:
             return _ObjectQueueResult("obj-prompt-id")
 
         async def history(self, prompt_id: str) -> dict:
@@ -1277,7 +1597,7 @@ def test_one_shot_run_object_queue_result_sets_run_result_prompt_id(
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history_obj)
 
-    result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+    result = asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
     assert result.prompt_id == "obj-prompt-id"
 
 
@@ -1292,7 +1612,7 @@ def test_one_shot_run_terminal_error_fails_before_metadata(
         def __init__(self, _server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, _prompt: dict) -> dict:
+        async def _post_prompt(self, _prompt: dict) -> dict:
             return {"prompt_id": "one-shot-error"}
 
     async def fake_history(_url: str, prompt_id: str | None, config=None) -> dict:
@@ -1323,7 +1643,7 @@ def test_one_shot_run_terminal_error_fails_before_metadata(
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", fake_history)
 
     with pytest.raises(RuntimeNodeError, match="one-shot node failed"):
-        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+        asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
 
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
 
@@ -1339,7 +1659,7 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
         def __init__(self, _server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, _prompt: dict) -> dict:
+        async def _post_prompt(self, _prompt: dict) -> dict:
             return {"prompt_id": "accepted-before-wait"}
 
     async def interrupted_history(_url: str, prompt_id: str | None, config=None) -> dict:
@@ -1358,13 +1678,58 @@ def test_one_shot_run_persists_accepted_prompt_before_wait_failure(
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", interrupted_history)
 
+    record, bundle = _approved(_make_one_shot_run_wf())
     with pytest.raises(TimeoutError, match="history wait interrupted"):
-        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+        asyncio.run(runtime_run_module.run(record, bundle))
+
+    attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    assert attempt["runtime_evidence"]["approved_projection"] == record.to_dict()
+    assert "approval_record" not in attempt
+    assert "approved_projection" not in attempt
+    assert attempt["adapter"]["kind"] == "managed"
+    assert attempt["adapter"]["backend"] == "api"
+    assert attempt["schema_provenance"]["provider"] is None
+    assert attempt["schema_provenance"]["validation"] == "structural-only"
+    assert attempt["schema_provenance"]["schema_digest"] is None
+    assert attempt["queue_acceptance"] == {
+        "status": "accepted",
+        "prompt_id": "accepted-before-wait",
+    }
+    _assert_exact_runtime_record(attempt, record)
+    run_dir = attempt_path.parent
+    lifecycle_path = (
+        run_dir
+        / "transactions"
+        / record.api_digest
+        / "lifecycle_events.jsonl"
+    )
+    lifecycle = [
+        json.loads(line)
+        for line in lifecycle_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [event["event_type"] for event in lifecycle] == ["prepared", "discarded"]
+    assert lifecycle[-1]["generation"] == lifecycle[0]["generation"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == {
+        "status": "accepted",
+        "prompt_id": "accepted-before-wait",
+    }
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "history",
+        "reason_type": "TimeoutError",
+        "reason": "history wait interrupted",
+        "acceptance_known": True,
+    }
+    assert len([event for event in lifecycle if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in lifecycle)
+    _assert_exact_runtime_record(lifecycle[-1], record)
 
 
 @pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
+@pytest.mark.parametrize("server_url", ["http://runtime.test", None])
 def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
-    queue_response: dict,
+    queue_response: dict, server_url: str | None,
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     @asynccontextmanager
@@ -1377,7 +1742,7 @@ def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
         def __init__(self, _server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, _prompt: dict) -> dict:
+        async def _post_prompt(self, _prompt: dict) -> dict:
             nonlocal queue_calls
             queue_calls += 1
             return queue_response
@@ -1390,18 +1755,36 @@ def test_one_shot_run_ambiguous_queue_acceptance_is_not_retried(
     monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", unexpected_history)
+    record, bundle = _approved(_make_one_shot_run_wf())
 
     with pytest.raises(QueueError, match="acceptance is ambiguous"):
-        asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+        asyncio.run(runtime_run_module.run(record, bundle, server_url=server_url))
 
     assert queue_calls == 1
     attempt_path = next(tmp_path.glob("out/runs/*/attempt.json"))
     attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
     assert attempt["queue_acceptance"] == {
-        "status": "ambiguous",
+        "status": "unknown",
         "prompt_id": None,
     }
+    lifecycle_path = attempt_path.parent / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    lifecycle = [
+        json.loads(line)
+        for line in lifecycle_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [event["event_type"] for event in lifecycle] == ["prepared", "discarded"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert lifecycle[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "QueueError",
+        "reason": "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically next action: vibecomfy runtime doctor",
+        "acceptance_known": False,
+    }
+    assert lifecycle[-1]["generation"] == lifecycle[0]["generation"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(lifecycle[-1], record)
 
 
 def test_embedded_session_dict_queue_result_sets_run_result_prompt_id(
@@ -1450,7 +1833,7 @@ def test_embedded_session_dict_queue_result_sets_run_result_prompt_id(
 
     wf = _make_one_shot_run_wf()
     result = asyncio.run(
-        session_module.EmbeddedSession().run(wf)
+        session_module.EmbeddedSession().run(*_approved(wf))
     )
     assert result.prompt_id == "emb-dict-id"
 
@@ -1500,7 +1883,7 @@ def test_embedded_session_object_queue_result_sets_run_result_prompt_id(
 
     wf = _make_one_shot_run_wf()
     result = asyncio.run(
-        session_module.EmbeddedSession().run(wf)
+        session_module.EmbeddedSession().run(*_approved(wf))
     )
     assert result.prompt_id == "emb-obj-id"
 
@@ -1514,7 +1897,7 @@ def test_server_session_dict_queue_result_sets_run_result_prompt_id(
         def __init__(self, url: str) -> None:
             self.url = url
 
-        async def queue_prompt(self, api_dict: dict) -> dict:
+        async def _post_prompt(self, api_dict: dict) -> dict:
             return {"prompt_id": "srv-dict-id"}
 
     async def _fake_history(url: str, pid: str | None, *, config=None) -> dict:
@@ -1538,7 +1921,7 @@ def test_server_session_dict_queue_result_sets_run_result_prompt_id(
     monkeypatch.setenv("VIBECOMFY_SCHEMA_VALIDATE", "0")
 
     wf = _make_one_shot_run_wf()
-    result = asyncio.run(session_module.ServerSession()._run_untracked(wf))
+    result = asyncio.run(session_module.ServerSession()._run_untracked(*_approved(wf)))
     assert result.prompt_id == "srv-dict-id"
 
 
@@ -1551,7 +1934,7 @@ def test_server_session_object_queue_result_sets_run_result_prompt_id(
         def __init__(self, url: str) -> None:
             self.url = url
 
-        async def queue_prompt(self, api_dict: dict) -> _ObjectQueueResult:
+        async def _post_prompt(self, api_dict: dict) -> _ObjectQueueResult:
             return _ObjectQueueResult("srv-obj-id")
 
     async def _fake_history(url: str, pid: str | None, *, config=None) -> dict:
@@ -1575,7 +1958,7 @@ def test_server_session_object_queue_result_sets_run_result_prompt_id(
     monkeypatch.setenv("VIBECOMFY_SCHEMA_VALIDATE", "0")
 
     wf = _make_one_shot_run_wf()
-    result = asyncio.run(session_module.ServerSession()._run_untracked(wf))
+    result = asyncio.run(session_module.ServerSession()._run_untracked(*_approved(wf)))
     assert result.prompt_id == "srv-obj-id"
 
 
@@ -1597,7 +1980,7 @@ def test_prompt_id_consistency_across_run_result_and_metadata(
         def __init__(self, server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "meta-check-id", "extra_field": "ignored"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -1612,7 +1995,7 @@ def test_prompt_id_consistency_across_run_result_and_metadata(
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history_meta)
 
-    result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+    result = asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
 
     assert result.prompt_id == "meta-check-id"
     metadata = _json.loads(Path(result.metadata_path).read_text())
@@ -1737,7 +2120,7 @@ def test_run_uses_collision_resistant_directory(
         def __init__(self, server_url: str) -> None:
             pass
 
-        async def queue_prompt(self, prompt: dict) -> dict:
+        async def _post_prompt(self, prompt: dict) -> dict:
             return {"prompt_id": "prompt-t6-run"}
 
         async def history(self, prompt_id: str) -> dict:
@@ -1755,7 +2138,7 @@ def test_run_uses_collision_resistant_directory(
 
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history)
 
-    result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+    result = asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
 
     # run_id format: run-<timestamp>-<8 hex>
     assert re.match(r"^run-\d+-[0-9a-f]{8}$", result.run_id), (

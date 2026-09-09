@@ -24,6 +24,7 @@ from .candidate_transaction import (
     canonical_transaction_state,
     classify_legacy_migration_v1,
     project_transaction_state,
+    schema_provider_from_witness,
     validate_candidate_transaction,
 )
 from .projection_registry_v1 import (
@@ -34,7 +35,9 @@ from .projection_registry_v1 import (
     canonical_json_bytes_v1 as _registry_canonical_json_bytes,
     layout_graph_hash_compat as _registry_layout_graph_hash,
     projection_reference_v1,
+    revision_identity_from_mapping,
     structural_graph_hash_compat as _registry_structural_graph_hash,
+    staged_bundle_metadata_v1,
     workflow_identity_v1,
 )
 from .mutation_materialization_v1 import build_mutation_materialization_v1
@@ -1435,9 +1438,12 @@ def record_prepared_transaction(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     lease_nonce: str,
     structural_hash_before: str | None,
     candidate_payload: Mapping[str, Any] | None = None,
+    bundle_digests: Mapping[str, Any] | None = None,
     baseline_snapshot: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
@@ -1447,9 +1453,12 @@ def record_prepared_transaction(
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id=revision_id,
+        parent_revision=parent_revision,
         lease_nonce=lease_nonce,
         structural_hash_before=structural_hash_before,
         candidate_payload=candidate_payload,
+        bundle_digests=bundle_digests,
         baseline_snapshot=baseline_snapshot,
         now_fn=now_fn,
     )
@@ -1484,10 +1493,13 @@ def record_finalized_transaction(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     structural_hash_after: str | None,
     applied_payload: Mapping[str, Any] | None = None,
     journal_durable: Mapping[str, Any] | None = None,
+    approval_evidence: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     """Compatibility façade for finalized journal publication and indexing."""
@@ -1496,10 +1508,13 @@ def record_finalized_transaction(
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id=revision_id,
+        parent_revision=parent_revision,
         generation=generation,
         structural_hash_after=structural_hash_after,
         applied_payload=applied_payload,
         journal_durable=journal_durable,
+        approval_evidence=approval_evidence,
         now_fn=now_fn,
     )
 
@@ -1509,6 +1524,8 @@ def record_canvas_verified_transaction(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     lease_nonce: str,
     post_apply_graph_hash: str,
@@ -1521,6 +1538,8 @@ def record_canvas_verified_transaction(
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id=revision_id,
+        parent_revision=parent_revision,
         generation=generation,
         lease_nonce=lease_nonce,
         post_apply_graph_hash=post_apply_graph_hash,
@@ -1536,6 +1555,8 @@ def record_rolled_back_transaction(
     turn_dir: Path,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     generation: int,
     restored_structural_hash: str | None,
     compensation: Mapping[str, Any] | None = None,
@@ -1547,6 +1568,8 @@ def record_rolled_back_transaction(
         turn_dir=turn_dir,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id=revision_id,
+        parent_revision=parent_revision,
         generation=generation,
         restored_structural_hash=restored_structural_hash,
         compensation=compensation,
@@ -1806,6 +1829,239 @@ def _payload_bool(payload: Mapping[str, Any], *keys: str) -> bool:
     return any(payload.get(key) is True for key in keys)
 
 
+def _journal_has_revision(
+    session_dir: Path,
+    *,
+    workflow_id: str,
+    revision_id: str,
+) -> bool:
+    turns_root = session_dir / "turns"
+    if not turns_root.is_dir():
+        return False
+    for lifecycle in turns_root.glob("*/transactions/*/lifecycle_events.jsonl"):
+        try:
+            lines = lifecycle.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            receipt = event.get("receipt") if isinstance(event, Mapping) else None
+            if not isinstance(receipt, Mapping):
+                continue
+            candidate_transaction = receipt.get("candidate_transaction")
+            candidate_bundle = (
+                candidate_transaction.get("bundle")
+                if isinstance(candidate_transaction, Mapping)
+                else None
+            )
+            receipt_bundle = receipt.get("bundle")
+            workflow_match = receipt.get("workflow_id") == workflow_id
+            workflow_match = workflow_match or (
+                isinstance(receipt_bundle, Mapping)
+                and receipt_bundle.get("workflow_identity") == workflow_id
+            )
+            workflow_match = workflow_match or (
+                isinstance(candidate_bundle, Mapping)
+                and candidate_bundle.get("workflow_identity") == workflow_id
+            )
+            if receipt.get("revision_id") == revision_id and workflow_match:
+                return True
+    return False
+
+def _capture_candidate_bundle(
+    *,
+    graph: Mapping[str, Any],
+    turn_dir: Path,
+    workflow_id: str,
+    parent_revision: str,
+    session_dir: Path,
+    plan_hash: str,
+    schema_witness: Mapping[str, Any],
+    submit_revision: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Path]]:
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    captured = dict(graph)
+    if captured.get("workflow_id") not in {None, workflow_id}:
+        raise ValueError("captured workflow identity does not match the candidate")
+    captured["workflow_id"] = workflow_id
+    parent_evidence = None
+    if parent_revision:
+        submit_is_parent = (
+            isinstance(submit_revision, str)
+            and submit_revision
+            and parent_revision == submit_revision
+        )
+        if not submit_is_parent and not _journal_has_revision(
+            session_dir,
+            workflow_id=workflow_id,
+            revision_id=parent_revision,
+        ):
+            raise ValueError("parent revision is not backed by an existing lifecycle receipt")
+        parent_evidence = {
+            "revision_id": parent_revision,
+            "workflow_identity": workflow_id,
+        }
+    txn_dir = transaction_dir_for(turn_dir, plan_hash)
+    pending_dir = txn_dir / ".pending"
+    destination = pending_dir / "candidate.py"
+    pending = {
+        "python_path": destination,
+        "sidecar_path": destination.with_suffix(".vibe.json"),
+    }
+    _cleanup_pending_bundle(pending)
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        bundle = capture_bundle(
+            captured,
+            destination,
+            {"operation": "captured"},
+            parent_revision=parent_revision,
+            parent_evidence=parent_evidence,
+            schema_provider=schema_provider_from_witness(schema_witness),
+        )
+        sidecar_state = "present" if bundle.ui_digest else "absent"
+        metadata = {
+            "revision_id": bundle.revision_id,
+            "parent_revision": bundle.parent_revision,
+            "workflow_identity": bundle.workflow_identity,
+            "semantic_digest": bundle.semantic_digest,
+            "sidecar_state": sidecar_state,
+            "ui_digest": bundle.ui_digest if sidecar_state == "present" else "",
+            "python_path": str(txn_dir / "candidate.py"),
+        }
+        if sidecar_state == "present":
+            metadata["sidecar_path"] = str(txn_dir / "candidate.vibe.json")
+        staged_bundle_metadata_v1(metadata)
+        return metadata, pending
+    except Exception:
+        _cleanup_pending_bundle(pending)
+        raise
+
+
+def _cleanup_pending_bundle(pending: Mapping[str, Path]) -> None:
+    for path in pending.values():
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+    parent = pending.get("python_path")
+    if isinstance(parent, Path):
+        for directory in (parent.parent, parent.parent.parent):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+
+
+def _existing_file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def _restore_file_bytes(path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(previous)
+
+
+def _publish_staged_candidate(
+    *,
+    turn_dir: Path,
+    transaction: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    pending: Mapping[str, Path],
+) -> None:
+    checked = staged_bundle_metadata_v1(metadata)
+    final_python = Path(checked["python_path"])
+    final_sidecar = final_python.with_suffix(".vibe.json")
+    plan_hash = transaction.get("plan_hash")
+    if not isinstance(plan_hash, str) or not plan_hash:
+        raise ValueError("Candidate transaction requires plan_hash.")
+    candidate_path = transaction_dir_for(turn_dir, plan_hash) / CANDIDATE_TRANSACTION_FILENAME
+    previous = {
+        candidate_path: _existing_file_bytes(candidate_path),
+        final_python: _existing_file_bytes(final_python),
+        final_sidecar: _existing_file_bytes(final_sidecar),
+    }
+    pending_python = pending["python_path"]
+    pending_sidecar = pending["sidecar_path"]
+    try:
+        if not pending_python.is_file():
+            raise ValueError("pending staged Python source is missing")
+        if checked["sidecar_state"] == "present" and not pending_sidecar.is_file():
+            raise ValueError("pending staged sidecar is missing")
+        write_candidate_transaction(turn_dir, transaction)
+        os.replace(pending_python, final_python)
+        if checked["sidecar_state"] == "present":
+            os.replace(pending_sidecar, final_sidecar)
+        elif final_sidecar.exists():
+            final_sidecar.unlink()
+        _cleanup_pending_bundle(pending)
+    except Exception:
+        for path, snapshot in previous.items():
+            _restore_file_bytes(path, snapshot)
+        _cleanup_pending_bundle(pending)
+        raise
+
+
+def _reload_captured_bundle(
+    *,
+    transaction: Mapping[str, Any],
+    compile_approval: bool,
+    schema_witness: Mapping[str, Any] | None = None,
+) -> tuple[Any, Any | None, dict[str, Any]]:
+    from vibecomfy.workflow_bundle import load_bundle
+
+    bundle_metadata = staged_bundle_metadata_v1(transaction.get("bundle"))
+    staged = Path(bundle_metadata["python_path"])
+    sidecar = Path(bundle_metadata.get("sidecar_path", staged.with_suffix(".vibe.json")))
+    if not staged.is_file():
+        raise ValueError("staged bundle pair is missing or partial")
+    if bundle_metadata["sidecar_state"] == "present" and not sidecar.is_file():
+        raise ValueError("staged bundle pair is missing or partial")
+    if bundle_metadata["sidecar_state"] == "absent" and sidecar.exists():
+        raise ValueError("staged bundle pair has an unexpected sidecar")
+    from vibecomfy.security.provenance import Provenance
+
+    bundle = load_bundle(staged, trust=Provenance.USER_CONFIRMED)
+    if (
+        bundle.revision_id != bundle_metadata["revision_id"]
+        or bundle.parent_revision != bundle_metadata["parent_revision"]
+        or bundle.workflow_identity != bundle_metadata["workflow_identity"]
+        or bundle.semantic_digest != bundle_metadata["semantic_digest"]
+        or bundle.ui_digest != bundle_metadata["ui_digest"]
+        or bundle.python_path is None
+        or Path(bundle.python_path).resolve() != staged.resolve()
+    ):
+        raise ValueError("reloaded staged bundle identity does not match candidate authority")
+    if not compile_approval:
+        return bundle, None, {}
+    if not isinstance(schema_witness, Mapping):
+        raise ValueError("staged bundle approval requires its bound schema witness")
+    frozen_schema_provider = schema_provider_from_witness(schema_witness)
+    if frozen_schema_provider is None:
+        raise ValueError("staged bundle approval requires frozen schema authority")
+    approval = bundle.compile(schema_provider=frozen_schema_provider)
+    return bundle, approval, {
+        "revision_id": bundle.revision_id,
+        "parent_revision": bundle.parent_revision,
+        "semantic_digest": bundle.semantic_digest,
+        "ui_digest": bundle.ui_digest,
+        "api_digest": approval.api_digest,
+        "record_digest": hashlib.sha256(approval.to_canonical_bytes()).hexdigest(),
+    }
+
+
 def _candidate_payload_from_request(payload: Mapping[str, Any]) -> dict[str, Any]:
     candidate = payload.get("candidate")
     return dict(candidate) if isinstance(candidate, Mapping) else {}
@@ -1874,13 +2130,13 @@ def _prepared_receipt_from_event(event: Mapping[str, Any] | None) -> dict[str, A
     return dict(receipt) if isinstance(receipt, Mapping) else {}
 
 
-def _load_authoritative_candidate_transaction(
+def _load_bound_authoritative_candidate_evidence(
     *,
     turn_dir: Path,
     session_id: str,
     turn_id: str,
     plan_hash: str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> tuple[Any | None, str | None]:
     """Load and cross-check the immutable aggregate and replay receipt.
 
     DEEP-AUDIT-FIX-2-REVISION-2: contract validation, receipt-digest binding,
@@ -1920,7 +2176,26 @@ def _load_authoritative_candidate_transaction(
     response_transaction = response.get("candidate_transaction")
     if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
         return None, "response_transaction_mismatch"
-    return transaction, None
+    return evidence, None
+
+
+def _load_authoritative_candidate_transaction(
+    *,
+    turn_dir: Path,
+    session_id: str,
+    turn_id: str,
+    plan_hash: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Compatibility projection of the fully bound replay evidence loader."""
+    evidence, error = _load_bound_authoritative_candidate_evidence(
+        turn_dir=turn_dir,
+        session_id=session_id,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+    )
+    if evidence is None:
+        return None, error
+    return evidence.transaction, None
 
 
 def _latest_prepared_event(turn_dir: Path, plan_hash: str, generation: int) -> dict[str, Any] | None:
@@ -1948,12 +2223,23 @@ def _response_from_resolved_record(
     turn_dir: Path,
     record: Mapping[str, Any],
     action: str,
+    revision_id: str | None = None,
+    parent_revision: str | None = None,
 ) -> dict[str, Any] | None:
     phase = record.get("phase")
     plan_hash = record.get("plan_hash")
     if not isinstance(phase, str) or not isinstance(plan_hash, str):
         return None
     receipt = _read_transaction_receipt(turn_dir, plan_hash, phase)
+    stored = receipt.get("receipt") if isinstance(receipt, Mapping) else None
+    stored_revision = record.get("revision_id") or (
+        stored.get("revision_id") if isinstance(stored, Mapping) else None
+    )
+    stored_parent = record.get("parent_revision")
+    if stored_parent is None and isinstance(stored, Mapping):
+        stored_parent = stored.get("parent_revision")
+    if revision_id is None or parent_revision is None or (stored_revision, stored_parent) != (revision_id, parent_revision):
+        return None
     canonical_phase = canonical_transaction_state(phase) or phase
     requested_phase = "finalized" if action == "finalize" else "rollback_complete"
     same_terminal_action = canonical_phase == requested_phase
@@ -1966,6 +2252,8 @@ def _response_from_resolved_record(
         "turn_id": turn_id,
         "plan_hash": plan_hash,
         "generation": record.get("generation"),
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "phase": canonical_phase,
         "receipt": receipt,
     }
@@ -2097,6 +2385,22 @@ def prepare_turn_transaction(
                 )
                 transaction = load_candidate_transaction(turn_dir, plan_hash)
                 if prepared_event is not None and transaction is not None:
+                    try:
+                        replay_revision, replay_parent = revision_identity_from_mapping(
+                            transaction,
+                            transaction.get("candidate_authority"),
+                            transaction.get("bundle"),
+                        )
+                        requested_revision, requested_parent = revision_identity_from_mapping(payload)
+                    except ContractError:
+                        return _transaction_failure(
+                            kind=FailureKind.STALE_STATE_MISMATCH,
+                            stage="prepare",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            state=state,
+                            explanation="Prepare replay revision identity did not match the prepared bundle.",
+                        )
                     projected = project_transaction_state(
                         transaction,
                         state="prepared",
@@ -2107,6 +2411,15 @@ def prepare_turn_transaction(
                             else None
                         ),
                     )
+                    if (replay_revision, replay_parent) != (requested_revision, requested_parent):
+                        return _transaction_failure(
+                            kind=FailureKind.STALE_STATE_MISMATCH,
+                            stage="prepare",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            state=state,
+                            explanation="Prepare replay revision identity did not match the prepared bundle.",
+                        )
                     return {
                         "ok": True,
                         "action": "prepare",
@@ -2116,6 +2429,8 @@ def prepare_turn_transaction(
                         "plan_hash": plan_hash,
                         "generation": previous_generation,
                         "lease_nonce": previous.get("lease_nonce"),
+                        "revision_id": replay_revision,
+                        "parent_revision": replay_parent,
                         "phase": "prepared",
                         "candidate_transaction": projected,
                         "receipt": prepared_event,
@@ -2145,6 +2460,40 @@ def prepare_turn_transaction(
                 state=state,
                 explanation="Persisted candidate transaction authority is unavailable or inconsistent.",
                 evidence={"transaction_error": transaction_error},
+            )
+        try:
+            transaction_revision, transaction_parent = revision_identity_from_mapping(
+                transaction,
+                transaction.get("candidate_authority"),
+                transaction.get("bundle"),
+            )
+            requested_revision, requested_parent = revision_identity_from_mapping(payload)
+        except ContractError:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepare requires the exact captured bundle revision and parent.",
+                evidence={
+                    "identity_validation": "missing_or_invalid",
+                },
+            )
+        if (requested_revision, requested_parent) != (transaction_revision, transaction_parent):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepare requires the exact captured bundle revision and parent.",
+                evidence={
+                    "requested_revision_id": requested_revision,
+                    "requested_parent_revision": requested_parent,
+                    "candidate_revision_id": transaction_revision,
+                    "candidate_parent_revision": transaction_parent,
+                },
             )
         if "apply" not in transaction.get("available_actions", []):
             return _transaction_failure(
@@ -2256,9 +2605,12 @@ def prepare_turn_transaction(
             turn_dir=turn_dir,
             turn_id=turn_id,
             plan_hash=plan_hash,
+            revision_id=transaction_revision,
+            parent_revision=transaction_parent,
             lease_nonce=lease_nonce,
             structural_hash_before=_current_structural_baseline_hash(state),
             candidate_payload=transaction,
+            bundle_digests=_payload_mapping(transaction.get("bundle")),
             baseline_snapshot=baseline_snapshot,
         )
         projected_transaction = project_transaction_state(
@@ -2271,6 +2623,8 @@ def prepare_turn_transaction(
         turn_record["prepared_plan_hash"] = plan_hash
         turn_record["prepared_generation"] = event["generation"]
         turn_record["prepared_lease_nonce"] = lease_nonce
+        turn_record["prepared_revision_id"] = transaction_revision
+        turn_record["prepared_parent_revision"] = transaction_parent
         turn_record["prepared_at"] = event["timestamp"]
         write_state_atomic(session_dir, state)
         return {
@@ -2281,6 +2635,8 @@ def prepare_turn_transaction(
             "plan_hash": plan_hash,
             "generation": event["generation"],
             "lease_nonce": lease_nonce,
+            "revision_id": transaction_revision,
+            "parent_revision": transaction_parent,
             "phase": "prepared",
             "baseline_graph_hash": state.get("baseline_graph_hash"),
             "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
@@ -2306,6 +2662,10 @@ def finalize_turn_transaction(
     plan_hash = _plan_hash_from_request(payload)
     generation = _payload_int(payload, "generation", "monotonic_generation")
     lease_nonce = _payload_str(payload, "lease_nonce")
+    try:
+        revision_id, parent_revision = revision_identity_from_mapping(payload)
+    except ContractError:
+        revision_id = parent_revision = None
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         reconcile_transaction_index_from_artifacts(state, session_dir)
@@ -2321,6 +2681,8 @@ def finalize_turn_transaction(
                     turn_dir=turn_dir,
                     record=replay,
                     action="finalize",
+                    revision_id=revision_id,
+                    parent_revision=parent_revision,
                 )
                 if response is not None:
                     return response
@@ -2368,6 +2730,26 @@ def finalize_turn_transaction(
                     "prepared_plan_hash": prepared_plan,
                     "prepared_generation": prepared_generation,
                 },
+            )
+        if revision_id is None or parent_revision is None:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize requires the exact prepared bundle revision and parent.",
+            )
+        prepared_revision = prepared.get("revision_id")
+        prepared_parent = prepared.get("parent_revision")
+        if prepared_revision != revision_id or prepared_parent != parent_revision:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize revision identity did not match the active prepared bundle.",
             )
         prepared_event = _latest_prepared_event(turn_dir, str(prepared_plan), int(prepared_generation))
         prepared_receipt = _prepared_receipt_from_event(prepared_event)
@@ -2417,13 +2799,13 @@ def finalize_turn_transaction(
                     "current_baseline_graph_hash": current_baseline,
                 },
             )
-        transaction, transaction_error = _load_authoritative_candidate_transaction(
+        bound_evidence, transaction_error = _load_bound_authoritative_candidate_evidence(
             turn_dir=turn_dir,
             session_id=session_id,
             turn_id=turn_id,
             plan_hash=str(prepared_plan),
         )
-        if transaction is None:
+        if bound_evidence is None:
             return _transaction_failure(
                 kind=FailureKind.STALE_STATE_MISMATCH,
                 stage="finalize",
@@ -2432,6 +2814,40 @@ def finalize_turn_transaction(
                 state=state,
                 explanation="Finalize could not reload durable candidate authority.",
                 evidence={"transaction_error": transaction_error},
+            )
+        transaction = bound_evidence.transaction
+        try:
+            transaction_revision, transaction_parent = revision_identity_from_mapping(
+                transaction,
+                transaction.get("candidate_authority"),
+                transaction.get("bundle"),
+            )
+        except ContractError:
+            transaction_revision = transaction_parent = None
+        if (transaction_revision, transaction_parent) != (revision_id, parent_revision):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Reloaded candidate revision identity did not match the prepared bundle.",
+            )
+        try:
+            _bundle, _approval_record, approval_evidence = _reload_captured_bundle(
+                transaction=transaction,
+                compile_approval=True,
+                schema_witness=bound_evidence.receipt.schema_witness,
+            )
+        except Exception as exc:
+            return _transaction_failure(
+                kind=FailureKind.VALIDATION_ERROR,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize could not reload and compile the staged bundle pair.",
+                evidence={"bundle_error": str(exc)[:512]},
             )
         post_apply_graph = payload.get("post_apply_graph")
         if not isinstance(post_apply_graph, Mapping):
@@ -2631,6 +3047,8 @@ def finalize_turn_transaction(
             turn_dir=turn_dir,
             turn_id=turn_id,
             plan_hash=str(prepared_plan),
+            revision_id=str(revision_id),
+            parent_revision=str(parent_revision),
             generation=int(prepared_generation),
             lease_nonce=str(prepared_nonce),
             post_apply_graph_hash=post_apply_graph_hash,
@@ -2684,6 +3102,8 @@ def finalize_turn_transaction(
             turn_dir=turn_dir,
             turn_id=turn_id,
             plan_hash=str(prepared_plan),
+            revision_id=str(revision_id),
+            parent_revision=str(parent_revision),
             generation=int(prepared_generation),
             structural_hash_after=next_baseline_hash,
             applied_payload={
@@ -2703,6 +3123,8 @@ def finalize_turn_transaction(
                 "contract_version": "journal_durable_v1",
                 "state": "finalized",
                 "workflow_id": prepared_authority["workflow_id"],
+                "revision_id": revision_id,
+                "parent_revision": parent_revision,
                 "baseline": {
                     "structural_hash_before": durable_before,
                     "structural_hash_after": durable_after,
@@ -2713,9 +3135,12 @@ def finalize_turn_transaction(
                     "plan_hash": prepared_plan,
                     "generation": prepared_generation,
                     "lease_nonce": prepared_nonce,
+                    "revision_id": revision_id,
+                    "parent_revision": parent_revision,
                 },
                 "inverse_or_restore": dict(prepared_authority["restoration_strategy"]),
             },
+            approval_evidence=approval_evidence,
         )
         for other_turn_id, other_record in state["turns"].items():
             if other_turn_id == turn_id or not isinstance(other_record, dict):
@@ -2752,6 +3177,8 @@ def finalize_turn_transaction(
             "turn_id": turn_id,
             "plan_hash": prepared_plan,
             "generation": prepared_generation,
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
             "phase": "finalized",
             "baseline_turn_id": state.get("baseline_turn_id"),
             "baseline_graph_hash": state.get("baseline_graph_hash"),
@@ -2761,6 +3188,7 @@ def finalize_turn_transaction(
             "candidate_transaction": finalized_transaction,
             "canvas_verified_receipt": verified_event,
             "receipt": event,
+            "approved_record_canonical": _approval_record.to_canonical_bytes().decode("utf-8"),
         }
 
 
@@ -2779,6 +3207,10 @@ def rollback_turn_transaction(
     plan_hash = _plan_hash_from_request(payload)
     generation = _payload_int(payload, "generation", "monotonic_generation")
     lease_nonce = _payload_str(payload, "lease_nonce")
+    try:
+        revision_id, parent_revision = revision_identity_from_mapping(payload)
+    except ContractError:
+        revision_id = parent_revision = None
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         reconcile_transaction_index_from_artifacts(state, session_dir)
@@ -2806,6 +3238,8 @@ def rollback_turn_transaction(
                     turn_dir=turn_dir,
                     record=replay,
                     action="rollback",
+                    revision_id=revision_id,
+                    parent_revision=parent_revision,
                 )
                 if response is not None:
                     return response
@@ -2863,6 +3297,26 @@ def rollback_turn_transaction(
                     "lease_nonce_matches": lease_nonce == prepared_nonce,
                 },
             )
+        if revision_id is None or parent_revision is None:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Rollback requires the exact prepared bundle revision and parent.",
+            )
+        prepared_revision = prepared.get("revision_id")
+        prepared_parent = prepared.get("parent_revision")
+        if prepared_revision != revision_id or prepared_parent != parent_revision:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Rollback revision identity did not match the active prepared bundle.",
+            )
         prepared_event = _latest_prepared_event(turn_dir, str(prepared_plan), int(prepared_generation))
         prepared_receipt = _prepared_receipt_from_event(prepared_event)
         prepared_transaction = prepared_receipt.get("candidate_transaction")
@@ -2895,6 +3349,21 @@ def rollback_turn_transaction(
                     "prepared_authority_error": prepared_error,
                     "legacy_migration": legacy_migration,
                 },
+            )
+        try:
+            _reload_captured_bundle(
+                transaction=prepared_transaction,
+                compile_approval=False,
+            )
+        except Exception as exc:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Rollback could not reload the prepared bundle pair.",
+                evidence={"bundle_error": str(exc)[:512]},
             )
         if (
             isinstance(compensation, Mapping)
@@ -2952,6 +3421,8 @@ def rollback_turn_transaction(
             turn_dir=turn_dir,
             turn_id=turn_id,
             plan_hash=str(prepared_plan),
+            revision_id=str(revision_id),
+            parent_revision=str(parent_revision),
             generation=int(prepared_generation),
             restored_structural_hash=_current_structural_baseline_hash(state),
             compensation=compensation,
@@ -2979,6 +3450,8 @@ def rollback_turn_transaction(
             "turn_id": turn_id,
             "plan_hash": prepared_plan,
             "generation": prepared_generation,
+            "revision_id": revision_id,
+            "parent_revision": parent_revision,
             "phase": "rollback_complete",
             "baseline_turn_id": state.get("baseline_turn_id"),
             "baseline_graph_hash": state.get("baseline_graph_hash"),
@@ -4091,6 +4564,8 @@ def record_idempotent_response(
     key = _record_key(scope, idempotency_key)
     stamped_response = response
     authority_receipt: Any = None
+    authority_receipt_path_for_turn: Path | None = None
+    authority_receipt_before: bytes | None = None
     request_payload: Mapping[str, Any] | None = None
     requested_v2 = (
         response.get("agent_edit_protocol") == "v2_delta"
@@ -4115,6 +4590,7 @@ def record_idempotent_response(
                     # sole receipt-digest source for mint AND binding.
                     from .authority_receipts import (
                         authority_receipt_digest_v2,
+                        authority_receipt_path,
                         build_and_persist_authority_receipt,
                     )
 
@@ -4127,15 +4603,29 @@ def record_idempotent_response(
                     raw_schema_version = delta_envelope.get("schema_version")
                     if isinstance(raw_schema_version, str):
                         schema_version = raw_schema_version
-                    authority_receipt, stamped_response = build_and_persist_authority_receipt(
-                        turn_dir=turn_dir,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        request_payload=request_payload,
-                        response=response,
-                        schema_version=schema_version,
-                        schema_provider=schema_provider,
+                    # The receipt is written before candidate capture, so it
+                    # must join the same recovery boundary as the staged/final
+                    # bundle pair and candidate transaction.
+                    authority_receipt_path_for_turn = authority_receipt_path(turn_dir)
+                    authority_receipt_before = _existing_file_bytes(
+                        authority_receipt_path_for_turn
                     )
+                    try:
+                        authority_receipt, stamped_response = build_and_persist_authority_receipt(
+                            turn_dir=turn_dir,
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            request_payload=request_payload,
+                            response=response,
+                            schema_version=schema_version,
+                            schema_provider=schema_provider,
+                        )
+                    except Exception:
+                        _restore_file_bytes(
+                            authority_receipt_path_for_turn,
+                            authority_receipt_before,
+                        )
+                        raise
         except Exception:
             if requested_v2:
                 # An applyable V2 candidate must never be published without
@@ -4156,7 +4646,15 @@ def record_idempotent_response(
         token = request_payload.get("client_live_canvas_token")
         if token is not None:
             protocol_response["client_live_canvas_token"] = token
-    agent_edit_protocol = _validated_agent_edit_protocol(protocol_response)
+    try:
+        agent_edit_protocol = _validated_agent_edit_protocol(protocol_response)
+    except Exception:
+        if authority_receipt_path_for_turn is not None:
+            _restore_file_bytes(
+                authority_receipt_path_for_turn,
+                authority_receipt_before,
+            )
+        raise
     candidate_payload = (
         stamped_response.get("candidate")
         if isinstance(stamped_response.get("candidate"), Mapping)
@@ -4192,127 +4690,239 @@ def record_idempotent_response(
             and isinstance(authority_receipt.schema_witness, Mapping)
         )
         if not complete_authority:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate publication requires complete durable replay authority.")
         assert authority_receipt is not None
         assert turn_id is not None
         if not isinstance(request_payload, Mapping):
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate issuance requires the persisted submit request.")
         submit_graph = request_payload.get("graph")
         candidate_graph = stamped_response.get("graph")
         if not isinstance(submit_graph, Mapping) or not isinstance(candidate_graph, Mapping):
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
             raise ValueError("V2 candidate issuance requires genuine submit and candidate graphs.")
         scope_metadata = request_payload.get("scope_metadata")
         workflow_id = _resolve_stable_workflow_id(
             request_payload, scope_metadata, session_id, submit_graph
         )
-        workflow_identity_v1(workflow_id)
-        eligibility = stamped_response.get("eligibility")
-        if not isinstance(eligibility, Mapping):
-            eligibility = stamped_response.get("apply_eligibility")
-        applyable = (
-            authority_receipt.is_applyable
-            and isinstance(eligibility, Mapping)
-            and eligibility.get("applyable") is True
-        )
-        layout_verification = None
-        layout_operation_envelope = None
-        if authority_receipt.replay.verification_kind == "layout_structural_noop":
-            layout_verification = (
-                {
-                    "contract_version": LAYOUT_VERIFICATION_CONTRACT_VERSION,
-                    "projection": LAYOUT_VERIFICATION_PROJECTION,
-                    "candidate_layout_graph_hash": candidate_layout_graph_hash,
-                }
-                if isinstance(candidate_layout_graph_hash, str)
-                else None
-            )
-            applyable = applyable and layout_verification is not None
-            layout_operation_envelope = build_layout_operation_envelope(
-                submit_graph, candidate_graph
-            )
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admit_operations,
-                snapshot_from_schema_witness,
-            )
-
-            admission_snapshot = snapshot_from_schema_witness(
-                authority_receipt.schema_witness,
-                submit_graph=submit_graph,
-            )
-            layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
-            if isinstance(layout_ops, list) and layout_ops:
-                admitted_layout = admit_operations(admission_snapshot, layout_ops)
-                if isinstance(admitted_layout, AdmissionRejected):
-                    applyable = False
-                    layout_operation_envelope = None
-        from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
-
-        accepted_batch = stamped_response.get("accepted_batch")
-        if not isinstance(accepted_batch, list):
-            accepted_batch = []
-        accepted_ops = list(_ops_from_accepted_batch(stamped_response))
-        if accepted_ops:
-            from vibecomfy.porting.edit.admit import (
-                AdmissionRejected,
-                admit_operations,
-                snapshot_from_schema_witness,
-            )
-
-            admitted_ops = admit_operations(
-                snapshot_from_schema_witness(
-                    authority_receipt.schema_witness,
-                    submit_graph=submit_graph,
-                ),
-                accepted_ops,
-            )
-            if isinstance(admitted_ops, AdmissionRejected):
-                applyable = False
-                accepted_batch = []
-                accepted_ops = []
-        transaction = build_candidate_transaction(
-            workflow_id=workflow_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            plan_hash=candidate_plan_hash,
-            submit_graph=submit_graph,
-            candidate_graph=candidate_graph,
-            accepted_batch=accepted_batch,
-            delta_hash=authority_receipt.cumulative_delta_hash,
-            submit_graph_hash=authority_receipt.submit_graph_hash,
-            submit_structural_graph_hash=(
-                stamped_response.get("submit_structural_graph_hash")
-                if isinstance(stamped_response.get("submit_structural_graph_hash"), str)
-                else candidate_structural_hash_before
-            ),
-            candidate_graph_hash=candidate_graph_hash,
-            candidate_structural_graph_hash=candidate_structural_graph_hash,
-            candidate_layout_graph_hash=candidate_layout_graph_hash,
-            layout_verification=layout_verification,
-            authority_receipt_hash=authority_receipt_digest_v2(authority_receipt),
-            schema_witness=authority_receipt.schema_witness,
-            replay_ok=authority_receipt.replay.replay_ok,
-            candidate_matches=authority_receipt.replay.candidate_matches,
-            verification_kind=authority_receipt.replay.verification_kind,
-            layout_operation_envelope=layout_operation_envelope,
-            applyable=applyable,
-            state="candidate_ready" if applyable else "recoverable_error",
-            mutation_materialization_envelope=(
-                build_mutation_materialization_v1(accepted_ops)
-                if any(
-                    isinstance(op, Mapping) and op.get("op") == "add_node"
-                    for op in accepted_ops
+        try:
+            workflow_identity_v1(workflow_id)
+        except Exception:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
                 )
-                else None
-            ),
-        )
-        write_candidate_transaction(response_path.parent, transaction)
+            raise
+        try:
+            requested_revision, requested_parent = revision_identity_from_mapping(request_payload)
+        except Exception:
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
+            raise
+        pending_bundle = None
+        try:
+            layout = stamped_response.get("layout_reorganisation")
+            layout_prepared = (
+                isinstance(layout, Mapping)
+                and layout.get("candidate_prepared") is True
+                and layout.get("advisory") is False
+            )
+            layout_only = (
+                authority_receipt.replay.verification_kind == "layout_structural_noop"
+                or layout_prepared
+            )
+            capture_parent = requested_revision if layout_only else requested_parent
+            bundle_metadata, pending_bundle = _capture_candidate_bundle(
+                graph=candidate_graph,
+                turn_dir=turn_dir,
+                workflow_id=workflow_id,
+                parent_revision=capture_parent,
+                session_dir=session_dir_for(session_root, session_id),
+                plan_hash=candidate_plan_hash,
+                schema_witness=authority_receipt.schema_witness,
+                submit_revision=requested_revision if layout_only else None,
+            )
+            revision_id = bundle_metadata["revision_id"]
+            parent_revision = bundle_metadata["parent_revision"]
+            if layout_only:
+                if parent_revision != requested_revision:
+                    raise ValueError(
+                        "layout candidate parent must be the submitted revision"
+                    )
+            elif requested_revision != revision_id:
+                raise ValueError("captured bundle revision does not match the submitted revision")
+            eligibility = stamped_response.get("eligibility")
+            if not isinstance(eligibility, Mapping):
+                eligibility = stamped_response.get("apply_eligibility")
+            applyable = (
+                authority_receipt.is_applyable
+                and isinstance(eligibility, Mapping)
+                and eligibility.get("applyable") is True
+            )
+            layout_verification = None
+            layout_operation_envelope = None
+            if authority_receipt.replay.verification_kind == "layout_structural_noop":
+                layout_verification = (
+                    {
+                        "contract_version": LAYOUT_VERIFICATION_CONTRACT_VERSION,
+                        "projection": LAYOUT_VERIFICATION_PROJECTION,
+                        "candidate_layout_graph_hash": candidate_layout_graph_hash,
+                    }
+                    if isinstance(candidate_layout_graph_hash, str)
+                    else None
+                )
+                applyable = applyable and layout_verification is not None
+                from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+                from vibecomfy.comfy_nodes.agent._frag_state import (
+                    derived_accepted_delta_envelope,
+                )
+
+                accepted_batch_for_layout = stamped_response.get("accepted_batch")
+                if not isinstance(accepted_batch_for_layout, list):
+                    accepted_batch_for_layout = []
+                layout_delta = derived_accepted_delta_envelope(
+                    {"accepted_batch": accepted_batch_for_layout}
+                )
+                semantic_ok, semantic_candidate, _, _ = recompute_apply(
+                    submit_graph,
+                    layout_delta,
+                    schema_provider=schema_provider_from_witness(
+                        authority_receipt.schema_witness
+                    ),
+                )
+                layout_source = (
+                    semantic_candidate
+                    if semantic_ok and isinstance(semantic_candidate, Mapping)
+                    else submit_graph
+                )
+                layout_operation_envelope = build_layout_operation_envelope(
+                    layout_source, candidate_graph
+                )
+                from vibecomfy.porting.edit.admit import (
+                    AdmissionRejected,
+                    admit_operations,
+                    snapshot_from_schema_witness,
+                )
+
+                admission_snapshot = snapshot_from_schema_witness(
+                    authority_receipt.schema_witness,
+                    submit_graph=layout_source,
+                )
+                layout_ops = layout_operation_envelope.get("ops") if isinstance(layout_operation_envelope, Mapping) else None
+                if isinstance(layout_ops, list) and layout_ops:
+                    admitted_layout = admit_operations(admission_snapshot, layout_ops)
+                    if isinstance(admitted_layout, AdmissionRejected):
+                        applyable = False
+            from vibecomfy.comfy_nodes.agent._frag_state import _ops_from_accepted_batch
+
+            accepted_batch = stamped_response.get("accepted_batch")
+            if not isinstance(accepted_batch, list):
+                accepted_batch = []
+            accepted_ops = list(_ops_from_accepted_batch(stamped_response))
+            if accepted_ops:
+                from vibecomfy.porting.edit.admit import (
+                    AdmissionRejected,
+                    admit_operations,
+                    snapshot_from_schema_witness,
+                )
+
+                admitted_ops = admit_operations(
+                    snapshot_from_schema_witness(
+                        authority_receipt.schema_witness,
+                        submit_graph=submit_graph,
+                    ),
+                    accepted_ops,
+                )
+                if isinstance(admitted_ops, AdmissionRejected):
+                    applyable = False
+                    accepted_batch = []
+                    accepted_ops = []
+            transaction = build_candidate_transaction(
+                workflow_id=workflow_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                plan_hash=candidate_plan_hash,
+                revision_id=revision_id,
+                parent_revision=parent_revision,
+                submit_graph=submit_graph,
+                candidate_graph=candidate_graph,
+                accepted_batch=accepted_batch,
+                delta_hash=authority_receipt.cumulative_delta_hash,
+                submit_graph_hash=authority_receipt.submit_graph_hash,
+                submit_structural_graph_hash=(
+                    stamped_response.get("submit_structural_graph_hash")
+                    if isinstance(stamped_response.get("submit_structural_graph_hash"), str)
+                    else candidate_structural_hash_before
+                ),
+                candidate_graph_hash=candidate_graph_hash,
+                candidate_structural_graph_hash=candidate_structural_graph_hash,
+                candidate_layout_graph_hash=candidate_layout_graph_hash,
+                layout_verification=layout_verification,
+                authority_receipt_hash=authority_receipt_digest_v2(authority_receipt),
+                schema_witness=authority_receipt.schema_witness,
+                replay_ok=authority_receipt.replay.replay_ok,
+                candidate_matches=authority_receipt.replay.candidate_matches,
+                verification_kind=authority_receipt.replay.verification_kind,
+                layout_operation_envelope=layout_operation_envelope,
+                applyable=applyable,
+                state="candidate_ready" if applyable else "recoverable_error",
+                mutation_materialization_envelope=(
+                    build_mutation_materialization_v1(accepted_ops)
+                    if any(
+                        isinstance(op, Mapping) and op.get("op") == "add_node"
+                        for op in accepted_ops
+                    )
+                    else None
+                ),
+                bundle_digests=bundle_metadata,
+            )
+            _publish_staged_candidate(
+                turn_dir=turn_dir,
+                transaction=transaction,
+                metadata=bundle_metadata,
+                pending=pending_bundle,
+            )
+        except Exception:
+            if pending_bundle is not None:
+                _cleanup_pending_bundle(pending_bundle)
+            if authority_receipt_path_for_turn is not None:
+                _restore_file_bytes(
+                    authority_receipt_path_for_turn,
+                    authority_receipt_before,
+                )
+            raise
         stamped_response = dict(stamped_response)
+        stamped_response["revision_id"] = revision_id
+        stamped_response["parent_revision"] = parent_revision
+        stamped_response["bundle"] = {
+            key: value
+            for key, value in bundle_metadata.items()
+            if key in {"revision_id", "parent_revision", "workflow_identity", "semantic_digest", "ui_digest"}
+        }
         stamped_response["candidate_transaction"] = transaction
         stamped_candidate = stamped_response.get("candidate")
         if isinstance(stamped_candidate, Mapping):
             stamped_candidate = dict(stamped_candidate)
             stamped_candidate["state"] = transaction["state"]
+            stamped_candidate["revision_id"] = revision_id
+            stamped_candidate["parent_revision"] = parent_revision
             stamped_response["candidate"] = stamped_candidate
     response_digest = payload_hash(stamped_response)
     record = {
@@ -5083,6 +5693,27 @@ __all__ = [
 from ._artifact_store import *  # noqa: F401,F403
 from ._v2_scoped_validation import *  # noqa: F401,F403
 from ._turn_state_machine import *  # noqa: F401,F403
+
+_raw_reconcile_transaction_index_from_artifacts = reconcile_transaction_index_from_artifacts
+
+
+def reconcile_transaction_index_from_artifacts(state: dict[str, Any], session_dir: Path) -> bool:
+    changed = _raw_reconcile_transaction_index_from_artifacts(state, session_dir)
+    prepared = state.get("prepared_transactions")
+    for turn_id, entry in prepared.items() if isinstance(prepared, dict) else ():
+        if not isinstance(entry, dict) or "revision_id" in entry:
+            continue
+        plan_hash, generation = entry.get("plan_hash"), entry.get("generation")
+        if not isinstance(plan_hash, str) or not isinstance(generation, int):
+            continue
+        event = _latest_prepared_event(session_dir / "turns" / turn_id, plan_hash, generation)
+        try:
+            revision_id, parent_revision = revision_identity_from_mapping(_prepared_receipt_from_event(event))
+        except ContractError:
+            continue
+        entry.update(revision_id=revision_id, parent_revision=parent_revision)
+        changed = True
+    return changed
 
 # T-047: transaction-loading façade (public_direct surface) restored as
 # session-defined delegates.  The implementations live in `_artifact_store`

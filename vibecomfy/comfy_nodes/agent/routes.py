@@ -61,6 +61,7 @@ from .session import (
     reject_turn as _session_reject_turn,
     session_dir_for,
 )
+from .projection_registry_v1 import ContractError, revision_identity_from_mapping
 
 
 
@@ -1812,6 +1813,10 @@ def register_agent_edit_routes(app) -> None:
             return _json_error(f"Request body must be valid JSON: {exc}", stage="prepare")
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="prepare")
+        try:
+            revision_identity_from_mapping(payload)
+        except ContractError as exc:
+            return _json_error(str(exc), stage="prepare")
         session_id = _safe_session_id(payload.get("session_id"))
         turn_id = payload.get("turn_id")
         if not isinstance(turn_id, str) or not turn_id.strip():
@@ -1843,6 +1848,10 @@ def register_agent_edit_routes(app) -> None:
             return _json_error(f"Request body must be valid JSON: {exc}", stage="finalize")
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="finalize")
+        try:
+            revision_identity_from_mapping(payload)
+        except ContractError as exc:
+            return _json_error(str(exc), stage="finalize")
         session_id = _safe_session_id(payload.get("session_id"))
         turn_id = payload.get("turn_id")
         if not isinstance(turn_id, str) or not turn_id.strip():
@@ -1874,6 +1883,10 @@ def register_agent_edit_routes(app) -> None:
             return _json_error(f"Request body must be valid JSON: {exc}", stage="rollback")
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="rollback")
+        try:
+            revision_identity_from_mapping(payload)
+        except ContractError as exc:
+            return _json_error(str(exc), stage="rollback")
         session_id = _safe_session_id(payload.get("session_id"))
         turn_id = payload.get("turn_id")
         if not isinstance(turn_id, str) or not turn_id.strip():

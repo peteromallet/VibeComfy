@@ -298,7 +298,7 @@ def test_install_pack_blocked_headless(_isolated_gate_context):
     assert deny_entries[-1]["reason"] == "non_interactive_refusal"
 
 
-def test_install_pack_allowed_with_yes(_isolated_gate_context):
+def test_install_pack_allowed_with_yes(_isolated_gate_context, tmp_path: Path):
     """Probe (c) --yes: install_pack with assume_yes=True records bypass in audit."""
     runner = _RecordingRunner()
     token = set_gate_context(
@@ -310,7 +310,7 @@ def test_install_pack_allowed_with_yes(_isolated_gate_context):
             install_pack(
                 name=None,
                 repo="https://github.com/example/mypack",
-                install_root=Path("/nonexistent/custom_nodes"),
+                install_root=tmp_path / "custom_nodes",
                 runner=runner,
                 cm_cli_resolver=_no_cm_cli,
             )
@@ -375,7 +375,7 @@ except CapabilityFenceError as exc:
 # ---------------------------------------------------------------------------
 
 
-def test_yes_bypass_entries_in_audit_readable_without_parsing_stderr():
+def test_yes_bypass_entries_in_audit_readable_without_parsing_stderr(tmp_path: Path):
     """All three --yes bypass entries land in ctx.audit (not stderr).
 
     S1's oracle gate reads ctx.audit directly; this test proves it holds a
@@ -399,7 +399,7 @@ def test_yes_bypass_entries_in_audit_readable_without_parsing_stderr():
             install_pack(
                 name=None,
                 repo="https://github.com/example/oracle_pack",
-                install_root=Path("/nonexistent/custom_nodes"),
+                install_root=tmp_path / "custom_nodes",
                 runner=runner,
                 cm_cli_resolver=_no_cm_cli,
             )

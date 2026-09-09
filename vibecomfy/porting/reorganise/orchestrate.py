@@ -1529,7 +1529,10 @@ def _apply_node_furniture_entry(node: dict[str, Any], entry: Mapping[str, Any]) 
         if key == "properties":
             _apply_node_properties(node, entry.get(key))
             continue
-        node[key] = _freeze_jsonish(entry.get(key))
+        value = entry.get(key)
+        if key in {"color", "bgcolor"} and not isinstance(value, str):
+            continue
+        node[key] = _freeze_jsonish(value)
 
 
 def _apply_node_properties(node: dict[str, Any], value: Any) -> None:
@@ -1598,6 +1601,8 @@ def _group_for_ui_scope(
             continue
         ui_nodes.append(node.get("id", uid))
     ui_group["nodes"] = ui_nodes
+    if "color" in ui_group and not isinstance(ui_group.get("color"), str):
+        ui_group.pop("color", None)
     return ui_group
 
 

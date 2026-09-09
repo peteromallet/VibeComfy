@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.ingest.normalize import (
+    door_import_source_kind,
     from_api,
     from_envelope,
     from_ui,
@@ -24,6 +25,319 @@ from vibecomfy.ingest.normalize import (
     normalize_to_api,
 )
 from vibecomfy.porting.emit.ui import emit_ui_json
+
+
+def _t06_recursive_graph(*, links=None, **extra):
+    definition = {
+        "name": "Outer",
+        "nodes": [
+            {"id": "source", "type": "Source", "inputs": [], "outputs": [{"name": "out", "links": [1]}]},
+            {"id": "sink", "type": "Sink", "inputs": [{"name": "value", "link": 1}], "outputs": []},
+        ],
+        "links": links if links is not None else [[1, "source", 0, "sink", 0, "X"]],
+    }
+    definition.update(extra)
+    return {"nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],
+            "links": [], "definitions": {"subgraphs": [definition]}}
+
+
+def test_bundle_source_kind_classification_stays_at_ingest_door() -> None:
+    assert door_import_source_kind({"nodes": []}) == "ui"
+    assert door_import_source_kind(
+        {"vibecomfy_format_version": "1.0", "nodes": {}}
+    ) == "envelope"
+    assert door_import_source_kind({"prompt": {"1": {"class_type": "A", "inputs": {}}}}) == "api"
+    assert door_import_source_kind({"malformed": True}) == "api"
+    assert door_import_source_kind(
+        {
+            "vibecomfy_format_version": "1.0",
+            "nodes": {},
+            "prompt": {"nodes": []},
+        }
+    ) == "envelope"
+    assert door_import_source_kind(
+        {"nodes": [], "prompt": {"1": {"class_type": "A", "inputs": {}}}}
+    ) == "ui"
+    assert door_import_source_kind(
+        {"nodes": {}, "prompt": {"nodes": []}}
+    ) == "api"
+
+
+def test_t06_rework_native_sentinel_never_bypasses_config_extra() -> None:
+    raw = _t06_recursive_graph(
+        links=[[1, "-10", 0, "sink", 0, "X"]], config={}, extra={}
+    )
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_native_sentinel_legacy_definition_is_rejected() -> None:
+    raw = _t06_recursive_graph(
+        links=[[1, "-10", 0, "sink", 0, "X"]],
+        inputNode={"id": -10},
+        outputNode={"id": -20},
+    )
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_unknown_metadata_is_stripped_but_known_rejects() -> None:
+    unknown = from_api({"1": {"class_type": "MysteryNode", "inputs": {}, "foo": "x", "summary": "y"}})
+    assert "foo" not in unknown.nodes["1"].metadata
+    assert "summary" not in unknown.nodes["1"].metadata
+    assert unknown.nodes["1"].metadata["schema_source"]["provider"] == ""
+    with pytest.raises(ValueError, match="metadata key 'foo'.*reconciliation action"):
+        from_api({"1": {"class_type": "KSampler", "inputs": {}, "schema_source": {"provider": "authoritative_object_info"}, "foo": "x"}})
+    with pytest.raises(ValueError, match="metadata key 'summary'.*reconciliation action"):
+        from_api({"1": {"class_type": "KSampler", "inputs": {}, "schema_source": {"provider": "workflow_json_provisional"}, "summary": "y"}})
+
+
+def test_t06_rework_recursive_interfaces_and_boundaries_are_local_and_typed() -> None:
+    malformed_interface = _t06_recursive_graph()
+    malformed_interface["interfaces"] = {"Outer:missing": [{"name": "x", "direction": "input"}]}
+    with pytest.raises(ValueError, match="interface scope|interface .*owner"):
+        from_ui(malformed_interface, use_comfy_converter=False)
+    malformed_direction = _t06_recursive_graph()
+    malformed_direction["interfaces"] = {"Outer": {"inputs": [{"name": "x", "direction": "evil"}]}}
+    with pytest.raises(ValueError, match="direction"):
+        from_ui(malformed_direction, use_comfy_converter=False)
+    malformed_boundary = _t06_recursive_graph()
+    malformed_boundary["boundary_ports"] = [{"scope_path": "Unknown", "name": "x", "direction": "input", "node_uid": "sink", "field": "value"}]
+    with pytest.raises(ValueError, match="boundary.*scope|boundary.*owner"):
+        from_ui(malformed_boundary, use_comfy_converter=False)
+
+
+def test_t06_rework_virtual_wire_scope_and_set_ambiguity_fail_closed() -> None:
+    raw = _t06_recursive_graph(virtual_wires={"BUS": {"legs": [{
+        "scope_path": "other", "leg_index": 0, "occurrence_index": 0,
+        "from_node": "1", "from_output": "0", "to_node": "1", "to_input": "x",
+    }]}})
+    with pytest.raises(ValueError, match="crosses scope|scope_path"):
+        from_ui(raw, use_comfy_converter=False)
+    graph = {
+        "nodes": [
+            {"id": 1, "type": "Source", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": []},
+            {"id": 2, "type": "SetNode", "inputs": [{"name": "value", "link": 1}], "outputs": [], "widgets_values": ["BUS"]},
+            {"id": 3, "type": "SetNode", "inputs": [{"name": "value", "link": 2}], "outputs": [], "widgets_values": ["BUS"]},
+            {"id": 4, "type": "GetNode", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": ["BUS"]},
+            {"id": 5, "type": "Sink", "inputs": [{"name": "value", "link": 3}], "outputs": [], "widgets_values": []},
+        ],
+        "links": [[1, 1, 0, 2, 0, "X"], [2, 1, 0, 3, 0, "X"], [3, 4, 0, 5, 0, "X"]],
+    }
+    with pytest.raises(ValueError, match="ambiguous|multiple.*SetNode"):
+        from_ui(graph, use_comfy_converter=False)
+
+
+def test_t06_rework_recursive_links_are_exact_and_match_rosters() -> None:
+    bad_type = _t06_recursive_graph(links=[[1, "source", 0, "sink", 0, 123]])
+    with pytest.raises(ValueError, match="type"):
+        from_ui(bad_type, use_comfy_converter=False)
+    bad_mapping = _t06_recursive_graph(links=[{"id": 1, "origin_id": "source", "origin_slot": 0,
+                                                "target_id": "sink", "target_slot": 0, "type": "X", "evil": 1}])
+    with pytest.raises(ValueError, match="exact link fields"):
+        from_ui(bad_mapping, use_comfy_converter=False)
+    missing_target = _t06_recursive_graph(
+        links=[[1, "source", 0, "sink", 1, "X"]],
+    )
+    with pytest.raises(ValueError, match="target_slot|input record|roster"):
+        from_ui(missing_target, use_comfy_converter=False)
+    bad_output = _t06_recursive_graph(links=[[1, "source", 99, "sink", 0, "X"]])
+    with pytest.raises(ValueError, match="origin_slot|output roster"):
+        from_ui(bad_output, use_comfy_converter=False)
+    orphan = _t06_recursive_graph(
+        links=[[2, "source", 0, "sink", 0, "X"]],
+    )
+    with pytest.raises(ValueError, match="orphan|link.*record|output"):
+        from_ui(orphan, use_comfy_converter=False)
+
+
+def test_t06_rework_recursive_snapshot_records_topology_and_digest() -> None:
+    from vibecomfy.ingest.snapshot import capture_workflow_snapshot, snapshot_of
+
+    workflow = from_ui(_t06_recursive_graph(), use_comfy_converter=False)
+    snapshot = snapshot_of(workflow)
+    assert snapshot is not None
+    recursive_uids = [uid for uid in snapshot.field_snapshot if "#" in uid]
+    assert recursive_uids
+    assert any(snapshot.field_snapshot[uid]["incoming_edge_sig"] for uid in recursive_uids)
+    before = snapshot.semantic_digest
+    definition = workflow.definitions["subgraphs"][0]
+    definition["links"][0][3] = "source"
+    recaptured = capture_workflow_snapshot(None, workflow, source_representation="ui")
+    assert recaptured.semantic_digest != before
+
+
+def test_t06_rework_root_virtual_leg_scope_must_be_empty_string() -> None:
+    raw = {
+        "nodes": [{"id": 1, "type": "Source", "inputs": [], "outputs": [], "widgets_values": []}],
+        "links": [],
+        "virtual_wires": {"BUS": {"legs": [{
+            "scope_path": None, "leg_index": 0, "occurrence_index": 0,
+            "from_node": "1", "from_output": "0", "to_node": "1", "to_input": "x",
+        }]}}
+    }
+    with pytest.raises(ValueError, match="scope"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_envelope_captures_authored_set_get_helpers() -> None:
+    envelope = {
+        "id": "helper-envelope",
+        "vibecomfy_format_version": "1.0",
+        "source": {"id": "helper-envelope", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {
+            "1": {"id": "1", "class_type": "Source", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"},
+            "2": {"id": "2", "class_type": "SetNode", "pack": None, "inputs": {}, "widgets": {"widget_0": "BUS"}, "metadata": {}, "uid": "2"},
+            "3": {"id": "3", "class_type": "GetNode", "pack": None, "inputs": {}, "widgets": {"widget_0": "BUS"}, "metadata": {}, "uid": "3"},
+            "4": {"id": "4", "class_type": "Sink", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "4"},
+        },
+        "edges": [
+            {"from_node": "1", "from_output": "0", "to_node": "2", "to_input": "value"},
+            {"from_node": "3", "from_output": "0", "to_node": "4", "to_input": "value"},
+        ],
+        "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+    }
+    workflow = from_envelope(envelope)
+    assert workflow.virtual_wires["BUS"]["legs"][0]["scope_path"] == ""
+    assert set(workflow.nodes) == {"1", "2", "3", "4"}
+    assert len(workflow.edges) == 2
+
+
+def test_t06_rework_recursive_capture_persists_at_depth_two() -> None:
+    def definition(name: str, nested=None):
+        value = {
+            "name": name,
+            "nodes": [
+                {"id": "source", "type": "Source", "inputs": [], "outputs": [{"name": "out", "links": [1]}]},
+                {"id": "set", "type": "SetNode", "inputs": [{"name": "value", "link": 1}], "outputs": [], "widgets_values": ["BUS"]},
+                {"id": "get", "type": "GetNode", "inputs": [], "outputs": [{"name": "out", "links": [2]}], "widgets_values": ["BUS"]},
+                {"id": "sink", "type": "Sink", "inputs": [{"name": "value", "link": 2}], "outputs": []},
+            ],
+            "links": [[1, "source", 0, "set", 0, "X"], [2, "get", 0, "sink", 0, "X"]],
+        }
+        if nested is not None:
+            value["definitions"] = {"subgraphs": [nested]}
+        return value
+    inner = definition("Inner")
+    outer = definition("Outer", inner)
+    raw = {"nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}], "links": [], "definitions": {"subgraphs": [outer]}}
+    workflow = from_ui(raw, use_comfy_converter=False)
+    outer_norm = workflow.definitions["subgraphs"][0]
+    inner_norm = outer_norm["definitions"]["subgraphs"][0]
+    assert outer_norm["virtual_wires"]["BUS"]["legs"]
+    assert inner_norm["virtual_wires"]["BUS"]["legs"]
+    assert outer_norm["virtual_wires"]["BUS"]["legs"][0]["scope_path"] != inner_norm["virtual_wires"]["BUS"]["legs"][0]["scope_path"]
+
+
+def test_t06_rework_definition_boundary_missing_name_has_stable_error() -> None:
+    raw = _t06_recursive_graph(boundary_ports=[{"scope_path": "Outer", "direction": "input", "node_uid": "sink", "field": "value"}])
+    with pytest.raises(ValueError, match="boundary port 0.*name|boundary.*name"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+@pytest.mark.parametrize(
+    "marker_fields",
+    [
+        {"inputNode": {"id": -10}, "outputNode": {"id": -20}},
+        {"inputNode": {"id": -10}},
+        {"outputNode": {"id": -20}},
+        {"nodes": [{"id": -10, "type": "Input", "inputs": [], "outputs": []}, {"id": -20, "type": "Output", "inputs": [], "outputs": []}]},
+        {"config": {"inputNode": -10, "outputNode": -20}},
+        {"extra": {"inputNode": -10, "outputNode": -20}},
+    ],
+)
+def test_t06_rework_every_native_marker_shape_rejects_from_ui(marker_fields) -> None:
+    raw = _t06_recursive_graph(**marker_fields)
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_t06_rework_nested_native_marker_and_envelope_reject() -> None:
+    inner = _t06_recursive_graph()["definitions"]["subgraphs"][0]
+    outer = _t06_recursive_graph()
+    outer["definitions"]["subgraphs"][0]["definitions"] = {"subgraphs": [{**inner, "inputNode": {"id": -10}}]}
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(outer, use_comfy_converter=False)
+    envelope = {
+        "id": "e", "vibecomfy_format_version": "1.0",
+        "source": {"id": "e", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {"1": {"id": "1", "class_type": "Outer", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"}},
+        "edges": [], "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+        "definitions": {"subgraphs": [{"name": "Outer", "nodes": [{"id": "source", "type": "Source", "inputs": [], "outputs": []}], "links": [], "outputNode": {"id": -20}}]},
+    }
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_envelope(envelope)
+
+
+@pytest.mark.parametrize("marker_id", [-10, "-20"])
+def test_t06_rework_mapped_native_marker_rejects_from_ui_and_envelope(marker_id) -> None:
+    definition = {
+        "name": "MappedOuter",
+        "nodes": {"entry": {"id": marker_id, "type": "Input", "inputs": [], "outputs": []}},
+        "links": [],
+    }
+    ui = {"nodes": [{"id": 1, "type": "MappedOuter", "inputs": [], "outputs": [], "widgets_values": []}], "links": [], "definitions": {"subgraphs": [definition]}}
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(ui, use_comfy_converter=False)
+    envelope = {
+        "id": "mapped", "vibecomfy_format_version": "1.0",
+        "source": {"id": "mapped", "source_type": "vibe", "path": None, "provenance": {}},
+        "requirements": {"models": [], "custom_nodes": [], "missing_models": [], "missing_nodes": [], "unsupported": []},
+        "nodes": {"1": {"id": "1", "class_type": "MappedOuter", "pack": None, "inputs": {}, "widgets": {}, "metadata": {}, "uid": "1"}},
+        "edges": [], "inputs": {}, "outputs": [], "metadata": {}, "strict_types": False,
+        "definitions": {"subgraphs": [definition]},
+    }
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_envelope(envelope)
+
+
+def test_t06_recursive_import_normalizes_scope_and_unresolved_schema() -> None:
+    raw = {
+        "nodes": [{"id": 1, "type": "Outer", "inputs": [], "outputs": [], "widgets_values": []}],
+        "links": [],
+        "definitions": {"subgraphs": [{
+            "name": "Outer",
+            "nodes": [{"id": "inner", "type": "Inner", "inputs": [], "outputs": []}],
+            "links": [],
+        }]},
+    }
+    workflow = from_ui(raw, use_comfy_converter=False)
+    definition = workflow.definitions["subgraphs"][0]
+    assert definition["sg_key"] in definition["scope_path"]
+    assert definition["nodes"][0]["uid"] == "inner"
+    assert workflow.nodes["1"].metadata["schema_source"] == {
+        "provider": "", "path": None, "cache_path": None, "server_url": None,
+        "package": None, "version": None, "hash": None, "confidence": 0.0,
+    }
+
+
+def test_t06_import_rejects_unclassified_metadata_and_nonfinite_semantics() -> None:
+    with pytest.raises(ValueError, match="node '1'.*metadata key 'summary'.*reconciliation action"):
+        from_api({"1": {"class_type": "Known", "inputs": {}, "schema_source": {"provider": "authoritative_object_info"}, "summary": "opaque"}})
+    with pytest.raises(ValueError, match="nonfinite semantic value"):
+        from_api({"1": {"class_type": "Known", "inputs": {"value": float("nan")}}})
+
+
+def test_t06_ui_links_are_exact_and_capture_set_get_before_projection() -> None:
+    raw = {
+        "nodes": [
+            {"id": 1, "type": "Source", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": []},
+            {"id": 2, "type": "SetNode", "inputs": [{"name": "value", "link": 1}], "outputs": [], "widgets_values": ["BUS"]},
+            {"id": 3, "type": "GetNode", "inputs": [], "outputs": [{"name": "out"}], "widgets_values": ["BUS"]},
+            {"id": 4, "type": "Sink", "inputs": [{"name": "value", "link": 2}], "outputs": [], "widgets_values": []},
+        ],
+        "links": [[1, 1, 0, 2, 0, "X"], [2, 3, 0, 4, 0, "X"]],
+    }
+    workflow = from_ui(raw, use_comfy_converter=False)
+    assert workflow.virtual_wires["BUS"]["legs"] == [{
+        "scope_path": "", "leg_index": 0, "occurrence_index": 0,
+        "from_node": "1", "from_output": "0", "to_node": "4", "to_input": "value",
+    }]
+    malformed = {**raw, "links": [[1, 1, 0, 2, 0]]}
+    with pytest.raises(ValueError, match="exact six-field"):
+        from_ui(malformed, use_comfy_converter=False)
 
 
 def _ksampler_api_node(*, control: str | None = None) -> dict:
@@ -62,6 +376,32 @@ def _ksampler_api_node_with_ui(*, control: str) -> dict:
 
 def _workflow_from_node(node: dict, node_id: str = "1"):  # type: ignore[return]
     return from_api({node_id: node})
+
+
+def test_ui_ingest_captures_exact_native_socket_rosters() -> None:
+    workflow = from_ui(
+        {
+            "last_node_id": 1,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "RosterNode",
+                    "inputs": [{"name": "first"}, None, {"name": "third"}],
+                    "outputs": [{"name": "result"}, None],
+                    "widgets_values": [],
+                }
+            ],
+            "links": [],
+            "groups": [],
+        },
+        use_comfy_converter=False,
+    )
+    node = workflow.nodes["1"]
+    assert node.native_input_names == ["first", None, "third"]
+    assert node.native_output_names == ["result", None]
+    assert "_ui" in node.metadata
+    assert "inputs" not in node.native_input_names
 
 
 # ── Case 1a: 'randomize' captured from named inputs dict ─────────────────────
@@ -500,7 +840,8 @@ def test_mode_captured_from_pure_python_path() -> None:
     from vibecomfy.ingest.normalize import normalize_to_api
     api = normalize_to_api(raw_ui, use_comfy_converter=False)
     wf = from_api(api)
-    assert wf.nodes["1"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.BYPASSED
     # _ui.mode is left in place so emit_ui_json furniture stays intact.
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
     # No duplicate furniture copy is written on new ingests.
@@ -513,7 +854,8 @@ def test_mode_captured_from_comfy_converter_path() -> None:
     # an API-format node that already has a slim _ui with mode set.
     api_node = _node_with_mode(mode=4)
     wf = from_api({"1": api_node})
-    assert wf.nodes["1"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.BYPASSED
     assert wf.nodes["1"].metadata["_ui"]["mode"] == 4
     assert "mode" not in wf.nodes["1"].metadata
 
@@ -528,9 +870,10 @@ def test_flags_color_bgcolor_captured() -> None:
 
 
 def test_mode_absent_leaves_field_zero_and_metadata_unset() -> None:
-    """Nodes with no mode field get mode 0 and no metadata['mode'] key."""
+    """Nodes with no mode field get semantic enabled mode and no metadata key."""
     wf = from_api({"1": _node_without_mode()})
-    assert wf.nodes["1"].mode == 0
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.ENABLED
     assert "mode" not in wf.nodes["1"].metadata
 
 
@@ -539,7 +882,8 @@ def test_mode_does_not_enter_inputs_or_widgets() -> None:
     api_node = _node_with_mode(mode=4)
     wf = from_api({"1": api_node})
     node = wf.nodes["1"]
-    assert node.mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert node.mode is NodeMode.BYPASSED
     assert "mode" not in node.inputs
     assert "mode" not in node.widgets
 
@@ -1226,8 +1570,9 @@ def test_from_envelope_hand_built_old_style_without_compiled_api() -> None:
     assert len(wf.edges) == 1
     assert wf.nodes["1"].uid == "uid-loader"
     assert wf.nodes["1"].inputs["ckpt_name"] == "model.safetensors"
-    assert wf.nodes["1"].mode == 0
-    assert wf.nodes["2"].mode == 4
+    from vibecomfy.workflow import NodeMode
+    assert wf.nodes["1"].mode is NodeMode.ENABLED
+    assert wf.nodes["2"].mode is NodeMode.BYPASSED
     assert wf.nodes["2"].metadata["mode"] == 4
     assert wf.nodes["2"].metadata["_ui"]["mode"] == 4
     assert wf.outputs[0].node_id == "2"
@@ -1420,32 +1765,11 @@ def test_ingest_workflow_and_ui_accepts_api_prompt_dict() -> None:
     assert normalized["links"], "API edges must become canonical UI links"
 
 
-def test_ir_door_ingest_retains_subgraph_fixture_wire_payloads() -> None:
+def test_ir_door_rejects_subgraph_fixture_native_boundary_payloads() -> None:
     path = Path(__file__).parent / "fixtures/agent_edit/subgraphed_wan_i2v.json"
     raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
-
-    retained_roots = (workflow.id, workflow.metadata)
-
-    def retained(expected: object, value: object) -> bool:
-        if value == expected:
-            return True
-        if isinstance(value, dict):
-            return any(retained(expected, item) for item in value.values())
-        if isinstance(value, (list, tuple)):
-            return any(retained(expected, item) for item in value)
-        return False
-
-    for key in (
-        "id",
-        "version",
-        "last_node_id",
-        "last_link_id",
-        "links",
-        "extra",
-        "definitions",
-    ):
-        assert retained(raw[key], retained_roots), f"UI door dropped top-level {key!r}"
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(raw, source_path=str(path), use_comfy_converter=False)
 
 
 def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
@@ -1475,6 +1799,10 @@ def test_ir_door_exact_json_equality_across_the_spike_corpus() -> None:
         if kind == "envelope":
             emitted = from_envelope(raw).to_envelope()
         else:
+            if path.name == "subgraphed_wan_i2v.json":
+                with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+                    from_ui(raw, source_path=str(path), use_comfy_converter=False)
+                continue
             workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
             with _warnings.catch_warnings():
                 _warnings.simplefilter("ignore")
@@ -1529,7 +1857,10 @@ def test_batch3_same_workflow_object_crosses_ingest_into_state_and_session(
 
     raw = deepcopy(_MINIMAL_UI_RAW)
     workflow, ui = ingest_workflow_and_ui(raw)
-    assert ui is raw, "UI input dict identity preserved by the door"
+    assert ui == raw, "UI projection preserves the input values"
+    assert ui is not raw, "UI projection is detached from the caller's raw input"
+    ui["nodes"][0]["type"] = "MutatedProjection"
+    assert raw["nodes"][0]["type"] == "SaveImage"
     assert workflow is not None
 
     state = _batch3_agent_state(tmp_path, raw, workflow=workflow)
@@ -1570,3 +1901,173 @@ def test_batch3_agent_edit_state_workflow_allocated_exactly_once_and_reused(
     state2 = _batch3_agent_state(tmp_path, deepcopy(raw), workflow=allocated)
     _stage_ingest(state2, TurnContext(session_id="b3-b", turn_id="t3"))
     assert state2.workflow is allocated, "workflow must be reused across stages"
+
+
+def test_native_typed_port_authority_survives_ui_envelope_and_ui_emit() -> None:
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    class Provider:
+        def get_schema(self, class_type):
+            if class_type == "LoadImage":
+                return NodeSchema(
+                    "LoadImage", "core",
+                    {"image": InputSpec("CHOICE", required=True, asset_kind="image")},
+                    [OutputSpec("IMAGE", "IMAGE")],
+                )
+            return None
+
+    raw = {
+        "nodes": [{
+            "id": 1, "type": "LoadImage", "mode": 0,
+            "inputs": [{"name": "image", "type": "CHOICE", "shape": 7}],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": None}],
+            "widgets_values": ["source.png"],
+        }],
+        "links": [],
+    }
+    workflow = from_ui(raw, schema_provider=Provider(), use_comfy_converter=False)
+    node = workflow.nodes["1"]
+    assert node.native_input_names == ["image"]
+    assert node.native_input_types == ["CHOICE"]
+    assert node.native_input_optional == [True]
+    assert node.native_input_asset_kinds == ["image"]
+    assert node.native_output_names == ["IMAGE"]
+    assert node.native_output_types == ["IMAGE"]
+
+    rebuilt = from_envelope(workflow.to_envelope())
+    assert rebuilt.nodes["1"].native_input_types == ["CHOICE"]
+    assert rebuilt.nodes["1"].native_input_optional == [True]
+    assert rebuilt.nodes["1"].native_input_asset_kinds == ["image"]
+    assert rebuilt.nodes["1"].native_output_types == ["IMAGE"]
+
+    emitted = emit_ui_json(rebuilt, schema_provider=Provider())
+    emitted_node = emitted["nodes"][0]
+    assert emitted_node["inputs"] == [{
+        "name": "image", "type": "CHOICE", "shape": 7,
+    }]
+    assert emitted_node["outputs"][0]["type"] == "IMAGE"
+
+
+def test_native_typed_port_authority_rejects_misaligned_carriers() -> None:
+    from vibecomfy.workflow import VibeNode
+
+    with pytest.raises(ValueError, match="native_input_types length"):
+        VibeNode(
+            "1", "Node", native_input_names=["a", "b"],
+            native_input_types=["IMAGE"],
+        )
+    with pytest.raises(ValueError, match="native_input_names"):
+        VibeNode("1", "Node", native_input_optional=[True])
+
+
+def test_native_choice_list_socket_type_normalizes_without_losing_widget_literal() -> None:
+    raw = {
+        "nodes": [{
+            "id": 92,
+            "type": "VHS_VideoCombine",
+            "inputs": [{
+                "name": "pix_fmt",
+                "type": ["yuv420p", "yuv420p10le"],
+                "widget": {"name": "pix_fmt"},
+            }],
+            "outputs": [],
+            "widgets_values": ["yuv420p10le"],
+        }],
+        "links": [],
+    }
+
+    workflow = from_ui(raw, use_comfy_converter=False)
+    node = workflow.nodes["92"]
+    assert node.native_input_names == ["pix_fmt"]
+    assert node.native_input_types == ["CHOICE"]
+    assert node.inputs["pix_fmt"] == "yuv420p10le"
+    assert node.raw_widgets is not None
+    assert node.raw_widgets.values == ["yuv420p10le"]
+
+
+@pytest.mark.parametrize("malformed", [[], [""], ["ok", 1], [True], [{}]])
+def test_native_choice_list_socket_type_rejects_malformed_claims(malformed) -> None:
+    raw = {
+        "nodes": [{
+            "id": 1, "type": "ChoiceNode",
+            "inputs": [{"name": "choice", "type": malformed}],
+            "outputs": [],
+        }],
+        "links": [],
+    }
+    with pytest.raises(ValueError, match="choice list must contain only nonblank strings"):
+        from_ui(raw, use_comfy_converter=False)
+
+
+def test_image_upload_schema_marker_survives_frozen_schema_payload() -> None:
+    from copy import deepcopy
+
+    from vibecomfy.porting.edit.admit import _validate_schema_payload_structure
+    from vibecomfy.schema import NodeSchema, node_schema_from_payload, schema_payload_from_node_schema
+    from vibecomfy.schema.types import SchemaSnapshotError
+    from vibecomfy.schema.provider import _parse_input_spec
+
+    spec = _parse_input_spec([[], {"image_upload": True}], required=True)
+    assert spec.asset_kind == "image"
+    payload = schema_payload_from_node_schema(
+        "LoadImage", NodeSchema("LoadImage", "core", {"image": spec}, [])
+    )
+    assert payload["inputs"]["image"]["asset_kind"] == "image"
+    restored = node_schema_from_payload("LoadImage", payload)
+    assert restored.inputs["image"].asset_kind == "image"
+
+    # The admission door accepts the complete canonical carrier while keeping
+    # forged or malformed asset claims fail-closed.  Build only the nested
+    # shell required by the structural validator so this test exercises the
+    # same codec path used by real editor snapshots.
+    provenance = {
+        "source_provider": None, "source_path": None, "source_cache_path": None,
+        "source_server_url": None, "source_package": None, "source_version": None,
+        "source_hash": None, "confidence": 1.0, "conflicts": [],
+        "ignored_evidence": [],
+    }
+    payload["widget_input_order"] = []
+    payload["provenance"] = provenance
+    snapshot_payload = {
+        "contract_version": "schema-snapshot-v1",
+        "identity": {
+            "runtime_fingerprint": None, "cache_fingerprint": None,
+            "request_fingerprint": None, "server_url": None,
+        },
+        "content_digest": "test-digest",
+        "precedence": [], "selected_source": "test", "generation": 0,
+        "conflicts": [], "timestamp": None, "version": "schema-snapshot-v1",
+        "schemas": {"LoadImage": payload}, "missing_classes": [],
+        "input_order": {"LoadImage": ["image"]}, "node_classes": {},
+        "workflow_observation_authoritative": False,
+        "ambient_lookup_forbidden": True,
+    }
+    _validate_schema_payload_structure(snapshot_payload, label="schema")
+
+    for malformed in ("", "audio", True, 1, [], {}):
+        tampered = deepcopy(snapshot_payload)
+        tampered["schemas"]["LoadImage"]["inputs"]["image"]["asset_kind"] = malformed
+        with pytest.raises(SchemaSnapshotError, match="canonical 'image' claim"):
+            _validate_schema_payload_structure(tampered, label="schema")
+
+    missing = deepcopy(snapshot_payload)
+    del missing["schemas"]["LoadImage"]["inputs"]["image"]["asset_kind"]
+    with pytest.raises(SchemaSnapshotError, match="incomplete or unknown fields"):
+        _validate_schema_payload_structure(missing, label="schema")
+
+
+def test_recursive_node_decodes_typed_optional_socket_carriers() -> None:
+    from vibecomfy.workflow import _raw_recursive_node
+
+    node = _raw_recursive_node({
+        "id": "inner", "type": "Inner",
+        "inputs": [{"name": "latent", "type": "LATENT", "shape": 7}],
+        "outputs": [{"name": "LATENT", "type": "LATENT"}],
+        "native_output_slots": [3, 0, 3],
+    }, "inner")
+    assert node.native_input_names == ["latent"]
+    assert node.native_input_types == ["LATENT"]
+    assert node.native_input_optional == [True]
+    assert node.native_output_names == ["LATENT"]
+    assert node.native_output_types == ["LATENT"]
+    assert node.native_output_slots == [0, 3]

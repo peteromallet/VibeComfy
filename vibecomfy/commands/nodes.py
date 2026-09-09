@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as _dt
 import difflib
 import hashlib
 import json
 import re
+import shlex
 from dataclasses import asdict
 from pathlib import Path
 import subprocess
 import sys
+from collections.abc import Mapping
 
 from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.analysis.node_coverage import build_workflow_coverage
@@ -138,8 +141,14 @@ def _compatible_socket_search(provider: object, socket_type: str, *, socket_role
         # one class.  Compatible-with is a real schema consumer, so focus-load
         # each advertised class through the canonical getter.  A getter error
         # is provider failure, not an absent class, and must remain typed.
-        if schema is None and callable(getter):
+        if callable(getter):
             try:
+                # Enumeration can be a partial/listing-only view.  Socket
+                # compatibility is a schema consumer, so always refresh the
+                # advertised class through the provider's authoritative
+                # getter.  A getter miss must not fall back to stale listing
+                # data, which could claim an input or output that was never
+                # witnessed by the authoritative provider.
                 schema = getter(class_type)
             except SchemaProviderError:
                 raise
@@ -252,6 +261,378 @@ def build_nodes_install_plan_payload(path: str, missing_classes, packs, unresolv
         "unresolved_class_types": unresolved,
         "missing_class_types": sorted(missing_classes),
     }
+
+
+_RECONCILE_SCHEMA_VERSION = "vibecomfy.nodes.reconcile.v1"
+
+
+def _reconcile_quote(value: object) -> str:
+    """Quote every interpolated token, including tokens safe without quotes."""
+    text = str(value)
+    quoted = shlex.quote(text)
+    return quoted if quoted != text else f"'{text}'"
+
+
+def _reconcile_jsonable(value: object) -> object:
+    """Convert report details to a stable JSON-compatible tree."""
+    if isinstance(value, Mapping):
+        return {str(key): _reconcile_jsonable(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_reconcile_jsonable(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        items = [_reconcile_jsonable(item) for item in value]
+        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+    if isinstance(value, Path):
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _reconcile_diagnostic(
+    subject_type: str,
+    code: str,
+    message: str,
+    *,
+    target: str,
+    severity: str = "error",
+    recoverable: bool = True,
+    details: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    detail = dict(details or {})
+    detail.setdefault("target", target)
+    return {
+        "subject_type": subject_type,
+        "code": code,
+        "message": message,
+        "severity": severity,
+        "recoverable": recoverable,
+        "details": _reconcile_jsonable(detail),
+    }
+
+
+def _reconcile_command(args: argparse.Namespace) -> str:
+    parts = ["vibecomfy", "nodes", "reconcile", "--workflow", _reconcile_quote(args.workflow), "--json"]
+    for name in ("lockfile", "registry", "models_root"):
+        value = getattr(args, name, None)
+        if value:
+            parts.extend([f"--{name.replace('_', '-')}", _reconcile_quote(value)])
+    if getattr(args, "server_url", None):
+        parts.extend(["--server-url", _reconcile_quote(args.server_url)])
+    return " ".join(parts)
+
+
+def _reconcile_wrapper_class_map(module_path: Path) -> dict[str, str]:
+    try:
+        tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
+    except (OSError, SyntaxError):
+        return {}
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if not any(isinstance(target, ast.Name) and target.id == "__vibecomfy_class_types__" for target in targets):
+            continue
+        try:
+            value = ast.literal_eval(statement.value)
+        except (ValueError, TypeError):
+            return {}
+        return {str(key): str(item) for key, item in value.items()} if isinstance(value, dict) else {}
+    return {}
+
+
+def _reconcile_refresh_remediation(
+    *, class_type: str, source: Mapping[str, object] | None, workflow_command: str
+) -> tuple[str, str]:
+    source_path = None
+    if source:
+        for key in ("capture_path", "source_path", "path", "cache_path"):
+            candidate = source.get(key)
+            if isinstance(candidate, str) and candidate and Path(candidate).is_file():
+                source_path = candidate
+                break
+    if source_path is not None:
+        command = f"vibecomfy schemas refresh --source {_reconcile_quote(source_path)} --json"
+    else:
+        command = f"provide a local object-info dump for {_reconcile_quote(class_type)} and rerun {_reconcile_quote(workflow_command)}"
+    return "refresh", command
+
+
+def _reconcile_model_references(workflow: object) -> list[dict[str, str]]:
+    """Collect model references without invoking runtime preflight."""
+    from vibecomfy.model_assets import _referenced_model_values
+
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for reference in _referenced_model_values(workflow):
+        value = str(reference.get("value", ""))
+        subdir = str(reference.get("subdir", ""))
+        key = (value, subdir)
+        if value and key not in seen:
+            refs.append({"value": value, "subdir": subdir})
+            seen.add(key)
+    metadata = getattr(workflow, "metadata", {})
+    for entry in metadata.get("model_assets", []) if isinstance(metadata, Mapping) else []:
+        if not isinstance(entry, Mapping):
+            continue
+        value = entry.get("name")
+        subdir = entry.get("subdir", entry.get("directory", ""))
+        if isinstance(value, str) and value:
+            key = (value, str(subdir))
+            if key not in seen:
+                refs.append({"value": value, "subdir": str(subdir)})
+                seen.add(key)
+    requirements = getattr(workflow, "requirements", None)
+    for value in getattr(requirements, "models", ()) if requirements is not None else ():
+        if not isinstance(value, str) or not value:
+            continue
+        key = (value, "")
+        if key not in seen:
+            refs.append({"value": value, "subdir": ""})
+            seen.add(key)
+    return sorted(refs, key=lambda item: (item["value"], item["subdir"]))
+
+
+def build_nodes_reconcile_payload(args: argparse.Namespace) -> dict[str, object]:
+    """Build the deterministic report without invoking mutation or runtime code."""
+    lock_path = Path(getattr(args, "lockfile", None) or "custom_nodes.lock")
+    # Parse before provider/discovery work: malformed locks must remain observable.
+    lock_entries = read_lockfile(lock_path)
+    known_packs = node_packs_install.get_known_node_packs(lock_path)
+    pack_by_class: dict[str, object] = {}
+    for pack in known_packs:
+        for class_type in pack.classes:
+            pack_by_class.setdefault(str(class_type), pack)
+    pack_by_name = {str(pack.name): pack for pack in known_packs}
+    pack_slug_by_name = {
+        str(entry.name): str(entry.slug or entry.name) for entry in lock_entries
+    }
+    lock_entry_by_name = {str(entry.name): entry for entry in lock_entries}
+
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+    workflow = load_workflow_reference(
+        str(args.workflow), schema_provider=provider, allow_scratchpad=True
+    )
+    diagnostics: list[dict[str, object]] = []
+    remediations: list[dict[str, object]] = []
+    node_classes = {str(node.class_type) for node in workflow.nodes.values()}
+    schema_enumeration_error: Exception | None = None
+    try:
+        schema_classes = set(provider.schemas())
+    except (OSError, ValueError, SchemaProviderError) as exc:
+        schema_classes = set()
+        schema_enumeration_error = exc
+    if schema_enumeration_error is not None:
+        diagnostics.append(
+            _reconcile_diagnostic(
+                "node",
+                "schema_source_error",
+                f"local schema enumeration failed: {type(schema_enumeration_error).__name__}",
+                target="schema",
+                details={"error": str(schema_enumeration_error)},
+            )
+        )
+    missing_classes = set(node_classes) - schema_classes - set(node_packs_install.CORE_COMFY_CLASSES)
+    # Preserve the existing requirements boundary and the canonical helper for
+    # the default lock while avoiding its ambient lock path for explicit locks.
+    if lock_path == Path("custom_nodes.lock"):
+        missing_classes.update(node_packs_install.missing_class_types_for_workflow(workflow))
+    missing_classes.update(str(item) for item in getattr(workflow.requirements, "missing_nodes", ()))
+    if missing_classes:
+        for class_type in sorted(missing_classes):
+            pack = pack_by_class.get(class_type)
+            if pack is not None:
+                slug = pack_slug_by_name.get(pack.name, pack.name)
+                diagnostics.append(
+                    _reconcile_diagnostic(
+                        "node", "missing_node_pack", f"node pack {slug!r} is required for {class_type!r}",
+                        target=class_type, details={"class_type": class_type, "pack": slug},
+                    )
+                )
+                remediations.append({"action": "install", "command": f"vibecomfy nodes install {_reconcile_quote(slug)}", "targets": [slug]})
+            else:
+                diagnostics.append(
+                    _reconcile_diagnostic(
+                        "node", "unknown_node", f"node class {class_type!r} is not resolved locally",
+                        target=class_type, details={"class_type": class_type},
+                    )
+                )
+                remediations.append({"action": "lookup", "command": f"vibecomfy nodes lookup {_reconcile_quote(class_type)} --json", "targets": [class_type]})
+
+    # Declared packs are independently actionable even when their class set is empty.
+    for declared in sorted(set(str(item) for item in getattr(workflow.requirements, "custom_nodes", ()) )):
+        if declared in pack_by_name:
+            continue
+        diagnostics.append(_reconcile_diagnostic("node", "missing_node_pack", f"declared node pack {declared!r} is not installed", target=declared, details={"pack": declared}))
+        remediations.append({"action": "install", "command": f"vibecomfy nodes install {_reconcile_quote(declared)}", "targets": [declared]})
+
+    # Compare generated public maps locally. Generation and registration are only
+    # remediation strings; no module is imported or regenerated here.
+    modules_file = Path(__file__).resolve().parents[1] / "nodes" / "__init__.py"
+    module_names: set[str] = set()
+    try:
+        module_tree = ast.parse(modules_file.read_text(encoding="utf-8"), filename=str(modules_file))
+        for statement in module_tree.body:
+            if isinstance(statement, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "MODULES" for target in statement.targets):
+                values = ast.literal_eval(statement.value)
+                module_names = {str(item) for item in values} if isinstance(values, list) else set()
+    except (OSError, SyntaxError, ValueError, TypeError):
+        module_names = set()
+    checked_packs: set[str] = set()
+    for class_type in sorted(node_classes & set(pack_by_class)):
+        pack = pack_by_class[class_type]
+        pack_name = str(pack.name)
+        if pack_name in checked_packs:
+            continue
+        checked_packs.add(pack_name)
+        slug = pack_slug_by_name.get(pack_name, pack_name)
+        module_stem = _wrapper_codegen._slug_to_module_name(slug)
+        module_path = modules_file.parent / f"{module_stem}.py"
+        wrapper_map = _reconcile_wrapper_class_map(module_path) if module_path.is_file() else {}
+        if not module_path.is_file() or class_type not in wrapper_map:
+            diagnostics.append(_reconcile_diagnostic("node", "wrapper_drift", f"generated wrapper for {class_type!r} in {slug!r} is missing or stale", target=class_type, details={"class_type": class_type, "pack": slug, "module": module_stem}))
+            command = f"vibecomfy nodes generate-wrappers {_reconcile_quote(slug)} --source cache --deterministic-timestamp"
+            remediations.append({"action": "regenerate", "command": command, "targets": [slug]})
+            if module_stem not in module_names:
+                diagnostics.append(_reconcile_diagnostic("node", "wrapper_registration_missing", f"wrapper module {module_stem!r} is not registered in vibecomfy.nodes; generation does not update exports", target=module_stem, details={"pack": slug, "module": module_stem, "registration_command_available": False}))
+                remediations.append({"action": "register", "command": f"add module stem {_reconcile_quote(module_stem)} to {_reconcile_quote(modules_file)}; generation does not update exports", "targets": [module_stem]})
+
+    # Identity/schema mismatches are local, fail-closed diagnostics.
+    for node_id, node in sorted(workflow.nodes.items(), key=lambda pair: str(pair[0])):
+        class_type = str(node.class_type)
+        try:
+            schema = provider.get_schema(class_type)
+        except (OSError, ValueError, SchemaProviderError) as exc:
+            schema = None
+            diagnostics.append(
+                _reconcile_diagnostic(
+                    "node",
+                    "schema_source_error",
+                    f"local schema lookup failed for {class_type!r}: {type(exc).__name__}",
+                    target=class_type,
+                    details={"node_id": str(node_id), "class_type": class_type, "error": str(exc)},
+                )
+            )
+        pack = pack_by_class.get(class_type)
+        source = node.metadata.get("schema_source") if isinstance(node.metadata, Mapping) else None
+        expected_pack = str(pack.name) if pack is not None else None
+        source_pack = source.get("pack") or source.get("package") if isinstance(source, Mapping) else None
+        schema_pack = getattr(schema, "pack", None)
+        if expected_pack and source_pack and str(source_pack) not in {expected_pack, pack_slug_by_name.get(expected_pack, expected_pack)}:
+            diagnostics.append(_reconcile_diagnostic("node", "identity_mismatch", f"schema identity for {class_type!r} does not match {expected_pack!r}", target=class_type, details={"node_id": str(node_id), "class_type": class_type, "expected_pack": expected_pack, "actual_pack": str(source_pack)}))
+            action, command = _reconcile_refresh_remediation(class_type=class_type, source=source if isinstance(source, Mapping) else None, workflow_command=_reconcile_command(args))
+            remediations.append({"action": action, "command": command, "targets": [class_type]})
+        if schema_pack and expected_pack and str(schema_pack) not in {expected_pack, pack_slug_by_name.get(expected_pack, expected_pack)}:
+            diagnostics.append(_reconcile_diagnostic("node", "schema_mismatch", f"schema pack for {class_type!r} does not match {expected_pack!r}", target=class_type, details={"node_id": str(node_id), "class_type": class_type, "expected_pack": expected_pack, "actual_pack": str(schema_pack)}))
+        if expected_pack:
+            lock_entry = lock_entry_by_name.get(expected_pack)
+            identity: dict[str, str] | None = None
+            if isinstance(source, Mapping):
+                source_commit = source.get("git_commit") or source.get("commit")
+                source_evidence = source.get("evidence_identity")
+                source_slug = source.get("pack_slug") or source.get("pack") or source.get("package")
+                if source_slug and source_commit:
+                    identity = {"pack_slug": str(source_slug), "git_commit": str(source_commit)}
+                elif source_slug and source_evidence:
+                    identity = {"pack_slug": str(source_slug), "evidence_identity": str(source_evidence)}
+            if identity is None and lock_entry is not None:
+                commit = lock_entry.commit or lock_entry.git_commit_sha
+                if commit:
+                    identity = {"pack_slug": pack_slug_by_name.get(expected_pack, expected_pack), "git_commit": str(commit)}
+            if identity is not None:
+                from vibecomfy.porting.object_info.consume import resolve_class_entry
+
+                identity_result = resolve_class_entry(class_type, identity, allow_class_fallback=False)
+                if identity_result.entry is None:
+                    diagnostics.append(_reconcile_diagnostic("node", "identity_mismatch", f"object-info identity for {class_type!r} is not available for the locked pack", target=class_type, details={"node_id": str(node_id), "class_type": class_type, "identity": identity, "lookup_source": identity_result.source}))
+                    action, command = _reconcile_refresh_remediation(class_type=class_type, source=source if isinstance(source, Mapping) else None, workflow_command=_reconcile_command(args))
+                    remediations.append({"action": action, "command": command, "targets": [class_type]})
+            else:
+                diagnostics.append(_reconcile_diagnostic("node", "identity_unavailable", f"no committed object-info identity is available for {class_type!r}", target=class_type, severity="warning", details={"node_id": str(node_id), "class_type": class_type, "pack": expected_pack, "identity_available": False}))
+        if schema is not None:
+            required = sorted(name for name, spec in (getattr(schema, "inputs", {}) or {}).items() if getattr(spec, "required", False))
+            present = set(node.inputs) | set(node.widgets)
+            missing_required = [name for name in required if name not in present]
+            if missing_required:
+                diagnostics.append(_reconcile_diagnostic("node", "schema_mismatch", f"node {class_type!r} is missing required inputs", target=class_type, details={"node_id": str(node_id), "class_type": class_type, "missing_required_inputs": missing_required}))
+                action, command = _reconcile_refresh_remediation(class_type=class_type, source=source if isinstance(source, Mapping) else None, workflow_command=_reconcile_command(args))
+                remediations.append({"action": action, "command": command, "targets": [class_type]})
+
+    from vibecomfy import fetch as fetch_assets
+    from vibecomfy.registry import models_loader
+    try:
+        import yaml
+
+        registry = models_loader.load_registry(getattr(args, "registry", None))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        diagnostics.append(_reconcile_diagnostic("model", "model_registry_error", f"model registry could not be read: {type(exc).__name__}", target="registry", details={"error": str(exc)}))
+        registry = ()
+        model_refs: list[dict[str, str]] = []
+    else:
+        model_refs = _reconcile_model_references(workflow)
+    for reference in model_refs:
+        value, subdir = reference["value"], reference["subdir"]
+        try:
+            entry = models_loader.resolve_model_entry(value, registry=registry, subdir=subdir or None)
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            diagnostics.append(_reconcile_diagnostic("model", "model_resolution_error", f"cannot resolve model {value!r}: {type(exc).__name__}", target=value, details={"value": value, "subdir": subdir, "error": str(exc)}))
+            continue
+        if entry is None:
+            registry_path = str(getattr(args, "registry", None) or models_loader.DEFAULT_REGISTRY_PATH)
+            diagnostics.append(_reconcile_diagnostic("model", "unknown_model", f"model reference {value!r} is not in the local registry", target=value, details={"value": value, "subdir": subdir, "registry_path": registry_path, "registry_lookup": False, "registration_command_available": False}))
+            rerun = _reconcile_command(args)
+            command = f"add a valid model row to {_reconcile_quote(registry_path)} and rerun {rerun}"
+            remediations.append({"action": "register", "command": command, "targets": [value]})
+            continue
+        effective_subdir = subdir or (Path(entry.targets[0].path).parent.as_posix() if entry.targets else "")
+        asset = {"name": value, "subdir": effective_subdir}
+        try:
+            present = fetch_assets.is_present(asset, root=Path(args.models_root) if getattr(args, "models_root", None) else None)
+        except (KeyError, OSError, ValueError) as exc:
+            diagnostics.append(_reconcile_diagnostic("model", "model_presence_error", f"cannot inspect model {value!r}: {type(exc).__name__}", target=value, details={"value": value, "subdir": effective_subdir, "error": str(exc)}))
+            continue
+        if not present:
+            diagnostics.append(_reconcile_diagnostic("model", "missing_model", f"model {value!r} is registered but absent locally", target=value, details={"value": value, "model_id": entry.id, "subdir": effective_subdir}))
+            command_parts = ["vibecomfy", "models", "stage", "--ids", _reconcile_quote(entry.id)]
+            if getattr(args, "registry", None):
+                command_parts.extend(["--registry", _reconcile_quote(args.registry)])
+            if getattr(args, "models_root", None):
+                command_parts.extend(["--models-root", _reconcile_quote(args.models_root)])
+            remediations.append({"action": "stage", "command": " ".join(command_parts), "targets": [entry.id]})
+    if getattr(args, "server_url", None) is not None:
+        url = str(args.server_url).strip()
+        if not url:
+            raise ValueError("--server-url must not be empty")
+        from vibecomfy.runtime.session import _nodepack_reload_status
+        runtime_status = _nodepack_reload_status(url)
+        if runtime_status == "restart_required":
+            diagnostics.append(_reconcile_diagnostic("runtime", "restart_required", f"externally owned runtime {url!r} must be restarted", target=url, severity="warning", details={"server_url": url, "lifecycle_calls": 0}))
+            remediations.append({"action": "restart-runtime", "command": f"restart the externally owned ComfyUI server at {_reconcile_quote(url)}", "targets": [url]})
+
+    diagnostics = sorted(diagnostics, key=lambda item: (str(item["subject_type"]), str(item["code"]), str(item["details"].get("target", "")), str(item["message"])))
+    for remediation in remediations:
+        remediation["targets"] = sorted({str(item) for item in remediation.get("targets", [])})
+    remediations = sorted(remediations, key=lambda item: (str(item["action"]), str(item["targets"][0] if item["targets"] else ""), str(item["command"])))
+    blocked = any(item["severity"] == "error" for item in diagnostics)
+    restart_required = any(item["code"] == "restart_required" for item in diagnostics)
+    status = "blocked" if blocked else ("restart_required" if restart_required else "ok")
+    return {"schema_version": _RECONCILE_SCHEMA_VERSION, "status": status, "diagnostics": diagnostics, "remediations": remediations}
+
+
+def _cmd_nodes_reconcile(args: argparse.Namespace) -> int:
+    if getattr(args, "server_url", None) is not None and not str(args.server_url).strip():
+        print("--server-url must not be empty", file=sys.stderr)
+        return 2
+    try:
+        payload = build_nodes_reconcile_payload(args)
+    except (FileNotFoundError, OSError, ValueError, SchemaProviderError) as exc:
+        payload = {"schema_version": _RECONCILE_SCHEMA_VERSION, "status": "blocked", "diagnostics": [_reconcile_diagnostic("runtime", "reconcile_error", f"reconciliation could not be completed: {type(exc).__name__}", target="reconcile", details={"error": str(exc)})], "remediations": []}
+    except Exception as exc:
+        # Keep unexpected programming/fence failures in the command's
+        # fail-closed JSON boundary while preserving their non-success status.
+        payload = {"schema_version": _RECONCILE_SCHEMA_VERSION, "status": "blocked", "diagnostics": [_reconcile_diagnostic("runtime", "reconcile_internal_error", f"reconciliation failed unexpectedly: {type(exc).__name__}", target="reconcile", details={"error": str(exc)})], "remediations": []}
+    print(json.dumps(_reconcile_jsonable(payload), indent=2, sort_keys=True))
+    return 0 if payload["status"] == "ok" else 1
 
 
 def _print_install_plan(payload: dict[str, object], *, json_output: bool) -> int:
@@ -905,6 +1286,16 @@ def register(subparsers) -> None:
     nodes_install.add_argument("path")
     nodes_install.add_argument("--json", action="store_true")
     nodes_install.set_defaults(func=_cmd_nodes_install_plan)
+    nodes_reconcile = nodes_sub.add_parser(
+        "reconcile", help="Report deterministic local node/model/runtime reconciliation state."
+    )
+    nodes_reconcile.add_argument("--workflow", required=True)
+    nodes_reconcile.add_argument("--json", action="store_true", required=True)
+    nodes_reconcile.add_argument("--lockfile", default=None)
+    nodes_reconcile.add_argument("--registry", default=None)
+    nodes_reconcile.add_argument("--models-root", default=None)
+    nodes_reconcile.add_argument("--server-url", default=None)
+    nodes_reconcile.set_defaults(func=_cmd_nodes_reconcile)
     nodes_install_pack = nodes_sub.add_parser("install")
     nodes_install_pack.add_argument("name", nargs="?")
     nodes_install_pack.add_argument("--repo")

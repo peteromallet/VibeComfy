@@ -93,7 +93,7 @@ def build() -> VibeWorkflow:
     dualcliploader = DualCLIPLoader(
         clip_name1=CLIP_NAME,
         clip_name2=CLIP_PROJECTION_NAME,
-        type_='ltxv',
+        type='ltxv',
         device='default',
     )
 

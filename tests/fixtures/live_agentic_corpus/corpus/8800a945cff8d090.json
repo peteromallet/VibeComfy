@@ -1,0 +1,1057 @@
+{
+  "edges": [
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "8",
+      "from_output": "2",
+      "to_input": "mesh_path",
+      "to_node": "3"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "2"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "coarse_mesh",
+      "to_node": "2"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "2"
+    },
+    {
+      "from_node": "2",
+      "from_output": "0",
+      "to_input": "refined_mesh",
+      "to_node": "4"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "6"
+    }
+  ],
+  "groups": [],
+  "id": "eb25a095a01b673d",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "UltraShapeLoadModel",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ultrashape_v1.pt'"
+          ],
+          [
+            "widget_1",
+            "'infer_dit_refine.yaml'"
+          ],
+          [
+            "widget_2",
+            "'bfloat16'"
+          ],
+          [
+            "widget_3",
+            "True"
+          ]
+        ]
+      },
+      "2": {
+        "class_type": "UltraShapeRefine",
+        "incoming_edge_sig": [
+          [
+            "coarse_mesh",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4",
+              "refined_mesh"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "10"
+          ],
+          [
+            "widget_1",
+            "5"
+          ],
+          [
+            "widget_2",
+            "384"
+          ],
+          [
+            "widget_3",
+            "8000"
+          ],
+          [
+            "widget_4",
+            "0"
+          ],
+          [
+            "widget_5",
+            "1"
+          ],
+          [
+            "widget_6",
+            "553456601"
+          ],
+          [
+            "widget_7",
+            "'randomize'"
+          ],
+          [
+            "widget_8",
+            "False"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "UltraShapeLoadCoarseMesh",
+        "incoming_edge_sig": [
+          [
+            "mesh_path",
+            [
+              "8",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "1",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "coarse_mesh"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "0.99"
+          ],
+          [
+            "widget_2",
+            "204800"
+          ],
+          [
+            "widget_3",
+            "204800"
+          ],
+          [
+            "widget_4",
+            "0"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "UltraShapeSaveGLB",
+        "incoming_edge_sig": [
+          [
+            "refined_mesh",
+            [
+              "2",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "model_file"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ultrashape_output'"
+          ],
+          [
+            "widget_1",
+            "'refined'"
+          ],
+          [
+            "widget_2",
+            "'glb'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ultrashape_output/refined_20260107_150134302_19218e6b.glb'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "2",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'cdf996a6cc218918eeb90209891ce306a230e6d9cca2a3d9bbb37c6d7b6bd318.webp'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "Load3D",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "2",
+            [
+              "3",
+              "mesh_path"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3d/ComfyUI_00072_.glb'"
+          ],
+          [
+            "widget_1",
+            "'upload3dmodel'"
+          ],
+          [
+            "widget_2",
+            "'uploadExtraResources'"
+          ],
+          [
+            "widget_3",
+            "'clear'"
+          ],
+          [
+            "widget_4",
+            "''"
+          ],
+          [
+            "widget_5",
+            "1024"
+          ],
+          [
+            "widget_6",
+            "1024"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "8800a945cff8d09027cf4ac8cad9b580c5d7bb8aa291b88d64ae20fa77259be9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1314661011479068785,
+      "channel_name": "trellis",
+      "content_preview": "the wf",
+      "discord_message_url": "https://discord.com/channels/@me/1314661011479068785/1475471443679776910",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1475471443679776910:workflow-low-vram.json:eb25a095a01b673d",
+      "filename": "workflow-low-vram.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:52+00:00",
+      "message_id": 1475471443679776910,
+      "node_class_multiset": {
+        "Load3D": 1,
+        "LoadImage": 1,
+        "Preview3D": 1,
+        "UltraShapeLoadCoarseMesh": 1,
+        "UltraShapeLoadModel": 1,
+        "UltraShapeRefine": 1,
+        "UltraShapeSaveGLB": 1
+      },
+      "node_count": 7,
+      "origin_date": "2026-02-23T12:36:45.107000+00:00",
+      "originator_global_name": "Krikross",
+      "originator_id": "1105511109244485783",
+      "originator_type": "discord_message_author",
+      "originator_username": "gregorydavid.5484",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "eb25a095a01b673d5596fee4746be1e657a38d9e7ece320593f08a554ac3bafb",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1314661011479068785/1475471443360878733/workflow-low-vram.json?ex=699d9b5d&is=699c49dd&hm=789fee36e5df92eabdba88ba4243f668cf7feadce52dde1fcdd511e4e8338467&",
+      "source_workflow_sha256": "0575dcc93bb68ae6ad47676edb5036335fb2dacdbecf31dd65762e280f6fc24d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "55d96a5827663ba6d3dd9174a84132f91bd3a72c63252018c967ea2625eeb29d",
+      "complexity": 3,
+      "description": "Loads an image and a coarse 3D mesh, refines the shape using a model, and exports the result as a GLB file with 3D preview.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "3d",
+      "tags": [
+        "3d",
+        "shape-generation",
+        "mesh-refinement",
+        "glb-export",
+        "image-to-3d"
+      ],
+      "task_type": "other",
+      "title": "3D Shape Generation and Export Workflow"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "UltraShapeLoadModel",
+      "id": "1",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1,
+                3
+              ],
+              "name": "model",
+              "type": "ULTRASHAPE_MODEL"
+            }
+          ],
+          "pos": [
+            -5504.542668621205,
+            -3622.6819708624885
+          ],
+          "properties": {
+            "Node name for S&R": "UltraShapeLoadModel"
+          },
+          "size": [
+            270,
+            130
+          ],
+          "type": "UltraShapeLoadModel",
+          "widgets_values": [
+            "ultrashape_v1.pt",
+            "infer_dit_refine.yaml",
+            "bfloat16",
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ultrashape_v1.pt",
+          "infer_dit_refine.yaml",
+          "bfloat16",
+          true
+        ]
+      },
+      "uid": "1",
+      "widgets": {
+        "widget_0": "ultrashape_v1.pt",
+        "widget_1": "infer_dit_refine.yaml",
+        "widget_2": "bfloat16",
+        "widget_3": true
+      }
+    },
+    "2": {
+      "class_type": "UltraShapeRefine",
+      "id": "2",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 2,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "model",
+              "type": "ULTRASHAPE_MODEL"
+            },
+            {
+              "link": 2,
+              "name": "coarse_mesh",
+              "type": "ULTRASHAPE_MESH"
+            },
+            {
+              "link": 7,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                4
+              ],
+              "name": "refined_mesh",
+              "type": "ULTRASHAPE_OUTPUT"
+            }
+          ],
+          "pos": [
+            -4751.055345311317,
+            -3503.7346530301197
+          ],
+          "properties": {
+            "Node name for S&R": "UltraShapeRefine"
+          },
+          "size": [
+            270,
+            290
+          ],
+          "type": "UltraShapeRefine",
+          "widgets_values": [
+            10,
+            5,
+            384,
+            8000,
+            0,
+            1,
+            553456601,
+            "randomize",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 9,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          10,
+          5,
+          384,
+          8000,
+          0,
+          1,
+          553456601,
+          "randomize",
+          false
+        ]
+      },
+      "uid": "2",
+      "widgets": {
+        "widget_0": 10,
+        "widget_1": 5,
+        "widget_2": 384,
+        "widget_3": 8000,
+        "widget_4": 0,
+        "widget_5": 1,
+        "widget_6": 553456601,
+        "widget_7": "randomize",
+        "widget_8": false
+      }
+    },
+    "3": {
+      "class_type": "UltraShapeLoadCoarseMesh",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "model",
+              "type": "ULTRASHAPE_MODEL"
+            },
+            {
+              "link": 8,
+              "name": "mesh_path",
+              "type": "STRING",
+              "widget": {
+                "name": "mesh_path"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                2
+              ],
+              "name": "coarse_mesh",
+              "type": "ULTRASHAPE_MESH"
+            }
+          ],
+          "pos": [
+            -5202.732309000227,
+            -3345.20703295519
+          ],
+          "properties": {
+            "Node name for S&R": "UltraShapeLoadCoarseMesh"
+          },
+          "size": [
+            302.093359375,
+            154
+          ],
+          "type": "UltraShapeLoadCoarseMesh",
+          "widgets_values": [
+            "",
+            0.99,
+            204800,
+            204800,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          0.99,
+          204800,
+          204800,
+          0
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 0.99,
+        "widget_2": 204800,
+        "widget_3": 204800,
+        "widget_4": 0
+      }
+    },
+    "4": {
+      "class_type": "UltraShapeSaveGLB",
+      "id": "4",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [
+            {
+              "link": 4,
+              "name": "refined_mesh",
+              "type": "ULTRASHAPE_OUTPUT"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "file_path",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -4421.05384060705,
+            -3448.600619266922
+          ],
+          "properties": {
+            "Node name for S&R": "UltraShapeSaveGLB"
+          },
+          "size": [
+            274.175390625,
+            106
+          ],
+          "type": "UltraShapeSaveGLB",
+          "widgets_values": [
+            "ultrashape_output",
+            "refined",
+            "glb"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ultrashape_output",
+          "refined",
+          "glb"
+        ]
+      },
+      "uid": "4",
+      "widgets": {
+        "widget_0": "ultrashape_output",
+        "widget_1": "refined",
+        "widget_2": "glb"
+      }
+    },
+    "6": {
+      "class_type": "Preview3D",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": null,
+              "name": "bg_image",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": 6,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            -4106.179314979977,
+            -3334.8395519053583
+          ],
+          "properties": {
+            "Camera Config": {
+              "cameraType": "perspective",
+              "fov": 35,
+              "state": {
+                "cameraType": "perspective",
+                "position": {
+                  "x": 0.02516393745525375,
+                  "y": 2.6994638480075253,
+                  "z": 4.424720000809401
+                },
+                "target": {
+                  "x": 0.18859298748879735,
+                  "y": 2.7917143359345347,
+                  "z": 0.03886594941979638
+                },
+                "zoom": 1
+              }
+            },
+            "Last Time Model File": "ultrashape_output/refined_20260107_150134302_19218e6b.glb",
+            "Light Config": {
+              "intensity": 3
+            },
+            "Node name for S&R": "Preview3D",
+            "Scene Config": {
+              "backgroundColor": "#282828",
+              "backgroundImage": "",
+              "backgroundRenderMode": "tiled",
+              "showGrid": true
+            }
+          },
+          "size": [
+            343.0399609374999,
+            468.0801074218748
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "ultrashape_output/refined_20260107_150134302_19218e6b.glb",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ultrashape_output/refined_20260107_150134302_19218e6b.glb",
+          ""
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": "ultrashape_output/refined_20260107_150134302_19218e6b.glb",
+        "widget_1": ""
+      }
+    },
+    "7": {
+      "class_type": "LoadImage",
+      "id": "7",
+      "inputs": {
+        "image": "cdf996a6cc218918eeb90209891ce306a230e6d9cca2a3d9bbb37c6d7b6bd318.webp",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -5101.895537428385,
+            -3080.2407666032527
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            282.798828125,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "cdf996a6cc218918eeb90209891ce306a230e6d9cca2a3d9bbb37c6d7b6bd318.webp",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cdf996a6cc218918eeb90209891ce306a230e6d9cca2a3d9bbb37c6d7b6bd318.webp",
+          "image"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "Load3D",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": null,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "mask",
+              "type": "MASK"
+            },
+            {
+              "links": [
+                8
+              ],
+              "name": "mesh_path",
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "normal",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "camera_info",
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "links": null,
+              "name": "recording_video",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -5759.391217750943,
+            -3319.1964356279987
+          ],
+          "properties": {
+            "Camera Config": {
+              "cameraType": "perspective",
+              "fov": 35,
+              "state": {
+                "cameraType": "perspective",
+                "position": {
+                  "x": 1.020403119763784,
+                  "y": 2.270040435533369,
+                  "z": 3.78175823780053
+                },
+                "target": {
+                  "x": 0.03494070510339202,
+                  "y": 2.603124316461798,
+                  "z": -0.0003410229071787377
+                },
+                "zoom": 1
+              }
+            },
+            "Node name for S&R": "Load3D",
+            "Resource Folder": ""
+          },
+          "size": [
+            418.40018066406265,
+            565.4398242187494
+          ],
+          "type": "Load3D",
+          "widgets_values": [
+            "3d/ComfyUI_00072_.glb",
+            "upload3dmodel",
+            "uploadExtraResources",
+            "clear",
+            "",
+            1024,
+            1024
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3d/ComfyUI_00072_.glb",
+          "upload3dmodel",
+          "uploadExtraResources",
+          "clear",
+          "",
+          1024,
+          1024
+        ]
+      },
+      "uid": "8",
+      "widgets": {
+        "widget_0": "3d/ComfyUI_00072_.glb",
+        "widget_1": "upload3dmodel",
+        "widget_2": "uploadExtraResources",
+        "widget_3": "clear",
+        "widget_4": "",
+        "widget_5": 1024,
+        "widget_6": 1024
+      }
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "eb25a095a01b673d",
+    "path": "external_workflows/.shadow/source/eb25a095a01b673d-workflow-low-vram.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "8800a945cff8d09027cf4ac8cad9b580c5d7bb8aa291b88d64ae20fa77259be9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1314661011479068785,
+      "channel_name": "trellis",
+      "content_preview": "the wf",
+      "discord_message_url": "https://discord.com/channels/@me/1314661011479068785/1475471443679776910",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1475471443679776910:workflow-low-vram.json:eb25a095a01b673d",
+      "filename": "workflow-low-vram.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:52+00:00",
+      "message_id": 1475471443679776910,
+      "node_class_multiset": {
+        "Load3D": 1,
+        "LoadImage": 1,
+        "Preview3D": 1,
+        "UltraShapeLoadCoarseMesh": 1,
+        "UltraShapeLoadModel": 1,
+        "UltraShapeRefine": 1,
+        "UltraShapeSaveGLB": 1
+      },
+      "node_count": 7,
+      "origin_date": "2026-02-23T12:36:45.107000+00:00",
+      "originator_global_name": "Krikross",
+      "originator_id": "1105511109244485783",
+      "originator_type": "discord_message_author",
+      "originator_username": "gregorydavid.5484",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "eb25a095a01b673d5596fee4746be1e657a38d9e7ece320593f08a554ac3bafb",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1314661011479068785/1475471443360878733/workflow-low-vram.json?ex=699d9b5d&is=699c49dd&hm=789fee36e5df92eabdba88ba4243f668cf7feadce52dde1fcdd511e4e8338467&",
+      "source_workflow_sha256": "0575dcc93bb68ae6ad47676edb5036335fb2dacdbecf31dd65762e280f6fc24d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

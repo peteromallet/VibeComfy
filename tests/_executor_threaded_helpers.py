@@ -117,11 +117,15 @@ class LawSchemaProvider:
                 "threaded-test",
                 {"image": InputSpec("IMAGE"), "prompt": InputSpec("STRING")},
                 [],
+                widget_input_order=("prompt",),
             ),
         }
 
     def get_schema(self, class_type: str) -> Any:
         return self._schemas.get(class_type)
+
+    def schemas(self) -> dict[str, Any]:
+        return dict(self._schemas)
 
 
 def fixture_graph() -> dict[str, Any]:
@@ -129,8 +133,34 @@ def fixture_graph() -> dict[str, Any]:
 
 
 def edit_session() -> Any:
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    graph = fixture_graph()
+    source = LawSchemaProvider()
+    source_schemas = source.schemas()
+    class_types = tuple(source_schemas)
+    schemas = {
+        class_type: schema_payload_from_node_schema(
+            class_type, source_schemas[class_type]
+        )
+        for class_type in class_types
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=class_types,
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": schemas,
+            "missing_classes": [],
+        },
+        node_classes={str(node["id"]): str(node["type"]) for node in graph["nodes"]},
+    )
     return edit_kernel.EditSession(
-        fixture_graph(), schema_provider=LawSchemaProvider()
+        graph,
+        schema_provider=FrozenSchemaSnapshotProvider(snapshot),
     )
 
 

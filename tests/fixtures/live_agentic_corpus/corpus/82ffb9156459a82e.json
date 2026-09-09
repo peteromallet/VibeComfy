@@ -1,0 +1,4998 @@
+{
+  "edges": [
+    {
+      "from_node": "3009",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3009",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "106",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "9"
+    },
+    {
+      "from_node": "3009",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "10"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "10"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "10"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "10"
+    },
+    {
+      "from_node": "3019",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "23"
+    },
+    {
+      "from_node": "104",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "23"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "23"
+    },
+    {
+      "from_node": "26",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "23"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "26"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "102"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "103"
+    },
+    {
+      "from_node": "3019",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "104"
+    },
+    {
+      "from_node": "3019",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "105"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "106"
+    },
+    {
+      "from_node": "102",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3000"
+    },
+    {
+      "from_node": "100",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "3000"
+    },
+    {
+      "from_node": "3000",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3001"
+    },
+    {
+      "from_node": "3000",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3001"
+    },
+    {
+      "from_node": "3001",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3002"
+    },
+    {
+      "from_node": "3001",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3002"
+    },
+    {
+      "from_node": "3002",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3003"
+    },
+    {
+      "from_node": "3002",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3003"
+    },
+    {
+      "from_node": "3003",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3004"
+    },
+    {
+      "from_node": "3003",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3004"
+    },
+    {
+      "from_node": "3004",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3005"
+    },
+    {
+      "from_node": "3004",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3005"
+    },
+    {
+      "from_node": "3005",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3006"
+    },
+    {
+      "from_node": "3005",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3006"
+    },
+    {
+      "from_node": "3006",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3007"
+    },
+    {
+      "from_node": "3006",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3007"
+    },
+    {
+      "from_node": "3007",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3008"
+    },
+    {
+      "from_node": "3007",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3008"
+    },
+    {
+      "from_node": "3008",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3009"
+    },
+    {
+      "from_node": "3008",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3009"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3010"
+    },
+    {
+      "from_node": "100",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "3010"
+    },
+    {
+      "from_node": "3010",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3011"
+    },
+    {
+      "from_node": "3010",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3011"
+    },
+    {
+      "from_node": "3011",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3012"
+    },
+    {
+      "from_node": "3011",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3012"
+    },
+    {
+      "from_node": "3012",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3013"
+    },
+    {
+      "from_node": "3012",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3013"
+    },
+    {
+      "from_node": "3013",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3014"
+    },
+    {
+      "from_node": "3013",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3014"
+    },
+    {
+      "from_node": "3014",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3015"
+    },
+    {
+      "from_node": "3014",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3015"
+    },
+    {
+      "from_node": "3015",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3016"
+    },
+    {
+      "from_node": "3015",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3016"
+    },
+    {
+      "from_node": "3016",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3017"
+    },
+    {
+      "from_node": "3016",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3017"
+    },
+    {
+      "from_node": "3017",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3018"
+    },
+    {
+      "from_node": "3017",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3018"
+    },
+    {
+      "from_node": "3018",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3019"
+    },
+    {
+      "from_node": "3018",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "3019"
+    }
+  ],
+  "groups": [],
+  "id": "7e8c830cbbd96ad3",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "unet_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "4",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ".Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "6",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SwarmKSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3009",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "26",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1393711197"
+          ],
+          [
+            "widget_1",
+            "'randomize'"
+          ],
+          [
+            "widget_10",
+            "-1"
+          ],
+          [
+            "widget_11",
+            "-1"
+          ],
+          [
+            "widget_12",
+            "7.000000000000002"
+          ],
+          [
+            "widget_13",
+            "'enable'"
+          ],
+          [
+            "widget_14",
+            "'disable'"
+          ],
+          [
+            "widget_15",
+            "'animate'"
+          ],
+          [
+            "widget_16",
+            "False"
+          ],
+          [
+            "widget_17",
+            "960"
+          ],
+          [
+            "widget_2",
+            "20"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "'dpmpp_2m'"
+          ],
+          [
+            "widget_5",
+            "'sgm_uniform'"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "8"
+          ],
+          [
+            "widget_8",
+            "0"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "100": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3000",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "3010",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'umt5_xxl_fp8_e4m3fn_scaled.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'wan'"
+          ]
+        ]
+      },
+      "101": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'Wan\\\\wan_2.1_vae.safetensors'"
+          ]
+        ]
+      },
+      "102": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3000",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "1.0000000000000002"
+          ]
+        ]
+      },
+      "103": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3010",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "1.0000000000000002"
+          ]
+        ]
+      },
+      "104": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3019",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \\nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes.'"
+          ]
+        ]
+      },
+      "105": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3019",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "106": {
+        "class_type": "SwarmTrimFrames",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ],
+          [
+            "widget_1",
+            "0"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "103",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'.Wan2.2\\\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "SwarmKSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "26",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3019",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "105",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "104",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1393711198"
+          ],
+          [
+            "widget_1",
+            "'randomize'"
+          ],
+          [
+            "widget_10",
+            "-1"
+          ],
+          [
+            "widget_11",
+            "-1"
+          ],
+          [
+            "widget_12",
+            "7.000000000000002"
+          ],
+          [
+            "widget_13",
+            "'enable'"
+          ],
+          [
+            "widget_14",
+            "'disable'"
+          ],
+          [
+            "widget_15",
+            "'animate'"
+          ],
+          [
+            "widget_16",
+            "False"
+          ],
+          [
+            "widget_17",
+            "960"
+          ],
+          [
+            "widget_2",
+            "20"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "'dpmpp_2m'"
+          ],
+          [
+            "widget_5",
+            "'sgm_uniform'"
+          ],
+          [
+            "widget_6",
+            "8"
+          ],
+          [
+            "widget_7",
+            "10000"
+          ],
+          [
+            "widget_8",
+            "0"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "26": {
+        "class_type": "LatentUpscaleBy",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'bislerp'"
+          ],
+          [
+            "widget_1",
+            "1.5000000000000002"
+          ]
+        ]
+      },
+      "3000": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "100",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "102",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3001",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3001",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\DetailEnhancer.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3001": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3000",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3000",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3002",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3002",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\DetailZ.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3002": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3001",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3001",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3003",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3003",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\FaceNaturalizer.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3003": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3002",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3002",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3004",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3004",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\HighSpeedDynamics.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3004": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3003",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3003",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3005",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3005",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\HPS2.1.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3005": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3004",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3004",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3006",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3006",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\MoviiGen.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3006": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3005",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3005",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3007",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3007",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\MPS.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3007": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3006",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3006",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3008",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3008",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\RealismBoost.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3008": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3007",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3007",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3009",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3009",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\SmartphoneSnapshotPhotoReality.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "0"
+          ]
+        ]
+      },
+      "3009": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3008",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3008",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Lightx2v_v2\\\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors'"
+          ],
+          [
+            "widget_1",
+            "1.0000000000000002"
+          ],
+          [
+            "widget_2",
+            "1.0000000000000002"
+          ]
+        ]
+      },
+      "3010": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "100",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "103",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3011",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3011",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\DetailEnhancer.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3011": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3010",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3010",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3012",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3012",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\DetailZ.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3012": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3011",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3011",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3013",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3013",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\FaceNaturalizer.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3013": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3012",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3012",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3014",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3014",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\HighSpeedDynamics.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3014": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3013",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3013",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3015",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3015",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\HPS2.1.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3015": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3014",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3014",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3016",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3016",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\MoviiGen.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3016": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3015",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3015",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3017",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3017",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\MPS.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.5000000000000001"
+          ],
+          [
+            "widget_2",
+            "0.5000000000000001"
+          ]
+        ]
+      },
+      "3017": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3016",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3016",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3018",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3018",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\RealismBoost.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.20000000000000004"
+          ],
+          [
+            "widget_2",
+            "0.20000000000000004"
+          ]
+        ]
+      },
+      "3018": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3017",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3017",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3019",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3019",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Enhancers\\\\SmartphoneSnapshotPhotoReality.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "0"
+          ]
+        ]
+      },
+      "3019": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3018",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "3018",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "104",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "105",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Wan2.1\\\\Lightx2v_v2\\\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors'"
+          ],
+          [
+            "widget_1",
+            "1.0000000000000002"
+          ],
+          [
+            "widget_2",
+            "1.0000000000000002"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "UNETLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "102",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "unet_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "unet_name",
+            "'.Wan2.2\\\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors'"
+          ],
+          [
+            "weight_dtype",
+            "'default'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "EmptyHunyuanLatentVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "1216"
+          ],
+          [
+            "length",
+            "1"
+          ],
+          [
+            "width",
+            "832"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3009",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \\nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes.'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "3009",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "23",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "101",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "106",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "9": {
+        "class_type": "SwarmSaveAnimationWS",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "106",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "16.000000000000004"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "95"
+          ],
+          [
+            "widget_3",
+            "'default'"
+          ],
+          [
+            "widget_4",
+            "'webp'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "82ffb9156459a82e9c79e4a0da283d053b7b7f5e9a8e1c2071d7530b8bdb25c9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1268951088078258350,
+      "channel_name": "flux",
+      "content_preview": "sure! it's a Swarm workflow but it should convert to native comfy easily",
+      "discord_message_url": "https://discord.com/channels/@me/1268951088078258350/1400533968264368268",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1400533968264368268:veiled.json:7e8c830cbbd96ad3",
+      "filename": "veiled.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:28+00:00",
+      "message_id": 1400533968264368268,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 4,
+        "EmptyHunyuanLatentVideo": 1,
+        "LatentUpscaleBy": 1,
+        "LoraLoader": 20,
+        "ModelSamplingSD3": 2,
+        "SwarmKSampler": 2,
+        "SwarmSaveAnimationWS": 1,
+        "SwarmTrimFrames": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 37,
+      "origin_date": "2025-07-31T17:41:58.697000+00:00",
+      "originator_global_name": "Hippotes",
+      "originator_id": "128578659047964672",
+      "originator_type": "discord_message_author",
+      "originator_username": "hippotes",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "7e8c830cbbd96ad3dd9f200f1f00cc3081c6e528e491112fba1dddafbc97cfab",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1268951088078258350/1400533967849128127/veiled.json?ex=688cfc66&is=688baae6&hm=c8895954f754349a085222214625de132164b2d43c1c557248ffb87829e47576&",
+      "source_workflow_sha256": "1032c1e3ca51858eaa2457e67dbc96cd195501b4599c50a0ea40bc70d425e273",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "1958402116adb10d65f4b180ac31cba5861f7bf9370131705c45d5df66114de2",
+      "complexity": 4,
+      "description": "Generates animated video from text prompts using Wan2.2 models, dual noise scheduling, and 20 LoRA adapters, with frame trimming and animation output.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "text-to-video",
+        "wan2.2",
+        "lora",
+        "animation",
+        "video-generation",
+        "latent-upscale",
+        "model-sampling"
+      ],
+      "task_type": "animation",
+      "title": "Wan2.2 Text-to-Video with LoRA and Dual Noise Scheduling"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SwarmKSampler",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 65,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 66,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 67,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 68,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 31,
+          "outputs": [
+            {
+              "links": [
+                73
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            5044.1123046875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmKSampler"
+          },
+          "size": [
+            305.08331298828125,
+            526
+          ],
+          "type": "SwarmKSampler",
+          "widgets_values": [
+            1393711197,
+            "randomize",
+            20,
+            1,
+            "dpmpp_2m",
+            "sgm_uniform",
+            0,
+            8,
+            0,
+            0,
+            -1,
+            -1,
+            7.000000000000002,
+            "enable",
+            "disable",
+            "animate",
+            false,
+            960
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 18,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1393711197,
+          "randomize",
+          20,
+          1,
+          "dpmpp_2m",
+          "sgm_uniform",
+          0,
+          8,
+          0,
+          0,
+          -1,
+          -1,
+          7.000000000000002,
+          "enable",
+          "disable",
+          "animate",
+          false,
+          960
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": 1393711197,
+        "widget_1": "randomize",
+        "widget_10": -1,
+        "widget_11": -1,
+        "widget_12": 7.000000000000002,
+        "widget_13": "enable",
+        "widget_14": "disable",
+        "widget_15": "animate",
+        "widget_16": false,
+        "widget_17": 960,
+        "widget_2": 20,
+        "widget_3": 1,
+        "widget_4": "dpmpp_2m",
+        "widget_5": "sgm_uniform",
+        "widget_6": 0,
+        "widget_7": 8,
+        "widget_8": 0,
+        "widget_9": 0
+      }
+    },
+    "100": {
+      "class_type": "CLIPLoader",
+      "id": "100",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "device": "default",
+        "type": "wan"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 100,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                80,
+                100
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            100,
+            814
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader"
+          },
+          "size": [
+            270,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "wan",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "wan",
+          "default"
+        ]
+      },
+      "uid": "100",
+      "widgets": {}
+    },
+    "101": {
+      "class_type": "VAELoader",
+      "id": "101",
+      "inputs": {
+        "vae_name": "Wan\\wan_2.1_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 101,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                62
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            100,
+            1050
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "Wan\\wan_2.1_vae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan\\wan_2.1_vae.safetensors"
+        ]
+      },
+      "uid": "101",
+      "widgets": {}
+    },
+    "102": {
+      "class_type": "ModelSamplingSD3",
+      "id": "102",
+      "inputs": {
+        "shift": 1.0000000000000002
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 102,
+          "inputs": [
+            {
+              "link": 74,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                79
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            470.7749938964844,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3"
+          },
+          "size": [
+            273.3374938964844,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            1.0000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1.0000000000000002
+        ]
+      },
+      "uid": "102",
+      "widgets": {}
+    },
+    "103": {
+      "class_type": "ModelSamplingSD3",
+      "id": "103",
+      "inputs": {
+        "shift": 1.0000000000000002
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 103,
+          "inputs": [
+            {
+              "link": 75,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                99
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            470.7749938964844,
+            318
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3"
+          },
+          "size": [
+            273.3374938964844,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            1.0000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1.0000000000000002
+        ]
+      },
+      "uid": "103",
+      "widgets": {}
+    },
+    "104": {
+      "class_type": "CLIPTextEncode",
+      "id": "104",
+      "inputs": {
+        "text": "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 104,
+          "inputs": [
+            {
+              "link": 76,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 29,
+          "outputs": [
+            {
+              "links": [
+                70
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            4544.1123046875,
+            790
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+        ]
+      },
+      "uid": "104",
+      "widgets": {}
+    },
+    "105": {
+      "class_type": "CLIPTextEncode",
+      "id": "105",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 105,
+          "inputs": [
+            {
+              "link": 77,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                71
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            4544.1123046875,
+            1120
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "105",
+      "widgets": {}
+    },
+    "106": {
+      "class_type": "SwarmTrimFrames",
+      "id": "106",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 106,
+          "inputs": [
+            {
+              "link": 78,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 35,
+          "outputs": [
+            {
+              "links": [
+                64
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            6527.716796875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmTrimFrames"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "SwarmTrimFrames",
+          "widgets_values": [
+            1,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1,
+          0
+        ]
+      },
+      "uid": "106",
+      "widgets": {
+        "widget_0": 1,
+        "widget_1": 0
+      }
+    },
+    "20": {
+      "class_type": "UNETLoader",
+      "id": "20",
+      "inputs": {
+        "unet_name": ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                75
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            100,
+            602
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+          "default"
+        ]
+      },
+      "uid": "20",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "SwarmKSampler",
+      "id": "23",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 69,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 70,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 71,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 72,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 33,
+          "outputs": [
+            {
+              "links": [
+                63
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            5875.279296875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmKSampler"
+          },
+          "size": [
+            305.08331298828125,
+            526
+          ],
+          "type": "SwarmKSampler",
+          "widgets_values": [
+            1393711198,
+            "randomize",
+            20,
+            1,
+            "dpmpp_2m",
+            "sgm_uniform",
+            8,
+            10000,
+            0,
+            0,
+            -1,
+            -1,
+            7.000000000000002,
+            "enable",
+            "disable",
+            "animate",
+            false,
+            960
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 18,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1393711198,
+          "randomize",
+          20,
+          1,
+          "dpmpp_2m",
+          "sgm_uniform",
+          8,
+          10000,
+          0,
+          0,
+          -1,
+          -1,
+          7.000000000000002,
+          "enable",
+          "disable",
+          "animate",
+          false,
+          960
+        ]
+      },
+      "uid": "23",
+      "widgets": {
+        "widget_0": 1393711198,
+        "widget_1": "randomize",
+        "widget_10": -1,
+        "widget_11": -1,
+        "widget_12": 7.000000000000002,
+        "widget_13": "enable",
+        "widget_14": "disable",
+        "widget_15": "animate",
+        "widget_16": false,
+        "widget_17": 960,
+        "widget_2": 20,
+        "widget_3": 1,
+        "widget_4": "dpmpp_2m",
+        "widget_5": "sgm_uniform",
+        "widget_6": 8,
+        "widget_7": 10000,
+        "widget_8": 0,
+        "widget_9": 0
+      }
+    },
+    "26": {
+      "class_type": "LatentUpscaleBy",
+      "id": "26",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 73,
+              "name": "samples",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 32,
+          "outputs": [
+            {
+              "links": [
+                72
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            5449.19580078125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LatentUpscaleBy"
+          },
+          "size": [
+            326.08331298828125,
+            82
+          ],
+          "type": "LatentUpscaleBy",
+          "widgets_values": [
+            "bislerp",
+            1.5000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "bislerp",
+          1.5000000000000002
+        ]
+      },
+      "uid": "26",
+      "widgets": {
+        "widget_0": "bislerp",
+        "widget_1": 1.5000000000000002
+      }
+    },
+    "3000": {
+      "class_type": "LoraLoader",
+      "id": "3000",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3000,
+          "inputs": [
+            {
+              "link": 79,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 80,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                81
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                82
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            844.1124877929688,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3000",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3001": {
+      "class_type": "LoraLoader",
+      "id": "3001",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3001,
+          "inputs": [
+            {
+              "link": 81,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 82,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                83
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                84
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1214.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\DetailZ.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\DetailZ.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3001",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\DetailZ.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3002": {
+      "class_type": "LoraLoader",
+      "id": "3002",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3002,
+          "inputs": [
+            {
+              "link": 83,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 84,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                85
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                86
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1584.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3002",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3003": {
+      "class_type": "LoraLoader",
+      "id": "3003",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3003,
+          "inputs": [
+            {
+              "link": 85,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 86,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                87
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                88
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1954.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3003",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3004": {
+      "class_type": "LoraLoader",
+      "id": "3004",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3004,
+          "inputs": [
+            {
+              "link": 87,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 88,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                89
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                90
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            2324.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3004",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3005": {
+      "class_type": "LoraLoader",
+      "id": "3005",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3005,
+          "inputs": [
+            {
+              "link": 89,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 90,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                91
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                92
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            2694.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3005",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3006": {
+      "class_type": "LoraLoader",
+      "id": "3006",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3006,
+          "inputs": [
+            {
+              "link": 91,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 92,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                93
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                94
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3064.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\MPS.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\MPS.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3006",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\MPS.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3007": {
+      "class_type": "LoraLoader",
+      "id": "3007",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3007,
+          "inputs": [
+            {
+              "link": 93,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 94,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                95
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                96
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3434.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3007",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3008": {
+      "class_type": "LoraLoader",
+      "id": "3008",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3008,
+          "inputs": [
+            {
+              "link": 95,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 96,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                97
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                98
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3804.112548828125,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+            0,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+          0,
+          0
+        ]
+      },
+      "uid": "3008",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+        "widget_1": 0,
+        "widget_2": 0
+      }
+    },
+    "3009": {
+      "class_type": "LoraLoader",
+      "id": "3009",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3009,
+          "inputs": [
+            {
+              "link": 97,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 98,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [
+            {
+              "links": [
+                65
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                60,
+                61
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            4174.1123046875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+            1.0000000000000002,
+            1.0000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+          1.0000000000000002,
+          1.0000000000000002
+        ]
+      },
+      "uid": "3009",
+      "widgets": {
+        "widget_0": "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+        "widget_1": 1.0000000000000002,
+        "widget_2": 1.0000000000000002
+      }
+    },
+    "3010": {
+      "class_type": "LoraLoader",
+      "id": "3010",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3010,
+          "inputs": [
+            {
+              "link": 99,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 100,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                101
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                102
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            844.1124877929688,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3010",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\DetailEnhancer.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3011": {
+      "class_type": "LoraLoader",
+      "id": "3011",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3011,
+          "inputs": [
+            {
+              "link": 101,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 102,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                103
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                104
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1214.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\DetailZ.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\DetailZ.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3011",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\DetailZ.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3012": {
+      "class_type": "LoraLoader",
+      "id": "3012",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3012,
+          "inputs": [
+            {
+              "link": 103,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 104,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                105
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                106
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1584.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3012",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\FaceNaturalizer.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3013": {
+      "class_type": "LoraLoader",
+      "id": "3013",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3013,
+          "inputs": [
+            {
+              "link": 105,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 106,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                107
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                108
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            1954.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3013",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\HighSpeedDynamics.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3014": {
+      "class_type": "LoraLoader",
+      "id": "3014",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3014,
+          "inputs": [
+            {
+              "link": 107,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 108,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                109
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                110
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            2324.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3014",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\HPS2.1.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3015": {
+      "class_type": "LoraLoader",
+      "id": "3015",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3015,
+          "inputs": [
+            {
+              "link": 109,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 110,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                111
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                112
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            2694.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3015",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\MoviiGen.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3016": {
+      "class_type": "LoraLoader",
+      "id": "3016",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3016,
+          "inputs": [
+            {
+              "link": 111,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 112,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                113
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                114
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3064.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\MPS.safetensors",
+            0.5000000000000001,
+            0.5000000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\MPS.safetensors",
+          0.5000000000000001,
+          0.5000000000000001
+        ]
+      },
+      "uid": "3016",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\MPS.safetensors",
+        "widget_1": 0.5000000000000001,
+        "widget_2": 0.5000000000000001
+      }
+    },
+    "3017": {
+      "class_type": "LoraLoader",
+      "id": "3017",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3017,
+          "inputs": [
+            {
+              "link": 113,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 114,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                115
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                116
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3434.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+            0.20000000000000004,
+            0.20000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+          0.20000000000000004,
+          0.20000000000000004
+        ]
+      },
+      "uid": "3017",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\RealismBoost.safetensors",
+        "widget_1": 0.20000000000000004,
+        "widget_2": 0.20000000000000004
+      }
+    },
+    "3018": {
+      "class_type": "LoraLoader",
+      "id": "3018",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3018,
+          "inputs": [
+            {
+              "link": 115,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 116,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [
+            {
+              "links": [
+                117
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                118
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            3804.112548828125,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+            0,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+          0,
+          0
+        ]
+      },
+      "uid": "3018",
+      "widgets": {
+        "widget_0": "Wan2.1\\Enhancers\\SmartphoneSnapshotPhotoReality.safetensors",
+        "widget_1": 0,
+        "widget_2": 0
+      }
+    },
+    "3019": {
+      "class_type": "LoraLoader",
+      "id": "3019",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3019,
+          "inputs": [
+            {
+              "link": 117,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 118,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 26,
+          "outputs": [
+            {
+              "links": [
+                69
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                76,
+                77
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            4174.1123046875,
+            386
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+            1.0000000000000002,
+            1.0000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+          1.0000000000000002,
+          1.0000000000000002
+        ]
+      },
+      "uid": "3019",
+      "widgets": {
+        "widget_0": "Wan2.1\\Lightx2v_v2\\lightx2v-t2v-14b-rank_quantile_0.15.safetensors",
+        "widget_1": 1.0000000000000002,
+        "widget_2": 1.0000000000000002
+      }
+    },
+    "4": {
+      "class_type": "UNETLoader",
+      "id": "4",
+      "inputs": {
+        "unet_name": ".Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                74
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            100,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "UNETLoader"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "UNETLoader",
+          "widgets_values": [
+            ".Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ".Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+          "default"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "EmptyHunyuanLatentVideo",
+      "id": "5",
+      "inputs": {
+        "batch_size": 1,
+        "height": 1216,
+        "length": 1,
+        "width": 832
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                68
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            100,
+            342
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyHunyuanLatentVideo"
+          },
+          "size": [
+            270.7749938964844,
+            130
+          ],
+          "type": "EmptyHunyuanLatentVideo",
+          "widgets_values": [
+            832,
+            1216,
+            1,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          832,
+          1216,
+          1,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 60,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "outputs": [
+            {
+              "links": [
+                66
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            4544.1123046875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "The image is a photograph of a young woman with striking features, captured in a moody, intimate setting. The photograph focuses on her face, which is partially obscured by a sheer, delicate curtain or veil that casts intricate, shadowy patterns across her skin. The veil is a soft, almost translucent white fabric with subtle lace-like details. \nHer skin has a warm, slightly golden undertone, and she has expressive, almond-shaped green eyes that are partially visible through the veil. Her eyebrows are well-groomed, and she has a subtle, natural makeup look with a touch of mascara enhancing her lashes."
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 61,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [
+            {
+              "links": [
+                67
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            4544.1123046875,
+            460
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 63,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 62,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 34,
+          "outputs": [
+            {
+              "links": [
+                78
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            6280.3623046875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": [
+            147.35415649414062,
+            46
+          ],
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "SwarmSaveAnimationWS",
+      "id": "9",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 64,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 36,
+          "outputs": [],
+          "pos": [
+            6897.716796875,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "SwarmSaveAnimationWS"
+          },
+          "size": [
+            270,
+            154
+          ],
+          "type": "SwarmSaveAnimationWS",
+          "widgets_values": [
+            16.000000000000004,
+            false,
+            95,
+            "default",
+            "webp"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          16.000000000000004,
+          false,
+          95,
+          "default",
+          "webp"
+        ]
+      },
+      "uid": "9",
+      "widgets": {
+        "widget_0": 16.000000000000004,
+        "widget_1": false,
+        "widget_2": 95,
+        "widget_3": "default",
+        "widget_4": "webp"
+      }
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      ".Wan2.2\\wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      ".Wan2.2\\wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "Wan\\wan_2.1_vae.safetensors",
+      "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "7e8c830cbbd96ad3",
+    "path": "external_workflows/.shadow/source/7e8c830cbbd96ad3-veiled.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "82ffb9156459a82e9c79e4a0da283d053b7b7f5e9a8e1c2071d7530b8bdb25c9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1268951088078258350,
+      "channel_name": "flux",
+      "content_preview": "sure! it's a Swarm workflow but it should convert to native comfy easily",
+      "discord_message_url": "https://discord.com/channels/@me/1268951088078258350/1400533968264368268",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1400533968264368268:veiled.json:7e8c830cbbd96ad3",
+      "filename": "veiled.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:28+00:00",
+      "message_id": 1400533968264368268,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 4,
+        "EmptyHunyuanLatentVideo": 1,
+        "LatentUpscaleBy": 1,
+        "LoraLoader": 20,
+        "ModelSamplingSD3": 2,
+        "SwarmKSampler": 2,
+        "SwarmSaveAnimationWS": 1,
+        "SwarmTrimFrames": 1,
+        "UNETLoader": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 37,
+      "origin_date": "2025-07-31T17:41:58.697000+00:00",
+      "originator_global_name": "Hippotes",
+      "originator_id": "128578659047964672",
+      "originator_type": "discord_message_author",
+      "originator_username": "hippotes",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "7e8c830cbbd96ad3dd9f200f1f00cc3081c6e528e491112fba1dddafbc97cfab",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1268951088078258350/1400533967849128127/veiled.json?ex=688cfc66&is=688baae6&hm=c8895954f754349a085222214625de132164b2d43c1c557248ffb87829e47576&",
+      "source_workflow_sha256": "1032c1e3ca51858eaa2457e67dbc96cd195501b4599c50a0ea40bc70d425e273",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

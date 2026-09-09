@@ -676,3 +676,31 @@ def test_apply_layout_candidate_patch_to_ui_only_mutates_furniture_and_reports_n
     assert inner_node["class_type"] == original_inner_node["class_type"]
     assert inner_node["widgets_values"] == original_inner_node["widgets_values"]
     assert inner_node["inputs"] == original_inner_node["inputs"]
+
+
+def test_apply_layout_candidate_patch_omits_non_string_colors() -> None:
+    ui = _ui()
+    ui["nodes"][0]["color"] = "#202020"
+    ui["nodes"][0]["bgcolor"] = "#101010"
+    preview = preview_reorganise_workflow(_ui())
+    assert preview.candidate_patch is not None
+    patch = deepcopy(preview.candidate_patch)
+    patch["entries"]["checkpoint"]["color"] = None
+    patch["entries"]["checkpoint"]["bgcolor"] = None
+    patch["groups"] = [
+        {
+            **group,
+            "color": None,
+        }
+        for group in (patch.get("groups") or [])
+        if isinstance(group, dict)
+    ]
+
+    result = apply_layout_candidate_patch_to_ui(ui, patch)
+
+    applied_node = result.ui_json["nodes"][0]
+    assert applied_node["color"] == "#202020"
+    assert applied_node["bgcolor"] == "#101010"
+    for group in result.ui_json.get("groups") or []:
+        if isinstance(group, dict) and "color" in group:
+            assert isinstance(group["color"], str)

@@ -11,6 +11,7 @@ before calling ``port_convert_workflow`` — the function signature requires a
 VibeWorkflow, not a raw dict.
 """
 
+import copy
 import hashlib
 import re
 import tempfile
@@ -28,8 +29,9 @@ import importlib.util
 
 from vibecomfy.ingest.normalize import from_api
 from vibecomfy.porting.convert import port_convert_workflow
+from vibecomfy.porting.object_info.consume import class_entry_snapshot
 from vibecomfy.porting.widgets.aliases import COMPILE_WIDGET_ALIAS_CLASS_TYPES
-from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow import VibeNode, VibeWorkflow
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,13 @@ _ALIAS_BACKED_CLASSES = [
 
 # Custom unknown class types that have no schema provider backing.
 _UNKNOWN_CLASSES = ["CustomProcessor", "MysteryNode", "ExtraFilterV3"]
+
+
+@pytest.fixture(autouse=True)
+def _stable_property_object_info_snapshot():
+    """Bind each generated run to one witnessed offline schema generation."""
+    with class_entry_snapshot(_KNOWN_CLASSES + _UNKNOWN_CLASSES):
+        yield
 
 # Safe input key names that work with most class types (avoid triggering
 # type-specific validation that would require specific value types).
@@ -192,10 +201,17 @@ def _workflow_api_json_strategy(draw: st.DrawFn) -> dict[str, Any]:
     # Optionally add definitions.subgraphs (~20% of the time)
     if draw(st.floats(min_value=0, max_value=1)) < 0.2:
         subgraph_node_count = draw(st.integers(min_value=1, max_value=3))
-        subgraph_nodes: dict[str, Any] = {}
+        subgraph_nodes: list[dict[str, Any]] = []
         for i in range(subgraph_node_count):
-            subgraph_nodes[str(i + 100)] = draw(_node_strategy())
-        api["definitions"] = {"subgraphs": [{"nodes": subgraph_nodes, "name": "sub_1"}]}
+            node_id = str(i + 100)
+            subgraph_nodes.append({
+                "id": node_id,
+                "uid": node_id,
+                **draw(_node_strategy()),
+            })
+        api["definitions"] = {
+            "subgraphs": [{"nodes": subgraph_nodes, "links": [], "name": "sub_1"}]
+        }
 
     return api
 
@@ -233,8 +249,10 @@ def test_codemod_hypothesis_property_2_deterministic_python(api_json: dict[str, 
     workflow1 = _normalize_json_to_vibeworkflow(api_json, workflow_id="hypothesis-det")
     workflow2 = _normalize_json_to_vibeworkflow(api_json, workflow_id="hypothesis-det")
 
-    text1 = port_convert_workflow(workflow1).text
-    text2 = port_convert_workflow(workflow2).text
+    # Import/build/compile/parity are exercised by properties 3-5. Keep this
+    # property focused on two independent emissions of the same generated IR.
+    text1 = port_convert_workflow(workflow1, validate=False).text
+    text2 = port_convert_workflow(workflow2, validate=False).text
 
     assert text1 == text2, f"Non-deterministic emission:\n{text1}\n!=\n{text2}"
 
@@ -344,16 +362,37 @@ def test_codemod_hypothesis_property_7_subgraph_materialization(api_json: dict[s
     )
 
     workflow = _normalize_json_to_vibeworkflow(api_json, workflow_id="hypothesis-sub")
-    result = port_convert_workflow(workflow)
+    if has_subgraphs:
+        workflow.definitions = copy.deepcopy(api_json["definitions"])
+        workflow.nodes["definition_instance"] = VibeNode(
+            "definition_instance",
+            "sub_1",
+            uid="definition_instance",
+        )
+    result = port_convert_workflow(workflow, validate=False)
     text = result.text
 
     if has_subgraphs:
-        # Check that opaque component UUIDs are NOT in the emitted text —
-        # subgraphs should be materialized as callable functions.
+        from vibecomfy.identity.scope import sg_key
+
+        definition = workflow.definitions["subgraphs"][0]
+        expected_key = sg_key(definition)
+        helper_name = "_definition_" + expected_key.replace(":", "_").replace("/", "_")
+        assert f"def {helper_name}(" in text
+        assert text.count("def _definition_") == 1
+        assert re.search(r"raw_call\((?:wf,\s*)?'sub_1'", text)
         assert not re.search(
             r"raw_call\('[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'",
             text,
         ), f"Subgraph materialization failed: raw_call with opaque UUID found in emitted text"
+        namespace: dict[str, Any] = {"__file__": "hypothesis_subgraph.py"}
+        exec(compile(text, "hypothesis_subgraph.py", "exec"), namespace)  # noqa: S102
+        rebuilt = namespace["build"]()
+        assert rebuilt.semantic_digest() == workflow.semantic_digest()
+        rebuilt_definition = rebuilt.definitions["subgraphs"][0]
+        assert sg_key(rebuilt_definition) == expected_key
+    else:
+        assert "def _definition_" not in text
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 {
   "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-82ffb9",
   "query": "The animation looks great for the first 16 frames, but then the motion becomes erratic and the subject\u2019s appearance shifts noticeably. What could be causing this degradation?",
-  "workflow_path": "external_workflows/corpus/82ffb9156459a82e.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/82ffb9156459a82e.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/82ffb9156459a82e.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/82ffb9156459a82e.json",
     "required_node_evidence": [
       "UNETLoader",
       "LoraLoader",

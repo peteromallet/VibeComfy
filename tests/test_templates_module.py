@@ -8,7 +8,7 @@ import pytest
 
 import vibecomfy.templates as templates
 from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, SymbolicNodeRef, _current_workflow_or_raise, _derive_output_kind, finalize, finalize_ready, new_workflow, node
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeInput, VibeWorkflow, WorkflowSource
 
 
 def _workflow(workflow_id: str = "test/workflow") -> VibeWorkflow:
@@ -680,15 +680,23 @@ def test_finalize_allows_unrelated_auto_inputs_but_rejects_public_target_drift()
         output_prefix="out",
     )
 
+    finalize(
+        drifted,
+        drift_inputs,
+        drift_metadata,
+        output_node="4",
+        output_kind="image",
+        output_type="SaveImage",
+    )
+
+    # A renamed public input is valid when it targets the declared field.  The
+    # invariant must still reject a separate undeclared retained binding on the
+    # same public-input target after registration.
+    drifted.inputs["undeclared_alias"] = VibeInput(
+        "undeclared_alias", "3", "text", value="declared", type="STRING"
+    )
     with pytest.raises(AssertionError, match="not declared"):
-        finalize(
-            drifted,
-            drift_inputs,
-            drift_metadata,
-            output_node="4",
-            output_kind="image",
-            output_type="SaveImage",
-        )
+        templates._assert_public_input_invariant(drifted, drift_inputs)
 
 
 def test_finalize_merges_metadata_custom_nodes_into_wf_requirements() -> None:
@@ -1008,9 +1016,10 @@ def test_static_contract_extracts_public_inputs_from_inputspec() -> None:
     )
 
     public_input_names = {item["name"] for item in contract["public_inputs"]}
-    expected = {"prompt", "negative_prompt", "seed", "steps", "output_fps", "width", "height", "length", "cfg", "sampler_name", "start_image"}
+    expected = {"prompt", "negative_prompt", "seed", "fps", "image"}
     for name in expected:
         assert name in public_input_names, f"Missing public input: {name}"
+    assert "cfg" not in public_input_names
 
 
 def test_static_contract_extracts_public_outputs_from_finalize() -> None:
@@ -1025,8 +1034,33 @@ def test_static_contract_extracts_public_outputs_from_finalize() -> None:
     finalize_outputs = [item for item in contract["public_outputs"] if item.get("source") == "finalize"]
     assert len(finalize_outputs) > 0, "No outputs extracted from finalize()"
     output = finalize_outputs[0]
-    assert output["node_id"] == "14"
+    assert output["node_id"] == "56"
     assert output.get("output_type") == "SaveVideo"
+
+
+def test_static_contract_output_id_matches_runtime_after_high_source_ids() -> None:
+    """Late auto nodes keep lowest-free IDs after raw high source IDs."""
+    from vibecomfy.registry.library import workflow_from_ready
+    from vibecomfy.registry.static_contract import extract_ready_template_contract
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "ready_templates"
+        / "video"
+        / "ltx2_3_first_last_frame_travel_iclora_control.py"
+    )
+    static = extract_ready_template_contract(source)
+    runtime = workflow_from_ready(
+        "video/ltx2_3_first_last_frame_travel_iclora_control"
+    )
+    static_output = next(
+        item for item in static["public_outputs"] if item.get("source") == "finalize"
+    )
+    assert len(runtime.outputs) == 1
+    runtime_output = runtime.outputs[0]
+
+    assert static_output["node_id"] == runtime_output.node_id == "55"
+    assert runtime.nodes["55"].class_type == "VHS_VideoCombine"
 
 
 def test_static_contract_extracts_public_outputs_from_workflow_finalize_method(tmp_path: Path) -> None:
@@ -1186,9 +1220,8 @@ def test_ready_template_metadata_handles_ready_metadata_build_call() -> None:
     )
 
     assert isinstance(metadata, dict)
-    assert metadata.get("capability") == "image_to_video"
+    assert metadata.get("capability") == "video"
     assert metadata.get("coverage_tier") == "required"
-    assert metadata.get("output_prefix") == "video/ComfyUI"
 
 
 # -- lookup_id on ready-template workflows ------------------------------------
@@ -1225,5 +1258,131 @@ def test_readability_inventory_parses_ready_metadata_build_call() -> None:
     )
 
     assert isinstance(metadata, dict)
-    assert metadata.get("capability") == "image_to_video"
+    assert metadata.get("capability") == "video"
     assert metadata.get("coverage_tier") == "required"
+
+
+def test_static_contract_wrapper_ids_match_ready_builder_allocation(tmp_path: Path) -> None:
+    from vibecomfy.registry.static_contract import extract_ready_template_contract
+
+    source = tmp_path / "explicit_wrapper_ids.py"
+    source.write_text(
+        """
+def build():
+    sampler = KSampler(_id="3", seed=42, steps=20)
+    model = UNETLoader(unet_name="model.safetensors")
+""",
+        encoding="utf-8",
+    )
+
+    summary = extract_ready_template_contract(
+        source,
+        wrapper_class_types={"KSampler": "KSampler", "UNETLoader": "UNETLoader"},
+    )
+    inferred = {item["name"]: item for item in summary["public_inputs"]}
+
+    assert inferred["seed"]["target"] == {"node_id": "3", "field": "seed"}
+    assert inferred["steps"]["target"] == {"node_id": "3", "field": "steps"}
+    assert inferred["model"]["target"] == {"node_id": "1", "field": "unet_name"}
+    assert all(item["field"] != "_id" for item in summary["public_inputs"])
+
+
+def test_ready_wrapper_hydrates_exact_schema_rosters_and_keeps_unknown_closed() -> None:
+    wf = _workflow("image/schema-carriers")
+    load = node(wf, "LoadImage", "load", image="source.png").node
+
+    assert load.native_input_names == ["image"]
+    assert load.native_input_types == ["CHOICE"]
+    assert load.native_input_optional == [False]
+    assert load.native_input_asset_kinds == ["image"]
+    assert load.native_output_names == ["IMAGE", "MASK"]
+    assert load.native_output_types == ["IMAGE", "MASK"]
+
+    unknown = node(wf, "DefinitelyUnknownReadyClass", "unknown", pass_raw=True).node
+    assert unknown.native_input_names is None
+    assert unknown.native_output_names is None
+
+
+def test_ready_wrapper_retained_carriers_compile_after_ambient_provider_is_poisoned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf = _workflow("image/retained-carriers")
+    load = node(wf, "LoadImage", "load", image="source.png").node
+    wf.inputs["image"] = VibeInput(
+        "image", load.id, "image", value="replacement.png", type="IMAGE",
+        media_semantics="image",
+    )
+
+    def poisoned_provider():
+        raise AssertionError("retained compile consulted ambient provider")
+
+    monkeypatch.setattr(templates, "_ready_schema_provider", poisoned_provider)
+    assert wf.compile()[load.id]["inputs"]["image"] == "replacement.png"
+
+
+def test_ready_wrapper_does_not_hide_broken_schema_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    templates._ready_native_schema_carrier.cache_clear()
+
+    def broken_provider():
+        raise RuntimeError("broken frozen schema")
+
+    monkeypatch.setattr(templates, "_ready_schema_provider", broken_provider)
+    with pytest.raises(RuntimeError, match="broken frozen schema"):
+        node(_workflow("broken/schema"), "BrokenSchemaClass", pass_raw=True)
+    templates._ready_native_schema_carrier.cache_clear()
+
+
+def test_ready_wrapper_retains_authored_dynamic_ports_without_schema_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale_carrier = (
+        ("expression",),
+        ("STRING",),
+        (False,),
+        (None,),
+        ("FLOAT",),
+        ("FLOAT",),
+        (False,),
+    )
+    monkeypatch.setattr(templates, "_ready_native_schema_carrier", lambda _class: stale_carrier)
+
+    calc = node(
+        _workflow("dynamic/wrapper-ports"),
+        "SimpleCalculatorKJ",
+        "calc",
+        expression="a * 2",
+        **{"variables.a": 4},
+    ).node
+
+    assert calc.native_input_names == ["expression", "variables.a"]
+    assert calc.native_input_types == ["STRING", None]
+    assert calc.native_input_optional is None
+    assert calc.native_output_names == ["FLOAT"]
+    assert calc.native_output_types == ["FLOAT"]
+
+
+def test_unknown_ready_wrapper_retains_only_ports_authored_by_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(templates, "_ready_native_schema_carrier", lambda _class: None)
+    monkeypatch.setattr(
+        "vibecomfy.porting.object_info.consume.output_names",
+        lambda _class: ["result"],
+    )
+
+    unknown = node(
+        _workflow("unknown/authored-ports"),
+        "UnknownDynamicNode",
+        "unknown",
+        dependency=7,
+        pass_raw=True,
+    ).node
+
+    assert unknown.native_input_names == ["dependency"]
+    assert unknown.native_input_types == [None]
+    assert unknown.native_input_optional is None
+    assert unknown.native_input_asset_kinds is None
+    assert unknown.native_output_names == ["RESULT"]
+    assert unknown.native_output_types == [None]

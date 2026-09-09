@@ -1,0 +1,1556 @@
+{
+  "edges": [
+    {
+      "from_node": "55",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "56"
+    },
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "59"
+    },
+    {
+      "from_node": "61",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "59"
+    },
+    {
+      "from_node": "61",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "59"
+    },
+    {
+      "from_node": "68",
+      "from_output": "0",
+      "to_input": "sampler",
+      "to_node": "59"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "sigmas",
+      "to_node": "59"
+    },
+    {
+      "from_node": "61",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "59"
+    },
+    {
+      "from_node": "62",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "61"
+    },
+    {
+      "from_node": "64",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "61"
+    },
+    {
+      "from_node": "60",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "61"
+    },
+    {
+      "from_node": "56",
+      "from_output": "0",
+      "to_input": "pixels",
+      "to_node": "61"
+    },
+    {
+      "from_node": "56",
+      "from_output": "1",
+      "to_input": "mask",
+      "to_node": "61"
+    },
+    {
+      "from_node": "60",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "62"
+    },
+    {
+      "from_node": "60",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "64"
+    },
+    {
+      "from_node": "59",
+      "from_output": "1",
+      "to_input": "samples",
+      "to_node": "65"
+    },
+    {
+      "from_node": "60",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "65"
+    },
+    {
+      "from_node": "65",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "66"
+    },
+    {
+      "from_node": "60",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "69"
+    }
+  ],
+  "groups": [],
+  "id": "6b59a19a09e6cdfe",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "60",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "sd15\\realisticVisionV51_v51VAE.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "62",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "Mugshot"
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "55": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "56",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'face_timberlake.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "56": {
+        "class_type": "ImagePadForOutpaint",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "55",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "pixels"
+            ]
+          ],
+          [
+            "1",
+            [
+              "61",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "bottom",
+            "0"
+          ],
+          [
+            "feathering",
+            "40"
+          ],
+          [
+            "left",
+            "200"
+          ],
+          [
+            "right",
+            "200"
+          ],
+          [
+            "top",
+            "104"
+          ]
+        ]
+      },
+      "59": {
+        "class_type": "SamplerCustom",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "61",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "69",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "61",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "61",
+              "0"
+            ]
+          ],
+          [
+            "sampler",
+            [
+              "68",
+              "0"
+            ]
+          ],
+          [
+            "sigmas",
+            [
+              "67",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "65",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "570408091092612"
+          ],
+          [
+            "widget_2",
+            "'randomize'"
+          ],
+          [
+            "widget_3",
+            "8"
+          ]
+        ]
+      },
+      "60": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "62",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "64",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "61",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "65",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'sd15\\\\realisticVisionV51_v51VAE.safetensors'"
+          ]
+        ]
+      },
+      "61": {
+        "class_type": "InpaintModelConditioning",
+        "incoming_edge_sig": [
+          [
+            "mask",
+            [
+              "56",
+              "1"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "64",
+              "0"
+            ]
+          ],
+          [
+            "pixels",
+            [
+              "56",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "62",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "60",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "59",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "59",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "62": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "60",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'Mugshot'"
+          ]
+        ]
+      },
+      "64": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "60",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'blurry, wattermark'"
+          ]
+        ]
+      },
+      "65": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "59",
+              "1"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "60",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "66",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "66": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "65",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "67": {
+        "class_type": "AlignYourStepsScheduler",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "sigmas"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'SD1'"
+          ],
+          [
+            "widget_1",
+            "30"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "68": {
+        "class_type": "KSamplerSelect",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "sampler"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'euler'"
+          ]
+        ]
+      },
+      "69": {
+        "class_type": "DifferentialDiffusion",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "60",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1d414c3424d15ae212de8703fd044ed1b3f4427b9cfb9b8be7ca4128c94052f7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1259562911207129159,
+      "channel_name": "liveportrait",
+      "discord_message_url": "https://discord.com/channels/@me/1259562911207129159/1268419918647263323",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1268419918647263323:klint_outpaint.json:6b59a19a09e6cdfe",
+      "filename": "klint_outpaint.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:01+00:00",
+      "message_id": 1268419918647263323,
+      "node_class_multiset": {
+        "AlignYourStepsScheduler": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DifferentialDiffusion": 1,
+        "ImagePadForOutpaint": 1,
+        "InpaintModelConditioning": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "SamplerCustom": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 12,
+      "origin_date": "2024-08-01T04:07:54.708000+00:00",
+      "originator_global_name": "\u02d7\u02cf\u02cb\u26a1\u02ce\u02ca-",
+      "originator_id": "499629400254447616",
+      "originator_type": "discord_message_author",
+      "originator_username": "melmass",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "6b59a19a09e6cdfe61b1c8db982356dbebce3aeec9f4320b5e23957136ab378a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1259562911207129159/1268419918316175380/klint_outpaint.json?ex=697add1a&is=69798b9a&hm=859c53d4977084772358a1ca3d971aab169a5c36405a8487387c884cb77a7faf&",
+      "source_workflow_sha256": "b2d0cb6132ad3464a72c76792aeab4283e6af9caab70313c8ef9b9753f612a26",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "ce5ea8701a4496a98cfc26207f8c145b92a5b668bfd4831a04d377a6f845e6d2",
+      "complexity": 2,
+      "description": "Loads an image, pads it for outpainting, applies differential diffusion inpainting using a realistic vision checkpoint, and saves the result.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "inpainting",
+        "outpainting",
+        "differential-diffusion",
+        "realistic-vision",
+        "image-padding",
+        "image-generation"
+      ],
+      "task_type": "inpainting",
+      "title": "Inpainting with Differential Diffusion and Realistic Vision"
+    }
+  },
+  "nodes": {
+    "55": {
+      "class_type": "LoadImage",
+      "id": "55",
+      "inputs": {
+        "image": "face_timberlake.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 55,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                142
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -380,
+            490
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            315,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "face_timberlake.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "face_timberlake.jpg",
+          "image"
+        ]
+      },
+      "uid": "55",
+      "widgets": {}
+    },
+    "56": {
+      "class_type": "ImagePadForOutpaint",
+      "id": "56",
+      "inputs": {
+        "bottom": 0,
+        "feathering": 40,
+        "left": 200,
+        "right": 200,
+        "top": 104
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 56,
+          "inputs": [
+            {
+              "link": 142,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                147
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                148
+              ],
+              "name": "MASK",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -30,
+            540
+          ],
+          "properties": {
+            "Node name for S&R": "ImagePadForOutpaint"
+          },
+          "size": {
+            "0": 315,
+            "1": 174
+          },
+          "type": "ImagePadForOutpaint",
+          "widgets_values": [
+            200,
+            104,
+            200,
+            0,
+            40
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          200,
+          104,
+          200,
+          0,
+          40
+        ]
+      },
+      "uid": "56",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "SamplerCustom",
+      "id": "59",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [
+            {
+              "link": 160,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 144,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 145,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 158,
+              "name": "sampler",
+              "type": "SAMPLER"
+            },
+            {
+              "link": 157,
+              "name": "sigmas",
+              "type": "SIGMAS"
+            },
+            {
+              "link": 146,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": null,
+              "name": "output",
+              "shape": 3,
+              "type": "LATENT"
+            },
+            {
+              "links": [
+                154
+              ],
+              "name": "denoised_output",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            980,
+            230
+          ],
+          "properties": {
+            "Node name for S&R": "SamplerCustom"
+          },
+          "size": [
+            355.20001220703125,
+            442
+          ],
+          "type": "SamplerCustom",
+          "widgets_values": [
+            true,
+            570408091092612,
+            "randomize",
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          570408091092612,
+          "randomize",
+          8
+        ]
+      },
+      "uid": "59",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": 570408091092612,
+        "widget_2": "randomize",
+        "widget_3": 8
+      }
+    },
+    "60": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "60",
+      "inputs": {
+        "ckpt_name": "sd15\\realisticVisionV51_v51VAE.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 60,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                159
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                150,
+                151
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                149,
+                155
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -220,
+            240
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "sd15\\realisticVisionV51_v51VAE.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sd15\\realisticVisionV51_v51VAE.safetensors"
+        ]
+      },
+      "uid": "60",
+      "widgets": {}
+    },
+    "61": {
+      "class_type": "InpaintModelConditioning",
+      "id": "61",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 61,
+          "inputs": [
+            {
+              "link": 153,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 152,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 149,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 147,
+              "name": "pixels",
+              "type": "IMAGE"
+            },
+            {
+              "link": 148,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                144
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                145
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                146
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            620,
+            300
+          ],
+          "properties": {
+            "Node name for S&R": "InpaintModelConditioning"
+          },
+          "size": {
+            "0": 216.59999084472656,
+            "1": 106
+          },
+          "type": "InpaintModelConditioning"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "61",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "CLIPTextEncode",
+      "id": "62",
+      "inputs": {
+        "text": "Mugshot"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 62,
+          "inputs": [
+            {
+              "link": 150,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                153
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            190,
+            210
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            271.99366375532804,
+            130.46637313559177
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "Mugshot"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Mugshot"
+        ]
+      },
+      "uid": "62",
+      "widgets": {}
+    },
+    "64": {
+      "class_type": "CLIPTextEncode",
+      "id": "64",
+      "inputs": {
+        "text": "blurry, wattermark"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 64,
+          "inputs": [
+            {
+              "link": 151,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                152
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            170,
+            380
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 271.99365234375,
+            "1": 130.46636962890625
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "blurry, wattermark"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "blurry, wattermark"
+        ]
+      },
+      "uid": "64",
+      "widgets": {}
+    },
+    "65": {
+      "class_type": "VAEDecode",
+      "id": "65",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 65,
+          "inputs": [
+            {
+              "link": 154,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 155,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                156
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1420,
+            260
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "65",
+      "widgets": {}
+    },
+    "66": {
+      "class_type": "SaveImage",
+      "id": "66",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 66,
+          "inputs": [
+            {
+              "link": 156,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "pos": [
+            1680,
+            330
+          ],
+          "properties": {},
+          "size": [
+            315,
+            270
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "66",
+      "widgets": {}
+    },
+    "67": {
+      "class_type": "AlignYourStepsScheduler",
+      "id": "67",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 67,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                157
+              ],
+              "name": "SIGMAS",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "SIGMAS"
+            }
+          ],
+          "pos": [
+            570,
+            620
+          ],
+          "properties": {
+            "Node name for S&R": "AlignYourStepsScheduler"
+          },
+          "size": {
+            "0": 315,
+            "1": 106
+          },
+          "type": "AlignYourStepsScheduler",
+          "widgets_values": [
+            "SD1",
+            30,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "SD1",
+          30,
+          1
+        ]
+      },
+      "uid": "67",
+      "widgets": {
+        "widget_0": "SD1",
+        "widget_1": 30,
+        "widget_2": 1
+      }
+    },
+    "68": {
+      "class_type": "KSamplerSelect",
+      "id": "68",
+      "inputs": {
+        "sampler_name": "euler"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 68,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                158
+              ],
+              "name": "SAMPLER",
+              "shape": 3,
+              "type": "SAMPLER"
+            }
+          ],
+          "pos": [
+            580,
+            470
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerSelect"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "euler"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "euler"
+        ]
+      },
+      "uid": "68",
+      "widgets": {}
+    },
+    "69": {
+      "class_type": "DifferentialDiffusion",
+      "id": "69",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 69,
+          "inputs": [
+            {
+              "link": 159,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                160
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            600,
+            130
+          ],
+          "properties": {
+            "Node name for S&R": "DifferentialDiffusion"
+          },
+          "size": {
+            "0": 210,
+            "1": 26
+          },
+          "type": "DifferentialDiffusion"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "69",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "66",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "sd15\\realisticVisionV51_v51VAE.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "6b59a19a09e6cdfe",
+    "path": "external_workflows/.shadow/source/6b59a19a09e6cdfe-klint_outpaint.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1d414c3424d15ae212de8703fd044ed1b3f4427b9cfb9b8be7ca4128c94052f7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1259562911207129159,
+      "channel_name": "liveportrait",
+      "discord_message_url": "https://discord.com/channels/@me/1259562911207129159/1268419918647263323",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1268419918647263323:klint_outpaint.json:6b59a19a09e6cdfe",
+      "filename": "klint_outpaint.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:01+00:00",
+      "message_id": 1268419918647263323,
+      "node_class_multiset": {
+        "AlignYourStepsScheduler": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DifferentialDiffusion": 1,
+        "ImagePadForOutpaint": 1,
+        "InpaintModelConditioning": 1,
+        "KSamplerSelect": 1,
+        "LoadImage": 1,
+        "SamplerCustom": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1
+      },
+      "node_count": 12,
+      "origin_date": "2024-08-01T04:07:54.708000+00:00",
+      "originator_global_name": "\u02d7\u02cf\u02cb\u26a1\u02ce\u02ca-",
+      "originator_id": "499629400254447616",
+      "originator_type": "discord_message_author",
+      "originator_username": "melmass",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "6b59a19a09e6cdfe61b1c8db982356dbebce3aeec9f4320b5e23957136ab378a",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1259562911207129159/1268419918316175380/klint_outpaint.json?ex=697add1a&is=69798b9a&hm=859c53d4977084772358a1ca3d971aab169a5c36405a8487387c884cb77a7faf&",
+      "source_workflow_sha256": "b2d0cb6132ad3464a72c76792aeab4283e6af9caab70313c8ef9b9753f612a26",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

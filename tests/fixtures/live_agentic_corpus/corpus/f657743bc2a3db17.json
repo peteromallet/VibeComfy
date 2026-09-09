@@ -1,0 +1,2119 @@
+{
+  "edges": [
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "33"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "34"
+    },
+    {
+      "from_node": "28",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "35"
+    },
+    {
+      "from_node": "26",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "36"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "6"
+    },
+    {
+      "from_node": "9",
+      "from_output": "0",
+      "to_input": "image_left",
+      "to_node": "6"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "image_back",
+      "to_node": "6"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image_right",
+      "to_node": "6"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "32"
+    },
+    {
+      "from_node": "6",
+      "from_output": "1",
+      "to_input": "original_model_task_id",
+      "to_node": "23"
+    },
+    {
+      "from_node": "23",
+      "from_output": "1",
+      "to_input": "original_model_task_id",
+      "to_node": "24"
+    },
+    {
+      "from_node": "6",
+      "from_output": "1",
+      "to_input": "model_task_id",
+      "to_node": "28"
+    },
+    {
+      "from_node": "6",
+      "from_output": "1",
+      "to_input": "model_task_id",
+      "to_node": "26"
+    },
+    {
+      "from_node": "6",
+      "from_output": "1",
+      "to_input": "original_model_task_id",
+      "to_node": "29"
+    }
+  ],
+  "groups": [],
+  "id": "435d466315ca426f",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image_right"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'front.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'At least one additional view other than the front view is required as input.\\n \\n---\\n\\n\u9664\u4e86\u6b63\u9762\u89c6\u56fe\u4e4b\u5916\uff0c\u81f3\u5c11\u8fd8\u9700\u8981\u989d\u5916\u4e00\u4e2a\u5176\u5b83\u89c6\u56fe\u8f93\u5165'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "TripoRigNode",
+        "incoming_edge_sig": [
+          [
+            "original_model_task_id",
+            [
+              "6",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "33",
+              "model_file"
+            ]
+          ],
+          [
+            "1",
+            [
+              "24",
+              "original_model_task_id"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "24": {
+        "class_type": "TripoRetargetNode",
+        "incoming_edge_sig": [
+          [
+            "original_model_task_id",
+            [
+              "23",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "34",
+              "model_file"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'preset:walk'"
+          ]
+        ]
+      },
+      "26": {
+        "class_type": "TripoTextureNode",
+        "incoming_edge_sig": [
+          [
+            "model_task_id",
+            [
+              "6",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "36",
+              "model_file"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ],
+          [
+            "widget_1",
+            "True"
+          ],
+          [
+            "widget_2",
+            "42"
+          ],
+          [
+            "widget_3",
+            "'standard'"
+          ],
+          [
+            "widget_4",
+            "'original_image'"
+          ]
+        ]
+      },
+      "28": {
+        "class_type": "TripoRefineNode",
+        "incoming_edge_sig": [
+          [
+            "model_task_id",
+            [
+              "6",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "35",
+              "model_file"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "29": {
+        "class_type": "TripoConversionNode",
+        "incoming_edge_sig": [
+          [
+            "original_model_task_id",
+            [
+              "6",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'GLTF'"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "-1"
+          ],
+          [
+            "widget_3",
+            "4096"
+          ],
+          [
+            "widget_4",
+            "'JPEG'"
+          ]
+        ]
+      },
+      "30": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'It is only available when using the model of version v1.4.\\n\\n---\\n\\n\u53ea\u6709\u5728\u4f7f\u7528\u6a21\u578b v1.4 \u7248\u672c\u7684\u6a21\u578b\u65f6\u624d\u53ef\u7528'"
+          ]
+        ]
+      },
+      "31": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'After the task generated by the base model is completed, Tripo provides relevant APIs for subsequent model processing. You can enable them as needed. Just use the right - click and set the **Mode** of the corresponding part to **Always**.\\n\\n---\\n\\n\u5728\u57fa\u7840\u6a21\u578b\u751f\u6210\u7684\u4efb\u52a1\u6267\u884c\u5b8c\u6210\u540e\uff0c Tripo \u63d0\u4f9b\u4e86\u540e\u7eed\u7684\u6a21\u578b\u5904\u7406\u7684\u76f8\u5173 API \u4f60\u53ef\u4ee5\u6309\u9700\u542f\u7528\uff0c\u53ea\u9700\u8981\u4f7f\u7528\u53f3\u952e\uff0c\u5c06\u5bf9\u5e94\u7684\u90e8\u5206\u7684 **\u6a21\u5f0f** \u8bbe\u7f6e\u4e3a **\u603b\u662f** \u5373\u53ef'"
+          ]
+        ]
+      },
+      "32": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "33": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "34": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "24",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "35": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "28",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "36": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "26",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'[About API Node](https://docs.comfy.org/tutorials/api-nodes/overview) | [\u5173\u4e8e API \u8282\u70b9](https://docs.comfy.org/zh-CN/tutorials/api-nodes/overview)\\n\\nTo use the API, you must be in a secure network environment:\\n\\n- Allows access from `127.0.0.1` or `localhost`.\\n\\n- Use our API Node in website services starting with `https`\\n\\n- Make sure you can normally connect to our API services (some regions may need a proxy).\\n\\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\\n\\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key).\\n\\n---\\n\\n\u8981\u4f7f\u7528API\uff0c\u4f60\u5fc5\u987b\u5904\u4e8e\u5b89\u5168\u7684\u7f51\u7edc\u73af\u5883\u4e2d\uff1a\\n\\n- \u5141\u8bb8\u4ece`127.0.0.1`\u6216`localhost`\u8bbf\u95ee\u3002\\n- \u5728\u5e26\u6709 https \u5f00\u5934\u7684\u670d\u52a1\u4e2d\u4f7f\u7528\u6211\u4eec\u7684 API Node\\n- \u786e\u4fdd\u4f60\u80fd\u591f\u6b63\u5e38\u8fde\u63a5\u6211\u4eec\u7684API\u670d\u52a1\uff08\u67d0\u4e9b\u5730\u533a\u53ef\u80fd\u9700\u8981\u4ee3\u7406\uff09\u3002\\n- \u786e\u4fdd\u4f60\u5df2\u5728\u8bbe\u7f6e\u4e2d\u767b\u5f55\uff0c\u4e14\u4f60\u7684\u8d26\u6237\u4ecd\u6709\u8db3\u591f\u7684\u79ef\u5206\u6765\u652f\u4ed8API\u8c03\u7528\u7684\u6d88\u8017\u3002\\n- \u5728\u975e\u767d\u540d\u5355\u7ad9\u70b9\u6216\u8005\u5c40\u57df\u7f51\uff08LAN\uff09\uff0c\u8bf7\u5c1d\u8bd5[\u4f7f\u7528 API Key \u6765\u767b\u5f55](https://docs.comfy.org/zh-CN/interface/user#%E4%BD%BF%E7%94%A8-api-key-%E8%BF%9B%E8%A1%8C%E7%99%BB%E5%BD%95)\\n'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'Output model will be auto saved to \"ComfyUI/output/\"\\n\\nOr you can use the export function in the preview 3D node to download it.\\n\\n---\\n\\n\u8f93\u51fa\u6a21\u578b\u5c06\u81ea\u52a8\u4fdd\u5b58\u5230 \u201cComfyUI/output/\u201d\u3002\\n\\n\u6216\u8005\u4f60\u53ef\u4ee5\u4f7f\u7528 3D \u9884\u89c8\u8282\u70b9\u4e2d\u7684\u5bfc\u51fa\u529f\u80fd\u6765\u4e0b\u8f7d\u5b83\u3002'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "TripoMultiviewToModelNode",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ],
+          [
+            "image_back",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "image_left",
+            [
+              "9",
+              "0"
+            ]
+          ],
+          [
+            "image_right",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "32",
+              "model_file"
+            ]
+          ],
+          [
+            "1",
+            [
+              "23",
+              "original_model_task_id"
+            ]
+          ],
+          [
+            "1",
+            [
+              "26",
+              "model_task_id"
+            ]
+          ],
+          [
+            "1",
+            [
+              "28",
+              "model_task_id"
+            ]
+          ],
+          [
+            "1",
+            [
+              "29",
+              "original_model_task_id"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'v2.5-20250123'"
+          ],
+          [
+            "widget_1",
+            "'default'"
+          ],
+          [
+            "widget_2",
+            "True"
+          ],
+          [
+            "widget_3",
+            "True"
+          ],
+          [
+            "widget_4",
+            "42"
+          ],
+          [
+            "widget_5",
+            "42"
+          ],
+          [
+            "widget_6",
+            "'standard'"
+          ],
+          [
+            "widget_7",
+            "'original_image'"
+          ],
+          [
+            "widget_8",
+            "-1"
+          ],
+          [
+            "widget_9",
+            "False"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image_back"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'front.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'back.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "9": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "image_left"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'front.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f657743bc2a3db17ea993512ef19583c29abd78fcbf71593f5856ddbd0a08284",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Add api node workflow",
+      "commit_sha": "626d23a46136170c263beab31866bdbd16756c61",
+      "commit_url": "https://github.com/Comfy-Org/example_workflows/commit/626d23a46136170c263beab31866bdbd16756c61",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json:api_tripo_multiview_to_model.json:435d466315ca426f",
+      "filename": "api_tripo_multiview_to_model.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:12+00:00",
+      "node_class_multiset": {
+        "LoadImage": 4,
+        "MarkdownNote": 5,
+        "Preview3D": 5,
+        "TripoConversionNode": 1,
+        "TripoMultiviewToModelNode": 1,
+        "TripoRefineNode": 1,
+        "TripoRetargetNode": 1,
+        "TripoRigNode": 1,
+        "TripoTextureNode": 1
+      },
+      "node_count": 20,
+      "origin_date": "2025-05-27T10:07:40Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "example_workflows",
+      "repo_branch": "main",
+      "repo_path": "api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json",
+      "source": "github",
+      "source_file_sha256": "435d466315ca426fa34397c27288d96500abd12a20496e203fef450805b3c159",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/example_workflows/main/api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json",
+      "source_workflow_sha256": "338138b7a166557af63d199e3d080bc13fe1c373bd9d0b2ffd1fbbc98aa9ba5d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "a7bcb8b6bfc9d0e28daee33ffa2bbeed0d6a2cebf071945be6b345b5480b40f5",
+      "complexity": 4,
+      "description": "A workflow that loads images, generates 3D models via Tripo nodes (multiview to model, conversion, refinement, texturing, rigging, and retargeting), and previews the results in 3D.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "3d",
+      "tags": [
+        "3d-modeling",
+        "image-to-3d",
+        "tripo",
+        "rigging",
+        "retargeting",
+        "texturing",
+        "refinement",
+        "multiview",
+        "preview-3d"
+      ],
+      "task_type": "other",
+      "title": "3D Model Generation and Retargeting Workflow"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "LoadImage",
+      "id": "10",
+      "inputs": {
+        "image": "front.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [],
+          "mode": 4,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                8
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -6500,
+            1700
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "title": "Load Image: right",
+          "type": "LoadImage",
+          "widgets_values": [
+            "front.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "front.png",
+          "image"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "MarkdownNote",
+      "id": "20",
+      "inputs": {
+        "unused_widget_0": "At least one additional view other than the front view is required as input.\n \n---\n\n\u9664\u4e86\u6b63\u9762\u89c6\u56fe\u4e4b\u5916\uff0c\u81f3\u5c11\u8fd8\u9700\u8981\u989d\u5916\u4e00\u4e2a\u5176\u5b83\u89c6\u56fe\u8f93\u5165"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 20,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [],
+          "pos": [
+            -6810,
+            1120
+          ],
+          "properties": {},
+          "size": [
+            270,
+            120
+          ],
+          "title": "About Image Inputs",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "At least one additional view other than the front view is required as input.\n \n---\n\n\u9664\u4e86\u6b63\u9762\u89c6\u56fe\u4e4b\u5916\uff0c\u81f3\u5c11\u8fd8\u9700\u8981\u989d\u5916\u4e00\u4e2a\u5176\u5b83\u89c6\u56fe\u8f93\u5165"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "At least one additional view other than the front view is required as input.\n \n---\n\n\u9664\u4e86\u6b63\u9762\u89c6\u56fe\u4e4b\u5916\uff0c\u81f3\u5c11\u8fd8\u9700\u8981\u989d\u5916\u4e00\u4e2a\u5176\u5b83\u89c6\u56fe\u8f93\u5165"
+        ]
+      },
+      "uid": "20",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "TripoRigNode",
+      "id": "23",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "original_model_task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "mode": 4,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                18
+              ],
+              "name": "model_file",
+              "type": "STRING"
+            },
+            {
+              "links": [
+                11
+              ],
+              "name": "rig task_id",
+              "type": "RIG_TASK_ID"
+            }
+          ],
+          "pos": [
+            -5010,
+            1160
+          ],
+          "properties": {
+            "Node name for S&R": "TripoRigNode"
+          },
+          "size": [
+            222.439453125,
+            46
+          ],
+          "type": "TripoRigNode",
+          "widgets_values": []
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "TripoRetargetNode",
+      "id": "24",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 24,
+          "inputs": [
+            {
+              "link": 11,
+              "name": "original_model_task_id",
+              "type": "RIG_TASK_ID"
+            }
+          ],
+          "mode": 4,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                19
+              ],
+              "name": "model_file",
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "retarget task_id",
+              "type": "RETARGET_TASK_ID"
+            }
+          ],
+          "pos": [
+            -4110,
+            1110
+          ],
+          "properties": {
+            "Node name for S&R": "TripoRetargetNode"
+          },
+          "size": [
+            310.453125,
+            78
+          ],
+          "type": "TripoRetargetNode",
+          "widgets_values": [
+            "preset:walk"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "preset:walk"
+        ]
+      },
+      "uid": "24",
+      "widgets": {
+        "widget_0": "preset:walk"
+      }
+    },
+    "26": {
+      "class_type": "TripoTextureNode",
+      "id": "26",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 16,
+              "name": "model_task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "mode": 4,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                21
+              ],
+              "name": "model_file",
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "model task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "pos": [
+            -2330,
+            1020
+          ],
+          "properties": {
+            "Node name for S&R": "TripoTextureNode"
+          },
+          "size": [
+            270,
+            174
+          ],
+          "type": "TripoTextureNode",
+          "widgets_values": [
+            true,
+            true,
+            42,
+            "standard",
+            "original_image"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true,
+          true,
+          42,
+          "standard",
+          "original_image"
+        ]
+      },
+      "uid": "26",
+      "widgets": {
+        "widget_0": true,
+        "widget_1": true,
+        "widget_2": 42,
+        "widget_3": "standard",
+        "widget_4": "original_image"
+      }
+    },
+    "28": {
+      "class_type": "TripoRefineNode",
+      "id": "28",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 28,
+          "inputs": [
+            {
+              "link": 15,
+              "name": "model_task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "mode": 4,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                20
+              ],
+              "name": "model_file",
+              "type": "STRING"
+            },
+            {
+              "links": null,
+              "name": "model task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "pos": [
+            -3220,
+            1140
+          ],
+          "properties": {
+            "Node name for S&R": "TripoRefineNode"
+          },
+          "size": [
+            196.41796875,
+            46
+          ],
+          "type": "TripoRefineNode",
+          "widgets_values": []
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "28",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "TripoConversionNode",
+      "id": "29",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 29,
+          "inputs": [
+            {
+              "link": 22,
+              "name": "original_model_task_id",
+              "type": "MODEL_TASK_ID,RIG_TASK_ID,RETARGET_TASK_ID"
+            }
+          ],
+          "mode": 4,
+          "order": 14,
+          "outputs": [],
+          "pos": [
+            -4690,
+            960
+          ],
+          "properties": {
+            "Node name for S&R": "TripoConversionNode"
+          },
+          "size": [
+            270,
+            154
+          ],
+          "type": "TripoConversionNode",
+          "widgets_values": [
+            "GLTF",
+            false,
+            -1,
+            4096,
+            "JPEG"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 5,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "GLTF",
+          false,
+          -1,
+          4096,
+          "JPEG"
+        ]
+      },
+      "uid": "29",
+      "widgets": {
+        "widget_0": "GLTF",
+        "widget_1": false,
+        "widget_2": -1,
+        "widget_3": 4096,
+        "widget_4": "JPEG"
+      }
+    },
+    "30": {
+      "class_type": "MarkdownNote",
+      "id": "30",
+      "inputs": {
+        "unused_widget_0": "It is only available when using the model of version v1.4.\n\n---\n\n\u53ea\u6709\u5728\u4f7f\u7528\u6a21\u578b v1.4 \u7248\u672c\u7684\u6a21\u578b\u65f6\u624d\u53ef\u7528"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 30,
+          "inputs": [],
+          "mode": 0,
+          "order": 8,
+          "outputs": [],
+          "pos": [
+            -3220,
+            990
+          ],
+          "properties": {},
+          "size": [
+            240,
+            90
+          ],
+          "title": "About Refine Draft model",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "It is only available when using the model of version v1.4.\n\n---\n\n\u53ea\u6709\u5728\u4f7f\u7528\u6a21\u578b v1.4 \u7248\u672c\u7684\u6a21\u578b\u65f6\u624d\u53ef\u7528"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "It is only available when using the model of version v1.4.\n\n---\n\n\u53ea\u6709\u5728\u4f7f\u7528\u6a21\u578b v1.4 \u7248\u672c\u7684\u6a21\u578b\u65f6\u624d\u53ef\u7528"
+        ]
+      },
+      "uid": "30",
+      "widgets": {}
+    },
+    "31": {
+      "class_type": "MarkdownNote",
+      "id": "31",
+      "inputs": {
+        "unused_widget_0": "After the task generated by the base model is completed, Tripo provides relevant APIs for subsequent model processing. You can enable them as needed. Just use the right - click and set the **Mode** of the corresponding part to **Always**.\n\n---\n\n\u5728\u57fa\u7840\u6a21\u578b\u751f\u6210\u7684\u4efb\u52a1\u6267\u884c\u5b8c\u6210\u540e\uff0c Tripo \u63d0\u4f9b\u4e86\u540e\u7eed\u7684\u6a21\u578b\u5904\u7406\u7684\u76f8\u5173 API \u4f60\u53ef\u4ee5\u6309\u9700\u542f\u7528\uff0c\u53ea\u9700\u8981\u4f7f\u7528\u53f3\u952e\uff0c\u5c06\u5bf9\u5e94\u7684\u90e8\u5206\u7684 **\u6a21\u5f0f** \u8bbe\u7f6e\u4e3a **\u603b\u662f** \u5373\u53ef"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 31,
+          "inputs": [],
+          "mode": 0,
+          "order": 7,
+          "outputs": [],
+          "pos": [
+            -5010,
+            950
+          ],
+          "properties": {},
+          "size": [
+            290,
+            160
+          ],
+          "title": "Save location",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "After the task generated by the base model is completed, Tripo provides relevant APIs for subsequent model processing. You can enable them as needed. Just use the right - click and set the **Mode** of the corresponding part to **Always**.\n\n---\n\n\u5728\u57fa\u7840\u6a21\u578b\u751f\u6210\u7684\u4efb\u52a1\u6267\u884c\u5b8c\u6210\u540e\uff0c Tripo \u63d0\u4f9b\u4e86\u540e\u7eed\u7684\u6a21\u578b\u5904\u7406\u7684\u76f8\u5173 API \u4f60\u53ef\u4ee5\u6309\u9700\u542f\u7528\uff0c\u53ea\u9700\u8981\u4f7f\u7528\u53f3\u952e\uff0c\u5c06\u5bf9\u5e94\u7684\u90e8\u5206\u7684 **\u6a21\u5f0f** \u8bbe\u7f6e\u4e3a **\u603b\u662f** \u5373\u53ef"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "After the task generated by the base model is completed, Tripo provides relevant APIs for subsequent model processing. You can enable them as needed. Just use the right - click and set the **Mode** of the corresponding part to **Always**.\n\n---\n\n\u5728\u57fa\u7840\u6a21\u578b\u751f\u6210\u7684\u4efb\u52a1\u6267\u884c\u5b8c\u6210\u540e\uff0c Tripo \u63d0\u4f9b\u4e86\u540e\u7eed\u7684\u6a21\u578b\u5904\u7406\u7684\u76f8\u5173 API \u4f60\u53ef\u4ee5\u6309\u9700\u542f\u7528\uff0c\u53ea\u9700\u8981\u4f7f\u7528\u53f3\u952e\uff0c\u5c06\u5bf9\u5e94\u7684\u90e8\u5206\u7684 **\u6a21\u5f0f** \u8bbe\u7f6e\u4e3a **\u603b\u662f** \u5373\u53ef"
+        ]
+      },
+      "uid": "31",
+      "widgets": {}
+    },
+    "32": {
+      "class_type": "Preview3D",
+      "id": "32",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 32,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": 17,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [],
+          "pos": [
+            -5910,
+            1290
+          ],
+          "properties": {
+            "Camera Info": {
+              "cameraType": "perspective",
+              "position": {
+                "x": 12.420260977697415,
+                "y": 12.420260977697422,
+                "z": 12.420260977697417
+              },
+              "target": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "zoom": 1
+            },
+            "Node name for S&R": "Preview3D"
+          },
+          "size": [
+            860,
+            770
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "32",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "33": {
+      "class_type": "Preview3D",
+      "id": "33",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 33,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": 18,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 15,
+          "outputs": [],
+          "pos": [
+            -5010,
+            1290
+          ],
+          "properties": {
+            "Node name for S&R": "Preview3D"
+          },
+          "size": [
+            860,
+            770
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "33",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "34": {
+      "class_type": "Preview3D",
+      "id": "34",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 34,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": 19,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 19,
+          "outputs": [],
+          "pos": [
+            -4120,
+            1290
+          ],
+          "properties": {
+            "Node name for S&R": "Preview3D"
+          },
+          "size": [
+            860,
+            770
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "34",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "35": {
+      "class_type": "Preview3D",
+      "id": "35",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 35,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": 20,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 17,
+          "outputs": [],
+          "pos": [
+            -3220,
+            1290
+          ],
+          "properties": {
+            "Node name for S&R": "Preview3D"
+          },
+          "size": [
+            860,
+            770
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "35",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "36": {
+      "class_type": "Preview3D",
+      "id": "36",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 36,
+          "inputs": [
+            {
+              "link": null,
+              "name": "camera_info",
+              "shape": 7,
+              "type": "LOAD3D_CAMERA"
+            },
+            {
+              "link": 21,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 4,
+          "order": 18,
+          "outputs": [],
+          "pos": [
+            -2330,
+            1280
+          ],
+          "properties": {
+            "Camera Info": {
+              "cameraType": "perspective",
+              "position": {
+                "x": 12.519027944116628,
+                "y": 12.519027944116628,
+                "z": 12.51902794411663
+              },
+              "target": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "zoom": 1
+            },
+            "Node name for S&R": "Preview3D"
+          },
+          "size": [
+            860,
+            770
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          ""
+        ]
+      },
+      "uid": "36",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": ""
+      }
+    },
+    "4": {
+      "class_type": "MarkdownNote",
+      "id": "4",
+      "inputs": {
+        "unused_widget_0": "[About API Node](https://docs.comfy.org/tutorials/api-nodes/overview) | [\u5173\u4e8e API \u8282\u70b9](https://docs.comfy.org/zh-CN/tutorials/api-nodes/overview)\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Make sure you can normally connect to our API services (some regions may need a proxy).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key).\n\n---\n\n\u8981\u4f7f\u7528API\uff0c\u4f60\u5fc5\u987b\u5904\u4e8e\u5b89\u5168\u7684\u7f51\u7edc\u73af\u5883\u4e2d\uff1a\n\n- \u5141\u8bb8\u4ece`127.0.0.1`\u6216`localhost`\u8bbf\u95ee\u3002\n- \u5728\u5e26\u6709 https \u5f00\u5934\u7684\u670d\u52a1\u4e2d\u4f7f\u7528\u6211\u4eec\u7684 API Node\n- \u786e\u4fdd\u4f60\u80fd\u591f\u6b63\u5e38\u8fde\u63a5\u6211\u4eec\u7684API\u670d\u52a1\uff08\u67d0\u4e9b\u5730\u533a\u53ef\u80fd\u9700\u8981\u4ee3\u7406\uff09\u3002\n- \u786e\u4fdd\u4f60\u5df2\u5728\u8bbe\u7f6e\u4e2d\u767b\u5f55\uff0c\u4e14\u4f60\u7684\u8d26\u6237\u4ecd\u6709\u8db3\u591f\u7684\u79ef\u5206\u6765\u652f\u4ed8API\u8c03\u7528\u7684\u6d88\u8017\u3002\n- \u5728\u975e\u767d\u540d\u5355\u7ad9\u70b9\u6216\u8005\u5c40\u57df\u7f51\uff08LAN\uff09\uff0c\u8bf7\u5c1d\u8bd5[\u4f7f\u7528 API Key \u6765\u767b\u5f55](https://docs.comfy.org/zh-CN/interface/user#%E4%BD%BF%E7%94%A8-api-key-%E8%BF%9B%E8%A1%8C%E7%99%BB%E5%BD%95)\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 4,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            -7210,
+            1290
+          ],
+          "properties": {},
+          "size": [
+            380,
+            320
+          ],
+          "title": "About API Node",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "[About API Node](https://docs.comfy.org/tutorials/api-nodes/overview) | [\u5173\u4e8e API \u8282\u70b9](https://docs.comfy.org/zh-CN/tutorials/api-nodes/overview)\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Make sure you can normally connect to our API services (some regions may need a proxy).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key).\n\n---\n\n\u8981\u4f7f\u7528API\uff0c\u4f60\u5fc5\u987b\u5904\u4e8e\u5b89\u5168\u7684\u7f51\u7edc\u73af\u5883\u4e2d\uff1a\n\n- \u5141\u8bb8\u4ece`127.0.0.1`\u6216`localhost`\u8bbf\u95ee\u3002\n- \u5728\u5e26\u6709 https \u5f00\u5934\u7684\u670d\u52a1\u4e2d\u4f7f\u7528\u6211\u4eec\u7684 API Node\n- \u786e\u4fdd\u4f60\u80fd\u591f\u6b63\u5e38\u8fde\u63a5\u6211\u4eec\u7684API\u670d\u52a1\uff08\u67d0\u4e9b\u5730\u533a\u53ef\u80fd\u9700\u8981\u4ee3\u7406\uff09\u3002\n- \u786e\u4fdd\u4f60\u5df2\u5728\u8bbe\u7f6e\u4e2d\u767b\u5f55\uff0c\u4e14\u4f60\u7684\u8d26\u6237\u4ecd\u6709\u8db3\u591f\u7684\u79ef\u5206\u6765\u652f\u4ed8API\u8c03\u7528\u7684\u6d88\u8017\u3002\n- \u5728\u975e\u767d\u540d\u5355\u7ad9\u70b9\u6216\u8005\u5c40\u57df\u7f51\uff08LAN\uff09\uff0c\u8bf7\u5c1d\u8bd5[\u4f7f\u7528 API Key \u6765\u767b\u5f55](https://docs.comfy.org/zh-CN/interface/user#%E4%BD%BF%E7%94%A8-api-key-%E8%BF%9B%E8%A1%8C%E7%99%BB%E5%BD%95)\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[About API Node](https://docs.comfy.org/tutorials/api-nodes/overview) | [\u5173\u4e8e API \u8282\u70b9](https://docs.comfy.org/zh-CN/tutorials/api-nodes/overview)\n\nTo use the API, you must be in a secure network environment:\n\n- Allows access from `127.0.0.1` or `localhost`.\n\n- Use our API Node in website services starting with `https`\n\n- Make sure you can normally connect to our API services (some regions may need a proxy).\n\n- Make sure you are logged in in the settings and that your account still has enough credits to cover the consumption of API calls.\n\n- On non-whitelisted sites or local area networks (LANs), please try to [log in using an API Key](https://docs.comfy.org/interface/user#logging-in-with-an-api-key).\n\n---\n\n\u8981\u4f7f\u7528API\uff0c\u4f60\u5fc5\u987b\u5904\u4e8e\u5b89\u5168\u7684\u7f51\u7edc\u73af\u5883\u4e2d\uff1a\n\n- \u5141\u8bb8\u4ece`127.0.0.1`\u6216`localhost`\u8bbf\u95ee\u3002\n- \u5728\u5e26\u6709 https \u5f00\u5934\u7684\u670d\u52a1\u4e2d\u4f7f\u7528\u6211\u4eec\u7684 API Node\n- \u786e\u4fdd\u4f60\u80fd\u591f\u6b63\u5e38\u8fde\u63a5\u6211\u4eec\u7684API\u670d\u52a1\uff08\u67d0\u4e9b\u5730\u533a\u53ef\u80fd\u9700\u8981\u4ee3\u7406\uff09\u3002\n- \u786e\u4fdd\u4f60\u5df2\u5728\u8bbe\u7f6e\u4e2d\u767b\u5f55\uff0c\u4e14\u4f60\u7684\u8d26\u6237\u4ecd\u6709\u8db3\u591f\u7684\u79ef\u5206\u6765\u652f\u4ed8API\u8c03\u7528\u7684\u6d88\u8017\u3002\n- \u5728\u975e\u767d\u540d\u5355\u7ad9\u70b9\u6216\u8005\u5c40\u57df\u7f51\uff08LAN\uff09\uff0c\u8bf7\u5c1d\u8bd5[\u4f7f\u7528 API Key \u6765\u767b\u5f55](https://docs.comfy.org/zh-CN/interface/user#%E4%BD%BF%E7%94%A8-api-key-%E8%BF%9B%E8%A1%8C%E7%99%BB%E5%BD%95)\n"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "MarkdownNote",
+      "id": "5",
+      "inputs": {
+        "unused_widget_0": "Output model will be auto saved to \"ComfyUI/output/\"\n\nOr you can use the export function in the preview 3D node to download it.\n\n---\n\n\u8f93\u51fa\u6a21\u578b\u5c06\u81ea\u52a8\u4fdd\u5b58\u5230 \u201cComfyUI/output/\u201d\u3002\n\n\u6216\u8005\u4f60\u53ef\u4ee5\u4f7f\u7528 3D \u9884\u89c8\u8282\u70b9\u4e2d\u7684\u5bfc\u51fa\u529f\u80fd\u6765\u4e0b\u8f7d\u5b83\u3002"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 5,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            -5910,
+            1090
+          ],
+          "properties": {},
+          "size": [
+            280,
+            150
+          ],
+          "title": "Save location",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "Output model will be auto saved to \"ComfyUI/output/\"\n\nOr you can use the export function in the preview 3D node to download it.\n\n---\n\n\u8f93\u51fa\u6a21\u578b\u5c06\u81ea\u52a8\u4fdd\u5b58\u5230 \u201cComfyUI/output/\u201d\u3002\n\n\u6216\u8005\u4f60\u53ef\u4ee5\u4f7f\u7528 3D \u9884\u89c8\u8282\u70b9\u4e2d\u7684\u5bfc\u51fa\u529f\u80fd\u6765\u4e0b\u8f7d\u5b83\u3002"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Output model will be auto saved to \"ComfyUI/output/\"\n\nOr you can use the export function in the preview 3D node to download it.\n\n---\n\n\u8f93\u51fa\u6a21\u578b\u5c06\u81ea\u52a8\u4fdd\u5b58\u5230 \u201cComfyUI/output/\u201d\u3002\n\n\u6216\u8005\u4f60\u53ef\u4ee5\u4f7f\u7528 3D \u9884\u89c8\u8282\u70b9\u4e2d\u7684\u5bfc\u51fa\u529f\u80fd\u6765\u4e0b\u8f7d\u5b83\u3002"
+        ]
+      },
+      "uid": "5",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "TripoMultiviewToModelNode",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 7,
+              "name": "image_left",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": 6,
+              "name": "image_back",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": 8,
+              "name": "image_right",
+              "shape": 7,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                17
+              ],
+              "name": "model_file",
+              "type": "STRING"
+            },
+            {
+              "links": [
+                14,
+                15,
+                16,
+                22
+              ],
+              "name": "model task_id",
+              "type": "MODEL_TASK_ID"
+            }
+          ],
+          "pos": [
+            -6200,
+            1290
+          ],
+          "properties": {
+            "Node name for S&R": "TripoMultiviewToModelNode"
+          },
+          "size": [
+            270,
+            384
+          ],
+          "type": "TripoMultiviewToModelNode",
+          "widgets_values": [
+            "v2.5-20250123",
+            "default",
+            true,
+            true,
+            42,
+            42,
+            "standard",
+            "original_image",
+            -1,
+            false
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "v2.5-20250123",
+          "default",
+          true,
+          true,
+          42,
+          42,
+          "standard",
+          "original_image",
+          -1,
+          false
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": "v2.5-20250123",
+        "widget_1": "default",
+        "widget_2": true,
+        "widget_3": true,
+        "widget_4": 42,
+        "widget_5": 42,
+        "widget_6": "standard",
+        "widget_7": "original_image",
+        "widget_8": -1,
+        "widget_9": false
+      }
+    },
+    "7": {
+      "class_type": "LoadImage",
+      "id": "7",
+      "inputs": {
+        "image": "front.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -6800,
+            1330
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "title": "Load Image: front",
+          "type": "LoadImage",
+          "widgets_values": [
+            "front.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "front.png",
+          "image"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "LoadImage",
+      "id": "8",
+      "inputs": {
+        "image": "back.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                5
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -6500,
+            1330
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "title": "Load Image: back",
+          "type": "LoadImage",
+          "widgets_values": [
+            "back.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "back.png",
+          "image"
+        ]
+      },
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "LoadImage",
+      "id": "9",
+      "inputs": {
+        "image": "front.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [],
+          "mode": 4,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -6800,
+            1700
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            274.080078125,
+            314
+          ],
+          "title": "Load Image: left",
+          "type": "LoadImage",
+          "widgets_values": [
+            "front.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 4,
+        "provenance": "untrusted_source"
+      },
+      "mode": 4,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "front.png",
+          "image"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "435d466315ca426f",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/435d466315ca426f-api_tripo_multiview_to_model.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f657743bc2a3db17ea993512ef19583c29abd78fcbf71593f5856ddbd0a08284",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "Add api node workflow",
+      "commit_sha": "626d23a46136170c263beab31866bdbd16756c61",
+      "commit_url": "https://github.com/Comfy-Org/example_workflows/commit/626d23a46136170c263beab31866bdbd16756c61",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json:api_tripo_multiview_to_model.json:435d466315ca426f",
+      "filename": "api_tripo_multiview_to_model.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:12+00:00",
+      "node_class_multiset": {
+        "LoadImage": 4,
+        "MarkdownNote": 5,
+        "Preview3D": 5,
+        "TripoConversionNode": 1,
+        "TripoMultiviewToModelNode": 1,
+        "TripoRefineNode": 1,
+        "TripoRetargetNode": 1,
+        "TripoRigNode": 1,
+        "TripoTextureNode": 1
+      },
+      "node_count": 20,
+      "origin_date": "2025-05-27T10:07:40Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "example_workflows",
+      "repo_branch": "main",
+      "repo_path": "api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json",
+      "source": "github",
+      "source_file_sha256": "435d466315ca426fa34397c27288d96500abd12a20496e203fef450805b3c159",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/example_workflows/main/api_nodes/tripo/multiview_to_image/api_tripo_multiview_to_model.json",
+      "source_workflow_sha256": "338138b7a166557af63d199e3d080bc13fe1c373bd9d0b2ffd1fbbc98aa9ba5d",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

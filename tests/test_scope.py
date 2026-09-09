@@ -57,6 +57,75 @@ def test_sg_key_changes_on_topology_change():
     assert sg_key(base) != sg_key(rewired)
 
 
+def test_sg_key_is_invariant_to_equivalent_link_serialization():
+    array_form = _def("sub")
+    object_form = _def(
+        "sub",
+        links=[
+            {
+                "id": 10,
+                "origin_id": 1,
+                "origin_slot": 0,
+                "target_id": 2,
+                "target_slot": 0,
+                "type": "IMAGE",
+            }
+        ],
+    )
+    assert sg_key(array_form) == sg_key(object_form)
+
+
+def test_sg_key_is_invariant_to_native_integer_and_canonical_string_node_ids():
+    native = _def("sub")
+    canonical = _def(
+        "sub",
+        nodes=[
+            {**node, "id": str(node["id"])}
+            for node in native["nodes"]
+        ],
+        links=[[10, "1", 0, "2", 0, "IMAGE"]],
+    )
+
+    assert sg_key(native) == sg_key(canonical)
+
+    malformed_bool = _def(
+        "sub",
+        nodes=[{**native["nodes"][0], "id": True}, native["nodes"][1]],
+        links=[[10, True, 0, 2, 0, "IMAGE"]],
+    )
+    assert sg_key(native) != sg_key(malformed_bool)
+
+
+def test_sg_key_ignores_volatile_socket_link_ids_but_retains_topology():
+    from copy import deepcopy
+
+    original = {
+        "name": "Inner",
+        "nodes": [
+            {
+                "id": 1,
+                "type": "A",
+                "outputs": [{"name": "out", "type": "X", "links": [7]}],
+            },
+            {
+                "id": 2,
+                "type": "B",
+                "inputs": [{"name": "in", "type": "X", "link": 7}],
+            },
+        ],
+        "links": [[7, 1, 0, 2, 0, "X"]],
+    }
+    renumbered = deepcopy(original)
+    renumbered["links"][0][0] = 99
+    renumbered["nodes"][0]["outputs"][0]["links"] = [99]
+    renumbered["nodes"][1]["inputs"][0]["link"] = 99
+    rewired = deepcopy(original)
+    rewired["links"][0][3] = 1
+
+    assert sg_key(original) == sg_key(renumbered)
+    assert sg_key(original) != sg_key(rewired)
+
+
 def test_sg_key_nameless_fallback_does_not_raise():
     key = sg_key(_def(name=None))
     assert isinstance(key, str) and key

@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import shutil
 from threading import Lock
-from inspect import signature
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -544,9 +543,9 @@ def build_m3_save_node_finalize_positive_evidence(report_dir: Path) -> dict[str,
         "m3-save-node-finalize",
         WorkflowSource("m3-save-node-finalize"),
     )
-    workflow.add_node("CheckpointLoaderSimple", ckpt_name="sd_xl_base_1.0.safetensors")
-    source = workflow.add_node("LoadImage", image="input/source.png")
-    save_image(workflow, images=f"{source.id}.0", filename_prefix="m3/finalized")
+    workflow.node("CheckpointLoaderSimple", _id="1", ckpt_name="sd_xl_base_1.0.safetensors")
+    workflow.node("LoadImage", _id="2", image="input/source.png")
+    save_image(workflow, images="2.0", filename_prefix="m3/finalized")
     workflow.finalize_metadata()
 
     output_path = root / "outputs" / "image.png"
@@ -952,20 +951,51 @@ def _build_run_metadata(
     chain_id: str | None,
     parent_run_id: str | None,
 ) -> dict[str, Any]:
+    from vibecomfy import load_bundle
+    from vibecomfy.model_assets import _referenced_model_values
+    from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+
+    workflow = workflow.copy()
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"structural-{node.id}"
+    # These compile-only actors use a bounded offline model catalogue. This
+    # supplies fixture availability, never evidence that model weights ran.
+    references = {
+        (str(ref["value"]), str(ref["subdir"]))
+        for ref in _referenced_model_values(workflow)
+    }
+    targets: dict[str, set[str]] = {}
+    for name, subdir in references:
+        targets.setdefault(name, set()).add(subdir)
+    entries = tuple(
+        ModelEntry(name, ModelSource("local"), 0, tuple(
+            ModelTarget("comfy_core", f"{subdir}/{name}")
+            for subdir in sorted(subdirs)
+        ), canonical_name=name)
+        for name, subdirs in sorted(targets.items())
+    )
+    bundle = load_bundle(workflow)
+    with (
+        mock.patch("vibecomfy.registry.models_loader.load_registry", return_value=entries),
+        mock.patch("vibecomfy.fetch.is_present", side_effect=lambda ref, **_: (
+            str(ref["name"]), str(ref["subdir"])
+        ) in references),
+    ):
+        record = bundle.compile()
+    if record.to_dict()["api_projection"] != api_dict:
+        raise AssertionError("structural API evidence differs from the approved projection")
     kwargs: dict[str, Any] = {
         "run_id": run_id,
-        "workflow": workflow,
-        "api_dict": api_dict,
+        "bundle": bundle,
+        "record": record,
         "queued": {"outputs": {}},
         "comfy_outputs": {},
         "outputs": outputs,
         "runtime": "structural",
     }
-    params = signature(_run_metadata).parameters
-    if "chain_id" in params:
-        kwargs["chain_id"] = chain_id
-    if "parent_run_id" in params:
-        kwargs["parent_run_id"] = parent_run_id
+    kwargs["chain_id"] = chain_id
+    kwargs["parent_run_id"] = parent_run_id
     metadata = _run_metadata(**kwargs)
     if chain_id is not None:
         metadata.setdefault("chain_id", chain_id)

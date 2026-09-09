@@ -5,12 +5,18 @@ import json
 import time
 import signal
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
 
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import EmbeddedSession, ServerSession, SessionConfig
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.porting.object_info import ObjectInfoLookupResult
+from vibecomfy.schema import NodeSchema
+from vibecomfy.testing.canonical import canonical_digest
+from vibecomfy.workflow_bundle import load_bundle
 from tests._runtime_session_helpers import (
     FakeAsyncClient,
     FakeProcess,
@@ -18,6 +24,91 @@ from tests._runtime_session_helpers import (
     _workflow,
     fake_server,  # noqa: F401 -- pytest fixture imported for use in tests
 )
+
+
+def _terminal_events(tmp_path: Path, record):
+    run_dir = next(path for path in (tmp_path / "out/runs").iterdir() if path.is_dir())
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    return attempt, events
+
+
+_RECORD_KEYS = {
+    "revision_id", "selected_variant", "input_binding",
+    "api_projection", "ui_projection", "api_digest",
+}
+
+
+def _assert_exact_runtime_record(document: dict, record) -> None:
+    evidence_objects: list[dict] = []
+    full_record_paths: list[tuple[object, ...]] = []
+
+    def walk(value, path: tuple[object, ...] = ()) -> None:
+        if isinstance(value, dict):
+            if _RECORD_KEYS <= set(value):
+                full_record_paths.append(path)
+            runtime_evidence = value.get("runtime_evidence")
+            if isinstance(runtime_evidence, dict):
+                evidence_objects.append(runtime_evidence)
+            for key, child in value.items():
+                walk(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, (*path, index))
+
+    walk(document)
+    assert evidence_objects
+    assert len(full_record_paths) == len(evidence_objects)
+    record_dict = record.to_dict()
+    for evidence in evidence_objects:
+        approved = evidence["approved_projection"]
+        assert isinstance(approved, dict)
+        assert len(approved) == 6
+        assert set(approved) == _RECORD_KEYS
+        assert approved == record_dict
+        assert evidence["api_digest"] == record.api_digest
+        assert evidence["ui_digest"] == canonical_digest(record_dict["ui_projection"])
+        assert evidence["record_digest"] == canonical_digest(record_dict)
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            assert evidence[key] == document.get(key, evidence[key])
+    assert all(path[-2:] == ("runtime_evidence", "approved_projection") for path in full_record_paths)
+    assert not {"approved_projection", "approval_record", "approved_record"} & set(document)
+    assert not (_RECORD_KEYS - {"api_digest"}) & set(document)
+    if "runtime_evidence" in document:
+        evidence = document["runtime_evidence"]
+        for key in ("queue_acceptance", "terminal", "adapter", "schema_provenance"):
+            if key in document:
+                assert document[key] == evidence[key]
+        if "api_digest" in document:
+            assert document["api_digest"] == evidence["api_digest"]
+
+
+def _approved(workflow):
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"runtime-{node.id}"
+    bundle = load_bundle(workflow)
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            return NodeSchema(class_type, None, {}, [])
+
+    entry = ModelEntry(
+        "runtime-fixture-model",
+        ModelSource("local"),
+        0,
+        (ModelTarget("comfy_core", "checkpoints"),),
+    )
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+        patch(
+            "vibecomfy.porting.object_info.resolve_class_entry",
+            return_value=ObjectInfoLookupResult(entry={}, source="fixture", low_confidence=False),
+        ),
+    ):
+        return bundle.compile(schema_provider=_FixtureProvider()), bundle
 
 
 def test_server_session_start_translates_config_to_cli_args(fake_server) -> None:
@@ -52,8 +143,8 @@ def test_server_session_two_runs_share_one_subprocess(
     async def run_twice() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
-            await session.run(_workflow())
-            await session.run(_workflow())
+            await session.run(*_approved(_workflow()))
+            await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -86,7 +177,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
 
     async def run_cases() -> None:
         try:
-            await session.run(_workflow("model-a.safetensors"))
+            await session.run(*_approved(_workflow("model-a.safetensors")))
             first_fingerprint = session.last_fingerprint
             assert first_fingerprint is not None
 
@@ -96,7 +187,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
                 "messages": [["execution_error", {"exception_message": "model-b failed"}]],
             }
             with pytest.raises(RuntimeNodeError, match="model-b failed"):
-                await session.run(_workflow("model-b.safetensors"))
+                await session.run(*_approved(_workflow("model-b.safetensors")))
             assert session.last_fingerprint == first_fingerprint
 
             FakeAsyncClient.history_status = {
@@ -105,7 +196,7 @@ def test_server_failed_run_does_not_promote_fingerprint_authority(
                 "messages": [],
             }
             monkeypatch.setattr(session_module, "_free_vram_gb", lambda: 0.5)
-            await session.run(_workflow("model-b.safetensors"))
+            await session.run(*_approved(_workflow("model-b.safetensors")))
         finally:
             await session.stop()
 
@@ -138,7 +229,7 @@ def test_server_session_concurrent_runs_get_exclusive_roots(
     async def run_both():
         sessions = [ServerSession(SessionConfig(port=8200)), ServerSession(SessionConfig(port=8200))]
         try:
-            return await asyncio.gather(*(session.run(_workflow()) for session in sessions))
+            return await asyncio.gather(*(session.run(*_approved(_workflow())) for session in sessions))
         finally:
             await asyncio.gather(*(session.stop() for session in sessions))
 
@@ -158,14 +249,14 @@ def test_server_session_success_then_failure_same_second_keeps_roots_isolated(
 
     async def run_case():
         try:
-            first = await session.run(_workflow())
+            first = await session.run(*_approved(_workflow()))
             FakeAsyncClient.history_status = {
                 "status_str": "error",
                 "completed": True,
                 "messages": [["execution_error", {"exception_message": "second run failed"}]],
             }
             with pytest.raises(RuntimeNodeError, match="second run failed"):
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
             return first
         finally:
             await session.stop()
@@ -201,7 +292,7 @@ def test_server_session_queue_failure_includes_id_map(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeError, match="Workflow queue failed: queue refused prompt") as exc_info:
-                await session.run(workflow)
+                await session.run(*_approved(workflow))
             message = str(exc_info.value)
             assert "id_map=" in message
             assert "'sampler': '2'" in message
@@ -223,7 +314,7 @@ def test_server_session_waits_for_history_and_records_outputs(
     async def run_case():
         session = ServerSession(SessionConfig(port=8200, extra={"output_directory": str(output_dir)}))
         try:
-            return await session.run(_workflow())
+            return await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -236,6 +327,37 @@ def test_server_session_waits_for_history_and_records_outputs(
 
 
     assert any(url.endswith("/history/prompt-1") for url in FakeAsyncClient.gets)
+
+
+def test_server_managed_success_adapter_provenance_is_identical(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+
+    async def run_case():
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            return await session.run(record, bundle)
+        finally:
+            await session.stop()
+
+    result = asyncio.run(run_case())
+    run_dir = Path(result.metadata_path).parent
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+    lifecycle = run_dir / "transactions" / record.api_digest / "lifecycle_events.jsonl"
+    events = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines()]
+    adapters = [
+        attempt["runtime_evidence"]["adapter"],
+        metadata["runtime_evidence"]["adapter"],
+        events[-1]["receipt"]["runtime_evidence"]["adapter"],
+    ]
+    assert all(adapter == adapters[0] for adapter in adapters)
+    assert adapters[0] == {"kind": "managed", "backend": "api", "endpoint": "http://127.0.0.1:8200"}
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(metadata, record)
+    _assert_exact_runtime_record(events[-1], record)
 
 
 def test_server_history_active_states_continue_polling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,7 +495,7 @@ def test_server_session_terminal_error_fails_before_metadata(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeNodeError) as exc_info:
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
             message = str(exc_info.value)
             assert "prompt-1" in message
             assert "execution_error" in message
@@ -410,7 +532,7 @@ def test_server_session_does_not_finalize_watchdog_completed_before_history(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeNodeError, match="history-error"):
-                await session.run(_workflow())
+                await session.run(*_approved(_workflow()))
         finally:
             await session.stop()
 
@@ -418,28 +540,361 @@ def test_server_session_does_not_finalize_watchdog_completed_before_history(
     assert reasons == ["errored"]
 
 
-def test_server_queue_http_200_without_prompt_id_fails_without_history_retry(
-    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("queue_response", [{}, {"prompt_id": "   "}])
+def test_server_queue_http_200_without_or_blank_prompt_id_fails_without_history_retry(
+    queue_response: dict, fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     async def post(self, url: str, json: dict | None = None):
+        FakeAsyncClient.posts.append((url, json))
         if url.endswith("/prompt"):
-            return FakeResponse(200, {})
+            return FakeResponse(200, queue_response)
         return FakeResponse(200, {})
 
     monkeypatch.setattr(FakeAsyncClient, "post", post)
+    record, bundle = _approved(_workflow())
 
     async def run_case() -> None:
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(QueueError, match="did not include a prompt_id"):
-                await session.run(_workflow())
+                await session.run(record, bundle)
         finally:
             await session.stop()
 
     asyncio.run(run_case())
     assert not any("/history/" in url for url in FakeAsyncClient.gets)
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"] == attempt["queue_acceptance"]
+    assert evidence["terminal"]["acceptance_known"] is False
+    assert evidence["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "QueueError",
+        "reason": "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically next action: vibecomfy runtime doctor",
+        "acceptance_known": False,
+    }
+    assert events[-1]["event_type"] == "discarded"
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["generation"] == events[0]["generation"]
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_server_acceptance_witness_write_failure_is_unknown_discarded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    real_persist = session_module._persist_runtime_evidence
+    calls = 0
+
+    def fail_witness(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("witness disk full")
+        return real_persist(*args, **kwargs)
+
+    monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_witness)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(QueueError, match="acceptance could not be recorded"):
+                await session.run(record, bundle)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert not any("/history/" in url for url in FakeAsyncClient.gets)
+    assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "acceptance_witness",
+        "reason_type": "persistence",
+        "reason": "witness disk full",
+        "acceptance_known": False,
+    }
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+@pytest.mark.parametrize("failure_kind", ["output", "metadata", "journal", "completed_attempt"])
+def test_server_post_witness_failure_matrix(
+    failure_kind: str, fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    reasons: list[str] = []
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+    if failure_kind == "output":
+        monkeypatch.setattr(
+            session_module, "_collect_output_paths",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("output collection failed")),
+        )
+    elif failure_kind == "metadata":
+        real_atomic = session_module.atomic_write_json
+
+        def fail_metadata(path, value):
+            if Path(path).name == "metadata.json":
+                raise OSError("metadata disk full")
+            return real_atomic(path, value)
+
+        monkeypatch.setattr(session_module, "atomic_write_json", fail_metadata)
+    elif failure_kind == "journal":
+        real_journal = session_module._journal_terminal
+        calls = 0
+
+        def fail_finalized(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if kwargs.get("event_type") == "finalized":
+                raise OSError("finalized journal disk full")
+            return real_journal(*args, **kwargs)
+
+        monkeypatch.setattr(session_module, "_journal_terminal", fail_finalized)
+    else:
+        real_persist = session_module._persist_runtime_evidence
+        calls = 0
+
+        def fail_completed(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise OSError("completion attempt disk full")
+            return real_persist(*args, **kwargs)
+
+        monkeypatch.setattr(session_module, "_persist_runtime_evidence", fail_completed)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            expected = QueueError if failure_kind in {"metadata", "journal", "completed_attempt"} else OSError
+            with pytest.raises(expected) as exc_info:
+                await session.run(record, bundle)
+            if failure_kind == "completed_attempt":
+                assert isinstance(exc_info.value.__cause__, OSError)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert reasons == ["errored"]
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    assert len(events) == 2
+    assert len([event for event in events if event["event_type"] == "discarded"]) == 1
+    assert not any(event["event_type"] == "finalized" for event in events)
+    terminal = events[-1]["receipt"]["runtime_evidence"]["terminal"]
+    assert terminal["phase"] == ("output" if failure_kind == "output" else "metadata")
+    assert terminal["reason_type"] == ("OSError" if failure_kind == "output" else "QueueError")
+    assert terminal["acceptance_known"] is True
+    if failure_kind != "journal":
+        assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_server_cancel_during_queue_persists_unknown_superseded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    reasons: list[str] = []
+    queue_calls = 0
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+
+    async def blocked_queue(*_args, **_kwargs):
+        nonlocal queue_calls
+        queue_calls += 1
+        entered.set()
+        await release.wait()
+        return types.SimpleNamespace(queued={"prompt_id": "never"})
+
+    import types
+    monkeypatch.setattr(session_module, "queue_server_prompt", blocked_queue)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        task = asyncio.create_task(session.run(record, bundle))
+        await entered.wait()
+        task.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert queue_calls == 1
+    assert reasons == ["cancelled"]
+    assert events[-1]["event_type"] == "superseded"
+    assert attempt["queue_acceptance"] == {"status": "unknown", "prompt_id": None}
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "cancelled",
+        "reason_type": "CancelledError",
+        "reason": "CancelledError",
+        "acceptance_known": False,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def _run_server_interrupt_after_acceptance(
+    interruption: BaseException, fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    reasons: list[str] = []
+
+    async def fake_start_watchdog(**_kwargs):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+
+    async def interrupted_history(*_args, **_kwargs):
+        raise interruption
+
+    monkeypatch.setattr(session_module, "_wait_for_server_history", interrupted_history)
+
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(type(interruption)):
+                await session.run(record, bundle)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    assert reasons == ["interrupted" if isinstance(interruption, KeyboardInterrupt) else "cancelled"]
+    assert attempt["queue_acceptance"] == {"status": "accepted", "prompt_id": "prompt-1"}
+    assert events[-1]["event_type"] == "superseded"
+    assert events[-1]["receipt"]["runtime_evidence"]["queue_acceptance"] == attempt["queue_acceptance"]
+    reason_type = "KeyboardInterrupt" if isinstance(interruption, KeyboardInterrupt) else "CancelledError"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"] == {
+        "phase": "interrupted" if reason_type == "KeyboardInterrupt" else "cancelled",
+        "reason_type": reason_type,
+        "reason": str(interruption),
+        "acceptance_known": True,
+    }
+    assert [event["event_type"] for event in events] == ["prepared", "superseded"]
+    assert not any(event["event_type"] == "finalized" for event in events)
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_server_cancel_after_acceptance_persists_accepted_superseded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run_server_interrupt_after_acceptance(
+        asyncio.CancelledError("cancelled after accept"), fake_server, tmp_path, monkeypatch
+    )
+
+
+def test_server_keyboard_interrupt_after_acceptance_persists_accepted_superseded(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run_server_interrupt_after_acceptance(
+        KeyboardInterrupt("interrupt after accept"), fake_server, tmp_path, monkeypatch
+    )
+
+
+@pytest.mark.parametrize("failure", [asyncio.TimeoutError("queue timeout"), QueueError("queue rejected")])
+def test_server_queue_failure_classifies_timeout_and_rejection(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+
+    async def post(self, url: str, json: dict | None = None):
+        FakeAsyncClient.posts.append((url, json))
+        if url.endswith("/prompt"):
+            raise failure
+        return FakeResponse(200, {})
+
+    monkeypatch.setattr(FakeAsyncClient, "post", post)
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises((TimeoutError, QueueError)):
+                await session.run(record, bundle)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    expected = "unknown" if isinstance(failure, asyncio.TimeoutError) else "rejected"
+    assert attempt["queue_acceptance"]["status"] == expected
+    evidence = events[-1]["receipt"]["runtime_evidence"]
+    assert evidence["queue_acceptance"]["status"] == expected
+    assert evidence["terminal"]["acceptance_known"] is (expected == "rejected")
+    assert [event["event_type"] for event in events] == ["prepared", "discarded"]
+    assert len([url for url, _payload in FakeAsyncClient.posts if url.endswith("/prompt")]) == 1
+    _assert_exact_runtime_record(attempt, record)
+    _assert_exact_runtime_record(events[-1], record)
+
+
+def test_server_model_preflight_is_recorded_after_lifecycle_begin(
+    fake_server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    monkeypatch.setattr(
+        session_module, "apply_model_preflight", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("managed preflight failed")
+        )
+    )
+    async def run_case() -> None:
+        session = ServerSession(SessionConfig(port=8200))
+        try:
+            with pytest.raises(RuntimeError, match="managed preflight failed"):
+                await session.run(record, bundle, ensure_models=True)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+    attempt, events = _terminal_events(tmp_path, record)
+    assert attempt["queue_acceptance"] == {"status": "not_attempted", "prompt_id": None}
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["phase"] == "preflight"
+    assert not any(url.endswith("/prompt") for url, _payload in FakeAsyncClient.posts)
 
 
 def test_terminal_error_evidence_is_bounded() -> None:

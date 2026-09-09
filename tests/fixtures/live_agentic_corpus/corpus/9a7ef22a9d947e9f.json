@@ -1,0 +1,130 @@
+{
+  "25": {
+    "class_type": "VHS_LoadAudio",
+    "inputs": {
+      "audio_file": [
+        "49",
+        2
+      ],
+      "seek_seconds": 0
+    }
+  },
+  "48": {
+    "class_type": "voicecraft_model_loader",
+    "inputs": {
+      "espeak_library_path": [
+        "50",
+        0
+      ],
+      "widget_0": "C:\\Program Files\\eSpeak NG\\libespeak-ng.dll"
+    }
+  },
+  "49": {
+    "class_type": "voicecraft_process",
+    "inputs": {
+      "audio_tensor": [
+        "51",
+        0
+      ],
+      "target_transcript": [
+        "77",
+        0
+      ],
+      "voicecraft_model": [
+        "48",
+        0
+      ],
+      "widget_0": "84_121550_000074_000000.wav",
+      "widget_1": 20811021574074,
+      "widget_2": "randomize",
+      "widget_3": 7,
+      "widget_4": 0,
+      "widget_5": 0.8,
+      "widget_6": 1,
+      "widget_7": 3,
+      "widget_8": 1,
+      "widget_9": "But when I had approached so near to them The common To unlock the multitude of control types and artistic flows possible with AI, we want to build tooling and infrastructure to empower a community of tool-builders, who in-turn empower a world of budding artists."
+    }
+  },
+  "50": {
+    "class_type": "PrimitiveNode",
+    "inputs": {
+      "value": "C:\\Program Files\\eSpeak NG\\libespeak-ng.dll"
+    }
+  },
+  "51": {
+    "class_type": "vhs_audio_to_audio_tensor",
+    "inputs": {
+      "vhs_audio": [
+        "52",
+        0
+      ],
+      "widget_0": 16000,
+      "widget_1": 1
+    }
+  },
+  "52": {
+    "class_type": "VHS_LoadAudio",
+    "inputs": {
+      "audio_file": "C:\\sd\\ComfyUI\\custom_nodes\\ComfyUI-VoiceCraft\\demo\\84_121550_000074_000000.wav",
+      "seek_seconds": 0
+    }
+  },
+  "71": {
+    "class_type": "Apply Whisper",
+    "inputs": {
+      "audio": [
+        "52",
+        0
+      ],
+      "widget_0": "tiny"
+    }
+  },
+  "72": {
+    "class_type": "ShowText|pysssss",
+    "inputs": {
+      "text": [
+        "71",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "But when I had approached so near to them, the common object, which the sense deceives, lost not by distance any of its marks."
+    }
+  },
+  "76": {
+    "class_type": "Text Multiline",
+    "inputs": {
+      "widget_0": "The quick brown fox jumps over the lazy dog"
+    }
+  },
+  "77": {
+    "class_type": "Text Concatenate",
+    "inputs": {
+      "text_a": [
+        "71",
+        0
+      ],
+      "text_b": [
+        "76",
+        0
+      ],
+      "text_c": " ",
+      "text_d": "true",
+      "widget_2": "",
+      "widget_3": "",
+      "widget_4": "",
+      "widget_5": ""
+    }
+  },
+  "88": {
+    "class_type": "ShowText|pysssss",
+    "inputs": {
+      "text": [
+        "77",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "But when I had approached so near to them, the common object, which the sense deceives, lost not by distance any of its marks. The quick brown fox jumps over the lazy dog"
+    }
+  }
+}

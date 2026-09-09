@@ -1,0 +1,134 @@
+{
+  "14": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "16": {
+    "class_type": "CLIPTextEncodeSDXL",
+    "inputs": {
+      "clip": [
+        "14",
+        1
+      ],
+      "text_g": [
+        "21",
+        0
+      ],
+      "text_l": [
+        "21",
+        0
+      ],
+      "widget_0": 4096,
+      "widget_1": 4096,
+      "widget_2": 0,
+      "widget_3": 0,
+      "widget_4": 4096,
+      "widget_5": 4096,
+      "widget_6": "a photo of a cat wearing a spacesuit inside a spaceship\n\nhigh resolution, detailed, 4k",
+      "widget_7": "a photo of a cat wearing a spacesuit inside a spaceship\n\nhigh resolution, detailed, 4k"
+    }
+  },
+  "19": {
+    "class_type": "CLIPTextEncodeSDXL",
+    "inputs": {
+      "clip": [
+        "14",
+        1
+      ],
+      "text_g": [
+        "23",
+        0
+      ],
+      "text_l": [
+        "23",
+        0
+      ],
+      "widget_0": 4096,
+      "widget_1": 4096,
+      "widget_2": 0,
+      "widget_3": 0,
+      "widget_4": 4096,
+      "widget_5": 4096,
+      "widget_6": "blurry, rendering, illustration",
+      "widget_7": "blurry, rendering, illustration"
+    }
+  },
+  "21": {
+    "class_type": "PrimitiveNode",
+    "inputs": {
+      "value": "a photo of a cat wearing a spacesuit inside a spaceship\n\nhigh resolution, detailed, 4k"
+    }
+  },
+  "23": {
+    "class_type": "PrimitiveNode",
+    "inputs": {
+      "value": "blurry, rendering, illustration"
+    }
+  },
+  "36": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 8,
+      "denoise": 1,
+      "latent_image": [
+        "5",
+        0
+      ],
+      "model": [
+        "14",
+        0
+      ],
+      "negative": [
+        "19",
+        0
+      ],
+      "positive": [
+        "16",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "seed": 1,
+      "steps": 20
+    }
+  },
+  "37": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "sdxl_vae.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "widget_0": 1024,
+      "widget_1": 1024,
+      "widget_2": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "36",
+        0
+      ],
+      "vae": [
+        "37",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "SDXL",
+      "images": [
+        "8",
+        0
+      ]
+    }
+  }
+}

@@ -63,6 +63,7 @@ def two_node_graph_list_links() -> dict:
                     {"name": "latent_image", "type": "LATENT", "link": 2},
                 ],
             },
+            {"id": 3, "type": "EmptyLatentImage", "class_type": "EmptyLatentImage"},
         ],
         "links": [
             [1, 1, 0, 2, 0, "MODEL"],
@@ -129,6 +130,7 @@ def graph_with_outputs() -> dict:
                     {"name": "VAE", "type": "VAE"},
                 ],
             },
+            {"id": 2, "type": "KSampler", "class_type": "KSampler"},
         ],
         "links": [
             [1, 1, 0, 2, 0, "MODEL"],
@@ -554,11 +556,11 @@ class TestDeriveInputs:
         assert set(inputs) == {1, 4}
 
     def test_inputs_two_node_list(self, two_node_graph_list_links: dict) -> None:
-        """Node 1 (CheckpointLoaderSimple) has no inputs → input.
+        """Nodes 1 and 3 have no inputs → inputs.
         Node 2 (KSampler) has linked inputs → not an input."""
         evidence = inspect_graph(two_node_graph_list_links)
         inputs = derive_inputs(evidence)
-        assert inputs == (1,)
+        assert inputs == (1, 3)
 
     def test_inputs_dict_links(self, two_node_graph_dict_links: dict) -> None:
         """Node 5 (LoadImage) has no linked inputs → input.

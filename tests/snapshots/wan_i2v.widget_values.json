@@ -7,6 +7,12 @@
   ],
   [
     "CLIPLoader",
+    "device",
+    "'default'",
+    1
+  ],
+  [
+    "CLIPLoader",
     "type",
     "'wan'",
     1
@@ -49,14 +55,32 @@
   ],
   [
     "KSampler",
+    "denoise",
+    "1",
+    1
+  ],
+  [
+    "KSampler",
     "sampler_name",
     "'uni_pc'",
     1
   ],
   [
     "KSampler",
+    "scheduler",
+    "'simple'",
+    1
+  ],
+  [
+    "KSampler",
     "seed",
     "987948718394761",
+    1
+  ],
+  [
+    "KSampler",
+    "steps",
+    "20",
     1
   ],
   [
@@ -72,9 +96,33 @@
     1
   ],
   [
+    "SaveVideo",
+    "codec",
+    "'auto'",
+    1
+  ],
+  [
+    "SaveVideo",
+    "filename_prefix",
+    "'video/ComfyUI'",
+    1
+  ],
+  [
+    "SaveVideo",
+    "format",
+    "'auto'",
+    1
+  ],
+  [
     "UNETLoader",
     "unet_name",
     "'wan2.1_i2v_480p_14B_fp16.safetensors'",
+    1
+  ],
+  [
+    "UNETLoader",
+    "weight_dtype",
+    "'default'",
     1
   ],
   [
@@ -85,26 +133,26 @@
   ],
   [
     "WanImageToVideo",
-    "widget_0",
+    "batch_size",
+    "1",
+    1
+  ],
+  [
+    "WanImageToVideo",
+    "height",
     "512",
     1
   ],
   [
     "WanImageToVideo",
-    "widget_1",
-    "512",
-    1
-  ],
-  [
-    "WanImageToVideo",
-    "widget_2",
+    "length",
     "33",
     1
   ],
   [
     "WanImageToVideo",
-    "widget_3",
-    "1",
+    "width",
+    "512",
     1
   ]
 ]

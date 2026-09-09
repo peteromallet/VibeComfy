@@ -181,10 +181,10 @@ Standard evidence format for app parity runs. Current live-test flow (reigh-work
 The first vertical slice (LTX 2.3 first/last no-control) is implemented end-to-end:
 
 - **Lens**: `vibecomfy/lens/core.py` with `WorkflowLens` (14 query methods + module-level stateless equivalents)
-- **Contracts**: `vibecomfy/contracts/` with `ContractReport`, `ContractIssue`, `LTXFirstLastTwoStageContract` (10 checks)
+- **Contracts**: `vibecomfy/contracts/` with `ContractReport`, `ContractIssue`, and the historical `LTXFirstLastTwoStageContract` name for the current semantic checks
 - **CLI**: `workflows lens` and `workflows contract-validate` subcommands with JSON and human-readable output
 - **Tests**: Lens tests (21), contract-backed ready-template tests, CLI tests for lens/contract validation
-- **Template**: `video/ltx2_3_lightricks_first_last_parity` — pure Python, 12 named inputs, Lightricks two-stage spine
+- **Template**: `video/ltx2_3_lightricks_first_last_parity` — pure Python, seven public input entries (including the `image`/`input_image` alias pair), current distilled first/last path with one sampler
 - **Routing**: Both `ltx2` and `ltx2_distilled` no-control first/last routes resolve to the parity template
 - **Adapter**: Scratchpad uses `workflow.set_input(...)` with named inputs — no Runexx node-id patching
 

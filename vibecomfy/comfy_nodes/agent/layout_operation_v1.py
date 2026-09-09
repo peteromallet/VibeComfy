@@ -138,20 +138,59 @@ def _normalize_layout_op(raw: Any, *, snapshot: Any = None, working_workflow: An
             op=op_name,
         )
 
-    from vibecomfy.porting.edit.admit import (
-        AdmissionRejected,
-        admit_operation,
-        rejected_ops_are_invisible,
-    )
+    allowed_keys = {
+        "set_node_geometry": _SET_NODE_GEOMETRY_KEYS,
+        "add_group": _ADD_GROUP_KEYS,
+        "set_group_geometry": _SET_GROUP_GEOMETRY_KEYS,
+        "remove_group": _REMOVE_GROUP_KEYS,
+    }[op_name]
+    extras = sorted(key for key in raw if key not in allowed_keys)
+    if extras:
+        raise _fail(
+            f"Unknown layout op key(s): {', '.join(str(key) for key in extras)}",
+            "malformed_layout_op",
+            keys=extras,
+        )
 
-    admitted = admit_operation(snapshot, raw, working_workflow=working_workflow)
-    if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
-        raise _fail(admitted.typed_reason, admitted.typed_reason)
+    identity_field = "uid" if op_name == "set_node_geometry" else "id"
+    identity = _require_nonempty_str(raw.get(identity_field), identity_field)
+    if op_name == "add_group":
+        if not isinstance(raw.get("title"), str):
+            raise _fail("add_group title must be a string", "malformed_layout_op", field="title")
+        color = raw.get("color")
+        if color is not None and not isinstance(color, str):
+            raise _fail("add_group color must be a string or null", "malformed_layout_op", field="color")
+    elif op_name == "set_group_geometry":
+        if not any(key in raw for key in _GROUP_CHANGEABLE_KEYS):
+            raise _fail(
+                "set_group_geometry must change at least one field",
+                "malformed_layout_op",
+            )
+        if "title" in raw and not isinstance(raw.get("title"), str):
+            raise _fail("group title must be a string", "malformed_layout_op", field="title")
+        color = raw.get("color")
+        if "color" in raw and color is not None and not isinstance(color, str):
+            raise _fail("group color must be a string or null", "malformed_layout_op", field="color")
+
+    # Shape/digest helpers deliberately remain usable without schema authority:
+    # an envelope is only a proposed mutation description and cannot mint a
+    # candidate transaction.  Every authority-issuing path supplies the locked
+    # admission snapshot and therefore takes this fail-closed admission branch.
+    # In particular, ``working_workflow`` is never treated as schema authority.
+    if snapshot is not None:
+        from vibecomfy.porting.edit.admit import (
+            AdmissionRejected,
+            admit_operation,
+            rejected_ops_are_invisible,
+        )
+
+        admitted = admit_operation(snapshot, raw, working_workflow=working_workflow)
+        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
+            raise _fail(admitted.typed_reason, admitted.typed_reason)
 
     if op_name == "set_node_geometry":
-        uid = str(raw.get("uid") or "")
         pos = _geometry_vector(raw.get("pos"), 2, "pos")
-        normalized: dict[str, Any] = {"op": op_name, "uid": uid, "pos": pos}
+        normalized: dict[str, Any] = {"op": op_name, "uid": identity, "pos": pos}
         if "size" in raw and raw.get("size") is not None:
             normalized["size"] = _geometry_vector(raw.get("size"), 2, "size")
         return normalized
@@ -160,14 +199,14 @@ def _normalize_layout_op(raw: Any, *, snapshot: Any = None, working_workflow: An
         bounding = _geometry_vector(raw.get("bounding"), 4, "bounding")
         return {
             "op": op_name,
-            "id": str(raw.get("id") or ""),
+            "id": identity,
             "bounding": bounding,
             "title": raw.get("title"),
             "color": raw.get("color"),
         }
 
     if op_name == "set_group_geometry":
-        result: dict[str, Any] = {"op": op_name, "id": str(raw.get("id") or "")}
+        result: dict[str, Any] = {"op": op_name, "id": identity}
         if "bounding" in raw:
             result["bounding"] = _geometry_vector(raw.get("bounding"), 4, "bounding")
         if "title" in raw:
@@ -176,7 +215,7 @@ def _normalize_layout_op(raw: Any, *, snapshot: Any = None, working_workflow: An
             result["color"] = raw.get("color")
         return result
 
-    return {"op": op_name, "id": str(raw.get("id") or "")}
+    return {"op": op_name, "id": identity}
 
 
 
@@ -224,8 +263,10 @@ def compute_layout_operation_digest(
 ) -> str:
     """Canonical SHA-256 of ``{contract_version, wire_version, ops}``.
 
-    ``ops`` are validated and numerically normalised before hashing so the
-    preimage is byte-identical to the JS mirror.
+    ``ops`` are shape-validated and numerically normalised before hashing so
+    the preimage is byte-identical to the JS mirror.  Passing ``snapshot`` also
+    performs touched-schema admission.  The snapshotless form is a pure digest
+    helper and cannot issue candidate authority.
     """
     normalized_ops = _normalize_ops(ops, snapshot=snapshot, working_workflow=working_workflow)
     preimage = {
@@ -409,28 +450,15 @@ def build_layout_operation_envelope(
         if gid not in candidate_groups:
             ops.append({"op": "remove_group", "id": gid})
 
-    snapshot = None
-    working_workflow = None
-    if isinstance(submit_ui, Mapping):
-        try:
-            from vibecomfy.ingest.normalize import from_ui
-            from vibecomfy.porting.edit.admit import admission_snapshot_for
-
-            working_workflow = from_ui(
-                dict(submit_ui),
-                use_comfy_converter=False,
-            )
-            snapshot = admission_snapshot_for(working_workflow)
-        except Exception:
-            snapshot = None
-            working_workflow = None
     return {
         "contract_version": LAYOUT_OPERATION_CONTRACT_V1,
         "wire_version": LAYOUT_OPERATION_WIRE_VERSION,
         "ops": ops,
-        "digest": compute_layout_operation_digest(
-            ops, snapshot=snapshot, working_workflow=working_workflow
-        ),
+        # This helper derives a proposed, cross-language envelope only.  The
+        # candidate-transaction issuer reconstructs the locked schema snapshot
+        # from its persisted witness and re-normalises this envelope before it
+        # can become authority.
+        "digest": compute_layout_operation_digest(ops),
     }
 
 

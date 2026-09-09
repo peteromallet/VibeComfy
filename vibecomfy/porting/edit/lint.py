@@ -66,6 +66,7 @@ from .ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
+from ._session_types import OperationTransition, _freeze_report
 from vibecomfy.porting.resolution import (
     _NodeMeta,
     LintIndexBackend,
@@ -73,8 +74,12 @@ from vibecomfy.porting.resolution import (
     ResolutionIssue,
     build_lg_id_maps,
 )
-from vibecomfy.porting.edit._ir_utils import _canonical_input_name_for_class
+from vibecomfy.porting.edit._ir_utils import (
+    _canonical_input_name_for_class,
+    _input_spec_for_field,
+)
 from vibecomfy.porting.endpoint_invariant import dynamic_port_authorized
+from vibecomfy.porting.edit.admit import AdmissionSnapshot
 
 
 def _is_dynamic_add_node_input(
@@ -138,6 +143,24 @@ class LintResult:
     surviving: tuple[EditOp, ...]
     issues: tuple[LintIssue, ...]
     normalizations: tuple[LintNormalization, ...]
+    # Application/evaluation evidence is trailing so existing callers that
+    # construct the three core fields remain source-compatible.
+    transitions: tuple[OperationTransition, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Reports cross the session boundary.  Freeze nested operation values,
+        # issue details, and normalization payloads so a caller cannot mutate
+        # the evidence after it has been used for admission/replay.
+        # Surviving operations cross the same custody boundary as transitions;
+        # detach and recursively freeze their nested targets/values too.
+        object.__setattr__(
+            self,
+            "surviving",
+            tuple(_freeze_report(item) for item in self.surviving),
+        )
+        object.__setattr__(self, "issues", tuple(_freeze_report(item) for item in self.issues))
+        object.__setattr__(self, "normalizations", tuple(_freeze_report(item) for item in self.normalizations))
+        object.__setattr__(self, "transitions", tuple(_freeze_report(item) for item in self.transitions))
 
     @property
     def passed_count(self) -> int:
@@ -156,6 +179,11 @@ class LintResult:
         return sum(
             1 for n in self.normalizations if n.disposition == "rejected"
         )
+
+    @property
+    def apply_eligible(self) -> bool:
+        """Lint preview is analysis only and never grants commitment."""
+        return False
 
 
 # ── LintIndex ───────────────────────────────────────────────────────────────
@@ -621,8 +649,36 @@ def _link_target_slot(link: Any) -> int | None:
 
 def _resolve_output_slot_index(
     index: LintIndex, scope_path: str, uid: str, output_slot: str | int,
-    *, schema_provider: Any = None,
+    *, schema_provider: Any = None, workflow: Any = None,
 ) -> int | None:
+    # The canonical IR node is the shared exec-output authority.  The UI
+    # projection intentionally carries the physical ``out_N`` row name,
+    # while authored exec IO may expose the semantic/typed renderer alias
+    # (for example ``IMAGE_0``).  Ask the existing interpreter seam for the
+    # exact name and then use its frozen evidence to recover the physical
+    # index; do not infer a generic capacity or parse a second IO schema.
+    if workflow is not None and not scope_path:
+        node = (getattr(workflow, "nodes", {}) or {}).get(str(uid))
+        if node is not None:
+            from vibecomfy.porting.edit._interpret import (
+                _frozen_output_evidence,
+                canonical_renderer_output,
+            )
+
+            resolved_name = canonical_renderer_output(
+                node, output_slot, provider=schema_provider
+            )
+            if resolved_name is not None:
+                names, _types, _sources, _arity = _frozen_output_evidence(
+                    node, provider=schema_provider
+                )
+                for slot_index, name in names.items():
+                    if name == resolved_name:
+                        return slot_index
+            if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+                # Authored exec IO is complete authority.  Never fall back to
+                # the generic UI/provider roster when its alias is absent.
+                return None
     result = _ctx.resolve_output_slot_index(
         LintIndexBackend(index),
         scope_path,
@@ -635,9 +691,43 @@ def _resolve_output_slot_index(
 
 def _resolve_input_slot_index(
     index: LintIndex, scope_path: str, uid: str, input_field: str,
+    *, schema_provider: Any = None, workflow: Any = None,
 ) -> int | None:
     result = _ctx.resolve_input_slot_index(LintIndexBackend(index), scope_path, uid, input_field)
-    return result.value
+    if result.value is not None:
+        return result.value
+    if workflow is None or scope_path:
+        return None
+    node = next(
+        (
+            candidate
+            for node_id, candidate in (getattr(workflow, "nodes", {}) or {}).items()
+            if str(node_id) == str(uid)
+            or str(getattr(candidate, "uid", "") or "") == str(uid)
+        ),
+        None,
+    )
+    if node is None:
+        return None
+    metadata = getattr(node, "metadata", None) or {}
+    # Only nodes created during this transaction may materialize a frozen
+    # schema socket that was absent from the current presentation. Existing
+    # captured nodes remain governed by their actual UI socket roster.
+    if not (
+        isinstance(metadata, Mapping)
+        and metadata.get("_edit_created_in_transaction") is True
+    ):
+        return None
+    try:
+        from vibecomfy.schema import schema_for
+
+        schema = schema_for(schema_provider, str(getattr(node, "class_type", "") or ""))
+    except Exception:
+        schema = None
+    inputs = getattr(schema, "inputs", None)
+    if not isinstance(inputs, Mapping) or input_field not in inputs:
+        return None
+    return list(inputs).index(input_field)
 
 
 def _find_matching_link(
@@ -795,6 +885,22 @@ def _lint_set_node_field(
         # final decision.  Nodes with no widget surface at all still
         # hard-reject genuinely unknown fields.
         node = index.node_by_uid(target.scope_path, target.uid)
+        class_type = ""
+        if isinstance(node, dict):
+            class_type = str(node.get("type") or node.get("class_type") or "")
+        if schema_provider is not None and class_type and target.field_path:
+            from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
+            from vibecomfy.schema.provider import schema_for
+
+            schema = schema_for(schema_provider, class_type)
+            spec = _input_spec_for_field(
+                getattr(schema, "inputs", {}) or {},
+                target.field_path,
+            ) if schema is not None else None
+            if spec is not None and input_spec_is_literal_widget(spec):
+                # Schema-known literal widgets remain editable even when the
+                # current compact vector is empty because the field is linked.
+                return op, None, "passed"
         widgets_values = door_get_widgets_values(node) if isinstance(node, dict) else None
         has_widget_surface = (
             isinstance(widgets_values, (list, dict))
@@ -974,6 +1080,7 @@ def _lint_upsert_link(
     op_index: int,
     index: LintIndex,
     schema_provider: Any = None,
+    workflow: Any = None,
 ) -> tuple[EditOp | None, LintIssue | None, str]:
     """Lint an ``upsert_link`` op.
 
@@ -1000,6 +1107,7 @@ def _lint_upsert_link(
         source.uid,
         source.output_slot,
         schema_provider=schema_provider,
+        workflow=workflow,
     )
     if output_slot_idx is None:
         return None, _make_issue(
@@ -1015,7 +1123,12 @@ def _lint_upsert_link(
 
     # Validate target input field exists
     input_slot_idx = _resolve_input_slot_index(
-        index, target.scope_path, target.uid, target.input_field,
+        index,
+        target.scope_path,
+        target.uid,
+        target.input_field,
+        schema_provider=schema_provider,
+        workflow=workflow,
     )
     if input_slot_idx is None:
         return None, _make_issue(
@@ -1179,202 +1292,123 @@ def _lint_set_mode(
     return SetModeOp(op="set_mode", target=target, mode=op.mode), None, "passed"
 
 
-# ── main entry point ────────────────────────────────────────────────────────
+# ── ordered classifier and preview boundary ────────────────────────────────
+
+_LINTERS: dict[str, Any] = {
+    "set_node_field": _lint_set_node_field,
+    "add_node": _lint_add_node,
+    "remove_node": _lint_remove_node,
+    "upsert_link": _lint_upsert_link,
+    "remove_link": _lint_remove_link,
+    "set_mode": _lint_set_mode,
+}
+
+
+def _classify_operation(
+    op: EditOp,
+    op_index: int,
+    index: LintIndex,
+    *,
+    schema_provider: Any = None,
+    workflow: Any = None,
+    delta: Sequence[EditOp] = (),
+    future_wired_uids: frozenset[str] = frozenset(),
+) -> tuple[EditOp | None, LintIssue | None, str]:
+    """Run the established presentation classifier for one occurrence.
+
+    This function deliberately performs no application, schema recapture, or
+    workflow mutation.  The session preview/evaluator owns those transitions.
+    """
+    linter = _LINTERS.get(getattr(op, "op", None))
+    if linter is None:
+        return None, _make_issue(
+            "unknown_op",
+            f"Unknown edit operation '{getattr(op, 'op', None)}'.",
+            op_index=op_index,
+            op_kind=getattr(op, "op", None),
+        ), "rejected"
+    if isinstance(op, UpsertLinkOp):
+        normalized, issue, disposition = linter(
+            op, op_index, index, schema_provider=schema_provider, workflow=workflow
+        )
+    elif isinstance(op, (AddNodeOp, RemoveLinkOp, SetNodeFieldOp)):
+        normalized, issue, disposition = linter(
+            op, op_index, index, schema_provider=schema_provider
+        )
+    else:
+        normalized, issue, disposition = linter(op, op_index, index)
+
+    # Preserve the existing orphan-intent diagnostic.  It observes future
+    # syntax only; no rejected/future add becomes graph authority.
+    if (
+        isinstance(op, AddNodeOp)
+        and disposition == "passed"
+        and normalized is not None
+        and op.fields
+    ):
+        class_type = op.class_type.strip()
+        has_existing = any(m.class_type == class_type for m in index._node_meta.values())
+        if has_existing:
+            candidate_ids = {
+                str(value)
+                for value in (op.uid, getattr(normalized, "uid", None), op.node_id, getattr(normalized, "node_id", None))
+                if value
+            }
+            has_wiring = bool(op.inputs) or bool(
+                candidate_ids & future_wired_uids
+            )
+            if not has_wiring:
+                has_wiring = any(
+                    isinstance(other, UpsertLinkOp)
+                    and (other.source.uid in candidate_ids or other.target.uid in candidate_ids)
+                    for other in delta
+                )
+            if not has_wiring:
+                representative = next(
+                    (meta for meta in index._node_meta.values() if meta.class_type == class_type),
+                    None,
+                )
+                rep_id = representative.lg_id if representative and representative.lg_id != -1 else (
+                    representative.uid if representative else "unknown"
+                )
+                issue = _make_issue(
+                    "orphan_add_node",
+                    f"Unwired add_node '{class_type}' with no links when graph already has {class_type} id {rep_id}; "
+                    f"use set_node_field on the existing {class_type} (id {rep_id}) rather than adding a new one — new node is unreachable.",
+                    op_index=op_index,
+                    op_kind="add_node",
+                    scope_path=op.scope_path,
+                    detail={"class_type": class_type, "existing_id": rep_id, "fields": dict(op.fields)},
+                )
+                return None, issue, "rejected"
+    return normalized, issue, disposition
+
 
 def lint_delta(
     delta: Sequence[EditOp],
     index: LintIndex,
     schema_provider: Any = None,
+    *,
+    retained_authority: AdmissionSnapshot,
+    pre_workflow: Any = None,
+    pre_ui_payload: Mapping[str, Any] | None = None,
+    schema_snapshot: Any = None,
 ) -> LintResult:
-    """Lint a sequence of :class:`EditOp` objects against *index*.
+    """Analyze an ordered delta through the detached canonical session preview."""
+    if pre_workflow is None:
+        raise ValueError("lint_delta requires retained pre_workflow authority")
+    if schema_snapshot is None:
+        raise ValueError("lint_delta requires retained frozen schema_snapshot authority")
+    from vibecomfy.porting.edit.session import preview_lint_delta
 
-    Parameters
-    ----------
-    delta:
-        The ordered list of edit ops to lint (typically from a model response).
-    index:
-        A :class:`LintIndex` built from the *original_ui* that the delta
-        targets.
-    schema_provider:
-        Optional schema provider for class-type and input-name validation
-        on ``add_node`` ops.  When ``None`` (the default), schema checks
-        are skipped.
-
-    Returns
-    -------
-    LintResult:
-        ``surviving`` is a tuple of ops that passed lint (possibly with
-        LiteGraph ids rewritten to canonical uids).  ``issues`` collects
-        every typed finding.  ``normalizations`` records the disposition of
-        every original op.
-    """
-    surviving: list[EditOp] = []
-    issues: list[LintIssue] = []
-    normalizations: list[LintNormalization] = []
-
-    _LINTERS: dict[str, Any] = {
-        "set_node_field": _lint_set_node_field,
-        "add_node": _lint_add_node,
-        "remove_node": _lint_remove_node,
-        "upsert_link": _lint_upsert_link,
-        "remove_link": _lint_remove_link,
-        "set_mode": _lint_set_mode,
-    }
-
-    _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link", "set_node_field"})
-
-    # Link/field ops may legitimately depend on nodes added earlier in the
-    # same ordered delta.  LintIndex is intentionally immutable and normally
-    # describes the submit graph, so linting every op against that one index
-    # incorrectly classifies those dependent ops as ``unknown_target``.  The
-    # apply engine already resolves AddNodeOps sequentially; mirror that
-    # contract here by validating the additions first and building a virtual
-    # post-add index for the remaining operations.
-    add_results: dict[int, tuple[EditOp | None, LintIssue | None, str]] = {}
-    passed_adds: list[EditOp] = []
-    for i, op in enumerate(delta):
-        if not isinstance(op, AddNodeOp):
-            continue
-        result = _lint_add_node(op, i, index, schema_provider=schema_provider)
-        add_results[i] = result
-        normalized, _issue, disposition = result
-        if disposition == "passed" and normalized is not None:
-            passed_adds.append(normalized)
-
-    dependency_index = index
-    if passed_adds:
-        # Local import avoids coupling the lint module's import graph to the
-        # apply engine.  Failure to materialise the virtual graph is left for
-        # the ordinary per-op checks/apply gate to report; it must never make
-        # lint more permissive than the authoritative apply path.
-        from vibecomfy.ingest.normalize import from_ui
-        from vibecomfy.porting.edit._interpret import interpret
-        from vibecomfy.porting.emit.ui import emit_ui_json
-
-        try:
-            pre = from_ui(
-                dict(index.graph),
-                schema_provider=schema_provider,
-                use_comfy_converter=False,
-            )
-            interpreted = interpret(pre, tuple(passed_adds), schema_provider=schema_provider)
-            if interpreted.ok:
-                candidate = emit_ui_json(
-                    interpreted.workflow,
-                    schema_provider=schema_provider,
-                    include_virtual_wires=True,
-                    prior_ui_payload=index.graph,
-                )
-                dependency_index = LintIndex.build(candidate)
-        except Exception:
-            dependency_index = index
-
-    from vibecomfy.porting.edit.admit import (
-        AdmissionRejected,
-        admission_snapshot_for,
-        admit_operation,
-        rejected_ops_are_invisible,
-    )
-
-    lint_workflow = None
-    try:
-        from vibecomfy.ingest.normalize import from_ui
-
-        lint_workflow = from_ui(
-            dict(index.graph),
-            schema_provider=schema_provider,
-            use_comfy_converter=False,
-        )
-    except Exception:
-        lint_workflow = None
-    admission_pair = admission_snapshot_for(lint_workflow, schema_provider)
-    for i, op in enumerate(delta):
-        admitted = admit_operation(admission_pair, op, working_workflow=lint_workflow)
-        if rejected_ops_are_invisible(admitted) or isinstance(admitted, AdmissionRejected):
-            issue = _make_issue(
-                admitted.typed_reason,
-                admitted.typed_reason,
-                op_index=i,
-                op_kind=getattr(op, "op", None),
-            )
-            issues.append(issue)
-            normalizations.append(
-                LintNormalization(op_index=i, op=op, disposition="rejected", issue=issue)
-            )
-            continue
-        linter = _LINTERS.get(op.op)  # type: ignore[union-attr]
-        if linter is None:
-            issue = _make_issue(
-                "unknown_op",
-                f"Unknown edit operation '{op.op}'.",
-                op_index=i,
-                op_kind=getattr(op, "op", None),
-            )
-            issues.append(issue)
-            normalizations.append(
-                LintNormalization(op_index=i, op=op, disposition="rejected", issue=issue)
-            )
-            continue
-
-        if i in add_results:
-            normalized, issue, disposition = add_results[i]
-        elif op.op in _SP_AWARE:  # type: ignore[union-attr]
-            normalized, issue, disposition = linter(
-                op,
-                i,
-                dependency_index,
-                schema_provider=schema_provider,
-            )
-        else:
-            normalized, issue, disposition = linter(op, i, dependency_index)
-        # S2 orphan add_node lint (r12 e8c20a): bare add_node with no wiring
-        # when graph already has same class is a widget-edit hallucination.
-        # Only flag when fields carry intent (non-empty) and no wiring exists.
-        if isinstance(op, AddNodeOp) and disposition == "passed" and normalized is not None and op.fields:
-            class_type = op.class_type.strip()
-            has_existing = any(m.class_type == class_type for m in index._node_meta.values())
-            if has_existing:
-                cand_ids = {str(_v) for _v in (op.uid, getattr(normalized, "uid", None)) if _v}
-                cand_ids |= {str(_v) for _v in (op.node_id, getattr(normalized, "node_id", None)) if _v}
-                has_wiring = bool(op.inputs)
-                if not has_wiring and cand_ids:
-                    for _other in delta:
-                        if not isinstance(_other, UpsertLinkOp):
-                            continue
-                        if _other.source.uid in cand_ids or _other.target.uid in cand_ids:
-                            has_wiring = True
-                            break
-                if not has_wiring:
-                    rep = next((m for m in index._node_meta.values() if m.class_type == class_type), None)
-                    rep_id = rep.lg_id if rep and rep.lg_id != -1 else (rep.uid if rep else "unknown")
-                    issue = _make_issue(
-                        "orphan_add_node",
-                        f"Unwired add_node '{class_type}' with no links when graph already has {class_type} id {rep_id}; "
-                        f"use set_node_field on the existing {class_type} (id {rep_id}) rather than adding a new one — new node is unreachable.",
-                        op_index=i,
-                        op_kind="add_node",
-                        scope_path=op.scope_path,
-                        detail={"class_type": class_type, "existing_id": rep_id, "fields": dict(op.fields)},
-                    )
-                    disposition = "rejected"
-                    normalized = None
-        if issue is not None:
-            issues.append(issue)
-        normalizations.append(
-            LintNormalization(
-                op_index=i,
-                op=op,
-                disposition=disposition,
-                issue=issue,
-            )
-        )
-        if disposition == "passed" and normalized is not None:
-            surviving.append(normalized)
-
-    return LintResult(
-        surviving=tuple(surviving),
-        issues=tuple(issues),
-        normalizations=tuple(normalizations),
+    return preview_lint_delta(
+        delta,
+        index,
+        schema_provider=schema_provider,
+        retained_authority=retained_authority,
+        pre_workflow=pre_workflow,
+        pre_ui_payload=pre_ui_payload,
+        schema_snapshot=schema_snapshot,
     )
 
 

@@ -1,295 +1,836 @@
-# vibecomfy: generated scratchpad
-"""Auto-generated VibeComfy scratchpad."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVEmptyLatentAudio, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
+from vibecomfy.nodes.ltxvideo import GuiderParameters, LTXFloatToInt, LTXVImgToVideoConditionOnly, LTXVTiledVAEDecode, LowVRAMCheckpointLoader, MultimodalGuider
+from vibecomfy.patches.ltx_lowvram import apply as apply_ltx_lowvram
+from vibecomfy.patches.requirements import ensure_custom_nodes
+from vibecomfy.patches.resolution import resolution
 
+
+CKPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
+CKPT_NAME_2 = 'ltx-2.3-22b-dev.safetensors'
+DEFAULT_FPS = 24.0
+DEFAULT_FRAMES = 9
+DEFAULT_PROMPT = 'A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.'
+DEFAULT_PROMPT_2 = 'pc game, console game, video game, cartoon, childish, ugly'
+DEFAULT_SEED = 42
+DEFAULT_SEED_2 = 43
+EULER_ANCESTRAL_CFG_PP = 'euler_ancestral_cfg_pp'
+FIXED = 'fixed'
+GUIDE_STRENGTH = 7
+GUIDE_STRENGTH_2 = 0.5
+GUIDE_STRENGTH_3 = 3
+GUIDE_STRENGTH_4 = 0.2
+GUIDE_STRENGTH_5 = 1
+LORA_NAME = 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
+TEXT_ENCODER_NAME = 'comfy_gemma_3_12B_it.safetensors'
+
+
+PUBLIC_INPUT_METADATA = {
+    'model': InputSpec(node='3940', field='ckpt_name', default=CKPT_NAME),
+    'seed': InputSpec(node='4814', field='noise_seed', default=DEFAULT_SEED),
+    'prompt': InputSpec(node='2483', field='text', default=DEFAULT_PROMPT),
+    'image': InputSpec(node='2004', field='image', default='example.png', aliases=('input_image',)),
+    'width': InputSpec(node='3059', field='width', default=384),
+    'height': InputSpec(node='3059', field='height', default=256),
+    'frames': InputSpec(node='3059', field='length', default=DEFAULT_FRAMES),
+    'fps': InputSpec(node='4819', field='fps', default=DEFAULT_FPS),
+    'negative_prompt': InputSpec(node='2612', field='text', default=DEFAULT_PROMPT_2, aliases=('negative',)),
+}
+
+READY_METADATA = ReadyMetadata.build(
+    capability='video',
+    template_id='video/ltx2_3_i2v',
+    inputs=PUBLIC_INPUT_METADATA,
+    requirements={'models': ['ltx-2.3-22b-dev-fp8.safetensors', 'ltx-2.3-22b-dev.safetensors', 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors']},
+    custom_node_packs={'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTXAVTextEncoderLoader', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVEmptyLatentAudio', 'LTXVPreprocess', 'LTXVScheduler', 'LTXVSeparateAVLatent'], 'pip_packages': [], 'status': 'discovered'}},
+    source_path='ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json',
+    source_id='video/ltx2_3_i2v',
+    upstream_source_id='ltx2_3_single_stage_distilled_full',
+    source_type='api',
+    source_workflow_path='ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json',
+    output_mode='ready_template',
+    ready_id='video/ltx2_3_i2v',
+    provenance={'source_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'source_id': 'video/ltx2_3_i2v', 'upstream_source_id': 'ltx2_3_single_stage_distilled_full', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json', 'output_mode': 'ready_template', 'ready_id': 'video/ltx2_3_i2v', 'source_workflow': 'ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json'},
+    smoke_resolution='384x256x9_frames',
+    comfy_configuration={'reserve_vram': 12, 'cache_none': True, 'fp8_e4m3fn_text_enc': True},
+    external_python_marker='external_python:video/ltx2_3_i2v',
+    entrypoint='patch',
+    layer='vibecomfy/patches/resolution.py:resolution:384x256x9',
+    patch_applications=[{'name': 'resolution:384x256x9', 'layer': 'patch', 'called': True, 'topology_changed': False, 'nodes_added': [], 'introduced_edges': [], 'rewritten_edges': [], 'value_changed': True}],
+)
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = VibeWorkflow(
-        'video/ltx2_3_i2v',
-        WorkflowSource(
-            id='video/ltx2_3_i2v',
-            path='ready_templates/sources/custom_nodes/ltxvideo/ltx2_3_single_stage_distilled_full.json',
-            source_type='scratchpad',
-            provenance={},
-        ),
-    )
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-    loadimage = _node(wf, 'LoadImage', '2004', _uid='n1',
-        _outputs=('IMAGE', 'MASK'),
+    # Inputs
+    image, _ = LoadImage(
+        _id='2004',
         image='example.png',
         widget_0='egyptian_queen.png',
+        _uid='n1',
+        _native_ports={'native_input_names': ['image'], 'native_output_names': ['IMAGE', 'MASK'], 'native_input_types': ['CHOICE'], 'native_output_types': ['IMAGE', 'MASK'], 'native_input_optional': [False], 'native_input_asset_kinds': ['image'], 'native_output_slots': None},
     )
-    emptyltxvlatentvideo = _node(wf, 'EmptyLTXVLatentVideo', '3059', _uid='n2',
-        _outputs=('LATENT',),
+
+    # Sampling
+    emptyltxvlatentvideo = EmptyLTXVLatentVideo(
+        _id='3059',
         width=384,
         height=256,
-        length=9,
-        batch_size=1,
+        length=DEFAULT_FRAMES,
         widget_0=384,
         widget_1=256,
         widget_2=9,
+        _uid='n2',
+        _native_ports={'native_input_names': ['width', 'height', 'length', 'batch_size'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT', 'INT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvaudiovaeloader = _node(wf, 'LTXVAudioVAELoader', '4010', _uid='n4',
-        _outputs=('AUDIO_VAE',),
-        ckpt_name='ltx-2.3-22b-dev-fp8.safetensors',
+
+    ltxvaudiovaeloader = LTXVAudioVAELoader(
+        _id='4010',
+        ckpt_name=CKPT_NAME,
+        _uid='n4',
+        _native_ports={'native_input_names': ['ckpt_name'], 'native_output_names': ['AUDIO_VAE'], 'native_input_types': ['COMBO'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    randomnoise = _node(wf, 'RandomNoise', '4814', _uid='n5',
-        _outputs=('NOISE',),
-        noise_seed=42,
-        control_after_generate='fixed',
+
+    randomnoise = RandomNoise(
+        _id='4814',
+        noise_seed=DEFAULT_SEED,
+        control_after_generate=FIXED,
+        _uid='n5',
+        _native_ports={'native_input_names': ['noise_seed', 'control_after_generate'], 'native_output_names': ['NOISE'], 'native_input_types': ['INT', None], 'native_output_types': ['NOISE'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ksamplerselect = _node(wf, 'KSamplerSelect', '4831', _uid='n6',
-        _outputs=('SAMPLER',),
-        sampler_name='euler_ancestral_cfg_pp',
+
+    ksamplerselect_2 = KSamplerSelect(
+        _id='4831',
+        sampler_name=EULER_ANCESTRAL_CFG_PP,
+        _uid='n6',
+        _native_ports={'native_input_names': ['sampler_name'], 'native_output_names': ['SAMPLER'], 'native_input_types': ['COMBO'], 'native_output_types': ['SAMPLER'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    randomnoise_2 = _node(wf, 'RandomNoise', '4832', _uid='n7',
-        _outputs=('NOISE',),
-        noise_seed=43,
-        control_after_generate='fixed',
+
+    randomnoise_2 = RandomNoise(
+        _id='4832',
+        noise_seed=DEFAULT_SEED_2,
+        control_after_generate=FIXED,
+        _uid='n7',
+        _native_ports={'native_input_names': ['noise_seed', 'control_after_generate'], 'native_output_names': ['NOISE'], 'native_input_types': ['INT', None], 'native_output_types': ['NOISE'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxavtextencoderloader = _node(wf, 'LTXAVTextEncoderLoader', '4960', _uid='n8',
-        _outputs=('CLIP',),
-        text_encoder='comfy_gemma_3_12B_it.safetensors',
-        ckpt_name='ltx-2.3-22b-dev.safetensors',
+
+    ltxavtextencoderloader = LTXAVTextEncoderLoader(
+        _id='4960',
+        text_encoder=TEXT_ENCODER_NAME,
+        ckpt_name=CKPT_NAME_2,
         device='default',
+        _uid='n8',
+        _native_ports={'native_input_names': ['text_encoder', 'ckpt_name', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['COMBO', 'COMBO', 'COMBO'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    guiderparameters = _node(wf, 'GuiderParameters', '4963', _uid='n9',
-        _outputs=('GUIDER_PARAMETERS',),
-        cfg=7,
-        cross_attn=True,
+
+    guiderparameters_2 = GuiderParameters(
+        _id='4963',
+        cfg=GUIDE_STRENGTH,
         modality='AUDIO',
         modality_scale=3,
-        perturb_attn=True,
-        rescale=0.7,
-        skip_step=0,
-        stg=1.0,
+        _uid='n9',
+        _native_ports={'native_input_names': ['modality', 'cfg', 'stg', 'perturb_attn', 'rescale', 'modality_scale', 'skip_step', 'cross_attn', 'parameters'], 'native_output_names': ['GUIDER_PARAMETERS'], 'native_input_types': ['CHOICE', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'FLOAT', 'INT', 'BOOLEAN', 'GUIDER_PARAMETERS'], 'native_output_types': ['GUIDER_PARAMETERS'], 'native_input_optional': [False, False, False, False, False, False, False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ksamplerselect_2 = _node(wf, 'KSamplerSelect', '4967', _uid='n10',
-        sampler_name='euler_ancestral_cfg_pp',
+
+    ksamplerselect = KSamplerSelect(
+        _id='4967',
+        sampler_name=EULER_ANCESTRAL_CFG_PP,
+        _uid='n10',
+        _native_ports={'native_input_names': ['widget_0', 'widget_1', 'widget_2', 'widget_3', 'widget_4'], 'native_output_names': None, 'native_input_types': [None, None, None, None, None], 'native_output_types': None, 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': [0]},
     )
-    manualsigmas = _node(wf, 'ManualSigmas', '4971', _uid='n11',
-        _outputs=('SIGMAS',),
+
+    manualsigmas = ManualSigmas(
+        _id='4971',
         sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
+        _uid='n11',
+        _native_ports={'native_input_names': ['sigmas'], 'native_output_names': ['SIGMAS'], 'native_input_types': ['STRING'], 'native_output_types': ['SIGMAS'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxfloattoint = _node(wf, 'LTXFloatToInt', '4985', _uid='n12',
-        _outputs=('INT',),
+
+    ltxfloattoint = LTXFloatToInt(
+        _id='4985',
         rounding=0,
         a=24.0,
+        _uid='n12',
+        _native_ports={'native_input_names': ['a', 'rounding'], 'native_output_names': ['INT'], 'native_input_types': ['FLOAT', None], 'native_output_types': ['INT'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    cliptextencode = _node(wf, 'CLIPTextEncode', '2483', _uid='n13',
-        _outputs=('CONDITIONING',),
-        text='A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.',
-        clip=ltxavtextencoderloader.out('CLIP'),
+
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        _id='2483',
+        text=DEFAULT_PROMPT,
+        _uid='n13',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    cliptextencode_2 = _node(wf, 'CLIPTextEncode', '2612', _uid='n14',
-        _outputs=('CONDITIONING',),
-        text='pc game, console game, video game, cartoon, childish, ugly',
-        clip=ltxavtextencoderloader.out('CLIP'),
+
+    cliptextencode_2 = CLIPTextEncode(
+        _id='2612',
+        text=DEFAULT_PROMPT_2,
+        _uid='n14',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    lowvramcheckpointloader = _node(wf, 'LowVRAMCheckpointLoader', '3940', _uid='n3',
-        _outputs=('MODEL', 'CLIP', 'VAE'),
-        ckpt_name='ltx-2.3-22b-dev-fp8.safetensors',
-        dependencies=ltxavtextencoderloader.out('CLIP'),
+
+    model, _, vae = LowVRAMCheckpointLoader(
+        _id='3940',
+        ckpt_name=CKPT_NAME,
+        _uid='n3',
+        _native_ports={'native_input_names': ['ckpt_name', 'dependencies'], 'native_output_names': ['MODEL', 'CLIP', 'VAE'], 'native_input_types': ['CHOICE', None], 'native_output_types': ['MODEL', 'CLIP', 'VAE'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvemptylatentaudio = _node(wf, 'LTXVEmptyLatentAudio', '3980', _uid='n15',
-        _outputs=('LATENT',),
+
+    ltxvemptylatentaudio = LTXVEmptyLatentAudio(
+        _id='3980',
         frames_number=9,
-        batch_size=1,
+        frame_rate=None,
         widget_0=9,
         widget_1=8,
-        frame_rate=ltxfloattoint.out('INT'),
-        audio_vae=ltxvaudiovaeloader.out('AUDIO_VAE'),
+        _uid='n15',
+        _native_ports={'native_input_names': ['frames_number', 'frame_rate', 'batch_size', 'audio_vae'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'INT', 'VAE'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    guiderparameters_2 = _node(wf, 'GuiderParameters', '4964', _uid='n17',
-        _outputs=('GUIDER_PARAMETERS',),
-        cfg=3,
-        cross_attn=True,
-        modality='VIDEO',
+
+    guiderparameters = GuiderParameters(
+        _id='4964',
+        cfg=GUIDE_STRENGTH_3,
         modality_scale=3,
-        perturb_attn=True,
         rescale=0.9,
-        skip_step=0,
-        stg=1.0,
-        parameters=guiderparameters.out('GUIDER_PARAMETERS'),
+        _uid='n17',
+        _native_ports={'native_input_names': ['modality', 'cfg', 'stg', 'perturb_attn', 'rescale', 'modality_scale', 'skip_step', 'cross_attn', 'parameters'], 'native_output_names': ['GUIDER_PARAMETERS'], 'native_input_types': ['CHOICE', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'FLOAT', 'INT', 'BOOLEAN', 'GUIDER_PARAMETERS'], 'native_output_types': ['GUIDER_PARAMETERS'], 'native_input_optional': [False, False, False, False, False, False, False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    resizeimagemasknode = _node(wf, 'ResizeImageMaskNode', '4981', _uid='n19',
-        _outputs=('RESIZED',),
+
+    resizeimagemasknode = ResizeImageMaskNode(
+        _id='4981',
         resize_type='scale longer dimension',
         scale_method='lanczos',
         longer_size=384,
         widget_1=384,
-        input=loadimage.out('IMAGE'),
-        _extras={'resize_type.longer_size': 384},
+        _uid='n19',
+        _native_ports={'native_input_names': ['input', 'resize_type', 'scale_method'], 'native_output_names': ['RESIZED'], 'native_input_types': ['COMFY_MATCHTYPE_V3', 'COMFY_DYNAMICCOMBO_V3', 'COMBO'], 'native_output_types': ['COMFY_MATCHTYPE_V3'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+        **{'resize_type.longer_size': 384},
     )
-    ltxvconditioning = _node(wf, 'LTXVConditioning', '1241', _uid='n20',
-        _outputs=('POSITIVE', 'NEGATIVE'),
+
+    positive, negative = LTXVConditioning(
+        _id='1241',
         frame_rate=24.0,
         widget_0=8,
-        negative=cliptextencode_2.out('CONDITIONING'),
-        positive=cliptextencode.out('CONDITIONING'),
+        _uid='n20',
+        _native_ports={'native_input_names': ['frame_rate', 'negative', 'positive'], 'native_output_names': ['POSITIVE', 'NEGATIVE'], 'native_input_types': ['FLOAT', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['CONDITIONING', 'CONDITIONING'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvpreprocess = _node(wf, 'LTXVPreprocess', '3336', _uid='n21',
-        _outputs=('OUTPUT_IMAGE',),
+
+    ltxvpreprocess = LTXVPreprocess(
+        _id='3336',
         img_compression=18,
-        image=resizeimagemasknode.out('RESIZED'),
+        _uid='n21',
+        _native_ports={'native_input_names': ['img_compression', 'image'], 'native_output_names': ['OUTPUT_IMAGE'], 'native_input_types': ['INT', 'IMAGE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    loraloadermodelonly = _node(wf, 'LoraLoaderModelOnly', '4922', _uid='n16',
-        _outputs=('MODEL',),
-        lora_name='ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors',
-        strength_model=0.5,
-        model=lowvramcheckpointloader.out('MODEL'),
+
+    loraloadermodelonly = LoraLoaderModelOnly(
+        _id='4922',
+        lora_name=LORA_NAME,
+        strength_model=GUIDE_STRENGTH_2,
+        _uid='n16',
+        _native_ports={'native_input_names': ['lora_name', 'strength_model', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    loraloadermodelonly_2 = _node(wf, 'LoraLoaderModelOnly', '4968', _uid='n18',
-        _outputs=('MODEL',),
-        lora_name='ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors',
-        strength_model=0.2,
-        model=lowvramcheckpointloader.out('MODEL'),
+
+    loraloadermodelonly_2 = LoraLoaderModelOnly(
+        _id='4968',
+        lora_name=LORA_NAME,
+        strength_model=GUIDE_STRENGTH_4,
+        _uid='n18',
+        _native_ports={'native_input_names': ['lora_name', 'strength_model', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvimgtovideoconditiononly = _node(wf, 'LTXVImgToVideoConditionOnly', '3159', _uid='n22',
-        _outputs=('LATENT',),
+
+    ltxvimgtovideoconditiononly = LTXVImgToVideoConditionOnly(
+        _id='3159',
         strength=0.7,
         bypass=True,
-        image=ltxvpreprocess.out('OUTPUT_IMAGE'),
-        latent=emptyltxvlatentvideo.out('LATENT'),
-        vae=lowvramcheckpointloader.out('VAE'),
+        _uid='n22',
+        _native_ports={'native_input_names': ['strength', 'bypass', 'image', 'latent', 'vae'], 'native_output_names': ['LATENT'], 'native_input_types': ['FLOAT', 'BOOLEAN', 'IMAGE', 'LATENT', 'VAE'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, True, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    multimodalguider = _node(wf, 'MultimodalGuider', '4808', _uid='n23',
-        _outputs=('GUIDER',),
+
+    multimodalguider = MultimodalGuider(
+        _id='4808',
         skip_blocks='28',
-        model=loraloadermodelonly_2.out('MODEL'),
-        negative=ltxvconditioning.out('NEGATIVE'),
-        parameters=guiderparameters_2.out('GUIDER_PARAMETERS'),
-        positive=ltxvconditioning.out('POSITIVE'),
+        _uid='n23',
+        _native_ports={'native_input_names': ['parameters', 'skip_blocks', 'model', 'negative', 'positive', 'widget_0'], 'native_output_names': ['GUIDER'], 'native_input_types': ['GUIDER_PARAMETERS', 'STRING', 'MODEL', 'CONDITIONING', 'CONDITIONING', None], 'native_output_types': ['GUIDER'], 'native_input_optional': None, 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    cfgguider = _node(wf, 'CFGGuider', '4828', _uid='n24',
-        _outputs=('GUIDER',),
-        cfg=1,
-        model=loraloadermodelonly.out('MODEL'),
-        negative=ltxvconditioning.out('NEGATIVE'),
-        positive=ltxvconditioning.out('POSITIVE'),
+
+    cfgguider = CFGGuider(
+        _id='4828',
+        cfg=GUIDE_STRENGTH_5,
+        _uid='n24',
+        _native_ports={'native_input_names': ['cfg', 'model', 'negative', 'positive'], 'native_output_names': ['GUIDER'], 'native_input_types': ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['GUIDER'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvconcatavlatent = _node(wf, 'LTXVConcatAVLatent', '4528', _uid='n25',
-        _outputs=('LATENT',),
-        audio_latent=ltxvemptylatentaudio.out('LATENT'),
-        video_latent=ltxvimgtovideoconditiononly.out('LATENT'),
+
+    ltxvconcatavlatent = LTXVConcatAVLatent(
+        _id='4528',
+        _uid='n25',
+        _native_ports={'native_input_names': ['audio_latent', 'video_latent'], 'native_output_names': ['LATENT'], 'native_input_types': ['LATENT', 'LATENT'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    samplercustomadvanced_2 = _node(wf, 'SamplerCustomAdvanced', '4829', _uid='n26',
-        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
-        guider=cfgguider.out('GUIDER'),
-        latent_image=ltxvconcatavlatent.out('LATENT'),
-        noise=randomnoise_2.out('NOISE'),
-        sampler=ksamplerselect.out('SAMPLER'),
-        sigmas=manualsigmas.out('SIGMAS'),
+
+    output_2, _ = SamplerCustomAdvanced(
+        _id='4829',
+        _uid='n26',
+        _native_ports={'native_input_names': ['noise', 'guider', 'sampler', 'sigmas', 'latent_image'], 'native_output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'native_input_types': ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvscheduler = _node(wf, 'LTXVScheduler', '4966', _uid='n27',
-        _outputs=('SIGMAS',),
+
+    ltxvscheduler = LTXVScheduler(
+        _id='4966',
         steps=15,
-        max_shift=2.05,
-        base_shift=0.95,
-        stretch=True,
-        terminal=0.1,
-        latent=ltxvconcatavlatent.out('LATENT'),
+        _uid='n27',
+        _native_ports={'native_input_names': ['steps', 'max_shift', 'base_shift', 'stretch', 'terminal', 'latent'], 'native_output_names': ['SIGMAS'], 'native_input_types': ['INT', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'LATENT'], 'native_output_types': ['SIGMAS'], 'native_input_optional': [False, False, False, False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    samplercustomadvanced = _node(wf, 'SamplerCustomAdvanced', '4802', _uid='n28',
-        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
-        guider=multimodalguider.out('GUIDER'),
-        latent_image=ltxvconcatavlatent.out('LATENT'),
-        noise=randomnoise.out('NOISE'),
-        sampler=ksamplerselect_2.out(0),
-        sigmas=ltxvscheduler.out('SIGMAS'),
+
+    output, _ = SamplerCustomAdvanced(
+        _id='4802',
+        _uid='n28',
+        _native_ports={'native_input_names': ['noise', 'guider', 'sampler', 'sigmas', 'latent_image'], 'native_output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'native_input_types': ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvseparateavlatent_2 = _node(wf, 'LTXVSeparateAVLatent', '4845', _uid='n29',
-        _outputs=('VIDEO_LATENT', 'AUDIO_LATENT'),
-        av_latent=samplercustomadvanced_2.out('OUTPUT'),
+
+    video_latent_2, audio_latent_2 = LTXVSeparateAVLatent(
+        _id='4845',
+        _uid='n29',
+        _native_ports={'native_input_names': ['av_latent'], 'native_output_names': ['VIDEO_LATENT', 'AUDIO_LATENT'], 'native_input_types': ['LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvseparateavlatent = _node(wf, 'LTXVSeparateAVLatent', '4824', _uid='n30',
-        _outputs=('VIDEO_LATENT', 'AUDIO_LATENT'),
-        av_latent=samplercustomadvanced.out('OUTPUT'),
+
+    video_latent, audio_latent = LTXVSeparateAVLatent(
+        _id='4824',
+        _uid='n30',
+        _native_ports={'native_input_names': ['av_latent'], 'native_output_names': ['VIDEO_LATENT', 'AUDIO_LATENT'], 'native_input_types': ['LATENT'], 'native_output_types': ['LATENT', 'LATENT'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvtiledvaedecode = _node(wf, 'LTXVTiledVAEDecode', '4982', _uid='n32',
-        _outputs=('IMAGE',),
+
+    ltxvaudiovaedecode = LTXVAudioVAEDecode(
+        _id='4848',
+        _uid='n31',
+        _native_ports={'native_input_names': ['audio_vae', 'samples'], 'native_output_names': ['AUDIO'], 'native_input_types': ['VAE', 'LATENT'], 'native_output_types': ['AUDIO'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    ltxvtiledvaedecode = LTXVTiledVAEDecode(
+        _id='4982',
         horizontal_tiles=2,
         vertical_tiles=2,
         overlap=6,
-        last_frame_fix=False,
-        latents=ltxvseparateavlatent_2.out('VIDEO_LATENT'),
-        vae=lowvramcheckpointloader.out('VAE'),
+        _uid='n32',
+        _native_ports={'native_input_names': ['horizontal_tiles', 'vertical_tiles', 'overlap', 'last_frame_fix', 'working_device', 'working_dtype', 'latents', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['INT', 'INT', 'INT', 'BOOLEAN', 'CHOICE', 'CHOICE', 'LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False, False, False, True, True, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    createvideo_2 = _node(wf, 'CreateVideo', '4849', _uid='n34',
-        _outputs=('VIDEO',),
-        fps=24.0,
-        images=ltxvtiledvaedecode.out('IMAGE'),
+
+    ltxvaudiovaedecode_2 = LTXVAudioVAEDecode(
+        _id='4818',
+        _uid='n33',
+        _native_ports={'native_input_names': ['audio_vae', 'samples'], 'native_output_names': ['AUDIO'], 'native_input_types': ['VAE', 'LATENT'], 'native_output_types': ['AUDIO'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ltxvtiledvaedecode_2 = _node(wf, 'LTXVTiledVAEDecode', '4983', _uid='n35',
-        _outputs=('IMAGE',),
+
+    createvideo = CreateVideo(
+        _id='4849',
+        fps=DEFAULT_FPS,
+        _uid='n34',
+        _native_ports={'native_input_names': ['fps', 'audio', 'images'], 'native_output_names': ['VIDEO'], 'native_input_types': ['FLOAT', 'AUDIO', 'IMAGE'], 'native_output_types': ['VIDEO'], 'native_input_optional': [False, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    ltxvtiledvaedecode_2 = LTXVTiledVAEDecode(
+        _id='4983',
         horizontal_tiles=2,
         vertical_tiles=2,
         overlap=6,
-        last_frame_fix=False,
-        latents=ltxvseparateavlatent.out('VIDEO_LATENT'),
-        vae=lowvramcheckpointloader.out('VAE'),
+        _uid='n35',
+        _native_ports={'native_input_names': ['horizontal_tiles', 'vertical_tiles', 'overlap', 'last_frame_fix', 'working_device', 'working_dtype', 'latents', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['INT', 'INT', 'INT', 'BOOLEAN', 'CHOICE', 'CHOICE', 'LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False, False, False, True, True, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    createvideo = _node(wf, 'CreateVideo', '4819', _uid='n36',
-        _outputs=('VIDEO',),
-        fps=24.0,
-        images=ltxvtiledvaedecode_2.out('IMAGE'),
+
+    createvideo_2 = CreateVideo(
+        _id='4819',
+        fps=DEFAULT_FPS,
+        _uid='n36',
+        _native_ports={'native_input_names': ['fps', 'audio', 'images'], 'native_output_names': ['VIDEO'], 'native_input_types': ['FLOAT', 'AUDIO', 'IMAGE'], 'native_output_types': ['VIDEO'], 'native_input_optional': [False, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    savevideo_2 = _node(wf, 'SaveVideo', '4852', _uid='n37',
+
+    # Outputs
+    savevideo = SaveVideo(
+        _id='4852',
         filename_prefix='output_D',
-        format='auto',
-        codec='auto',
-        video=createvideo_2.out('VIDEO'),
+        _uid='n37',
+        _native_ports={'native_input_names': ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video'], 'native_output_names': None, 'native_input_types': ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO'], 'native_output_types': None, 'native_input_optional': [False, False, False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    savevideo = _node(wf, 'SaveVideo', '4823', _uid='n38',
+
+    savevideo_2 = SaveVideo(
+        _id='4823',
         filename_prefix='output_F',
-        format='auto',
-        codec='auto',
-        video=createvideo.out('VIDEO'),
+        _uid='n38',
+        _native_ports={'native_input_names': ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video'], 'native_output_names': None, 'native_input_types': ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO'], 'native_output_types': None, 'native_input_optional': [False, False, False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    wf.finalize_metadata()
+    wf.connect('4960.0', '2483.clip')
+    wf.connect('4960.0', '2612.clip')
+    wf.connect('4010.0', '3980.audio_vae')
+    wf.connect('4985.0', '3980.frame_rate')
+    wf.connect('3940.0', '4922.model')
+    wf.connect('4963.0', '4964.parameters')
+    wf.connect('3940.0', '4968.model')
+    wf.connect('2004.0', '4981.input')
+    wf.connect('2612.0', '1241.negative')
+    wf.connect('2483.0', '1241.positive')
+    wf.connect('4981.0', '3336.image')
+    wf.connect('3336.0', '3159.image')
+    wf.connect('3059.0', '3159.latent')
+    wf.connect('3940.2', '3159.vae')
+    wf.connect('4968.0', '4808.model')
+    wf.connect('1241.1', '4808.negative')
+    wf.connect('1241.0', '4808.positive')
+    wf.connect('4964.0', '4808.parameters')
+    wf.connect('4922.0', '4828.model')
+    wf.connect('1241.1', '4828.negative')
+    wf.connect('1241.0', '4828.positive')
+    wf.connect('3980.0', '4528.audio_latent')
+    wf.connect('3159.0', '4528.video_latent')
+    wf.connect('4828.0', '4829.guider')
+    wf.connect('4528.0', '4829.latent_image')
+    wf.connect('4832.0', '4829.noise')
+    wf.connect('4831.0', '4829.sampler')
+    wf.connect('4971.0', '4829.sigmas')
+    wf.connect('4528.0', '4966.latent')
+    wf.connect('4808.0', '4802.guider')
+    wf.connect('4528.0', '4802.latent_image')
+    wf.connect('4814.0', '4802.noise')
+    wf.connect('4967.0', '4802.sampler')
+    wf.connect('4966.0', '4802.sigmas')
+    wf.connect('4829.0', '4845.av_latent')
+    wf.connect('4802.0', '4824.av_latent')
+    wf.connect('4010.0', '4848.audio_vae')
+    wf.connect('4845.1', '4848.samples')
+    wf.connect('4845.0', '4982.latents')
+    wf.connect('3940.2', '4982.vae')
+    wf.connect('4010.0', '4818.audio_vae')
+    wf.connect('4824.1', '4818.samples')
+    wf.connect('4982.0', '4849.images')
+    wf.connect('4824.0', '4983.latents')
+    wf.connect('3940.2', '4983.vae')
+    wf.connect('4983.0', '4819.images')
+    wf.connect('4849.0', '4852.video')
+    wf.connect('4819.0', '4823.video')
+    wf.connect('4960.0', '3940.dependencies')
+    apply_ltx_lowvram(wf)
+    resolution(384, 256, 9).apply(wf)
+    ensure_custom_nodes(wf, READY_METADATA.get("requirements", {}).get("custom_nodes", []))
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=savevideo_2, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output_F')
+    wf.nodes['1241'].inputs = {'frame_rate': 24.0}
+    wf.nodes['1241'].widgets = {'widget_0': 8}
+    wf.nodes['1241'].metadata = {'provenance': 'agent_authored', 'output_names': ['POSITIVE', 'NEGATIVE'], 'keep_defaults': ['frame_rate', 'negative', 'positive']}
+    wf.nodes['1241'].native_input_names = ['frame_rate', 'negative', 'positive']
+    wf.nodes['1241'].native_output_names = ['POSITIVE', 'NEGATIVE']
+    wf.nodes['1241'].native_input_types = ['FLOAT', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['1241'].native_output_types = ['CONDITIONING', 'CONDITIONING']
+    wf.nodes['1241'].native_input_optional = [False, False, False]
+    wf.nodes['1241'].native_input_asset_kinds = None
+    wf.nodes['1241'].native_output_slots = None
+    wf.nodes['2004'].inputs = {'image': 'example.png'}
+    wf.nodes['2004'].widgets = {'widget_0': 'egyptian_queen.png'}
+    wf.nodes['2004'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE', 'MASK'], 'keep_defaults': ['image']}
+    wf.nodes['2004'].native_input_names = ['image']
+    wf.nodes['2004'].native_output_names = ['IMAGE', 'MASK']
+    wf.nodes['2004'].native_input_types = ['CHOICE']
+    wf.nodes['2004'].native_output_types = ['IMAGE', 'MASK']
+    wf.nodes['2004'].native_input_optional = [False]
+    wf.nodes['2004'].native_input_asset_kinds = ['image']
+    wf.nodes['2004'].native_output_slots = None
+    wf.nodes['2483'].inputs = {'text': 'A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.'}
+    wf.nodes['2483'].widgets = {}
+    wf.nodes['2483'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['2483'].native_input_names = ['text', 'clip']
+    wf.nodes['2483'].native_output_names = ['CONDITIONING']
+    wf.nodes['2483'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['2483'].native_output_types = ['CONDITIONING']
+    wf.nodes['2483'].native_input_optional = [False, False]
+    wf.nodes['2483'].native_input_asset_kinds = None
+    wf.nodes['2483'].native_output_slots = None
+    wf.nodes['2612'].inputs = {'text': 'pc game, console game, video game, cartoon, childish, ugly'}
+    wf.nodes['2612'].widgets = {}
+    wf.nodes['2612'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['2612'].native_input_names = ['text', 'clip']
+    wf.nodes['2612'].native_output_names = ['CONDITIONING']
+    wf.nodes['2612'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['2612'].native_output_types = ['CONDITIONING']
+    wf.nodes['2612'].native_input_optional = [False, False]
+    wf.nodes['2612'].native_input_asset_kinds = None
+    wf.nodes['2612'].native_output_slots = None
+    wf.nodes['3059'].inputs = {'height': 256, 'length': 9, 'width': 384, 'batch_size': 1}
+    wf.nodes['3059'].widgets = {'widget_0': 384, 'widget_1': 256, 'widget_2': 9}
+    wf.nodes['3059'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['height', 'length', 'width']}
+    wf.nodes['3059'].native_input_names = ['width', 'height', 'length', 'batch_size']
+    wf.nodes['3059'].native_output_names = ['LATENT']
+    wf.nodes['3059'].native_input_types = ['INT', 'INT', 'INT', 'INT']
+    wf.nodes['3059'].native_output_types = ['LATENT']
+    wf.nodes['3059'].native_input_optional = [False, False, False, False]
+    wf.nodes['3059'].native_input_asset_kinds = None
+    wf.nodes['3059'].native_output_slots = None
+    wf.nodes['3159'].inputs = {'strength': 0.7, 'bypass': True}
+    wf.nodes['3159'].widgets = {}
+    wf.nodes['3159'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['bypass', 'image', 'latent', 'strength', 'vae']}
+    wf.nodes['3159'].native_input_names = ['strength', 'bypass', 'image', 'latent', 'vae']
+    wf.nodes['3159'].native_output_names = ['LATENT']
+    wf.nodes['3159'].native_input_types = ['FLOAT', 'BOOLEAN', 'IMAGE', 'LATENT', 'VAE']
+    wf.nodes['3159'].native_output_types = ['LATENT']
+    wf.nodes['3159'].native_input_optional = [False, True, False, False, False]
+    wf.nodes['3159'].native_input_asset_kinds = None
+    wf.nodes['3159'].native_output_slots = None
+    wf.nodes['3336'].inputs = {'img_compression': 18}
+    wf.nodes['3336'].widgets = {}
+    wf.nodes['3336'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT_IMAGE'], 'keep_defaults': ['image', 'img_compression']}
+    wf.nodes['3336'].native_input_names = ['img_compression', 'image']
+    wf.nodes['3336'].native_output_names = ['OUTPUT_IMAGE']
+    wf.nodes['3336'].native_input_types = ['INT', 'IMAGE']
+    wf.nodes['3336'].native_output_types = ['IMAGE']
+    wf.nodes['3336'].native_input_optional = [False, False]
+    wf.nodes['3336'].native_input_asset_kinds = None
+    wf.nodes['3336'].native_output_slots = None
+    wf.nodes['3940'].inputs = {'ckpt_name': 'ltx-2.3-22b-dev-fp8.safetensors'}
+    wf.nodes['3940'].widgets = {}
+    wf.nodes['3940'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL', 'CLIP', 'VAE'], 'keep_defaults': ['ckpt_name']}
+    wf.nodes['3940'].native_input_names = ['ckpt_name', 'dependencies']
+    wf.nodes['3940'].native_output_names = ['MODEL', 'CLIP', 'VAE']
+    wf.nodes['3940'].native_input_types = ['CHOICE', None]
+    wf.nodes['3940'].native_output_types = ['MODEL', 'CLIP', 'VAE']
+    wf.nodes['3940'].native_input_optional = None
+    wf.nodes['3940'].native_input_asset_kinds = None
+    wf.nodes['3940'].native_output_slots = None
+    wf.nodes['3980'].inputs = {'frames_number': 9, 'frame_rate': 8, 'batch_size': 1}
+    wf.nodes['3980'].widgets = {'widget_0': 9, 'widget_1': 8}
+    wf.nodes['3980'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['audio_vae', 'frame_rate', 'frames_number']}
+    wf.nodes['3980'].native_input_names = ['frames_number', 'frame_rate', 'batch_size', 'audio_vae']
+    wf.nodes['3980'].native_output_names = ['LATENT']
+    wf.nodes['3980'].native_input_types = ['INT', 'INT', 'INT', 'VAE']
+    wf.nodes['3980'].native_output_types = ['LATENT']
+    wf.nodes['3980'].native_input_optional = [False, False, False, False]
+    wf.nodes['3980'].native_input_asset_kinds = None
+    wf.nodes['3980'].native_output_slots = None
+    wf.nodes['4010'].inputs = {'ckpt_name': 'ltx-2.3-22b-dev-fp8.safetensors'}
+    wf.nodes['4010'].widgets = {}
+    wf.nodes['4010'].metadata = {'provenance': 'agent_authored', 'output_names': ['AUDIO_VAE'], 'keep_defaults': ['ckpt_name']}
+    wf.nodes['4010'].native_input_names = ['ckpt_name']
+    wf.nodes['4010'].native_output_names = ['AUDIO_VAE']
+    wf.nodes['4010'].native_input_types = ['COMBO']
+    wf.nodes['4010'].native_output_types = ['VAE']
+    wf.nodes['4010'].native_input_optional = [False]
+    wf.nodes['4010'].native_input_asset_kinds = None
+    wf.nodes['4010'].native_output_slots = None
+    wf.nodes['4528'].inputs = {}
+    wf.nodes['4528'].widgets = {}
+    wf.nodes['4528'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['audio_latent', 'video_latent']}
+    wf.nodes['4528'].native_input_names = ['audio_latent', 'video_latent']
+    wf.nodes['4528'].native_output_names = ['LATENT']
+    wf.nodes['4528'].native_input_types = ['LATENT', 'LATENT']
+    wf.nodes['4528'].native_output_types = ['LATENT']
+    wf.nodes['4528'].native_input_optional = [False, False]
+    wf.nodes['4528'].native_input_asset_kinds = None
+    wf.nodes['4528'].native_output_slots = None
+    wf.nodes['4802'].inputs = {}
+    wf.nodes['4802'].widgets = {}
+    wf.nodes['4802'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'keep_defaults': ['guider', 'latent_image', 'noise', 'sampler', 'sigmas']}
+    wf.nodes['4802'].native_input_names = ['noise', 'guider', 'sampler', 'sigmas', 'latent_image']
+    wf.nodes['4802'].native_output_names = ['OUTPUT', 'DENOISED_OUTPUT']
+    wf.nodes['4802'].native_input_types = ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT']
+    wf.nodes['4802'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['4802'].native_input_optional = [False, False, False, False, False]
+    wf.nodes['4802'].native_input_asset_kinds = None
+    wf.nodes['4802'].native_output_slots = None
+    wf.nodes['4808'].inputs = {'skip_blocks': '28'}
+    wf.nodes['4808'].widgets = {}
+    wf.nodes['4808'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER'], 'keep_defaults': ['model', 'negative', 'parameters', 'positive', 'widget_0']}
+    wf.nodes['4808'].native_input_names = ['parameters', 'skip_blocks', 'model', 'negative', 'positive', 'widget_0']
+    wf.nodes['4808'].native_output_names = ['GUIDER']
+    wf.nodes['4808'].native_input_types = ['GUIDER_PARAMETERS', 'STRING', 'MODEL', 'CONDITIONING', 'CONDITIONING', None]
+    wf.nodes['4808'].native_output_types = ['GUIDER']
+    wf.nodes['4808'].native_input_optional = None
+    wf.nodes['4808'].native_input_asset_kinds = None
+    wf.nodes['4808'].native_output_slots = None
+    wf.nodes['4814'].inputs = {'noise_seed': 42, 'control_after_generate': 'fixed'}
+    wf.nodes['4814'].widgets = {}
+    wf.nodes['4814'].metadata = {'provenance': 'agent_authored', 'output_names': ['NOISE'], 'keep_defaults': ['control_after_generate', 'noise_seed']}
+    wf.nodes['4814'].native_input_names = ['noise_seed', 'control_after_generate']
+    wf.nodes['4814'].native_output_names = ['NOISE']
+    wf.nodes['4814'].native_input_types = ['INT', None]
+    wf.nodes['4814'].native_output_types = ['NOISE']
+    wf.nodes['4814'].native_input_optional = None
+    wf.nodes['4814'].native_input_asset_kinds = None
+    wf.nodes['4814'].native_output_slots = None
+    wf.nodes['4818'].inputs = {}
+    wf.nodes['4818'].widgets = {}
+    wf.nodes['4818'].metadata = {'provenance': 'agent_authored', 'output_names': ['AUDIO'], 'keep_defaults': ['audio_vae', 'samples']}
+    wf.nodes['4818'].native_input_names = ['audio_vae', 'samples']
+    wf.nodes['4818'].native_output_names = ['AUDIO']
+    wf.nodes['4818'].native_input_types = ['VAE', 'LATENT']
+    wf.nodes['4818'].native_output_types = ['AUDIO']
+    wf.nodes['4818'].native_input_optional = [False, False]
+    wf.nodes['4818'].native_input_asset_kinds = None
+    wf.nodes['4818'].native_output_slots = None
+    wf.nodes['4819'].inputs = {'fps': 24.0}
+    wf.nodes['4819'].widgets = {}
+    wf.nodes['4819'].metadata = {'provenance': 'agent_authored', 'output_names': ['VIDEO'], 'keep_defaults': ['audio', 'fps', 'images']}
+    wf.nodes['4819'].native_input_names = ['fps', 'audio', 'images']
+    wf.nodes['4819'].native_output_names = ['VIDEO']
+    wf.nodes['4819'].native_input_types = ['FLOAT', 'AUDIO', 'IMAGE']
+    wf.nodes['4819'].native_output_types = ['VIDEO']
+    wf.nodes['4819'].native_input_optional = [False, True, False]
+    wf.nodes['4819'].native_input_asset_kinds = None
+    wf.nodes['4819'].native_output_slots = None
+    wf.nodes['4823'].inputs = {'filename_prefix': 'output_F', 'format': 'auto', 'codec': 'auto'}
+    wf.nodes['4823'].widgets = {}
+    wf.nodes['4823'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'video']}
+    wf.nodes['4823'].native_input_names = ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video']
+    wf.nodes['4823'].native_output_names = None
+    wf.nodes['4823'].native_input_types = ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO']
+    wf.nodes['4823'].native_output_types = None
+    wf.nodes['4823'].native_input_optional = [False, False, False, True, True, False]
+    wf.nodes['4823'].native_input_asset_kinds = None
+    wf.nodes['4823'].native_output_slots = None
+    wf.nodes['4824'].inputs = {}
+    wf.nodes['4824'].widgets = {}
+    wf.nodes['4824'].metadata = {'provenance': 'agent_authored', 'output_names': ['VIDEO_LATENT', 'AUDIO_LATENT'], 'keep_defaults': ['av_latent']}
+    wf.nodes['4824'].native_input_names = ['av_latent']
+    wf.nodes['4824'].native_output_names = ['VIDEO_LATENT', 'AUDIO_LATENT']
+    wf.nodes['4824'].native_input_types = ['LATENT']
+    wf.nodes['4824'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['4824'].native_input_optional = [False]
+    wf.nodes['4824'].native_input_asset_kinds = None
+    wf.nodes['4824'].native_output_slots = None
+    wf.nodes['4828'].inputs = {'cfg': 1}
+    wf.nodes['4828'].widgets = {}
+    wf.nodes['4828'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER'], 'keep_defaults': ['cfg', 'model', 'negative', 'positive']}
+    wf.nodes['4828'].native_input_names = ['cfg', 'model', 'negative', 'positive']
+    wf.nodes['4828'].native_output_names = ['GUIDER']
+    wf.nodes['4828'].native_input_types = ['FLOAT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['4828'].native_output_types = ['GUIDER']
+    wf.nodes['4828'].native_input_optional = [False, False, False, False]
+    wf.nodes['4828'].native_input_asset_kinds = None
+    wf.nodes['4828'].native_output_slots = None
+    wf.nodes['4829'].inputs = {}
+    wf.nodes['4829'].widgets = {}
+    wf.nodes['4829'].metadata = {'provenance': 'agent_authored', 'output_names': ['OUTPUT', 'DENOISED_OUTPUT'], 'keep_defaults': ['guider', 'latent_image', 'noise', 'sampler', 'sigmas']}
+    wf.nodes['4829'].native_input_names = ['noise', 'guider', 'sampler', 'sigmas', 'latent_image']
+    wf.nodes['4829'].native_output_names = ['OUTPUT', 'DENOISED_OUTPUT']
+    wf.nodes['4829'].native_input_types = ['NOISE', 'GUIDER', 'SAMPLER', 'SIGMAS', 'LATENT']
+    wf.nodes['4829'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['4829'].native_input_optional = [False, False, False, False, False]
+    wf.nodes['4829'].native_input_asset_kinds = None
+    wf.nodes['4829'].native_output_slots = None
+    wf.nodes['4831'].inputs = {'sampler_name': 'euler_ancestral_cfg_pp'}
+    wf.nodes['4831'].widgets = {}
+    wf.nodes['4831'].metadata = {'provenance': 'agent_authored', 'output_names': ['SAMPLER'], 'keep_defaults': ['sampler_name']}
+    wf.nodes['4831'].native_input_names = ['sampler_name']
+    wf.nodes['4831'].native_output_names = ['SAMPLER']
+    wf.nodes['4831'].native_input_types = ['COMBO']
+    wf.nodes['4831'].native_output_types = ['SAMPLER']
+    wf.nodes['4831'].native_input_optional = [False]
+    wf.nodes['4831'].native_input_asset_kinds = None
+    wf.nodes['4831'].native_output_slots = None
+    wf.nodes['4832'].inputs = {'noise_seed': 43, 'control_after_generate': 'fixed'}
+    wf.nodes['4832'].widgets = {}
+    wf.nodes['4832'].metadata = {'provenance': 'agent_authored', 'output_names': ['NOISE'], 'keep_defaults': ['control_after_generate', 'noise_seed']}
+    wf.nodes['4832'].native_input_names = ['noise_seed', 'control_after_generate']
+    wf.nodes['4832'].native_output_names = ['NOISE']
+    wf.nodes['4832'].native_input_types = ['INT', None]
+    wf.nodes['4832'].native_output_types = ['NOISE']
+    wf.nodes['4832'].native_input_optional = None
+    wf.nodes['4832'].native_input_asset_kinds = None
+    wf.nodes['4832'].native_output_slots = None
+    wf.nodes['4845'].inputs = {}
+    wf.nodes['4845'].widgets = {}
+    wf.nodes['4845'].metadata = {'provenance': 'agent_authored', 'output_names': ['VIDEO_LATENT', 'AUDIO_LATENT'], 'keep_defaults': ['av_latent']}
+    wf.nodes['4845'].native_input_names = ['av_latent']
+    wf.nodes['4845'].native_output_names = ['VIDEO_LATENT', 'AUDIO_LATENT']
+    wf.nodes['4845'].native_input_types = ['LATENT']
+    wf.nodes['4845'].native_output_types = ['LATENT', 'LATENT']
+    wf.nodes['4845'].native_input_optional = [False]
+    wf.nodes['4845'].native_input_asset_kinds = None
+    wf.nodes['4845'].native_output_slots = None
+    wf.nodes['4848'].inputs = {}
+    wf.nodes['4848'].widgets = {}
+    wf.nodes['4848'].metadata = {'provenance': 'agent_authored', 'output_names': ['AUDIO'], 'keep_defaults': ['audio_vae', 'samples']}
+    wf.nodes['4848'].native_input_names = ['audio_vae', 'samples']
+    wf.nodes['4848'].native_output_names = ['AUDIO']
+    wf.nodes['4848'].native_input_types = ['VAE', 'LATENT']
+    wf.nodes['4848'].native_output_types = ['AUDIO']
+    wf.nodes['4848'].native_input_optional = [False, False]
+    wf.nodes['4848'].native_input_asset_kinds = None
+    wf.nodes['4848'].native_output_slots = None
+    wf.nodes['4849'].inputs = {'fps': 24.0}
+    wf.nodes['4849'].widgets = {}
+    wf.nodes['4849'].metadata = {'provenance': 'agent_authored', 'output_names': ['VIDEO'], 'keep_defaults': ['audio', 'fps', 'images']}
+    wf.nodes['4849'].native_input_names = ['fps', 'audio', 'images']
+    wf.nodes['4849'].native_output_names = ['VIDEO']
+    wf.nodes['4849'].native_input_types = ['FLOAT', 'AUDIO', 'IMAGE']
+    wf.nodes['4849'].native_output_types = ['VIDEO']
+    wf.nodes['4849'].native_input_optional = [False, True, False]
+    wf.nodes['4849'].native_input_asset_kinds = None
+    wf.nodes['4849'].native_output_slots = None
+    wf.nodes['4852'].inputs = {'filename_prefix': 'output_D', 'format': 'auto', 'codec': 'auto'}
+    wf.nodes['4852'].widgets = {}
+    wf.nodes['4852'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'video']}
+    wf.nodes['4852'].native_input_names = ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video']
+    wf.nodes['4852'].native_output_names = None
+    wf.nodes['4852'].native_input_types = ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO']
+    wf.nodes['4852'].native_output_types = None
+    wf.nodes['4852'].native_input_optional = [False, False, False, True, True, False]
+    wf.nodes['4852'].native_input_asset_kinds = None
+    wf.nodes['4852'].native_output_slots = None
+    wf.nodes['4922'].inputs = {'lora_name': 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors', 'strength_model': 0.5}
+    wf.nodes['4922'].widgets = {}
+    wf.nodes['4922'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['lora_name', 'model', 'strength_model']}
+    wf.nodes['4922'].native_input_names = ['lora_name', 'strength_model', 'model']
+    wf.nodes['4922'].native_output_names = ['MODEL']
+    wf.nodes['4922'].native_input_types = ['CHOICE', 'FLOAT', 'MODEL']
+    wf.nodes['4922'].native_output_types = ['MODEL']
+    wf.nodes['4922'].native_input_optional = [False, False, False]
+    wf.nodes['4922'].native_input_asset_kinds = None
+    wf.nodes['4922'].native_output_slots = None
+    wf.nodes['4960'].inputs = {'ckpt_name': 'ltx-2.3-22b-dev.safetensors', 'device': 'default', 'text_encoder': 'comfy_gemma_3_12B_it.safetensors'}
+    wf.nodes['4960'].widgets = {}
+    wf.nodes['4960'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['ckpt_name', 'device', 'text_encoder']}
+    wf.nodes['4960'].native_input_names = ['text_encoder', 'ckpt_name', 'device']
+    wf.nodes['4960'].native_output_names = ['CLIP']
+    wf.nodes['4960'].native_input_types = ['COMBO', 'COMBO', 'COMBO']
+    wf.nodes['4960'].native_output_types = ['CLIP']
+    wf.nodes['4960'].native_input_optional = [False, False, False]
+    wf.nodes['4960'].native_input_asset_kinds = None
+    wf.nodes['4960'].native_output_slots = None
+    wf.nodes['4963'].inputs = {'cfg': 7, 'modality': 'AUDIO', 'modality_scale': 3, 'stg': 1.0, 'perturb_attn': True, 'rescale': 0.7, 'skip_step': 0, 'cross_attn': True}
+    wf.nodes['4963'].widgets = {}
+    wf.nodes['4963'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER_PARAMETERS'], 'keep_defaults': ['cfg', 'modality', 'modality_scale']}
+    wf.nodes['4963'].native_input_names = ['modality', 'cfg', 'stg', 'perturb_attn', 'rescale', 'modality_scale', 'skip_step', 'cross_attn', 'parameters']
+    wf.nodes['4963'].native_output_names = ['GUIDER_PARAMETERS']
+    wf.nodes['4963'].native_input_types = ['CHOICE', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'FLOAT', 'INT', 'BOOLEAN', 'GUIDER_PARAMETERS']
+    wf.nodes['4963'].native_output_types = ['GUIDER_PARAMETERS']
+    wf.nodes['4963'].native_input_optional = [False, False, False, False, False, False, False, False, True]
+    wf.nodes['4963'].native_input_asset_kinds = None
+    wf.nodes['4963'].native_output_slots = None
+    wf.nodes['4964'].inputs = {'cfg': 3, 'modality_scale': 3, 'rescale': 0.9, 'modality': 'VIDEO', 'stg': 1.0, 'perturb_attn': True, 'skip_step': 0, 'cross_attn': True}
+    wf.nodes['4964'].widgets = {}
+    wf.nodes['4964'].metadata = {'provenance': 'agent_authored', 'output_names': ['GUIDER_PARAMETERS'], 'keep_defaults': ['cfg', 'modality_scale', 'parameters', 'rescale']}
+    wf.nodes['4964'].native_input_names = ['modality', 'cfg', 'stg', 'perturb_attn', 'rescale', 'modality_scale', 'skip_step', 'cross_attn', 'parameters']
+    wf.nodes['4964'].native_output_names = ['GUIDER_PARAMETERS']
+    wf.nodes['4964'].native_input_types = ['CHOICE', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'FLOAT', 'INT', 'BOOLEAN', 'GUIDER_PARAMETERS']
+    wf.nodes['4964'].native_output_types = ['GUIDER_PARAMETERS']
+    wf.nodes['4964'].native_input_optional = [False, False, False, False, False, False, False, False, True]
+    wf.nodes['4964'].native_input_asset_kinds = None
+    wf.nodes['4964'].native_output_slots = None
+    wf.nodes['4966'].inputs = {'steps': 15, 'max_shift': 2.05, 'base_shift': 0.95, 'stretch': True, 'terminal': 0.1}
+    wf.nodes['4966'].widgets = {}
+    wf.nodes['4966'].metadata = {'provenance': 'agent_authored', 'output_names': ['SIGMAS'], 'keep_defaults': ['latent', 'steps']}
+    wf.nodes['4966'].native_input_names = ['steps', 'max_shift', 'base_shift', 'stretch', 'terminal', 'latent']
+    wf.nodes['4966'].native_output_names = ['SIGMAS']
+    wf.nodes['4966'].native_input_types = ['INT', 'FLOAT', 'FLOAT', 'BOOLEAN', 'FLOAT', 'LATENT']
+    wf.nodes['4966'].native_output_types = ['SIGMAS']
+    wf.nodes['4966'].native_input_optional = [False, False, False, False, False, True]
+    wf.nodes['4966'].native_input_asset_kinds = None
+    wf.nodes['4966'].native_output_slots = None
+    wf.nodes['4967'].inputs = {'sampler_name': 'euler_ancestral_cfg_pp'}
+    wf.nodes['4967'].widgets = {}
+    wf.nodes['4967'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['widget_0', 'widget_1', 'widget_2', 'widget_3', 'widget_4']}
+    wf.nodes['4967'].native_input_names = ['widget_0', 'widget_1', 'widget_2', 'widget_3', 'widget_4']
+    wf.nodes['4967'].native_output_names = None
+    wf.nodes['4967'].native_input_types = [None, None, None, None, None]
+    wf.nodes['4967'].native_output_types = None
+    wf.nodes['4967'].native_input_optional = None
+    wf.nodes['4967'].native_input_asset_kinds = None
+    wf.nodes['4967'].native_output_slots = [0]
+    wf.nodes['4968'].inputs = {'lora_name': 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors', 'strength_model': 0.2}
+    wf.nodes['4968'].widgets = {}
+    wf.nodes['4968'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['lora_name', 'model', 'strength_model']}
+    wf.nodes['4968'].native_input_names = ['lora_name', 'strength_model', 'model']
+    wf.nodes['4968'].native_output_names = ['MODEL']
+    wf.nodes['4968'].native_input_types = ['CHOICE', 'FLOAT', 'MODEL']
+    wf.nodes['4968'].native_output_types = ['MODEL']
+    wf.nodes['4968'].native_input_optional = [False, False, False]
+    wf.nodes['4968'].native_input_asset_kinds = None
+    wf.nodes['4968'].native_output_slots = None
+    wf.nodes['4971'].inputs = {'sigmas': '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0'}
+    wf.nodes['4971'].widgets = {}
+    wf.nodes['4971'].metadata = {'provenance': 'agent_authored', 'output_names': ['SIGMAS'], 'keep_defaults': ['sigmas']}
+    wf.nodes['4971'].native_input_names = ['sigmas']
+    wf.nodes['4971'].native_output_names = ['SIGMAS']
+    wf.nodes['4971'].native_input_types = ['STRING']
+    wf.nodes['4971'].native_output_types = ['SIGMAS']
+    wf.nodes['4971'].native_input_optional = [False]
+    wf.nodes['4971'].native_input_asset_kinds = None
+    wf.nodes['4971'].native_output_slots = None
+    wf.nodes['4981'].inputs = {'resize_type': 'scale longer dimension', 'scale_method': 'lanczos', 'longer_size': 384, 'resize_type.longer_size': 384}
+    wf.nodes['4981'].widgets = {'widget_1': 384}
+    wf.nodes['4981'].metadata = {'provenance': 'agent_authored', 'output_names': ['RESIZED'], 'keep_defaults': ['input', 'resize_type', 'scale_method']}
+    wf.nodes['4981'].native_input_names = ['input', 'resize_type', 'scale_method']
+    wf.nodes['4981'].native_output_names = ['RESIZED']
+    wf.nodes['4981'].native_input_types = ['COMFY_MATCHTYPE_V3', 'COMFY_DYNAMICCOMBO_V3', 'COMBO']
+    wf.nodes['4981'].native_output_types = ['COMFY_MATCHTYPE_V3']
+    wf.nodes['4981'].native_input_optional = [False, False, False]
+    wf.nodes['4981'].native_input_asset_kinds = None
+    wf.nodes['4981'].native_output_slots = None
+    wf.nodes['4982'].inputs = {'horizontal_tiles': 2, 'overlap': 6, 'vertical_tiles': 2, 'last_frame_fix': False}
+    wf.nodes['4982'].widgets = {}
+    wf.nodes['4982'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['horizontal_tiles', 'latents', 'overlap', 'vae', 'vertical_tiles']}
+    wf.nodes['4982'].native_input_names = ['horizontal_tiles', 'vertical_tiles', 'overlap', 'last_frame_fix', 'working_device', 'working_dtype', 'latents', 'vae']
+    wf.nodes['4982'].native_output_names = ['IMAGE']
+    wf.nodes['4982'].native_input_types = ['INT', 'INT', 'INT', 'BOOLEAN', 'CHOICE', 'CHOICE', 'LATENT', 'VAE']
+    wf.nodes['4982'].native_output_types = ['IMAGE']
+    wf.nodes['4982'].native_input_optional = [False, False, False, False, True, True, False, False]
+    wf.nodes['4982'].native_input_asset_kinds = None
+    wf.nodes['4982'].native_output_slots = None
+    wf.nodes['4983'].inputs = {'horizontal_tiles': 2, 'overlap': 6, 'vertical_tiles': 2, 'last_frame_fix': False}
+    wf.nodes['4983'].widgets = {}
+    wf.nodes['4983'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['horizontal_tiles', 'latents', 'overlap', 'vae', 'vertical_tiles']}
+    wf.nodes['4983'].native_input_names = ['horizontal_tiles', 'vertical_tiles', 'overlap', 'last_frame_fix', 'working_device', 'working_dtype', 'latents', 'vae']
+    wf.nodes['4983'].native_output_names = ['IMAGE']
+    wf.nodes['4983'].native_input_types = ['INT', 'INT', 'INT', 'BOOLEAN', 'CHOICE', 'CHOICE', 'LATENT', 'VAE']
+    wf.nodes['4983'].native_output_types = ['IMAGE']
+    wf.nodes['4983'].native_input_optional = [False, False, False, False, True, True, False, False]
+    wf.nodes['4983'].native_input_asset_kinds = None
+    wf.nodes['4983'].native_output_slots = None
+    wf.nodes['4985'].inputs = {'a': 24.0, 'rounding': 0}
+    wf.nodes['4985'].widgets = {}
+    wf.nodes['4985'].metadata = {'provenance': 'agent_authored', 'output_names': ['INT'], 'keep_defaults': ['a', 'rounding']}
+    wf.nodes['4985'].native_input_names = ['a', 'rounding']
+    wf.nodes['4985'].native_output_names = ['INT']
+    wf.nodes['4985'].native_input_types = ['FLOAT', None]
+    wf.nodes['4985'].native_output_types = ['INT']
+    wf.nodes['4985'].native_input_optional = None
+    wf.nodes['4985'].native_input_asset_kinds = None
+    wf.nodes['4985'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('fps', '4819', 'fps', 24.0, type='FLOAT', default=24.0, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('frames', '3059', 'length', 9, type='INT', default=121, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('height', '3059', 'height', 256, type='INT', default=544, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('image', '2004', 'image', 'example.png', type='IMAGE', default='', required=True, range=None, aliases=('input_image',), media_semantics='image', allow_missing_target=False)
+    wf.register_input('model', '3940', 'ckpt_name', 'ltx-2.3-22b-dev-fp8.safetensors', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['model'].default = None
+    wf.register_input('negative_prompt', '2612', 'text', 'pc game, console game, video game, cartoon, childish, ugly', type='STRING', default='pc game, console game, video game, cartoon, childish, ugly', required=False, range=None, aliases=('negative',), media_semantics='text', allow_missing_target=False)
+    wf.register_input('prompt', '2483', 'text', 'A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.', type='STRING', default='A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.', required=True, range=None, aliases=(), media_semantics='text', allow_missing_target=False)
+    wf.register_input('seed', '4814', 'noise_seed', 42, type='INT', default=42, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('width', '3059', 'width', 384, type='INT', default=960, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('input_image', '2004', 'image', 'example.png', type='IMAGE', default='', required=True, range=None, aliases=(), media_semantics='image', allow_missing_target=False, materialized_alias_of='image')
+    wf.register_input('negative', '2612', 'text', 'pc game, console game, video game, cartoon, childish, ugly', type='STRING', default='pc game, console game, video game, cartoon, childish, ugly', required=False, range=None, aliases=(), media_semantics='text', allow_missing_target=False, materialized_alias_of='negative_prompt')
+    public_output_0 = wf.outputs[0]
+    public_output_1 = wf.outputs[1]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveVideo'
+    public_output_0.name = 'video'
+    public_output_0.artifact_kind = 'video'
+    public_output_0.mime_type = 'video/mp4'
+    public_output_0.filename_prefix = 'output_F'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    public_output_1.output_type = 'SaveVideo'
+    public_output_1.name = None
+    public_output_1.artifact_kind = None
+    public_output_1.mime_type = None
+    public_output_1.filename_prefix = None
+    public_output_1.expected_cardinality = None
+    wf.outputs.append(public_output_1)
+    wf.requirements.models = ['ltx-2.3-22b-dev-fp8.safetensors', 'ltx-2.3-22b-dev.safetensors', 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors']
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
     return wf
-
-
-def _node(
-    wf: VibeWorkflow,
-    class_type: str,
-    _id: str,
-    _extras: dict | None = None,
-    _outputs: tuple[str, ...] | None = None,
-    _uid: str | None = None,
-    **kwargs,
-):
-    """Create a node, preserving the original node id from the source workflow.
-
-    `_extras` carries kwargs whose names are not valid Python identifiers
-    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
-    They are applied to the new node post-construction.
-    """
-    from vibecomfy.handles import Handle
-    builder = wf.node(class_type, **kwargs)
-    if _uid:
-        builder.node.uid = _uid
-    if _outputs is not None:
-        builder.node.metadata["output_names"] = list(_outputs)
-    if _extras:
-        for key, value in _extras.items():
-            if isinstance(value, Handle):
-                wf.connect(value, f"{builder.node.id}.{key}")
-            else:
-                builder.node.inputs[key] = value
-    if builder.node.id != _id:
-        old_id = builder.node.id
-        node = wf.nodes.pop(old_id)
-        node.id = _id
-        wf.nodes[_id] = node
-        for edge in wf.edges:
-            if edge.to_node == old_id:
-                edge.to_node = _id
-            if edge.from_node == old_id:
-                edge.from_node = _id
-    return builder
 

@@ -141,6 +141,10 @@ def test_total_landed_edit_count_includes_add_only_structural_edits() -> None:
         batch_turns=[{
             "field_changes": [],
             "landed_op_count": 1,
+            "statements": [{
+                "ok": True, "landed": True,
+                "op": {"op": "add_node", "scope_path": "", "uid": "image", "node_id": "image", "class_type": "EmptyImage", "fields": {}, "inputs": {}},
+            }],
             "delta_ops_envelope": {"ops": [{"op": "add_node"}]},
         }],
     )
@@ -155,6 +159,10 @@ def test_total_landed_edit_count_combines_fields_and_node_structure() -> None:
         ),
         batch_turns=[{
             "field_changes": [{"uid": "sampler", "field_path": "steps"}],
+            "statements": [
+                {"ok": True, "landed": True, "op": {"op": "set_node_field", "target": ["", "sampler", "steps"], "value": 30}},
+                {"ok": True, "landed": True, "op": {"op": "add_node", "scope_path": "", "uid": "image", "node_id": "image", "class_type": "EmptyImage", "fields": {}, "inputs": {}}},
+            ],
             "delta_ops_envelope": {
                 "ops": [
                     {"op": "set_node_field"},

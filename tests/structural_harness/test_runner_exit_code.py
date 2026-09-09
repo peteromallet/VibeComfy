@@ -56,14 +56,8 @@ def _extract_json(text: str) -> dict:
     return {}
 
 
-def test_structural_run_with_all_passing_returns_zero():
-    """A structural run where every scenario passes assessment must return
-    exit code 0.
-
-    Runs a known-good scenario (add-save-node-finalize) which produces
-    complete frozen evidence and passes all deterministic checks including
-    the project-level deliverable_shape override.
-    """
+def test_structural_fake_actor_retains_fake_no_op_with_passing_checks():
+    """Deterministic evidence can pass without claiming a real agent succeeded."""
     from sisypy import summary_exit_code
 
     result = _run_runner(
@@ -85,18 +79,29 @@ def test_structural_run_with_all_passing_returns_zero():
         f"but summary_exit_code says {expected_exit}.\n"
         f"First scenario outcome: {batch.get('scenarios', [{}])[0].get('runs', [{}])[0].get('outcome')}"
     )
-    assert actual_exit == 0, (
-        f"Expected exit code 0 for all-passing scenario, got {actual_exit}."
-    )
+    assert actual_exit == 3, "A fake actor must retain the non-success exit code."
 
-    # Verify the outcome is passed.
+    # The compile-only builder must still supply real, internally consistent
+    # evidence; fake_no_op is not an excuse for missing or failed checks.
     scenarios = batch.get("scenarios", [])
     for ss in scenarios:
         for run_rec in ss.get("runs", []):
             outcome = run_rec.get("outcome", "")
-            assert outcome == OUTCOME_PASSED, (
-                f"Expected 'passed' for all-passing scenario, got {outcome!r}."
-            )
+            assert outcome == OUTCOME_FAKE_NO_OP
+            assert run_rec["universal_checks"]["all_passed"] is True
+            assert run_rec["assessment"]["overall_passed"] is True
+            evidence = Path(run_rec["evidence_dir"])
+            api = json.loads((evidence / "compiled_api.json").read_text())
+            metadata = json.loads((evidence / "metadata.json").read_text())
+            from vibecomfy.testing.canonical import canonical_digest
+
+            assert metadata["compiled_prompt"] == api
+            assert metadata["api_digest"] == canonical_digest(api)
+            saved = [node for node in api.values() if node["class_type"] == "SaveImage"]
+            assert len(saved) == 1
+            assert saved[0]["inputs"]["filename_prefix"] == "m3/finalized"
+            assert "widget_0" not in saved[0]["inputs"]
+            assert "sd_xl_base_1.0.safetensors" in metadata["requirements"]["models"]
 
 
 def test_summary_exit_code_treats_assessment_failure_as_failure():

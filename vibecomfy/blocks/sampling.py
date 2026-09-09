@@ -31,7 +31,7 @@ def model_sampling_sd3(
         "vibecomfy.blocks.sampling.model_sampling_sd3",
         "ModelSamplingSD3",
         block_id=block_id,
-        widgets={"widget_0": shift},
+        inputs={"shift": shift},
     )
     connect(workflow, model, node, "model")
     return Handles(model=Handle(node_id=node.id, output_slot=0, name="model"))
@@ -54,15 +54,15 @@ def ksampler(
         "vibecomfy.blocks.sampling.ksampler",
         "KSampler",
         block_id=block_id,
-        widgets={
-            "widget_0": settings.seed,
-            "widget_1": settings.control_after_generate,
-            "widget_2": settings.steps,
-            "widget_3": settings.cfg,
-            "widget_4": settings.sampler_name,
-            "widget_5": settings.scheduler,
-            "widget_6": settings.denoise,
+        inputs={
+            "seed": settings.seed,
+            "steps": settings.steps,
+            "cfg": settings.cfg,
+            "sampler_name": settings.sampler_name,
+            "scheduler": settings.scheduler,
+            "denoise": settings.denoise,
         },
+        metadata={"control_after_generate": settings.control_after_generate},
     )
     connect(workflow, model, node, "model")
     connect(workflow, positive, node, "positive")

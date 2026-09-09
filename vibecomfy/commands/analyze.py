@@ -6,15 +6,13 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, is_dataclass
-from pathlib import Path
 from typing import Any
 
 from vibecomfy.analysis import graph
 from vibecomfy.security import provenance as _provenance
 from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.analysis.fields import trace_public_field
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.commands._output import emit, jsonable
 from vibecomfy.commands.analyze_names import analyze_names
 from vibecomfy.porting.workbench import load_port_source
@@ -27,7 +25,12 @@ ANALYSIS_FORMATS = ("text", "json", "tsv")
 
 
 def _load_workflow(value: str) -> VibeWorkflow:
-    return load_workflow_any(value)
+    # Analysis is a production inspection boundary.  Resolve through the
+    # canonical bundle seam; callers consume its workflow only for report
+    # rendering and never treat a bare compatibility result as authority.
+    bundle = load_bundle(value)
+    bundle.require_canonical_authority("workflow analysis")
+    return bundle.workflow
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
@@ -295,7 +298,7 @@ def _format_tracefield(result: dict[str, Any]) -> str:
             lines.append(f"  • {alias!r}")
         lines.append(f"  • {result['field']!r} (canonical)")
     else:
-        lines.append(f"aliases: (none)")
+        lines.append("aliases: (none)")
     bound = result.get("bound_node")
     if bound:
         lines.append(

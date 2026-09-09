@@ -29,7 +29,9 @@ def _hostile_workflow():
             },
         },
     }
-    return from_api(raw)
+    workflow = from_api(raw)
+    workflow.nodes["1"].metadata["title"] = INJECTION
+    return workflow
 
 
 def _find_wrapped_strings(obj, out):

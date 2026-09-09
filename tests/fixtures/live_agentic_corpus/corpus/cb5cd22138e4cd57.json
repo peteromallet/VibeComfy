@@ -1,0 +1,2033 @@
+{
+  "edges": [
+    {
+      "from_node": "59",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "56"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "56"
+    },
+    {
+      "from_node": "57",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "56"
+    },
+    {
+      "from_node": "53",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "56"
+    },
+    {
+      "from_node": "61",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "63"
+    },
+    {
+      "from_node": "58",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "63"
+    },
+    {
+      "from_node": "63",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "75"
+    },
+    {
+      "from_node": "58",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "58",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "59"
+    },
+    {
+      "from_node": "90",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "53"
+    },
+    {
+      "from_node": "58",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "61"
+    },
+    {
+      "from_node": "56",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "61"
+    },
+    {
+      "from_node": "56",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "61"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "61"
+    },
+    {
+      "from_node": "90",
+      "from_output": "1",
+      "to_input": "batch_size",
+      "to_node": "94"
+    },
+    {
+      "from_node": "93",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "90"
+    },
+    {
+      "from_node": "88",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "93"
+    },
+    {
+      "from_node": "53",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "74"
+    }
+  ],
+  "groups": [],
+  "id": "6ac69a5033cfba66",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "58",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "cardosAnime_v20.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "(low quality, worst quality:1.3)"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "61",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 968723622455106
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "61",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "53": {
+        "class_type": "OpenposePreprocessor",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "90",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "56",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "74",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'enable'"
+          ],
+          [
+            "widget_1",
+            "'enable'"
+          ],
+          [
+            "widget_2",
+            "'disable'"
+          ],
+          [
+            "widget_3",
+            "512"
+          ]
+        ]
+      },
+      "56": {
+        "class_type": "ACN_AdvancedControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "control_net",
+            [
+              "57",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "53",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "59",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "61",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.5"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "57": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "56",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'control_v11p_sd15_openpose.pth'"
+          ]
+        ]
+      },
+      "58": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "59",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "63",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'cardosAnime_v20.safetensors'"
+          ]
+        ]
+      },
+      "59": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "58",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "56",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "61": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "94",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "58",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "56",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "56",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "63",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "0.9"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_sde_gpu'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "968723622455106"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "63": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "61",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "58",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "75",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "58",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "56",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'(low quality, worst quality:1.3)'"
+          ]
+        ]
+      },
+      "74": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "53",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio_file",
+            "''"
+          ],
+          [
+            "crf",
+            "20"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'image/gif'"
+          ],
+          [
+            "frame_rate",
+            "16"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "save_image",
+            "True"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00042.gif', 'subfolder': '', 'type': 'output', 'format': 'image/gif'}}"
+          ]
+        ]
+      },
+      "75": {
+        "class_type": "VHS_VideoCombine",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "63",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio_file",
+            "''"
+          ],
+          [
+            "crf",
+            "20"
+          ],
+          [
+            "filename_prefix",
+            "'AnimateDiff'"
+          ],
+          [
+            "format",
+            "'image/gif'"
+          ],
+          [
+            "frame_rate",
+            "15"
+          ],
+          [
+            "loop_count",
+            "0"
+          ],
+          [
+            "pingpong",
+            "False"
+          ],
+          [
+            "save_image",
+            "True"
+          ],
+          [
+            "save_metadata",
+            "True"
+          ],
+          [
+            "videopreview",
+            "{'hidden': False, 'paused': False, 'params': {'filename': 'AnimateDiff_00045.gif', 'subfolder': '', 'type': 'output', 'format': 'image/gif'}}"
+          ]
+        ]
+      },
+      "88": {
+        "class_type": "VHS_LoadVideoPath",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "93",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "force_rate",
+            "0"
+          ],
+          [
+            "force_size",
+            "'Disabled'"
+          ],
+          [
+            "frame_load_cap",
+            "0"
+          ],
+          [
+            "select_every_nth",
+            "1"
+          ],
+          [
+            "skip_first_frames",
+            "0"
+          ],
+          [
+            "video",
+            "'T:/ComfyUI_windows_portable_nvidia_cu121_or_cpu/ComfyUI_windows_portable/ComfyUI/input/video/VID_20240102_120947585_2.mp4'"
+          ]
+        ]
+      },
+      "90": {
+        "class_type": "VHS_SelectEveryNthImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "93",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "53",
+              "image"
+            ]
+          ],
+          [
+            "1",
+            [
+              "94",
+              "batch_size"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "select_every_nth",
+            "2"
+          ]
+        ]
+      },
+      "93": {
+        "class_type": "ImageScaleBy",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "88",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "90",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "scale_by",
+            "0.25"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ]
+        ]
+      },
+      "94": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [
+          [
+            "batch_size",
+            [
+              "90",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "61",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "912"
+          ],
+          [
+            "widget_1",
+            "512"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "cb5cd22138e4cd570659cd7847b6f1495cc55a04161a52b7f9d5a1b7ce22fea7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1191413261233573908,
+      "channel_name": "art_experiments",
+      "content_preview": "<@179206814720720896> <@464322697418244096> Here's the workflow if ur interested",
+      "discord_message_url": "https://discord.com/channels/@me/1191413261233573908/1192162461252587663",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1192162461252587663:workflow.json:6ac69a5033cfba66",
+      "filename": "workflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1192162461252587663,
+      "node_class_multiset": {
+        "ACN_AdvancedControlNetApply": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetLoader": 1,
+        "EmptyLatentImage": 1,
+        "ImageScaleBy": 1,
+        "KSampler": 1,
+        "OpenposePreprocessor": 1,
+        "VAEDecode": 1,
+        "VHS_LoadVideoPath": 1,
+        "VHS_SelectEveryNthImage": 1,
+        "VHS_VideoCombine": 2
+      },
+      "node_count": 14,
+      "origin_date": "2024-01-03T17:48:00.070000+00:00",
+      "originator_global_name": "PollyannaIn4D",
+      "originator_id": "305473730715320321",
+      "originator_type": "discord_message_author",
+      "originator_username": "pollyannain4d",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "6ac69a5033cfba66334f4be49db19ca663d2472094087295f55d0a1dff71536c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1191413261233573908/1192162460631834724/workflow.json?ex=6834a94f&is=683357cf&hm=7092a0bdcbc84bdfc84fc01d9df2f250fd77820e6bacfcba38b9b8fa94702391&",
+      "source_workflow_sha256": "f8466e1e1c754e2fa4543d4700b927d76dfff53d83a7b211ce3ff0467289ad1c",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "6a618400ef2c30254cae24e12f71feb0dfb7944f1a9f6d1ec20409832b194a17",
+      "complexity": 2,
+      "description": "Loads a video, extracts frames, applies OpenPose preprocessing, and uses a ControlNet with an anime checkpoint to generate a stylized video output.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video-to-video",
+        "anime",
+        "controlnet",
+        "openpose",
+        "frame-interpolation",
+        "image-to-image"
+      ],
+      "task_type": "controlnet",
+      "title": "Anime Video to Video with ControlNet and OpenPose"
+    }
+  },
+  "nodes": {
+    "53": {
+      "class_type": "OpenposePreprocessor",
+      "id": "53",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 53,
+          "inputs": [
+            {
+              "link": 156,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                134,
+                158
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -111,
+            -756
+          ],
+          "properties": {
+            "Node name for S&R": "OpenposePreprocessor"
+          },
+          "size": {
+            "0": 315,
+            "1": 130
+          },
+          "type": "OpenposePreprocessor",
+          "widgets_values": [
+            "enable",
+            "enable",
+            "disable",
+            512
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          "enable",
+          "disable",
+          512
+        ]
+      },
+      "uid": "53",
+      "widgets": {
+        "widget_0": "enable",
+        "widget_1": "enable",
+        "widget_2": "disable",
+        "widget_3": 512
+      }
+    },
+    "56": {
+      "class_type": "ACN_AdvancedControlNetApply",
+      "id": "56",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 56,
+          "inputs": [
+            {
+              "link": 112,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 113,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 109,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 158,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "mask_optional",
+              "type": "MASK"
+            },
+            {
+              "link": null,
+              "name": "timestep_kf",
+              "type": "TIMESTEP_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "latent_kf_override",
+              "type": "LATENT_KEYFRAME"
+            },
+            {
+              "link": null,
+              "name": "weights_override",
+              "type": "CONTROL_NET_WEIGHTS"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                117
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                118
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            286,
+            -533
+          ],
+          "properties": {
+            "Node name for S&R": "ACN_AdvancedControlNetApply"
+          },
+          "size": {
+            "0": 342.5999755859375,
+            "1": 246
+          },
+          "type": "ACN_AdvancedControlNetApply",
+          "widgets_values": [
+            0.5,
+            0,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          0,
+          1
+        ]
+      },
+      "uid": "56",
+      "widgets": {
+        "widget_0": 0.5,
+        "widget_1": 0,
+        "widget_2": 1
+      }
+    },
+    "57": {
+      "class_type": "ControlNetLoader",
+      "id": "57",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 57,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                109
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            -101,
+            -515
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "ControlNetLoader",
+          "widgets_values": [
+            "control_v11p_sd15_openpose.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "control_v11p_sd15_openpose.pth"
+        ]
+      },
+      "uid": "57",
+      "widgets": {
+        "widget_0": "control_v11p_sd15_openpose.pth"
+      }
+    },
+    "58": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "58",
+      "inputs": {
+        "ckpt_name": "cardosAnime_v20.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 58,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                163
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                110,
+                111
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                121
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            200,
+            -70
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "cardosAnime_v20.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cardosAnime_v20.safetensors"
+        ]
+      },
+      "uid": "58",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "CLIPTextEncode",
+      "id": "59",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [
+            {
+              "link": 110,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                112
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -582,
+            -283
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "59",
+      "widgets": {}
+    },
+    "61": {
+      "class_type": "KSampler",
+      "id": "61",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 0.9,
+        "sampler_name": "dpmpp_sde_gpu",
+        "scheduler": "karras",
+        "seed": 968723622455106,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 61,
+          "inputs": [
+            {
+              "link": 163,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 117,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 118,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 165,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                120
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            772,
+            -286
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            968723622455106,
+            "randomize",
+            20,
+            8,
+            "dpmpp_sde_gpu",
+            "karras",
+            0.9
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          968723622455106,
+          "randomize",
+          20,
+          8,
+          "dpmpp_sde_gpu",
+          "karras",
+          0.9
+        ]
+      },
+      "uid": "61",
+      "widgets": {}
+    },
+    "63": {
+      "class_type": "VAEDecode",
+      "id": "63",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 63,
+          "inputs": [
+            {
+              "link": 120,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 121,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                135
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1176.7166207053428,
+            -388.2528520063924
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "63",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "(low quality, worst quality:1.3)"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 111,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                113
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -591,
+            -27
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 425.27801513671875,
+            "1": 180.6060791015625
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "(low quality, worst quality:1.3)"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "(low quality, worst quality:1.3)"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "74": {
+      "class_type": "VHS_VideoCombine",
+      "id": "74",
+      "inputs": {
+        "audio_file": "",
+        "crf": 20,
+        "filename_prefix": "AnimateDiff",
+        "format": "image/gif",
+        "frame_rate": 16,
+        "loop_count": 0,
+        "pingpong": false,
+        "save_image": true,
+        "save_metadata": true,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00042.gif",
+            "format": "image/gif",
+            "subfolder": "",
+            "type": "output"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 74,
+          "inputs": [
+            {
+              "link": 134,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [],
+          "pos": [
+            357,
+            -1408
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            760.54296875
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "audio_file": "",
+            "crf": 20,
+            "filename_prefix": "AnimateDiff",
+            "format": "image/gif",
+            "frame_rate": 16,
+            "loop_count": 0,
+            "pingpong": false,
+            "save_image": true,
+            "save_metadata": true,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00042.gif",
+                "format": "image/gif",
+                "subfolder": "",
+                "type": "output"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "audio_file": "",
+          "crf": 20,
+          "filename_prefix": "AnimateDiff",
+          "format": "image/gif",
+          "frame_rate": 16,
+          "loop_count": 0,
+          "pingpong": false,
+          "save_image": true,
+          "save_metadata": true,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00042.gif",
+              "format": "image/gif",
+              "subfolder": "",
+              "type": "output"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "74",
+      "widgets": {}
+    },
+    "75": {
+      "class_type": "VHS_VideoCombine",
+      "id": "75",
+      "inputs": {
+        "audio_file": "",
+        "crf": 20,
+        "filename_prefix": "AnimateDiff",
+        "format": "image/gif",
+        "frame_rate": 15,
+        "loop_count": 0,
+        "pingpong": false,
+        "save_image": true,
+        "save_metadata": true,
+        "videopreview": {
+          "hidden": false,
+          "params": {
+            "filename": "AnimateDiff_00045.gif",
+            "format": "image/gif",
+            "subfolder": "",
+            "type": "output"
+          },
+          "paused": false
+        }
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 75,
+          "inputs": [
+            {
+              "link": 135,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [],
+          "pos": [
+            1506,
+            -254
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_VideoCombine"
+          },
+          "size": [
+            315,
+            539
+          ],
+          "type": "VHS_VideoCombine",
+          "widgets_values": {
+            "audio_file": "",
+            "crf": 20,
+            "filename_prefix": "AnimateDiff",
+            "format": "image/gif",
+            "frame_rate": 15,
+            "loop_count": 0,
+            "pingpong": false,
+            "save_image": true,
+            "save_metadata": true,
+            "videopreview": {
+              "hidden": false,
+              "params": {
+                "filename": "AnimateDiff_00045.gif",
+                "format": "image/gif",
+                "subfolder": "",
+                "type": "output"
+              },
+              "paused": false
+            }
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 10,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "audio_file": "",
+          "crf": 20,
+          "filename_prefix": "AnimateDiff",
+          "format": "image/gif",
+          "frame_rate": 15,
+          "loop_count": 0,
+          "pingpong": false,
+          "save_image": true,
+          "save_metadata": true,
+          "videopreview": {
+            "hidden": false,
+            "params": {
+              "filename": "AnimateDiff_00045.gif",
+              "format": "image/gif",
+              "subfolder": "",
+              "type": "output"
+            },
+            "paused": false
+          }
+        }
+      },
+      "uid": "75",
+      "widgets": {}
+    },
+    "88": {
+      "class_type": "VHS_LoadVideoPath",
+      "id": "88",
+      "inputs": {
+        "force_rate": 0,
+        "force_size": "Disabled",
+        "frame_load_cap": 0,
+        "select_every_nth": 1,
+        "skip_first_frames": 0,
+        "video": "T:/ComfyUI_windows_portable_nvidia_cu121_or_cpu/ComfyUI_windows_portable/ComfyUI/input/video/VID_20240102_120947585_2.mp4"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 88,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                161
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "name": "frame_count",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -1286,
+            -577
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_LoadVideoPath"
+          },
+          "size": {
+            "0": 315,
+            "1": 198
+          },
+          "type": "VHS_LoadVideoPath",
+          "widgets_values": {
+            "force_rate": 0,
+            "force_size": "Disabled",
+            "frame_load_cap": 0,
+            "select_every_nth": 1,
+            "skip_first_frames": 0,
+            "video": "T:/ComfyUI_windows_portable_nvidia_cu121_or_cpu/ComfyUI_windows_portable/ComfyUI/input/video/VID_20240102_120947585_2.mp4"
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 6,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "force_rate": 0,
+          "force_size": "Disabled",
+          "frame_load_cap": 0,
+          "select_every_nth": 1,
+          "skip_first_frames": 0,
+          "video": "T:/ComfyUI_windows_portable_nvidia_cu121_or_cpu/ComfyUI_windows_portable/ComfyUI/input/video/VID_20240102_120947585_2.mp4"
+        }
+      },
+      "uid": "88",
+      "widgets": {}
+    },
+    "90": {
+      "class_type": "VHS_SelectEveryNthImage",
+      "id": "90",
+      "inputs": {
+        "select_every_nth": 2
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 90,
+          "inputs": [
+            {
+              "link": 162,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                156
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                166
+              ],
+              "name": "count",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            -558,
+            -575
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_SelectEveryNthImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "VHS_SelectEveryNthImage",
+          "widgets_values": {
+            "select_every_nth": 2
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 1,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "select_every_nth": 2
+        }
+      },
+      "uid": "90",
+      "widgets": {}
+    },
+    "93": {
+      "class_type": "ImageScaleBy",
+      "id": "93",
+      "inputs": {
+        "scale_by": 0.25,
+        "upscale_method": "nearest-exact"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 93,
+          "inputs": [
+            {
+              "link": 161,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                162
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -919,
+            -568
+          ],
+          "properties": {
+            "Node name for S&R": "ImageScaleBy"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "ImageScaleBy",
+          "widgets_values": [
+            "nearest-exact",
+            0.25
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "nearest-exact",
+          0.25
+        ]
+      },
+      "uid": "93",
+      "widgets": {}
+    },
+    "94": {
+      "class_type": "EmptyLatentImage",
+      "id": "94",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 94,
+          "inputs": [
+            {
+              "link": 166,
+              "name": "batch_size",
+              "type": "INT",
+              "widget": {
+                "name": "batch_size"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                165
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            174,
+            -231
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 106
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            912,
+            512,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          912,
+          512,
+          1
+        ]
+      },
+      "uid": "94",
+      "widgets": {
+        "widget_0": 912,
+        "widget_1": 512,
+        "widget_2": 1
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "74",
+      "output_type": "VHS_VideoCombine"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "75",
+      "output_type": "VHS_VideoCombine"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "cardosAnime_v20.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "6ac69a5033cfba66",
+    "path": "external_workflows/.shadow/source/6ac69a5033cfba66-workflow.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "cb5cd22138e4cd570659cd7847b6f1495cc55a04161a52b7f9d5a1b7ce22fea7",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1191413261233573908,
+      "channel_name": "art_experiments",
+      "content_preview": "<@179206814720720896> <@464322697418244096> Here's the workflow if ur interested",
+      "discord_message_url": "https://discord.com/channels/@me/1191413261233573908/1192162461252587663",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1192162461252587663:workflow.json:6ac69a5033cfba66",
+      "filename": "workflow.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1192162461252587663,
+      "node_class_multiset": {
+        "ACN_AdvancedControlNetApply": 1,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetLoader": 1,
+        "EmptyLatentImage": 1,
+        "ImageScaleBy": 1,
+        "KSampler": 1,
+        "OpenposePreprocessor": 1,
+        "VAEDecode": 1,
+        "VHS_LoadVideoPath": 1,
+        "VHS_SelectEveryNthImage": 1,
+        "VHS_VideoCombine": 2
+      },
+      "node_count": 14,
+      "origin_date": "2024-01-03T17:48:00.070000+00:00",
+      "originator_global_name": "PollyannaIn4D",
+      "originator_id": "305473730715320321",
+      "originator_type": "discord_message_author",
+      "originator_username": "pollyannain4d",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "6ac69a5033cfba66334f4be49db19ca663d2472094087295f55d0a1dff71536c",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1191413261233573908/1192162460631834724/workflow.json?ex=6834a94f&is=683357cf&hm=7092a0bdcbc84bdfc84fc01d9df2f250fd77820e6bacfcba38b9b8fa94702391&",
+      "source_workflow_sha256": "f8466e1e1c754e2fa4543d4700b927d76dfff53d83a7b211ce3ff0467289ad1c",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

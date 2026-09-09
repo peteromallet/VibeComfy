@@ -1,7 +1,7 @@
 {
   "id": "multi-image-to-3d-object-generation-with-background-1a7f84",
   "query": "Make the background removal actually produce a transparent background, so the 3D object is isolated on an alpha channel in the final output video.",
-  "workflow_path": "external_workflows/corpus/1a7f84de80346770.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1a7f84de80346770.json",
   "network": true,
   "timeout": 320,
   "apply": true,

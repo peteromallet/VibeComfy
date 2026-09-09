@@ -18,6 +18,12 @@ from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 class _SchemaProvider:
     def __init__(self) -> None:
         self._schemas = {
+            "Reroute": NodeSchema(
+                class_type="Reroute",
+                pack="core",
+                inputs={"": InputSpec(type="*", required=True)},
+                outputs=[OutputSpec(type="*", name="")],
+            ),
             "CheckpointLoaderSimple": NodeSchema(
                 class_type="CheckpointLoaderSimple",
                 pack="core",
@@ -116,6 +122,23 @@ def _nodes_by_scope_and_uid(ui: Mapping[str, Any]) -> dict[tuple[str, str], dict
 
 def _apply(ui: Mapping[str, Any], ops, schema_provider=None):
     workflow = from_ui(dict(ui), schema_provider=schema_provider, use_comfy_converter=False)
+    if isinstance(schema_provider, _SchemaProvider):
+        from vibecomfy.schema import (
+            FrozenSchemaSnapshotProvider, capture_schema_snapshot,
+            schema_payload_from_node_schema,
+        )
+
+        schema_provider = FrozenSchemaSnapshotProvider(capture_schema_snapshot(
+            class_types=tuple(schema_provider._schemas),
+            request_snapshot={
+                "schemas": {
+                    name: schema_payload_from_node_schema(name, schema)
+                    for name, schema in schema_provider._schemas.items()
+                },
+                "missing_classes": [],
+            },
+            node_classes={node.uid: node.class_type for node in workflow.nodes.values()},
+        ))
     result = interpret(workflow, ops, schema_provider=schema_provider)
     candidate = None
     if result.ok:
@@ -267,8 +290,8 @@ def test_edit_corpus_add_node_and_upsert_link_script_preserves_flat_fixture_node
     assert _node(candidate, 8)["widgets_values"] == ["agent-edit/corpus"]
     sampler_positive = next(slot for slot in _node(candidate, 5)["inputs"] if slot["name"] == "positive")
     assert sampler_positive["link"] == 11
-    assert any(issue.code == "add_node_applied" for issue in result.diagnostics)
-    assert any(issue.code == "upsert_link_replaced_existing" for issue in result.diagnostics)
+    assert [op.op for op in result.landed_ops] == ["add_node", "upsert_link"]
+    assert all(statement.status == "applied" for statement in result.statements)
     _assert_preserves_out_of_delta_nodes(
         stamped_before,
         candidate,
@@ -289,7 +312,8 @@ def test_edit_corpus_remove_reroute_restitches_flat_fixture_links() -> None:
     assert [link for link in candidate["links"] if link[0] == 11] == [[11, 6, 0, 7, 0, "IMAGE"]]
     assert _node(candidate, 6)["outputs"][0]["links"] == [11]
     assert next(slot for slot in _node(candidate, 7)["inputs"] if slot["name"] == "images")["link"] == 11
-    assert any(issue.code == "remove_node_passthrough_rewire" for issue in result.diagnostics)
+    assert result.landed_ops == delta
+    assert result.statements[0].status == "applied"
     _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "6"), ("", "7"), ("", "8")})
 
 
@@ -306,18 +330,25 @@ def test_edit_corpus_set_mode_bypass_preserves_flat_fixture_nodes() -> None:
     _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={("", "5")})
 
 
-def test_edit_corpus_subgraph_internal_edit_preserves_available_fixture_nodes() -> None:
+def test_edit_corpus_native_subgraph_internal_edit_fails_closed() -> None:
     original = _fixture("subgraphed_wan_i2v.json")
-    scope_path = _scope_path_by_name(original, "Image to Video (Wan 2.2)")
-    stamped_before = UiGraphIndex.ingest(original).stamped_copy()
-    delta = parse_edit_delta([{"op": "set_mode", "target": [scope_path, "110"], "mode": 2}])
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        from_ui(dict(original), schema_provider=_SchemaProvider(), use_comfy_converter=False)
 
-    result, candidate = _apply(original, delta, schema_provider=_SchemaProvider())
 
-    assert result.ok is True
-    assert candidate is not None
-    assert _subgraph_node(candidate, "Image to Video (Wan 2.2)", 110)["mode"] == 2
-    _assert_preserves_out_of_delta_nodes(stamped_before, candidate, touched={(scope_path, "110")})
+def test_edit_corpus_python_owned_nested_set_mode_is_supported() -> None:
+    from vibecomfy.porting.edit._ir_utils import apply_edit_cow
+    from vibecomfy.porting.edit.ops import NodeTarget, SetModeOp
+    from tests.test_porting_edit_recursive import _valid_execution_workflow
+
+    workflow, inner, _outer = _valid_execution_workflow()
+    post = apply_edit_cow(workflow, SetModeOp("set_mode", NodeTarget(inner, "inner_r"), 2))
+    inner_definition = post.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]
+    inner_r = next(node for node in inner_definition["nodes"] if node.get("uid") == "inner_r")
+    assert inner_r["mode"] == 2
+    original = workflow.definitions["subgraphs"][0]["definitions"]["subgraphs"][0]
+    original_r = next(node for node in original["nodes"] if node.get("uid") == "inner_r")
+    assert original_r.get("mode", 0) != 2
 
 
 def test_edit_corpus_multi_turn_re_edit_preserves_flat_fixture_nodes_each_turn() -> None:

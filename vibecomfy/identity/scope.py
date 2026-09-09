@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Callable, Mapping, Sequence
 
 from .uid import SCOPE_CHAIN_JOIN, SCOPE_LOCAL_SEP, make_uid
@@ -23,6 +24,13 @@ from .uid import SCOPE_CHAIN_JOIN, SCOPE_LOCAL_SEP, make_uid
 # Characters that must never appear inside a sanitized subgraph name, because
 # they are the uid structural separators. ':' is allowed inside an sg_key.
 _FORBIDDEN_NAME_CHARS = (SCOPE_LOCAL_SEP, SCOPE_CHAIN_JOIN)
+
+
+def _canonical_local_node_id(value: Any) -> Any:
+    """Match native integer and canonical string spellings of one local id."""
+    if isinstance(value, str) or type(value) is int:
+        return str(value)
+    return value
 
 
 def sanitize_subgraph_name(name: str) -> str:
@@ -47,18 +55,18 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(node, Mapping):
             continue
         inputs = [
-            {"name": i.get("name"), "link": i.get("link"), "type": i.get("type")}
+            {"name": i.get("name"), "type": i.get("type")}
             for i in (node.get("inputs") or [])
             if isinstance(i, Mapping)
         ]
         outputs = [
-            {"name": o.get("name"), "links": door_get_links(o), "type": o.get("type")}
+            {"name": o.get("name"), "type": o.get("type")}
             for o in (node.get("outputs") or [])
             if isinstance(o, Mapping)
         ]
         skel_nodes.append(
             {
-                "id": node.get("id"),
+                "id": _canonical_local_node_id(node.get("id")),
                 "type": node.get("type") or node.get("class_type"),
                 "inputs": inputs,
                 "outputs": outputs,
@@ -70,13 +78,32 @@ def _inner_skeleton(sg_def: Mapping[str, Any]) -> dict[str, Any]:
     for link in door_get_links(sg_def) or []:
         # litegraph link form: [link_id, origin_id, origin_slot, target_id, target_slot, type]
         if isinstance(link, Sequence) and not isinstance(link, (str, bytes)):
-            skel_links.append(list(link)[1:])  # drop the volatile link_id
+            values = list(link)
+            if len(values) >= 6:
+                # Array and object links are two serializations of the same
+                # LiteGraph edge.  Emission converts the former to the latter,
+                # so structural identity must encode both with the same named
+                # endpoint record or a presentation round-trip changes the
+                # canonical recursive scope path.
+                skel_links.append(
+                    {
+                        "origin_id": _canonical_local_node_id(values[1]),
+                        "origin_slot": values[2],
+                        "target_id": _canonical_local_node_id(values[3]),
+                        "target_slot": values[4],
+                        "type": values[5],
+                    }
+                )
+            else:
+                # Preserve deterministic identity for malformed legacy rows;
+                # validation owns their eventual refusal.
+                skel_links.append(values[1:])  # drop the volatile link id
         elif isinstance(link, Mapping):
             skel_links.append(
                 {
-                    "origin_id": link.get("origin_id"),
+                    "origin_id": _canonical_local_node_id(link.get("origin_id")),
                     "origin_slot": link.get("origin_slot"),
-                    "target_id": link.get("target_id"),
+                    "target_id": _canonical_local_node_id(link.get("target_id")),
                     "target_slot": link.get("target_slot"),
                     "type": link.get("type"),
                 }
@@ -107,7 +134,18 @@ def compose_scope_path(sg_keys: Sequence[str]) -> str:
 
     Returns "" for an empty chain (top level → degrades to the M1.5 scalar uid).
     """
-    return SCOPE_CHAIN_JOIN.join(sg_keys)
+    if isinstance(sg_keys, str):
+        raise ValueError("scope keys must be supplied as a sequence, not one string")
+    normalized: list[str] = []
+    for key in sg_keys:
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("scope keys must be nonblank strings")
+        if SCOPE_CHAIN_JOIN in key or SCOPE_LOCAL_SEP in key:
+            raise ValueError(f"scope key {key!r} contains a reserved UID separator")
+        if re.fullmatch(r"sg\d+", key):
+            raise ValueError(f"ordinal scope key {key!r} is not a stable sg_key")
+        normalized.append(key)
+    return SCOPE_CHAIN_JOIN.join(normalized)
 
 
 def mint_inner_uid(scope_path: str, mint_local: Callable[[], str]) -> str:

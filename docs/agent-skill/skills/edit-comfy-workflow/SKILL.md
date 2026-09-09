@@ -24,7 +24,7 @@ vibecomfy inspect <target>
 vibecomfy analyze info <target>
 ```
 
-If the target is raw JSON:
+If the target is raw JSON, load it only as import evidence and materialize Python before editing:
 
 ```bash
 vibecomfy port check <workflow.json> --json
@@ -44,10 +44,10 @@ Then edit the Python recipe, scratchpad, or template.
 Use the lightest public API that fits:
 
 ```python
-from vibecomfy import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 
 def build():
-    wf = load_workflow_any("image/z_image")
+    wf = load_bundle("image/z_image").workflow
     wf.set_prompt("a glass teapot on basalt")
     wf.set_seed(42)
     wf.set_steps(20)

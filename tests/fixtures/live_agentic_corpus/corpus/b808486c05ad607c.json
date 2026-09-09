@@ -1,0 +1,922 @@
+{
+  "edges": [
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "16"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "18"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "3"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "speaker_1_voice",
+      "to_node": "11"
+    }
+  ],
+  "groups": [],
+  "id": "a45d8bafa26ed15c",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Models\\n\\nWill be downloaded on the first run, or download them manually and place them into the directory: /models/tts/VibeVoice\\n\\n| Model | Context Length | Generation Length |  Weight |\\n|-------|----------------|----------|----------|\\n| VibeVoice-0.5B-Streaming | - | - | On the way |\\n| VibeVoice-1.5B | 64K | ~90 min | [HF link](https://huggingface.co/microsoft/VibeVoice-1.5B) |\\n| VibeVoice-Large| 32K | ~45 min | [HF link](https://huggingface.co/microsoft/VibeVoice-Large) |'"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "VibeVoiceTTS",
+        "incoming_edge_sig": [
+          [
+            "speaker_1_voice",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'VibeVoice-Large'"
+          ],
+          [
+            "widget_1",
+            "'Speaker 1: Ol\u00e1! Como vai? Meu nome \u00e9 Luna e eu vou apresentar pra voc\u00eas um pouco aqui do Jap\u00e3o. Vamos l\u00e1? Hoje eu to aqui em kyoto, como voc\u00eas podem ver aqui atr\u00e1s de mim. \u00c9 um lugar lindo, cheio de templos e com comida t\u00edpica deliciosa! Hmmm, me deu at\u00e9 \u00e1gua na boca. Vem comigo!'"
+          ],
+          [
+            "widget_10",
+            "0.95"
+          ],
+          [
+            "widget_11",
+            "0"
+          ],
+          [
+            "widget_12",
+            "False"
+          ],
+          [
+            "widget_2",
+            "False"
+          ],
+          [
+            "widget_3",
+            "'sdpa'"
+          ],
+          [
+            "widget_4",
+            "1.3"
+          ],
+          [
+            "widget_5",
+            "30"
+          ],
+          [
+            "widget_6",
+            "1044320140247372"
+          ],
+          [
+            "widget_7",
+            "'fixed'"
+          ],
+          [
+            "widget_8",
+            "True"
+          ],
+          [
+            "widget_9",
+            "0.95"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "LoadAudio",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "speaker_1_voice"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "audio",
+            "'vocal_sample (1).wav.reformatted.wav_10.wav'"
+          ],
+          [
+            "unused_widget_1",
+            "None"
+          ],
+          [
+            "unused_widget_2",
+            "None"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "UVR5_Node",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "17",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'HP5_only_main_vocal.pth'"
+          ],
+          [
+            "widget_1",
+            "10"
+          ],
+          [
+            "widget_2",
+            "'wav'"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "LoadAudioPath",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "16",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'sample (1).wav'"
+          ],
+          [
+            "widget_1",
+            "None"
+          ],
+          [
+            "widget_2",
+            "''"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "PreViewAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "16",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "3": {
+        "class_type": "SaveAudio",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/VibeVoice'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b808486c05ad607ce1c2b3b9f66a127e9d5dfecd146b6dee84138dbe47345e64",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1147637190713692160,
+      "channel_name": "nsfw",
+      "content_preview": "Here are the workflows I use",
+      "discord_message_url": "https://discord.com/channels/@me/1147637190713692160/1416764221739241492",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1416764221739241492:VibeVoicing.json:a45d8bafa26ed15c",
+      "filename": "VibeVoicing.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:36+00:00",
+      "message_id": 1416764221739241492,
+      "node_class_multiset": {
+        "LoadAudio": 1,
+        "LoadAudioPath": 1,
+        "MarkdownNote": 1,
+        "PreViewAudio": 1,
+        "SaveAudio": 1,
+        "UVR5_Node": 1,
+        "VibeVoiceTTS": 1
+      },
+      "node_count": 7,
+      "origin_date": "2025-09-14T12:35:12.669000+00:00",
+      "originator_global_name": "Pceai",
+      "originator_id": "611551948860030999",
+      "originator_type": "discord_message_author",
+      "originator_username": "pceai",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "a45d8bafa26ed15c767c1f9bbdc86e8429d2ddc310359b6620e52be5e9ebfca9",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1147637190713692160/1416764221173272679/VibeVoicing.json?ex=68c80800&is=68c6b680&hm=8f85967e00307b116fe06758cc6f2c28adee1f5db008762a25af12d58b8d65ee&",
+      "source_workflow_sha256": "6b9e4ec739adbfed09ebe8de721684737c9f18c23832705d3abb8a4e878bb683",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "4668f2f1dc6a49c69a7def6043b21beed19afd7e1fc3842310221f188fc7f07f",
+      "complexity": 3,
+      "description": "This workflow loads audio, applies voice TTS and UVR5 noise removal, then previews and saves the processed audio.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio",
+        "voice-tts",
+        "noise-removal",
+        "uvr5",
+        "audio-processing",
+        "save-audio"
+      ],
+      "task_type": "other",
+      "title": "Audio Processing with Voice TTS and Noise Removal"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "MarkdownNote",
+      "id": "10",
+      "inputs": {
+        "unused_widget_0": "## Models\n\nWill be downloaded on the first run, or download them manually and place them into the directory: /models/tts/VibeVoice\n\n| Model | Context Length | Generation Length |  Weight |\n|-------|----------------|----------|----------|\n| VibeVoice-0.5B-Streaming | - | - | On the way |\n| VibeVoice-1.5B | 64K | ~90 min | [HF link](https://huggingface.co/microsoft/VibeVoice-1.5B) |\n| VibeVoice-Large| 32K | ~45 min | [HF link](https://huggingface.co/microsoft/VibeVoice-Large) |"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 10,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -1030,
+            -960
+          ],
+          "properties": {
+            "ue_properties": {
+              "version": "7.0.1",
+              "widget_ue_connectable": {}
+            }
+          },
+          "size": [
+            420,
+            210
+          ],
+          "title": "Notes",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Models\n\nWill be downloaded on the first run, or download them manually and place them into the directory: /models/tts/VibeVoice\n\n| Model | Context Length | Generation Length |  Weight |\n|-------|----------------|----------|----------|\n| VibeVoice-0.5B-Streaming | - | - | On the way |\n| VibeVoice-1.5B | 64K | ~90 min | [HF link](https://huggingface.co/microsoft/VibeVoice-1.5B) |\n| VibeVoice-Large| 32K | ~45 min | [HF link](https://huggingface.co/microsoft/VibeVoice-Large) |"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Models\n\nWill be downloaded on the first run, or download them manually and place them into the directory: /models/tts/VibeVoice\n\n| Model | Context Length | Generation Length |  Weight |\n|-------|----------------|----------|----------|\n| VibeVoice-0.5B-Streaming | - | - | On the way |\n| VibeVoice-1.5B | 64K | ~90 min | [HF link](https://huggingface.co/microsoft/VibeVoice-1.5B) |\n| VibeVoice-Large| 32K | ~45 min | [HF link](https://huggingface.co/microsoft/VibeVoice-Large) |"
+        ]
+      },
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "VibeVoiceTTS",
+      "id": "11",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 34,
+              "name": "speaker_1_voice",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": 29,
+              "name": "speaker_2_voice",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "speaker_3_voice",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": null,
+              "name": "speaker_4_voice",
+              "shape": 7,
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                27
+              ],
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            -1570,
+            -1130
+          ],
+          "properties": {
+            "Node name for S&R": "VibeVoiceTTS",
+            "cnr_id": "ComfyUI-VibeVoice",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.1",
+              "widget_ue_connectable": {
+                "attention_mode": true,
+                "cfg_scale": true,
+                "do_sample": true,
+                "force_offload": true,
+                "inference_steps": true,
+                "model_name": true,
+                "quantize_llm_4bit": true,
+                "seed": true,
+                "temperature": true,
+                "text": true,
+                "top_k": true,
+                "top_p": true
+              }
+            },
+            "ver": "37803a884fb8f9b43c38286f6d654c7f97181a73"
+          },
+          "size": [
+            460,
+            510
+          ],
+          "type": "VibeVoiceTTS",
+          "widgets_values": [
+            "VibeVoice-Large",
+            "Speaker 1: Ol\u00e1! Como vai? Meu nome \u00e9 Luna e eu vou apresentar pra voc\u00eas um pouco aqui do Jap\u00e3o. Vamos l\u00e1? Hoje eu to aqui em kyoto, como voc\u00eas podem ver aqui atr\u00e1s de mim. \u00c9 um lugar lindo, cheio de templos e com comida t\u00edpica deliciosa! Hmmm, me deu at\u00e9 \u00e1gua na boca. Vem comigo!",
+            false,
+            "sdpa",
+            1.3,
+            30,
+            1044320140247372,
+            "fixed",
+            true,
+            0.95,
+            0.95,
+            0,
+            false
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 13,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "VibeVoice-Large",
+          "Speaker 1: Ol\u00e1! Como vai? Meu nome \u00e9 Luna e eu vou apresentar pra voc\u00eas um pouco aqui do Jap\u00e3o. Vamos l\u00e1? Hoje eu to aqui em kyoto, como voc\u00eas podem ver aqui atr\u00e1s de mim. \u00c9 um lugar lindo, cheio de templos e com comida t\u00edpica deliciosa! Hmmm, me deu at\u00e9 \u00e1gua na boca. Vem comigo!",
+          false,
+          "sdpa",
+          1.3,
+          30,
+          1044320140247372,
+          "fixed",
+          true,
+          0.95,
+          0.95,
+          0,
+          false
+        ]
+      },
+      "uid": "11",
+      "widgets": {
+        "widget_0": "VibeVoice-Large",
+        "widget_1": "Speaker 1: Ol\u00e1! Como vai? Meu nome \u00e9 Luna e eu vou apresentar pra voc\u00eas um pouco aqui do Jap\u00e3o. Vamos l\u00e1? Hoje eu to aqui em kyoto, como voc\u00eas podem ver aqui atr\u00e1s de mim. \u00c9 um lugar lindo, cheio de templos e com comida t\u00edpica deliciosa! Hmmm, me deu at\u00e9 \u00e1gua na boca. Vem comigo!",
+        "widget_10": 0.95,
+        "widget_11": 0,
+        "widget_12": false,
+        "widget_2": false,
+        "widget_3": "sdpa",
+        "widget_4": 1.3,
+        "widget_5": 30,
+        "widget_6": 1044320140247372,
+        "widget_7": "fixed",
+        "widget_8": true,
+        "widget_9": 0.95
+      }
+    },
+    "13": {
+      "class_type": "LoadAudio",
+      "id": "13",
+      "inputs": {
+        "audio": "vocal_sample (1).wav.reformatted.wav_10.wav",
+        "unused_widget_1": null,
+        "unused_widget_2": null
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                34
+              ],
+              "name": "AUDIO",
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            -1985.68994140625,
+            -1065.3812255859375
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.1",
+              "widget_ue_connectable": {
+                "audio": true,
+                "audioUI": true,
+                "upload": true
+              }
+            },
+            "ver": "0.3.59"
+          },
+          "size": [
+            274.080078125,
+            136
+          ],
+          "type": "LoadAudio",
+          "widgets_values": [
+            "vocal_sample (1).wav.reformatted.wav_10.wav",
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vocal_sample (1).wav.reformatted.wav_10.wav",
+          null,
+          null
+        ]
+      },
+      "uid": "13",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "UVR5_Node",
+      "id": "16",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "inputs": [
+            {
+              "link": 35,
+              "name": "audio",
+              "type": "AUDIOPATH"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                37
+              ],
+              "name": "vocal_AUDIO",
+              "type": "AUDIOPATH"
+            },
+            {
+              "links": null,
+              "name": "bgm_AUDIO",
+              "type": "AUDIOPATH"
+            }
+          ],
+          "pos": [
+            -1667.2576904296875,
+            -1324.1796875
+          ],
+          "properties": {
+            "Node name for S&R": "UVR5_Node",
+            "cnr_id": "ComfyUI-UVR5",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.1",
+              "widget_ue_connectable": {
+                "agg": true,
+                "format0": true,
+                "model": true
+              }
+            },
+            "ver": "d3b7255e6f0cc43c198b265931384fe96bf329f4"
+          },
+          "size": [
+            270,
+            126
+          ],
+          "type": "UVR5_Node",
+          "widgets_values": [
+            "HP5_only_main_vocal.pth",
+            10,
+            "wav"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "HP5_only_main_vocal.pth",
+          10,
+          "wav"
+        ]
+      },
+      "uid": "16",
+      "widgets": {
+        "widget_0": "HP5_only_main_vocal.pth",
+        "widget_1": 10,
+        "widget_2": "wav"
+      }
+    },
+    "17": {
+      "class_type": "LoadAudioPath",
+      "id": "17",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                35
+              ],
+              "name": "AUDIOPATH",
+              "type": "AUDIOPATH"
+            }
+          ],
+          "pos": [
+            -2006.642822265625,
+            -1338.6456298828125
+          ],
+          "properties": {
+            "Node name for S&R": "LoadAudioPath",
+            "cnr_id": "ComfyUI-UVR5",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.1",
+              "widget_ue_connectable": {
+                "audio": true
+              }
+            },
+            "ver": "d3b7255e6f0cc43c198b265931384fe96bf329f4"
+          },
+          "size": [
+            270,
+            82
+          ],
+          "type": "LoadAudioPath",
+          "widgets_values": [
+            "sample (1).wav",
+            null,
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sample (1).wav",
+          null,
+          ""
+        ]
+      },
+      "uid": "17",
+      "widgets": {
+        "widget_0": "sample (1).wav",
+        "widget_1": null,
+        "widget_2": ""
+      }
+    },
+    "18": {
+      "class_type": "PreViewAudio",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 18,
+          "inputs": [
+            {
+              "link": 37,
+              "name": "audio",
+              "type": "AUDIOPATH"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [],
+          "pos": [
+            -1206.8585205078125,
+            -1340.6251220703125
+          ],
+          "properties": {
+            "Node name for S&R": "PreViewAudio",
+            "cnr_id": "ComfyUI-UVR5",
+            "ue_properties": {
+              "input_ue_unconnectable": {},
+              "version": "7.1",
+              "widget_ue_connectable": {}
+            },
+            "ver": "d3b7255e6f0cc43c198b265931384fe96bf329f4"
+          },
+          "size": [
+            140,
+            26
+          ],
+          "type": "PreViewAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "18",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "SaveAudio",
+      "id": "3",
+      "inputs": {
+        "filename_prefix": "audio/VibeVoice"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 27,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [],
+          "pos": [
+            -1040,
+            -1130
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudio",
+            "cnr_id": "comfy-core",
+            "ue_properties": {
+              "version": "7.0.1",
+              "widget_ue_connectable": {
+                "audioUI": true,
+                "filename_prefix": true
+              }
+            },
+            "ver": "0.3.52"
+          },
+          "size": [
+            270,
+            112
+          ],
+          "type": "SaveAudio",
+          "widgets_values": [
+            "audio/VibeVoice"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/VibeVoice"
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "3",
+      "output_type": "SaveAudio"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "a45d8bafa26ed15c",
+    "path": "external_workflows/.shadow/source/a45d8bafa26ed15c-VibeVoicing.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "b808486c05ad607ce1c2b3b9f66a127e9d5dfecd146b6dee84138dbe47345e64",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1147637190713692160,
+      "channel_name": "nsfw",
+      "content_preview": "Here are the workflows I use",
+      "discord_message_url": "https://discord.com/channels/@me/1147637190713692160/1416764221739241492",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1416764221739241492:VibeVoicing.json:a45d8bafa26ed15c",
+      "filename": "VibeVoicing.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:36+00:00",
+      "message_id": 1416764221739241492,
+      "node_class_multiset": {
+        "LoadAudio": 1,
+        "LoadAudioPath": 1,
+        "MarkdownNote": 1,
+        "PreViewAudio": 1,
+        "SaveAudio": 1,
+        "UVR5_Node": 1,
+        "VibeVoiceTTS": 1
+      },
+      "node_count": 7,
+      "origin_date": "2025-09-14T12:35:12.669000+00:00",
+      "originator_global_name": "Pceai",
+      "originator_id": "611551948860030999",
+      "originator_type": "discord_message_author",
+      "originator_username": "pceai",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "a45d8bafa26ed15c767c1f9bbdc86e8429d2ddc310359b6620e52be5e9ebfca9",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1147637190713692160/1416764221173272679/VibeVoicing.json?ex=68c80800&is=68c6b680&hm=8f85967e00307b116fe06758cc6f2c28adee1f5db008762a25af12d58b8d65ee&",
+      "source_workflow_sha256": "6b9e4ec739adbfed09ebe8de721684737c9f18c23832705d3abb8a4e878bb683",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

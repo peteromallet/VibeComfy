@@ -25,6 +25,12 @@
   ],
   [
     "EmptySD3LatentImage",
+    "batch_size",
+    "1",
+    1
+  ],
+  [
+    "EmptySD3LatentImage",
     "height",
     "1024",
     1
@@ -43,8 +49,20 @@
   ],
   [
     "KSampler",
+    "denoise",
+    "1",
+    1
+  ],
+  [
+    "KSampler",
     "sampler_name",
     "'res_multistep'",
+    1
+  ],
+  [
+    "KSampler",
+    "scheduler",
+    "'simple'",
     1
   ],
   [
@@ -75,6 +93,12 @@
     "UNETLoader",
     "unet_name",
     "'z_image_bf16.safetensors'",
+    1
+  ],
+  [
+    "UNETLoader",
+    "weight_dtype",
+    "'default'",
     1
   ],
   [

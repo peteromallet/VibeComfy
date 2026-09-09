@@ -141,11 +141,34 @@ def test_unresolvable_named_field_fails_receipt_before_landing() -> None:
 
 def test_resolvable_named_field_still_lands_and_replays() -> None:
     from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider, InputSpec, NodeSchema,
+        capture_schema_snapshot, schema_payload_from_node_schema,
+    )
+
+    schema = NodeSchema(
+        "StyleModelStrength", None,
+        {"strength": InputSpec("FLOAT"),
+         "strength_type": InputSpec("STRING", choices=["multiply", "attn_bias"])},
+        [],
+    )
+
+    provider = FrozenSchemaSnapshotProvider(capture_schema_snapshot(
+        class_types=("StyleModelStrength",),
+        request_snapshot={
+            "schemas": {"StyleModelStrength": schema_payload_from_node_schema(
+                "StyleModelStrength", schema,
+            )},
+            "missing_classes": [],
+        },
+        node_classes={"style-node": "StyleModelStrength"},
+    ))
 
     ok, candidate, error, _op_count = recompute_apply(
         _SUBMIT_GRAPH,
         _envelope("strength", 1.8),
         name_authority=_NAME_AUTHORITY,
+        schema_provider=provider,
     )
     assert ok is True, error
     assert candidate is not None

@@ -1,0 +1,1877 @@
+{
+  "edges": [
+    {
+      "from_node": "5025",
+      "from_output": "3",
+      "to_input": "audio_vae",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "1",
+      "to_input": "frames_number",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "1",
+      "to_input": "vae",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "2",
+      "to_input": "bypass",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5016",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "0",
+      "to_input": "a",
+      "to_node": "5013"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "2",
+      "to_input": "model",
+      "to_node": "5002"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "3",
+      "to_input": "positive",
+      "to_node": "5002"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "4",
+      "to_input": "negative",
+      "to_node": "5002"
+    },
+    {
+      "from_node": "5013",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "5002"
+    },
+    {
+      "from_node": "5002",
+      "from_output": "1",
+      "to_input": "audio_latent",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5002",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "1",
+      "to_input": "vae",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5016",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "2",
+      "to_input": "bypass",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "2",
+      "to_input": "model",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "3",
+      "to_input": "positive",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "4",
+      "to_input": "negative",
+      "to_node": "5001"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "0",
+      "to_input": "fps",
+      "to_node": "5027"
+    },
+    {
+      "from_node": "5012",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "5027"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "1",
+      "to_input": "vae",
+      "to_node": "5027"
+    },
+    {
+      "from_node": "5012",
+      "from_output": "1",
+      "to_input": "samples_1",
+      "to_node": "5027"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "3",
+      "to_input": "audio_vae",
+      "to_node": "5027"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "2",
+      "to_input": "model",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "3",
+      "to_input": "positive",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "4",
+      "to_input": "negative",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5001",
+      "from_output": "1",
+      "to_input": "audio_latent",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "1",
+      "to_input": "vae",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5016",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5026",
+      "from_output": "2",
+      "to_input": "bypass",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5001",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "5012"
+    },
+    {
+      "from_node": "5027",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "4852"
+    },
+    {
+      "from_node": "5025",
+      "from_output": "4",
+      "to_input": "clip",
+      "to_node": "5026"
+    }
+  ],
+  "groups": [],
+  "id": "1fe8743b51e02ecd",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "4852": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "5027",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'output'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "5001": {
+        "class_type": "f964e2af-0324-4692-91f4-55441a5b84c8",
+        "incoming_edge_sig": [
+          [
+            "audio_latent",
+            [
+              "5002",
+              "1"
+            ]
+          ],
+          [
+            "bypass",
+            [
+              "5026",
+              "2"
+            ]
+          ],
+          [
+            "image",
+            [
+              "5016",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "5025",
+              "2"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "5026",
+              "4"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "5026",
+              "3"
+            ]
+          ],
+          [
+            "samples",
+            [
+              "5002",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "5025",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "5025",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5012",
+              "samples"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5012",
+              "audio_latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "False"
+          ]
+        ]
+      },
+      "5002": {
+        "class_type": "a57ed8ae-ad1f-4a55-90d5-729d58c52be2",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "5013",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "5025",
+              "2"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "5026",
+              "4"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "5026",
+              "3"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5001",
+              "samples"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5001",
+              "audio_latent"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5012": {
+        "class_type": "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b",
+        "incoming_edge_sig": [
+          [
+            "audio_latent",
+            [
+              "5001",
+              "1"
+            ]
+          ],
+          [
+            "bypass",
+            [
+              "5026",
+              "2"
+            ]
+          ],
+          [
+            "image",
+            [
+              "5016",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "5025",
+              "2"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "5026",
+              "4"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "5026",
+              "3"
+            ]
+          ],
+          [
+            "samples",
+            [
+              "5001",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "5025",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "5025",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5027",
+              "samples"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5027",
+              "samples_1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "False"
+          ]
+        ]
+      },
+      "5013": {
+        "class_type": "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf",
+        "incoming_edge_sig": [
+          [
+            "a",
+            [
+              "5026",
+              "0"
+            ]
+          ],
+          [
+            "audio_vae",
+            [
+              "5025",
+              "3"
+            ]
+          ],
+          [
+            "bypass",
+            [
+              "5026",
+              "2"
+            ]
+          ],
+          [
+            "frames_number",
+            [
+              "5026",
+              "1"
+            ]
+          ],
+          [
+            "image",
+            [
+              "5016",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "5025",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5002",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "97"
+          ],
+          [
+            "widget_1",
+            "False"
+          ],
+          [
+            "widget_2",
+            "0"
+          ]
+        ]
+      },
+      "5016": {
+        "class_type": "950c1881-1749-4106-85ec-4c5aa987dbdb",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5001",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5012",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5013",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5025": {
+        "class_type": "95bc2c44-bc14-4728-a0f4-f2cb37a09796",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5001",
+              "upscale_model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5012",
+              "upscale_model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5001",
+              "vae"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5012",
+              "vae"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5013",
+              "vae"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5027",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5001",
+              "model"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5002",
+              "model"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5012",
+              "model"
+            ]
+          ],
+          [
+            "3",
+            [
+              "5013",
+              "audio_vae"
+            ]
+          ],
+          [
+            "3",
+            [
+              "5027",
+              "audio_vae"
+            ]
+          ],
+          [
+            "4",
+            [
+              "5026",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5026": {
+        "class_type": "b0b6cb1c-d8aa-47bb-93fc-a5bf22978947",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "5025",
+              "4"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "5013",
+              "a"
+            ]
+          ],
+          [
+            "0",
+            [
+              "5027",
+              "fps"
+            ]
+          ],
+          [
+            "1",
+            [
+              "5013",
+              "frames_number"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5001",
+              "bypass"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5012",
+              "bypass"
+            ]
+          ],
+          [
+            "2",
+            [
+              "5013",
+              "bypass"
+            ]
+          ],
+          [
+            "3",
+            [
+              "5001",
+              "positive"
+            ]
+          ],
+          [
+            "3",
+            [
+              "5002",
+              "positive"
+            ]
+          ],
+          [
+            "3",
+            [
+              "5012",
+              "positive"
+            ]
+          ],
+          [
+            "4",
+            [
+              "5001",
+              "negative"
+            ]
+          ],
+          [
+            "4",
+            [
+              "5002",
+              "negative"
+            ]
+          ],
+          [
+            "4",
+            [
+              "5012",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "5027": {
+        "class_type": "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4",
+        "incoming_edge_sig": [
+          [
+            "audio_vae",
+            [
+              "5025",
+              "3"
+            ]
+          ],
+          [
+            "fps",
+            [
+              "5026",
+              "0"
+            ]
+          ],
+          [
+            "samples",
+            [
+              "5012",
+              "0"
+            ]
+          ],
+          [
+            "samples_1",
+            [
+              "5012",
+              "1"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "5025",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "4852",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "30"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f855deb7cdef4ace9915c257eb072c43beebbd5c1894198a611a54733a2f6fee",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "ended up making a 4x upscale workflow thats neat",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1479669536578867422",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1479669536578867422:LTX-2.3_I2V_4X_Upscale.json:1fe8743b51e02ecd",
+      "filename": "LTX-2.3_I2V_4X_Upscale.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:53+00:00",
+      "message_id": 1479669536578867422,
+      "node_class_multiset": {
+        "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf": 1,
+        "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b": 1,
+        "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4": 1,
+        "950c1881-1749-4106-85ec-4c5aa987dbdb": 1,
+        "95bc2c44-bc14-4728-a0f4-f2cb37a09796": 1,
+        "SaveVideo": 1,
+        "a57ed8ae-ad1f-4a55-90d5-729d58c52be2": 1,
+        "b0b6cb1c-d8aa-47bb-93fc-a5bf22978947": 1,
+        "f964e2af-0324-4692-91f4-55441a5b84c8": 1
+      },
+      "node_count": 9,
+      "origin_date": "2026-03-07T02:38:28.451000+00:00",
+      "originator_global_name": "abysswatcher",
+      "originator_id": "1144117511923695646",
+      "originator_type": "discord_message_author",
+      "originator_username": "quick_0205",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "1fe8743b51e02ecde87eaf9ec87e8a6cf36073246beb2b4960f90ea771510628",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1479669536230735953/LTX-2.3_I2V_4X_Upscale.json?ex=69ace124&is=69ab8fa4&hm=4bbb832fdf3d62db320d6d5ae5effaad65b4177852dc152627fc7974761470b5&",
+      "source_workflow_sha256": "25f5fe487b739b59661e63ee86f1a2bac71344d6f349534a801bf8dda951a764",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "be032b82fa459da95c9521ff532633713be2da57b0a344e2b5d33ff03b486528",
+      "complexity": 4,
+      "description": "A workflow that processes and saves a video output using a series of custom nodes. It includes 9 nodes and 35 connections, culminating in a SaveVideo node.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "video",
+        "save-video",
+        "custom-nodes",
+        "workflow"
+      ],
+      "task_type": "other",
+      "title": "Video Output Workflow"
+    }
+  },
+  "nodes": {
+    "4852": {
+      "class_type": "SaveVideo",
+      "id": "4852",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "output",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4852,
+          "inputs": [
+            {
+              "link": 13590,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [],
+          "pos": [
+            -100,
+            3030
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.14.1"
+          },
+          "size": [
+            700,
+            1070
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "output",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "output",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "4852",
+      "widgets": {}
+    },
+    "5001": {
+      "class_type": "f964e2af-0324-4692-91f4-55441a5b84c8",
+      "id": "5001",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5001,
+          "inputs": [
+            {
+              "link": 13442,
+              "name": "audio_latent",
+              "type": "LATENT"
+            },
+            {
+              "link": 13441,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 13559,
+              "name": "upscale_model",
+              "type": "LATENT_UPSCALE_MODEL"
+            },
+            {
+              "link": 13562,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 13499,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 13576,
+              "name": "bypass",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "bypass"
+              }
+            },
+            {
+              "link": 13565,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 13579,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13582,
+              "name": "negative",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                13470
+              ],
+              "name": "video_latent",
+              "type": "LATENT"
+            },
+            {
+              "links": [
+                13466
+              ],
+              "name": "audio_latent",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -1000,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "-1",
+                "bypass"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            300,
+            270
+          ],
+          "title": "2x Upscale",
+          "type": "f964e2af-0324-4692-91f4-55441a5b84c8",
+          "widgets_values": [
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false
+        ]
+      },
+      "uid": "5001",
+      "widgets": {
+        "widget_0": false
+      }
+    },
+    "5002": {
+      "class_type": "a57ed8ae-ad1f-4a55-90d5-729d58c52be2",
+      "id": "5002",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5002,
+          "inputs": [
+            {
+              "link": 13566,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 13580,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13583,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13480,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                13441
+              ],
+              "name": "video_latent",
+              "type": "LATENT"
+            },
+            {
+              "links": [
+                13442
+              ],
+              "name": "audio_latent",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -1300,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [],
+            "ver": "0.16.3"
+          },
+          "size": [
+            300,
+            270
+          ],
+          "title": "Low Res Gen",
+          "type": "a57ed8ae-ad1f-4a55-90d5-729d58c52be2",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "5002",
+      "widgets": {}
+    },
+    "5012": {
+      "class_type": "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b",
+      "id": "5012",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5012,
+          "inputs": [
+            {
+              "link": 13567,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 13581,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13584,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13466,
+              "name": "audio_latent",
+              "type": "LATENT"
+            },
+            {
+              "link": 13563,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 13500,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 13577,
+              "name": "bypass",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "bypass"
+              }
+            },
+            {
+              "link": 13470,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 13560,
+              "name": "upscale_model",
+              "type": "LATENT_UPSCALE_MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                13586
+              ],
+              "name": "video_latent",
+              "type": "LATENT"
+            },
+            {
+              "links": [
+                13588
+              ],
+              "name": "audio_latent",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -700,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "-1",
+                "bypass"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            300,
+            270
+          ],
+          "title": "4x Upscale",
+          "type": "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b",
+          "widgets_values": [
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false
+        ]
+      },
+      "uid": "5012",
+      "widgets": {
+        "widget_0": false
+      }
+    },
+    "5013": {
+      "class_type": "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf",
+      "id": "5013",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5013,
+          "inputs": [
+            {
+              "link": 13569,
+              "name": "audio_vae",
+              "type": "VAE"
+            },
+            {
+              "link": 13575,
+              "name": "frames_number",
+              "type": "INT",
+              "widget": {
+                "name": "frames_number"
+              }
+            },
+            {
+              "link": 13564,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 13578,
+              "name": "bypass",
+              "shape": 7,
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "bypass"
+              }
+            },
+            {
+              "link": 13501,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 13574,
+              "name": "a",
+              "type": "FLOAT",
+              "widget": {
+                "name": "a"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                13480
+              ],
+              "name": "latent",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -1600,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "-1",
+                "frames_number"
+              ],
+              [
+                "-1",
+                "bypass"
+              ],
+              [
+                "-1",
+                "a"
+              ],
+              [
+                "3059",
+                "width"
+              ],
+              [
+                "3059",
+                "height"
+              ],
+              [
+                "3336",
+                "img_compression"
+              ],
+              [
+                "3159",
+                "strength"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            300,
+            270
+          ],
+          "title": "Settings",
+          "type": "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf",
+          "widgets_values": [
+            97,
+            false,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          97,
+          false,
+          0
+        ]
+      },
+      "uid": "5013",
+      "widgets": {
+        "widget_0": 97,
+        "widget_1": false,
+        "widget_2": 0
+      }
+    },
+    "5016": {
+      "class_type": "950c1881-1749-4106-85ec-4c5aa987dbdb",
+      "id": "5016",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5016,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                13499,
+                13500,
+                13501
+              ],
+              "name": "resized",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -2700,
+            3430
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "2004",
+                "image"
+              ],
+              [
+                "2004",
+                "upload"
+              ],
+              [
+                "2004",
+                "$$canvas-image-preview"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            600,
+            770
+          ],
+          "title": "I2V Image",
+          "type": "950c1881-1749-4106-85ec-4c5aa987dbdb",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "5016",
+      "widgets": {}
+    },
+    "5025": {
+      "class_type": "95bc2c44-bc14-4728-a0f4-f2cb37a09796",
+      "id": "5025",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5025,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                13559,
+                13560
+              ],
+              "name": "LATENT_UPSCALE_MODEL",
+              "type": "LATENT_UPSCALE_MODEL"
+            },
+            {
+              "links": [
+                13562,
+                13563,
+                13564,
+                13587
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            },
+            {
+              "links": [
+                13565,
+                13566,
+                13567
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                13569,
+                13589
+              ],
+              "name": "Audio VAE",
+              "type": "VAE"
+            },
+            {
+              "links": [
+                13572
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            -2700,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "5017",
+                "ckpt_name"
+              ],
+              [
+                "5022",
+                "ckpt_name"
+              ],
+              [
+                "5024",
+                "ckpt_name"
+              ],
+              [
+                "5021",
+                "model_name"
+              ],
+              [
+                "5023",
+                "lora_name"
+              ],
+              [
+                "5023",
+                "strength_model"
+              ],
+              [
+                "5017",
+                "text_encoder"
+              ],
+              [
+                "5017",
+                "device"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            600,
+            370
+          ],
+          "title": "Models",
+          "type": "95bc2c44-bc14-4728-a0f4-f2cb37a09796",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "5025",
+      "widgets": {}
+    },
+    "5026": {
+      "class_type": "b0b6cb1c-d8aa-47bb-93fc-a5bf22978947",
+      "id": "5026",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5026,
+          "inputs": [
+            {
+              "link": 13572,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                13574,
+                13585
+              ],
+              "name": "FLOAT",
+              "type": "FLOAT"
+            },
+            {
+              "links": [
+                13575
+              ],
+              "name": "INT",
+              "type": "INT"
+            },
+            {
+              "links": [
+                13576,
+                13577,
+                13578
+              ],
+              "name": "BOOLEAN",
+              "type": "BOOLEAN"
+            },
+            {
+              "links": [
+                13579,
+                13580,
+                13581
+              ],
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                13582,
+                13583,
+                13584
+              ],
+              "name": "negative",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -2100,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "5018",
+                "text"
+              ],
+              [
+                "5019",
+                "text"
+              ],
+              [
+                "4989",
+                "value"
+              ],
+              [
+                "4988",
+                "value"
+              ],
+              [
+                "4987",
+                "value"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            500,
+            570
+          ],
+          "type": "b0b6cb1c-d8aa-47bb-93fc-a5bf22978947",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "5026",
+      "widgets": {}
+    },
+    "5027": {
+      "class_type": "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4",
+      "id": "5027",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5027,
+          "inputs": [
+            {
+              "link": 13585,
+              "name": "fps",
+              "type": "FLOAT",
+              "widget": {
+                "name": "fps"
+              }
+            },
+            {
+              "link": 13586,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 13587,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 13588,
+              "name": "samples_1",
+              "type": "LATENT"
+            },
+            {
+              "link": 13589,
+              "name": "audio_vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                13590
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            -400,
+            3030
+          ],
+          "properties": {
+            "cnr_id": "comfy-core",
+            "proxyWidgets": [
+              [
+                "-1",
+                "fps"
+              ]
+            ],
+            "ver": "0.16.3"
+          },
+          "size": [
+            300,
+            270
+          ],
+          "title": "Decode",
+          "type": "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4",
+          "widgets_values": [
+            30
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          30
+        ]
+      },
+      "uid": "5027",
+      "widgets": {
+        "widget_0": 30
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "4852",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "1fe8743b51e02ecd",
+    "path": "external_workflows/.shadow/source/1fe8743b51e02ecd-LTX-2.3_I2V_4X_Upscale.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f855deb7cdef4ace9915c257eb072c43beebbd5c1894198a611a54733a2f6fee",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1309520535012638740,
+      "channel_name": "ltx_chatter",
+      "content_preview": "ended up making a 4x upscale workflow thats neat",
+      "discord_message_url": "https://discord.com/channels/@me/1309520535012638740/1479669536578867422",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1479669536578867422:LTX-2.3_I2V_4X_Upscale.json:1fe8743b51e02ecd",
+      "filename": "LTX-2.3_I2V_4X_Upscale.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:53+00:00",
+      "message_id": 1479669536578867422,
+      "node_class_multiset": {
+        "1cef296e-0f57-4f74-9e5e-7fe2b9097bcf": 1,
+        "61c3c7e8-7a92-4f27-8c3f-82eb62976f7b": 1,
+        "94adb7a7-527b-4ea8-92e0-9ab2ca8387c4": 1,
+        "950c1881-1749-4106-85ec-4c5aa987dbdb": 1,
+        "95bc2c44-bc14-4728-a0f4-f2cb37a09796": 1,
+        "SaveVideo": 1,
+        "a57ed8ae-ad1f-4a55-90d5-729d58c52be2": 1,
+        "b0b6cb1c-d8aa-47bb-93fc-a5bf22978947": 1,
+        "f964e2af-0324-4692-91f4-55441a5b84c8": 1
+      },
+      "node_count": 9,
+      "origin_date": "2026-03-07T02:38:28.451000+00:00",
+      "originator_global_name": "abysswatcher",
+      "originator_id": "1144117511923695646",
+      "originator_type": "discord_message_author",
+      "originator_username": "quick_0205",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "1fe8743b51e02ecde87eaf9ec87e8a6cf36073246beb2b4960f90ea771510628",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1309520535012638740/1479669536230735953/LTX-2.3_I2V_4X_Upscale.json?ex=69ace124&is=69ab8fa4&hm=4bbb832fdf3d62db320d6d5ae5effaad65b4177852dc152627fc7974761470b5&",
+      "source_workflow_sha256": "25f5fe487b739b59661e63ee86f1a2bac71344d6f349534a801bf8dda951a764",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

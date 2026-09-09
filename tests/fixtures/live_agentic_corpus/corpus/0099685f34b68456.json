@@ -1,0 +1,496 @@
+{
+  "102": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "tutofinal0",
+      "format": "video/h264-mp4",
+      "frame_rate": 24,
+      "images": [
+        "168",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "106": {
+    "class_type": "ModifyLTXModel",
+    "inputs": {
+      "model": [
+        "44",
+        0
+      ]
+    }
+  },
+  "108": {
+    "class_type": "LTXPerturbedAttention",
+    "inputs": {
+      "model": [
+        "106",
+        0
+      ],
+      "widget_0": 1,
+      "widget_1": 0.25,
+      "widget_2": 3
+    }
+  },
+  "109": {
+    "class_type": "CLIPLoaderGGUF",
+    "inputs": {
+      "widget_0": "t5-v1_1-xxl-encoder-Q6_K.gguf",
+      "widget_1": "ltxv"
+    }
+  },
+  "110": {
+    "class_type": "AddLatentGuide",
+    "inputs": {
+      "image_latent": [
+        "77",
+        2
+      ],
+      "latent": [
+        "77",
+        2
+      ],
+      "model": [
+        "108",
+        0
+      ],
+      "widget_0": 0,
+      "widget_1": false
+    }
+  },
+  "119": {
+    "class_type": "LTXFetaEnhance",
+    "inputs": {
+      "attn_override": [
+        "120",
+        0
+      ],
+      "model": [
+        "110",
+        0
+      ],
+      "widget_0": 4
+    }
+  },
+  "120": {
+    "class_type": "LTXAttnOverride",
+    "inputs": {
+      "widget_0": "14"
+    }
+  },
+  "139": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ltx-video-v0.9-vae_finetune_all.safetensors"
+    }
+  },
+  "149": {
+    "class_type": "LTXFetaEnhance",
+    "inputs": {
+      "model": [
+        "119",
+        0
+      ],
+      "widget_0": 4
+    }
+  },
+  "168": {
+    "class_type": "ImageSharpen",
+    "inputs": {
+      "image": [
+        "8",
+        0
+      ],
+      "widget_0": 2,
+      "widget_1": 0.38,
+      "widget_2": 0.27
+    }
+  },
+  "171": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "176",
+        2
+      ],
+      "widget_0": "",
+      "widget_1": "image",
+      "widget_2": "video"
+    }
+  },
+  "172": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "173",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "painting",
+      "widget_2": "video"
+    }
+  },
+  "173": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "171",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "photo",
+      "widget_2": "video"
+    }
+  },
+  "176": {
+    "class_type": "Florence2Run",
+    "inputs": {
+      "florence2_model": [
+        "177",
+        0
+      ],
+      "image": [
+        "186",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "more_detailed_caption",
+      "widget_2": true,
+      "widget_3": false,
+      "widget_4": 256,
+      "widget_5": 3,
+      "widget_6": true,
+      "widget_7": "",
+      "widget_8": 1,
+      "widget_9": "fixed"
+    }
+  },
+  "177": {
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "inputs": {
+      "widget_0": "microsoft/Florence-2-base",
+      "widget_1": "fp16",
+      "widget_2": "sdpa"
+    }
+  },
+  "179": {
+    "class_type": "\u2728\ud83d\udcac Groq LLM API",
+    "inputs": {
+      "user_input": [
+        "182",
+        0
+      ],
+      "widget_0": "llama-3.3-70b-versatile",
+      "widget_1": "Use [system_message] and [user_input]",
+      "widget_10": "",
+      "widget_11": true,
+      "widget_2": "You are an expert cinematic director with many award winning movies, When writing prompts based on the user input, focus on detailed, chronological descriptions of actions and scenes. Where possible, create movement for the characters. Include specific movements, appearances, camera angles, and environmental details - all in a single flowing paragraph. Start directly with the action, and keep descriptions literal and precise. Think like a cinematographer describing a shot list. Keep within 200 words. Build your prompts using this structure:\n\nStart with main action in a single sentence\nAdd specific details about movements and gestures\nDescribe character/object appearances precisely\nInclude background and environment details\nSpecify camera angles and movements\nDescribe lighting and colors\nNote any changes or sudden events\n\nHere are some examples of great output:\n\n\u201cA woman with long brown hair and light skin smiles at another woman with long blonde hair. The woman with brown hair wears a black jacket and has a small, barely noticeable mole on her right cheek. The camera angle is a close-up, focused on the woman with brown hair's face. The lighting is warm and natural, likely from the setting sun, casting a soft glow on the scene. The scene appears to be real-life footage.\u201d\n\n\u201cA woman walks away from a white Jeep parked on a city street at night, then ascends a staircase and knocks on a door. The woman, wearing a dark jacket and jeans, walks away from the Jeep parked on the left side of the street, her back to the camera; she walks at a steady pace, her arms swinging slightly by her sides; the street is dimly lit, with streetlights casting pools of light on the wet pavement; a man in a dark jacket and jeans walks past the Jeep in the opposite direction; the camera follows the woman from behind as she walks up a set of stairs towards a building with a green door; she reaches the top of the stairs and turns left, continuing to walk towards the building; she reaches the door and knocks on it with her right hand; the camera remains stationary, focused on the doorway; the scene is captured in real-life footage.\u201d\n\n\u201cThe camera pans over a snow-covered mountain range, revealing a vast expanse of snow-capped peaks and valleys.The mountains are covered in a thick layer of snow, with some areas appearing almost white while others have a slightly darker, almost grayish hue. The peaks are jagged and irregular, with some rising sharply into the sky while others are more rounded. The valleys are deep and narrow, with steep slopes that are also covered in snow. The trees in the foreground are mostly bare, with only a few leaves remaining on their branches. The sky is overcast, with thick clouds obscuring the sun. The overall impression is one of peace and tranquility, with the snow-covered mountains standing as a testament to the power and beauty of nature.\u201d\n\nDo not exceed the 200 word limit!",
+      "widget_3": "",
+      "widget_4": 0.9500000000000001,
+      "widget_5": 1024,
+      "widget_6": 1,
+      "widget_7": 1,
+      "widget_8": "fixed",
+      "widget_9": 2
+    }
+  },
+  "180": {
+    "class_type": "ShowText|pysssss",
+    "inputs": {
+      "text": [
+        "179",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "A young woman sits on a red velvet couch, exhaling smoke from her cigarette as she gazes off to the side with a serious expression. Her long red hair cascades down her back in loose waves, and she wears a black lace top that accentuates her curves, paired with a delicate choker necklace. Her right hand holds the cigarette, fingers wrapping gently around it as she takes a slow drag. The dark green wall behind her serves as a muted backdrop, with a video hanging on it, its soft glow casting a warm light on her face. The camera angle is a close-up, focused on the woman's face and upper body, capturing the subtle movements of her lips and eyes. The lighting is soft and warm, with a mix of golden and crimson hues, adding to the sensual and intimate atmosphere of the scene, all captured in real-life footage."
+    }
+  },
+  "182": {
+    "class_type": "StringFunction|pysssss",
+    "inputs": {
+      "text_a": [
+        "184",
+        0
+      ],
+      "widget_0": "append",
+      "widget_1": "no",
+      "widget_2": "",
+      "widget_3": "",
+      "widget_4": "The scene is captured in real-life footage.",
+      "widget_5": "The video is a shot of a young woman sitting on a red velvet couch. She is wearing a black lace top and a choker necklace. Her long red hair is styled in loose waves and she is holding a cigarette in her right hand. The woman is looking off to the side with a serious expression on her face. The background is a dark green wall with a video hanging on it. The overall mood of the video is sensual and intimate.The scene is captured in real-life footage."
+    }
+  },
+  "183": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "172",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "illustration",
+      "widget_2": "video"
+    }
+  },
+  "184": {
+    "class_type": "String Replace (mtb)",
+    "inputs": {
+      "string": [
+        "183",
+        0
+      ],
+      "widget_0": "",
+      "widget_1": "portrait",
+      "widget_2": "shot"
+    }
+  },
+  "185": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "clipspace/clipspace-mask-5810912.599999905.png [input]"
+    }
+  },
+  "186": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "185",
+        0
+      ],
+      "mask": [
+        "188",
+        0
+      ],
+      "source": [
+        "187",
+        0
+      ],
+      "widget_0": 0,
+      "widget_1": 0,
+      "widget_2": false
+    }
+  },
+  "187": {
+    "class_type": "BlurImageFast",
+    "inputs": {
+      "images": [
+        "185",
+        0
+      ],
+      "widget_0": 6,
+      "widget_1": 0
+    }
+  },
+  "188": {
+    "class_type": "BlurMaskFast",
+    "inputs": {
+      "masks": [
+        "185",
+        1
+      ],
+      "widget_0": 8,
+      "widget_1": 1
+    }
+  },
+  "189": {
+    "class_type": "MaskPreview+",
+    "inputs": {
+      "mask": [
+        "188",
+        0
+      ]
+    }
+  },
+  "190": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "186",
+        0
+      ]
+    }
+  },
+  "191": {
+    "class_type": "ImageResizeKJ",
+    "inputs": {
+      "crop": "disabled",
+      "divisible_by": 0,
+      "height": "lanczos",
+      "image": [
+        "195",
+        0
+      ],
+      "keep_proportion": 2,
+      "upscale_method": true,
+      "width": 768
+    }
+  },
+  "194": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un498": [
+        "186",
+        0
+      ]
+    }
+  },
+  "195": {
+    "class_type": "Reroute",
+    "inputs": {
+      "_un499": [
+        "194",
+        0
+      ]
+    }
+  },
+  "44": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-video-2b-v0.9.1.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "109",
+        0
+      ],
+      "text": [
+        "180",
+        0
+      ]
+    }
+  },
+  "69": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "frame_rate": 24,
+      "negative": [
+        "77",
+        1
+      ],
+      "positive": [
+        "77",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "109",
+        0
+      ],
+      "text": "low quality, worst quality, deformed, distorted, disfigured, motion smear, motion artifacts, fused fingers, bad anatomy, weird hand, ugly"
+    }
+  },
+  "71": {
+    "class_type": "LTXVScheduler",
+    "inputs": {
+      "base_shift": 1.95,
+      "latent": [
+        "77",
+        2
+      ],
+      "max_shift": 2.05,
+      "steps": 30,
+      "stretch": true,
+      "terminal": 0.15
+    }
+  },
+  "72": {
+    "class_type": "SamplerCustom",
+    "inputs": {
+      "latent_image": [
+        "77",
+        2
+      ],
+      "model": [
+        "149",
+        0
+      ],
+      "negative": [
+        "69",
+        1
+      ],
+      "positive": [
+        "69",
+        0
+      ],
+      "sampler": [
+        "73",
+        0
+      ],
+      "sigmas": [
+        "71",
+        0
+      ],
+      "widget_0": true,
+      "widget_1": 28,
+      "widget_2": "increment",
+      "widget_3": 4.47
+    }
+  },
+  "73": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "77": {
+    "class_type": "LTXVImgToVideo",
+    "inputs": {
+      "height": [
+        "191",
+        2
+      ],
+      "image": [
+        "191",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "vae": [
+        "139",
+        0
+      ],
+      "widget_0": 1152,
+      "widget_1": 768,
+      "widget_2": 49,
+      "widget_3": 1,
+      "widget_4": 0.15,
+      "width": [
+        "191",
+        1
+      ]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "72",
+        0
+      ],
+      "vae": [
+        "139",
+        0
+      ]
+    }
+  }
+}

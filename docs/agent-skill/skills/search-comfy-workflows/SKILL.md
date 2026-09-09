@@ -5,7 +5,7 @@ description: Search for ComfyUI workflow precedents, VibeComfy ready templates, 
 
 # Search Comfy Workflows
 
-Use this to find evidence before editing or adding a graph. The result should tell the next agent what to open, why it matches, which node classes matter, and what is still uncertain.
+Use this to find evidence before editing or adding a graph. The result should tell the next agent what to open, why it matches, which node classes matter, and what is still uncertain. A found JSON workflow is a precedent to import and inspect; it is not itself an execution instruction.
 
 ## Fast Path
 

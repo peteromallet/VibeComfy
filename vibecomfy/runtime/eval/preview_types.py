@@ -45,20 +45,21 @@ PREVIEW_MAP: dict[str, PreviewInjection] = {
 VIDEO_FALLBACK: PreviewInjection = PreviewInjection("PreviewVideo", output_input_slot="video")
 
 
-#: Node class_types that are known VAE emitters (loaders / handles).
-#: Used during LATENT eval to discover upstream VAE handles.
-VAE_EMITTER_CLASSES: frozenset[str] = frozenset(
-    {
-        "VAELoader",
-        "CheckpointLoaderSimple",
-        "WanVideoVAELoader",
-        "LTXVAudioVAELoader",
-        "VAEDecode",
-        "VAEDecodeTiled",
-        "VAEEncode",
-        "VAEEncodeTiled",
-    }
-)
+@dataclass(frozen=True)
+class VAEEmitterDescriptor:
+    """Closed descriptor for one generic image-VAE output socket."""
+
+    name: str
+    output_type: str
+    output_slot: int
+
+
+# Closed on purpose: specialized loaders and VAE consumers are not generic
+# image-VAE emitters until an explicit descriptor/decoder pair is authored.
+VAE_EMITTER_CLASSES: dict[str, VAEEmitterDescriptor] = {
+    "VAELoader": VAEEmitterDescriptor("VAE", "VAE", 0),
+    "CheckpointLoaderSimple": VAEEmitterDescriptor("VAE", "VAE", 2),
+}
 
 
 @dataclass(frozen=True)

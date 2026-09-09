@@ -259,10 +259,66 @@ def test_sealed_table_overrides_drifted_provider_in_canonicalization() -> None:
     frozen = _snapshot_api()[4](wf)
     assert frozen.get("1") == ("threshold",), "seal must capture the object-info roster"
 
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import (
+        InputSpec,
+        NodeSchema,
+        OutputSpec,
+    )
+
+    class _IngressProvider:
+        def get_schema(self, class_type):
+            if class_type == "VoxelToMeshBasic":
+                return NodeSchema(
+                    "VoxelToMeshBasic",
+                    "test",
+                    {"threshold": InputSpec(type="FLOAT")},
+                    [OutputSpec(type="MESH", name="mesh")],
+                )
+            return None
+
+        def schemas(self):
+            return {"VoxelToMeshBasic": self.get_schema("VoxelToMeshBasic")}
+
+    ingress_provider = _IngressProvider()
+    schema_snapshot = capture_ingress_schema_snapshot(
+        schema_provider=ingress_provider, graph=ui
+    )
+
+    class _PoisonedLiveProvider:
+        """A live provider whose roster deliberately disagrees with ingress."""
+
+        snapshot = schema_snapshot
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_schema(self, class_type):
+            self.calls += 1
+            if class_type == "VoxelToMeshBasic":
+                return NodeSchema(
+                    "VoxelToMeshBasic",
+                    "poison",
+                    {"alpha": InputSpec(type="FLOAT")},
+                    [OutputSpec(type="MESH", name="mesh")],
+                )
+            return None
+
+        def schemas(self):
+            return {"VoxelToMeshBasic": self.get_schema("VoxelToMeshBasic")}
+
+    poisoned_provider = _PoisonedLiveProvider()
+
     result = interpret(
         wf,
         "voxeltomeshbasic.widget_0 = 9",
-        schema_provider=_drift_provider(),
+        schema_provider=poisoned_provider,
+    )
+    assert poisoned_provider.calls == 0, (
+        "interpret must derive its provider from the retained snapshot without "
+        "touching the adversarial live surface"
     )
     assert result.ok is True, result.diagnostics
     landed = [op for op in result.landed_ops if op is not None]

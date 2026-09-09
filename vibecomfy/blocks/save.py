@@ -27,7 +27,7 @@ def image(
         "vibecomfy.blocks.save.image",
         "SaveImage",
         block_id=block_id,
-        widgets={"widget_0": filename_prefix},
+        inputs={"filename_prefix": filename_prefix},
     )
     connect(workflow, images, node, "images")
     return Handles(
@@ -50,7 +50,7 @@ def video(
         "vibecomfy.blocks.save.video",
         "SaveVideo",
         block_id=block_id,
-        widgets={"widget_0": settings.filename_prefix, "widget_1": settings.format, "widget_2": settings.codec},
+        inputs={"filename_prefix": settings.filename_prefix, "format": settings.format, "codec": settings.codec},
     )
     connect(workflow, video, node, "video")
     return Handles(

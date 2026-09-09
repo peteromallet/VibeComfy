@@ -1,7 +1,7 @@
 {
   "id": "video-animatediff-video-with-controlnet-and-depth-89b02a",
   "query": "What alternatives to Depth-Anything could I use as the depth estimator for better temporal consistency in my AnimateDiff video pipeline, and how would replacing it affect the ControlNet guidance?",
-  "workflow_path": "external_workflows/corpus/89b02a141d7451bb.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/89b02a141d7451bb.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/89b02a141d7451bb.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/89b02a141d7451bb.json",
     "required_node_evidence": [
       "DownloadAndLoadDepthAnythingV2Model",
       "DepthAnything_V2",

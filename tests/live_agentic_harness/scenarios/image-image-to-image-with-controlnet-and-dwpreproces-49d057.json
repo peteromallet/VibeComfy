@@ -1,7 +1,7 @@
 {
   "id": "image-image-to-image-with-controlnet-and-dwpreproces-49d057",
   "query": "Change the ControlNet strength to 0.8 so the pose guidance is more subtle.",
-  "workflow_path": "external_workflows/corpus/49d0579ed9932457.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/49d0579ed9932457.json",
   "network": true,
   "timeout": 160,
   "apply": true,

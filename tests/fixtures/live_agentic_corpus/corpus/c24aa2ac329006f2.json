@@ -1,0 +1,2597 @@
+{
+  "edges": [
+    {
+      "from_node": "181",
+      "from_output": "0",
+      "to_input": "pipe",
+      "to_node": "189"
+    },
+    {
+      "from_node": "17",
+      "from_output": "4",
+      "to_input": "image",
+      "to_node": "189"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "158"
+    },
+    {
+      "from_node": "47",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "181"
+    },
+    {
+      "from_node": "52",
+      "from_output": "0",
+      "to_input": "pos",
+      "to_node": "181"
+    },
+    {
+      "from_node": "51",
+      "from_output": "0",
+      "to_input": "neg",
+      "to_node": "181"
+    },
+    {
+      "from_node": "47",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "181"
+    },
+    {
+      "from_node": "47",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "181"
+    },
+    {
+      "from_node": "158",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "181"
+    },
+    {
+      "from_node": "185",
+      "from_output": "0",
+      "to_input": "pipe",
+      "to_node": "186"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "mask",
+      "to_node": "186"
+    },
+    {
+      "from_node": "70",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "69"
+    },
+    {
+      "from_node": "186",
+      "from_output": "1",
+      "to_input": "image",
+      "to_node": "69"
+    },
+    {
+      "from_node": "158",
+      "from_output": "1",
+      "to_input": "mask",
+      "to_node": "94"
+    },
+    {
+      "from_node": "73",
+      "from_output": "0",
+      "to_input": "trimesh",
+      "to_node": "68"
+    },
+    {
+      "from_node": "68",
+      "from_output": "0",
+      "to_input": "model_file",
+      "to_node": "34"
+    },
+    {
+      "from_node": "47",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "52"
+    },
+    {
+      "from_node": "47",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "51"
+    },
+    {
+      "from_node": "193",
+      "from_output": "0",
+      "to_input": "sampler",
+      "to_node": "82"
+    },
+    {
+      "from_node": "17",
+      "from_output": "6",
+      "to_input": "original_mesh",
+      "to_node": "73"
+    },
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "inpainted_view",
+      "to_node": "73"
+    },
+    {
+      "from_node": "17",
+      "from_output": "7",
+      "to_input": "camera_params",
+      "to_node": "73"
+    },
+    {
+      "from_node": "189",
+      "from_output": "0",
+      "to_input": "pipe",
+      "to_node": "185"
+    },
+    {
+      "from_node": "82",
+      "from_output": "0",
+      "to_input": "optional_sampler",
+      "to_node": "185"
+    }
+  ],
+  "groups": [],
+  "id": "042737676ed8ab09",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "47",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "sdxl\\sdxl_juggernaut_xi.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "52",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "158": {
+        "class_type": "PreviewBridge",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "17",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "181",
+              "image"
+            ]
+          ],
+          [
+            "1",
+            [
+              "94",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'$158-1744188469.2607484'"
+          ],
+          [
+            "widget_1",
+            "True"
+          ],
+          [
+            "widget_2",
+            "'never'"
+          ],
+          [
+            "widget_3",
+            "''"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "Hy3DTools_RenderSpecificView",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "158",
+              "images"
+            ]
+          ],
+          [
+            "4",
+            [
+              "189",
+              "image"
+            ]
+          ],
+          [
+            "6",
+            [
+              "73",
+              "original_mesh"
+            ]
+          ],
+          [
+            "7",
+            [
+              "73",
+              "camera_params"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "'orth'"
+          ],
+          [
+            "widget_2",
+            "1.0000000000000002"
+          ],
+          [
+            "widget_3",
+            "0"
+          ],
+          [
+            "widget_4",
+            "-0.37000000000000005"
+          ],
+          [
+            "widget_5",
+            "0.30000000000000004"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "0"
+          ],
+          [
+            "widget_8",
+            "'0,0,0'"
+          ]
+        ]
+      },
+      "181": {
+        "class_type": "easy pipeIn",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "47",
+              "1"
+            ]
+          ],
+          [
+            "image",
+            [
+              "158",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "47",
+              "0"
+            ]
+          ],
+          [
+            "neg",
+            [
+              "51",
+              "0"
+            ]
+          ],
+          [
+            "pos",
+            [
+              "52",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "47",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "189",
+              "pipe"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "185": {
+        "class_type": "easy preSamplingCustom",
+        "incoming_edge_sig": [
+          [
+            "optional_sampler",
+            [
+              "82",
+              "0"
+            ]
+          ],
+          [
+            "pipe",
+            [
+              "189",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "186",
+              "pipe"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'CFG'"
+          ],
+          [
+            "widget_1",
+            "3.5"
+          ],
+          [
+            "widget_10",
+            "19.9"
+          ],
+          [
+            "widget_11",
+            "0.1"
+          ],
+          [
+            "widget_12",
+            "0.001"
+          ],
+          [
+            "widget_13",
+            "False"
+          ],
+          [
+            "widget_14",
+            "0.5500000000000002"
+          ],
+          [
+            "widget_15",
+            "'enable (CPU)'"
+          ],
+          [
+            "widget_16",
+            "3"
+          ],
+          [
+            "widget_17",
+            "'fixed'"
+          ],
+          [
+            "widget_2",
+            "1.5"
+          ],
+          [
+            "widget_3",
+            "'dpmpp_2m'"
+          ],
+          [
+            "widget_4",
+            "'alignYourSteps'"
+          ],
+          [
+            "widget_5",
+            "1.2"
+          ],
+          [
+            "widget_6",
+            "20"
+          ],
+          [
+            "widget_7",
+            "14.614642"
+          ],
+          [
+            "widget_8",
+            "0.0291675"
+          ],
+          [
+            "widget_9",
+            "7"
+          ]
+        ]
+      },
+      "186": {
+        "class_type": "easy kSamplerInpainting",
+        "incoming_edge_sig": [
+          [
+            "mask",
+            [
+              "94",
+              "0"
+            ]
+          ],
+          [
+            "pipe",
+            [
+              "185",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "69",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "6"
+          ],
+          [
+            "widget_1",
+            "'Preview'"
+          ],
+          [
+            "widget_2",
+            "0"
+          ],
+          [
+            "widget_3",
+            "'ComfyUI'"
+          ],
+          [
+            "widget_4",
+            "'Differential Diffusion'"
+          ],
+          [
+            "widget_5",
+            "''"
+          ]
+        ]
+      },
+      "189": {
+        "class_type": "easy controlnetLoader++",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "17",
+              "4"
+            ]
+          ],
+          [
+            "pipe",
+            [
+              "181",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "185",
+              "pipe"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'sdxl\\\\sdxl_xinsir_union_promax.safetensors'"
+          ],
+          [
+            "widget_1",
+            "1"
+          ],
+          [
+            "widget_2",
+            "0"
+          ],
+          [
+            "widget_3",
+            "1"
+          ],
+          [
+            "widget_4",
+            "1"
+          ],
+          [
+            "widget_5",
+            "'depth'"
+          ]
+        ]
+      },
+      "193": {
+        "class_type": "KSamplerSelect",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "82",
+              "sampler"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sampler_name",
+            "'dpmpp_2m_sde'"
+          ]
+        ]
+      },
+      "34": {
+        "class_type": "Preview3D",
+        "incoming_edge_sig": [
+          [
+            "model_file",
+            [
+              "68",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3D/hy3dtemp_.glb'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ]
+        ]
+      },
+      "47": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "181",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "181",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "51",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "52",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "181",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'sdxl\\\\sdxl_juggernaut_xi.safetensors'"
+          ]
+        ]
+      },
+      "51": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "47",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "181",
+              "neg"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch, Low quality, blurry, deformed, unrealistic proportions, extra limbs, missing fingers, distorted face, low-detail textures, pixelated, overexposed, unnatural lighting, incorrect anatomy, artifacts, bad composition, stretched features, poorly rendered hands and feet, floating objects, unnatural clothing folds, weird shadows, (embedding:Endless_Up_SDXL_Neg, embedding:ziprealism_neg)'"
+          ]
+        ]
+      },
+      "52": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "47",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "181",
+              "pos"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "68": {
+        "class_type": "Hy3DExportMesh",
+        "incoming_edge_sig": [
+          [
+            "trimesh",
+            [
+              "73",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "34",
+              "model_file"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3D/Hy3D_textured'"
+          ],
+          [
+            "widget_1",
+            "'glb'"
+          ],
+          [
+            "widget_2",
+            "False"
+          ]
+        ]
+      },
+      "69": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "186",
+              "1"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "70",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "73",
+              "inpainted_view"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "70": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "69",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x_foolhardy_Remacri.pth'"
+          ]
+        ]
+      },
+      "73": {
+        "class_type": "Hy3DTools_BackProjectInpaint",
+        "incoming_edge_sig": [
+          [
+            "camera_params",
+            [
+              "17",
+              "7"
+            ]
+          ],
+          [
+            "inpainted_view",
+            [
+              "69",
+              "0"
+            ]
+          ],
+          [
+            "original_mesh",
+            [
+              "17",
+              "6"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "68",
+              "trimesh"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.15000000000000002"
+          ]
+        ]
+      },
+      "82": {
+        "class_type": "DetailDaemonSamplerNode",
+        "incoming_edge_sig": [
+          [
+            "sampler",
+            [
+              "193",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "185",
+              "optional_sampler"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.15000000000000002"
+          ],
+          [
+            "widget_1",
+            "0.3"
+          ],
+          [
+            "widget_2",
+            "0.7000000000000001"
+          ],
+          [
+            "widget_3",
+            "0.5"
+          ],
+          [
+            "widget_4",
+            "1"
+          ],
+          [
+            "widget_5",
+            "0"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "0"
+          ],
+          [
+            "widget_8",
+            "True"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "94": {
+        "class_type": "GrowMaskWithBlur",
+        "incoming_edge_sig": [
+          [
+            "mask",
+            [
+              "158",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "186",
+              "mask"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "blur_radius",
+            "15"
+          ],
+          [
+            "decay_factor",
+            "1"
+          ],
+          [
+            "expand",
+            "0"
+          ],
+          [
+            "flip_input",
+            "False"
+          ],
+          [
+            "incremental_expandrate",
+            "0"
+          ],
+          [
+            "lerp_alpha",
+            "1"
+          ],
+          [
+            "tapered_corners",
+            "True"
+          ],
+          [
+            "unused_7",
+            "False"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c24aa2ac329006f2d38652f7917627bf7fd7614714dfba0a6dee18be1bf80df1",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1331535864337006592,
+      "channel_name": "hunyuan3d",
+      "content_preview": "I let you here the Inpainting Reproject Module",
+      "discord_message_url": "https://discord.com/channels/@me/1331535864337006592/1359462277434179584",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1359462277434179584:3D_-_Inpaint_Reproject.json:042737676ed8ab09",
+      "filename": "3D_-_Inpaint_Reproject.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:14+00:00",
+      "message_id": 1359462277434179584,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DetailDaemonSamplerNode": 1,
+        "GrowMaskWithBlur": 1,
+        "Hy3DExportMesh": 1,
+        "Hy3DTools_BackProjectInpaint": 1,
+        "Hy3DTools_RenderSpecificView": 1,
+        "ImageUpscaleWithModel": 1,
+        "KSamplerSelect": 1,
+        "Preview3D": 1,
+        "PreviewBridge": 1,
+        "UpscaleModelLoader": 1,
+        "easy controlnetLoader++": 1,
+        "easy kSamplerInpainting": 1,
+        "easy pipeIn": 1,
+        "easy preSamplingCustom": 1
+      },
+      "node_count": 17,
+      "origin_date": "2025-04-09T09:37:44.528000+00:00",
+      "originator_global_name": "Nekodificador",
+      "originator_id": "391020191338987522",
+      "originator_type": "discord_message_author",
+      "originator_username": "nekodificador",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "042737676ed8ab09bea84a8ce220b90df789cf600c45a616dbc10856d9ea8275",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1331535864337006592/1359462276964286504/3D_-_Inpaint_Reproject.json?ex=68153b28&is=6813e9a8&hm=a9ffcdf7aa67315de71c929745013376f5f45075cf1636a585d01566e59550e4&",
+      "source_workflow_sha256": "9472ba948079f42faad456b03d1c325f87719bfe4d822f8b6d57d551d3d7c067",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "eb830b8b8983213deca5f9b5d5f0ed69e0426c036222ba07f3d4e9f0f3614f79",
+      "complexity": 4,
+      "description": "Uses a 3D model render, back-projection inpainting, and ControlNet to inpaint and upscale images, with detail enhancement via DetailDaemonSamplerNode.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "3d",
+      "tags": [
+        "3d-inpainting",
+        "controlnet",
+        "upscaling",
+        "detail-enhancement",
+        "sdxl",
+        "inpainting",
+        "render"
+      ],
+      "task_type": "inpainting",
+      "title": "3D Inpainting with ControlNet and Detail Daemon"
+    }
+  },
+  "nodes": {
+    "158": {
+      "class_type": "PreviewBridge",
+      "id": "158",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 158,
+          "inputs": [
+            {
+              "link": 280,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                346
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                286
+              ],
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            1010,
+            -1490
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewBridge",
+            "cnr_id": "comfyui-impact-pack",
+            "ver": "0b1ac0f1c5a395e17065821e4fd47aba3bf23900"
+          },
+          "size": [
+            412.5206604003906,
+            444.611572265625
+          ],
+          "type": "PreviewBridge",
+          "widgets_values": [
+            "$158-1744188469.2607484",
+            true,
+            "never",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "$158-1744188469.2607484",
+          true,
+          "never",
+          ""
+        ]
+      },
+      "uid": "158",
+      "widgets": {
+        "widget_0": "$158-1744188469.2607484",
+        "widget_1": true,
+        "widget_2": "never",
+        "widget_3": ""
+      }
+    },
+    "17": {
+      "class_type": "Hy3DTools_RenderSpecificView",
+      "id": "17",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": null,
+              "name": "trimesh",
+              "type": "TRIMESH"
+            }
+          ],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                131,
+                280
+              ],
+              "name": "textured_view",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                82
+              ],
+              "name": "tangent_normal",
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "name": "world_normal",
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "name": "position",
+              "type": "IMAGE"
+            },
+            {
+              "links": [
+                85,
+                339
+              ],
+              "name": "depth",
+              "type": "IMAGE"
+            },
+            {
+              "links": [],
+              "name": "mask",
+              "type": "MASK"
+            },
+            {
+              "links": [
+                349
+              ],
+              "name": "original_mesh_out",
+              "type": "TRIMESH"
+            },
+            {
+              "links": [
+                347
+              ],
+              "name": "camera_params",
+              "type": "CAMERA_PARAMS"
+            },
+            {
+              "links": null,
+              "name": "detected_texture_size_WH",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            660,
+            -1490
+          ],
+          "properties": {
+            "Node name for S&R": "Hy3DTools_RenderSpecificView",
+            "aux_id": "hunzmusic/ComfyUI-Hunyuan3DTools",
+            "ver": "621fb54cae1917279e1fc40ed861b2191d5e6896"
+          },
+          "size": [
+            337.6000061035156,
+            410
+          ],
+          "type": "Hy3DTools_RenderSpecificView",
+          "widgets_values": [
+            1024,
+            "orth",
+            1.0000000000000002,
+            0,
+            -0.37000000000000005,
+            0.30000000000000004,
+            0,
+            0,
+            "0,0,0"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 9,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          "orth",
+          1.0000000000000002,
+          0,
+          -0.37000000000000005,
+          0.30000000000000004,
+          0,
+          0,
+          "0,0,0"
+        ]
+      },
+      "uid": "17",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": "orth",
+        "widget_2": 1.0000000000000002,
+        "widget_3": 0,
+        "widget_4": -0.37000000000000005,
+        "widget_5": 0.30000000000000004,
+        "widget_6": 0,
+        "widget_7": 0,
+        "widget_8": "0,0,0"
+      }
+    },
+    "181": {
+      "class_type": "easy pipeIn",
+      "id": "181",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 181,
+          "inputs": [
+            {
+              "link": null,
+              "name": "pipe",
+              "shape": 7,
+              "type": "PIPE_LINE"
+            },
+            {
+              "link": 327,
+              "name": "model",
+              "shape": 7,
+              "type": "MODEL"
+            },
+            {
+              "link": 334,
+              "name": "pos",
+              "shape": 7,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 335,
+              "name": "neg",
+              "shape": 7,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": null,
+              "name": "latent",
+              "shape": 7,
+              "type": "LATENT"
+            },
+            {
+              "link": 333,
+              "name": "vae",
+              "shape": 7,
+              "type": "VAE"
+            },
+            {
+              "link": 342,
+              "name": "clip",
+              "shape": 7,
+              "type": "CLIP"
+            },
+            {
+              "link": 346,
+              "name": "image",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "xyPlot",
+              "shape": 7,
+              "type": "XYPLOT"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                328
+              ],
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            }
+          ],
+          "pos": [
+            1810,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "easy pipeIn",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "b1a875b151f3fd76542cdcb9269961ad330dd5ef"
+          },
+          "size": [
+            140,
+            186
+          ],
+          "type": "easy pipeIn",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "181",
+      "widgets": {}
+    },
+    "185": {
+      "class_type": "easy preSamplingCustom",
+      "id": "185",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 185,
+          "inputs": [
+            {
+              "link": 329,
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            },
+            {
+              "link": null,
+              "name": "image_to_latent",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "latent",
+              "shape": 7,
+              "type": "LATENT"
+            },
+            {
+              "link": 324,
+              "name": "optional_sampler",
+              "shape": 7,
+              "type": "SAMPLER"
+            },
+            {
+              "link": null,
+              "name": "optional_sigmas",
+              "shape": 7,
+              "type": "SIGMAS"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                322
+              ],
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            }
+          ],
+          "pos": [
+            2200,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "easy preSamplingCustom",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "b1a875b151f3fd76542cdcb9269961ad330dd5ef"
+          },
+          "size": [
+            240,
+            354
+          ],
+          "type": "easy preSamplingCustom",
+          "widgets_values": [
+            "CFG",
+            3.5,
+            1.5,
+            "dpmpp_2m",
+            "alignYourSteps",
+            1.2,
+            20,
+            14.614642,
+            0.0291675,
+            7,
+            19.9,
+            0.1,
+            0.001,
+            false,
+            0.5500000000000002,
+            "enable (CPU)",
+            3,
+            "fixed"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 18,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "CFG",
+          3.5,
+          1.5,
+          "dpmpp_2m",
+          "alignYourSteps",
+          1.2,
+          20,
+          14.614642,
+          0.0291675,
+          7,
+          19.9,
+          0.1,
+          0.001,
+          false,
+          0.5500000000000002,
+          "enable (CPU)",
+          3,
+          "fixed"
+        ]
+      },
+      "uid": "185",
+      "widgets": {
+        "widget_0": "CFG",
+        "widget_1": 3.5,
+        "widget_10": 19.9,
+        "widget_11": 0.1,
+        "widget_12": 0.001,
+        "widget_13": false,
+        "widget_14": 0.5500000000000002,
+        "widget_15": "enable (CPU)",
+        "widget_16": 3,
+        "widget_17": "fixed",
+        "widget_2": 1.5,
+        "widget_3": "dpmpp_2m",
+        "widget_4": "alignYourSteps",
+        "widget_5": 1.2,
+        "widget_6": 20,
+        "widget_7": 14.614642,
+        "widget_8": 0.0291675,
+        "widget_9": 7
+      }
+    },
+    "186": {
+      "class_type": "easy kSamplerInpainting",
+      "id": "186",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 186,
+          "inputs": [
+            {
+              "link": 322,
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            },
+            {
+              "link": null,
+              "name": "model",
+              "shape": 7,
+              "type": "MODEL"
+            },
+            {
+              "link": 337,
+              "name": "mask",
+              "shape": 7,
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": null,
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            },
+            {
+              "links": [
+                348
+              ],
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            2470,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "easy kSamplerInpainting",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "b1a875b151f3fd76542cdcb9269961ad330dd5ef"
+          },
+          "size": [
+            390.0257568359375,
+            435.9208068847656
+          ],
+          "type": "easy kSamplerInpainting",
+          "widgets_values": [
+            6,
+            "Preview",
+            0,
+            "ComfyUI",
+            "Differential Diffusion",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          6,
+          "Preview",
+          0,
+          "ComfyUI",
+          "Differential Diffusion",
+          ""
+        ]
+      },
+      "uid": "186",
+      "widgets": {
+        "widget_0": 6,
+        "widget_1": "Preview",
+        "widget_2": 0,
+        "widget_3": "ComfyUI",
+        "widget_4": "Differential Diffusion",
+        "widget_5": ""
+      }
+    },
+    "189": {
+      "class_type": "easy controlnetLoader++",
+      "id": "189",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 189,
+          "inputs": [
+            {
+              "link": 328,
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            },
+            {
+              "link": 339,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "control_net",
+              "shape": 7,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                329
+              ],
+              "name": "pipe",
+              "type": "PIPE_LINE"
+            },
+            {
+              "links": null,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "negative",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1960,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "easy controlnetLoader++",
+            "cnr_id": "comfyui-easy-use",
+            "ver": "b1a875b151f3fd76542cdcb9269961ad330dd5ef"
+          },
+          "size": [
+            228.39999389648438,
+            218
+          ],
+          "type": "easy controlnetLoader++",
+          "widgets_values": [
+            "sdxl\\sdxl_xinsir_union_promax.safetensors",
+            1,
+            0,
+            1,
+            1,
+            "depth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sdxl\\sdxl_xinsir_union_promax.safetensors",
+          1,
+          0,
+          1,
+          1,
+          "depth"
+        ]
+      },
+      "uid": "189",
+      "widgets": {
+        "widget_0": "sdxl\\sdxl_xinsir_union_promax.safetensors",
+        "widget_1": 1,
+        "widget_2": 0,
+        "widget_3": 1,
+        "widget_4": 1,
+        "widget_5": "depth"
+      }
+    },
+    "193": {
+      "class_type": "KSamplerSelect",
+      "id": "193",
+      "inputs": {
+        "sampler_name": "dpmpp_2m_sde"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 193,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                351
+              ],
+              "name": "SAMPLER",
+              "type": "SAMPLER"
+            }
+          ],
+          "pos": [
+            1730,
+            -1630
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerSelect",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            210,
+            58
+          ],
+          "type": "KSamplerSelect",
+          "widgets_values": [
+            "dpmpp_2m_sde"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "dpmpp_2m_sde"
+        ]
+      },
+      "uid": "193",
+      "widgets": {}
+    },
+    "34": {
+      "class_type": "Preview3D",
+      "id": "34",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 34,
+          "inputs": [
+            {
+              "link": 154,
+              "name": "model_file",
+              "type": "STRING",
+              "widget": {
+                "name": "model_file"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [],
+          "pos": [
+            1843.189208984375,
+            -1273.622314453125
+          ],
+          "properties": {
+            "Camera Info": {
+              "cameraType": "perspective",
+              "position": {
+                "x": 3.768102006322507,
+                "y": 3.7298372137199634,
+                "z": 3.1424102107202296
+              },
+              "target": {
+                "x": -0.5779793842943668,
+                "y": 3.778648759790384,
+                "z": -0.4684319937855897
+              },
+              "zoom": 1
+            },
+            "Camera Type": "perspective",
+            "Node name for S&R": "Preview3D",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            760,
+            690
+          ],
+          "type": "Preview3D",
+          "widgets_values": [
+            "3D/hy3dtemp_.glb",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3D/hy3dtemp_.glb",
+          ""
+        ]
+      },
+      "uid": "34",
+      "widgets": {
+        "widget_0": "3D/hy3dtemp_.glb",
+        "widget_1": ""
+      }
+    },
+    "47": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "47",
+      "inputs": {
+        "ckpt_name": "sdxl\\sdxl_juggernaut_xi.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 47,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                327
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                124,
+                317,
+                342
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                333
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            1190,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            292.5970153808594,
+            98
+          ],
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "sdxl\\sdxl_juggernaut_xi.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sdxl\\sdxl_juggernaut_xi.safetensors"
+        ]
+      },
+      "uid": "47",
+      "widgets": {}
+    },
+    "51": {
+      "class_type": "CLIPTextEncode",
+      "id": "51",
+      "inputs": {
+        "text": "worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch, Low quality, blurry, deformed, unrealistic proportions, extra limbs, missing fingers, distorted face, low-detail textures, pixelated, overexposed, unnatural lighting, incorrect anatomy, artifacts, bad composition, stretched features, poorly rendered hands and feet, floating objects, unnatural clothing folds, weird shadows, (embedding:Endless_Up_SDXL_Neg, embedding:ziprealism_neg)"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {
+            "collapsed": true
+          },
+          "id": 51,
+          "inputs": [
+            {
+              "link": 317,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                335
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1690,
+            -1740
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            290,
+            190
+          ],
+          "title": "Negative",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch, Low quality, blurry, deformed, unrealistic proportions, extra limbs, missing fingers, distorted face, low-detail textures, pixelated, overexposed, unnatural lighting, incorrect anatomy, artifacts, bad composition, stretched features, poorly rendered hands and feet, floating objects, unnatural clothing folds, weird shadows, (embedding:Endless_Up_SDXL_Neg, embedding:ziprealism_neg)"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch, Low quality, blurry, deformed, unrealistic proportions, extra limbs, missing fingers, distorted face, low-detail textures, pixelated, overexposed, unnatural lighting, incorrect anatomy, artifacts, bad composition, stretched features, poorly rendered hands and feet, floating objects, unnatural clothing folds, weird shadows, (embedding:Endless_Up_SDXL_Neg, embedding:ziprealism_neg)"
+        ]
+      },
+      "uid": "51",
+      "widgets": {}
+    },
+    "52": {
+      "class_type": "CLIPTextEncode",
+      "id": "52",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 52,
+          "inputs": [
+            {
+              "link": 124,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                334
+              ],
+              "name": "CONDITIONING",
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1490,
+            -1890
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            310,
+            120
+          ],
+          "title": "Positive",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "52",
+      "widgets": {}
+    },
+    "68": {
+      "class_type": "Hy3DExportMesh",
+      "id": "68",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 68,
+          "inputs": [
+            {
+              "link": 163,
+              "name": "trimesh",
+              "type": "TRIMESH"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                154
+              ],
+              "name": "glb_path",
+              "slot_index": 0,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2780,
+            -1250
+          ],
+          "properties": {
+            "Node name for S&R": "Hy3DExportMesh",
+            "cnr_id": "comfyui-hunyan3dwrapper",
+            "ver": "ab83a891f20b514463058f21263c7eb9c2610d97"
+          },
+          "size": [
+            262.20001220703125,
+            106
+          ],
+          "type": "Hy3DExportMesh",
+          "widgets_values": [
+            "3D/Hy3D_textured",
+            "glb",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3D/Hy3D_textured",
+          "glb",
+          false
+        ]
+      },
+      "uid": "68",
+      "widgets": {
+        "widget_0": "3D/Hy3D_textured",
+        "widget_1": "glb",
+        "widget_2": false
+      }
+    },
+    "69": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "69",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 69,
+          "inputs": [
+            {
+              "link": 156,
+              "name": "upscale_model",
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 348,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                159
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2538.117919921875,
+            -1388.019287109375
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            226.8000030517578,
+            46
+          ],
+          "type": "ImageUpscaleWithModel",
+          "widgets_values": []
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "69",
+      "widgets": {}
+    },
+    "70": {
+      "class_type": "UpscaleModelLoader",
+      "id": "70",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 70,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                156
+              ],
+              "name": "UPSCALE_MODEL",
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            2312.672607421875,
+            -1386.732421875
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.27"
+          },
+          "size": [
+            210,
+            58
+          ],
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "4x_foolhardy_Remacri.pth"
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x_foolhardy_Remacri.pth"
+        ]
+      },
+      "uid": "70",
+      "widgets": {
+        "widget_0": "4x_foolhardy_Remacri.pth"
+      }
+    },
+    "73": {
+      "class_type": "Hy3DTools_BackProjectInpaint",
+      "id": "73",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 73,
+          "inputs": [
+            {
+              "link": 349,
+              "name": "original_mesh",
+              "type": "TRIMESH"
+            },
+            {
+              "link": 159,
+              "name": "inpainted_view",
+              "type": "IMAGE"
+            },
+            {
+              "link": 347,
+              "name": "camera_params",
+              "type": "CAMERA_PARAMS"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                163
+              ],
+              "name": "updated_mesh",
+              "type": "TRIMESH"
+            }
+          ],
+          "pos": [
+            2780,
+            -1390
+          ],
+          "properties": {
+            "Node name for S&R": "Hy3DTools_BackProjectInpaint",
+            "aux_id": "hunzmusic/ComfyUI-Hunyuan3DTools",
+            "ver": "621fb54cae1917279e1fc40ed861b2191d5e6896"
+          },
+          "size": [
+            252,
+            98
+          ],
+          "type": "Hy3DTools_BackProjectInpaint",
+          "widgets_values": [
+            0.15000000000000002
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.15000000000000002
+        ]
+      },
+      "uid": "73",
+      "widgets": {
+        "widget_0": 0.15000000000000002
+      }
+    },
+    "82": {
+      "class_type": "DetailDaemonSamplerNode",
+      "id": "82",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 82,
+          "inputs": [
+            {
+              "link": 351,
+              "name": "sampler",
+              "type": "SAMPLER"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                324
+              ],
+              "name": "SAMPLER",
+              "slot_index": 0,
+              "type": "SAMPLER"
+            }
+          ],
+          "pos": [
+            1960,
+            -1630
+          ],
+          "properties": {
+            "Node name for S&R": "DetailDaemonSamplerNode",
+            "cnr_id": "comfyui-detail-daemon",
+            "ver": "f391accbda2d309cdcbec65cb9fcc80a41197b20"
+          },
+          "size": [
+            220,
+            274
+          ],
+          "type": "DetailDaemonSamplerNode",
+          "widgets_values": [
+            0.15000000000000002,
+            0.3,
+            0.7000000000000001,
+            0.5,
+            1,
+            0,
+            0,
+            0,
+            true,
+            0
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.15000000000000002,
+          0.3,
+          0.7000000000000001,
+          0.5,
+          1,
+          0,
+          0,
+          0,
+          true,
+          0
+        ]
+      },
+      "uid": "82",
+      "widgets": {
+        "widget_0": 0.15000000000000002,
+        "widget_1": 0.3,
+        "widget_2": 0.7000000000000001,
+        "widget_3": 0.5,
+        "widget_4": 1,
+        "widget_5": 0,
+        "widget_6": 0,
+        "widget_7": 0,
+        "widget_8": true,
+        "widget_9": 0
+      }
+    },
+    "94": {
+      "class_type": "GrowMaskWithBlur",
+      "id": "94",
+      "inputs": {
+        "blur_radius": 15,
+        "decay_factor": 1,
+        "expand": 0,
+        "flip_input": false,
+        "incremental_expandrate": 0,
+        "lerp_alpha": 1,
+        "tapered_corners": true,
+        "unused_7": false
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 94,
+          "inputs": [
+            {
+              "link": 286,
+              "name": "mask",
+              "type": "MASK"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                337
+              ],
+              "name": "mask",
+              "type": "MASK"
+            },
+            {
+              "links": null,
+              "name": "mask_inverted",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            1440,
+            -1470
+          ],
+          "properties": {
+            "Node name for S&R": "GrowMaskWithBlur",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "0addfc6101f7a834c7fb6e0a1b26529360ab5350"
+          },
+          "size": [
+            304,
+            246
+          ],
+          "type": "GrowMaskWithBlur",
+          "widgets_values": [
+            0,
+            0,
+            true,
+            false,
+            15,
+            1,
+            1,
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 8,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          0,
+          true,
+          false,
+          15,
+          1,
+          1,
+          false
+        ]
+      },
+      "uid": "94",
+      "widgets": {}
+    }
+  },
+  "outputs": [],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "sdxl\\sdxl_juggernaut_xi.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "042737676ed8ab09",
+    "path": "external_workflows/.shadow/source/042737676ed8ab09-3D_-_Inpaint_Reproject.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c24aa2ac329006f2d38652f7917627bf7fd7614714dfba0a6dee18be1bf80df1",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1331535864337006592,
+      "channel_name": "hunyuan3d",
+      "content_preview": "I let you here the Inpainting Reproject Module",
+      "discord_message_url": "https://discord.com/channels/@me/1331535864337006592/1359462277434179584",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1359462277434179584:3D_-_Inpaint_Reproject.json:042737676ed8ab09",
+      "filename": "3D_-_Inpaint_Reproject.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:14+00:00",
+      "message_id": 1359462277434179584,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DetailDaemonSamplerNode": 1,
+        "GrowMaskWithBlur": 1,
+        "Hy3DExportMesh": 1,
+        "Hy3DTools_BackProjectInpaint": 1,
+        "Hy3DTools_RenderSpecificView": 1,
+        "ImageUpscaleWithModel": 1,
+        "KSamplerSelect": 1,
+        "Preview3D": 1,
+        "PreviewBridge": 1,
+        "UpscaleModelLoader": 1,
+        "easy controlnetLoader++": 1,
+        "easy kSamplerInpainting": 1,
+        "easy pipeIn": 1,
+        "easy preSamplingCustom": 1
+      },
+      "node_count": 17,
+      "origin_date": "2025-04-09T09:37:44.528000+00:00",
+      "originator_global_name": "Nekodificador",
+      "originator_id": "391020191338987522",
+      "originator_type": "discord_message_author",
+      "originator_username": "nekodificador",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "042737676ed8ab09bea84a8ce220b90df789cf600c45a616dbc10856d9ea8275",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1331535864337006592/1359462276964286504/3D_-_Inpaint_Reproject.json?ex=68153b28&is=6813e9a8&hm=a9ffcdf7aa67315de71c929745013376f5f45075cf1636a585d01566e59550e4&",
+      "source_workflow_sha256": "9472ba948079f42faad456b03d1c325f87719bfe4d822f8b6d57d551d3d7c067",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

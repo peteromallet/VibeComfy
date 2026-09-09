@@ -1,0 +1,140 @@
+{
+  "11": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+    }
+  },
+  "12": {
+    "class_type": "StyleModelApply",
+    "inputs": {
+      "clip_vision_output": [
+        "15",
+        0
+      ],
+      "conditioning": [
+        "6",
+        0
+      ],
+      "style_model": [
+        "13",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "StyleModelLoader",
+    "inputs": {
+      "widget_0": "coadapter-style-sd15v1.pth"
+    }
+  },
+  "14": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {
+      "clip_name": "style_pytorch_model.bin"
+    }
+  },
+  "15": {
+    "class_type": "CLIPVisionEncode",
+    "inputs": {
+      "clip_vision": [
+        "14",
+        0
+      ],
+      "image": [
+        "16",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "cwf_marble_statue.jpg"
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 7,
+      "denoise": 1,
+      "latent_image": [
+        "5",
+        0
+      ],
+      "model": [
+        "4",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "positive": [
+        "12",
+        0
+      ],
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "seed": 10,
+      "steps": 20
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "v1-5-pruned-emaonly.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "widget_0": 512,
+      "widget_1": 512,
+      "widget_2": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "a serious guy in the park"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "blurry, illustration, naked, text"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "11",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Result",
+      "images": [
+        "8",
+        0
+      ]
+    }
+  }
+}

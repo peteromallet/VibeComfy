@@ -45,6 +45,9 @@ from .projection_registry_v1 import (
     ContractError as _RegistryContractError,
     classify_legacy_migration_v1,
     projection_reference_v1,
+    revision_identity_v1,
+    revision_identity_from_mapping,
+    staged_bundle_metadata_v1,
     validate_candidate_transaction_v2,
     validate_prepared_authority_v1,
     workflow_identity_v1,
@@ -738,6 +741,18 @@ class FrozenSchemaProvider:
     def schemas(self) -> dict[str, NodeSchema]:
         return dict(self._schemas)
 
+    @property
+    def snapshot(self) -> Any:
+        """Expose the retained witness snapshot to admission custody.
+
+        ``admission_snapshot_for`` binds only providers that expose their
+        frozen ``SchemaSnapshot``.  Witness rehydration previously kept the
+        snapshot privately, so durable replay silently downgraded to a
+        workflow-only pair and rejected otherwise-authoritative edits as
+        ``missing_touched_schema``.
+        """
+        return self._snapshot
+
     def lookup_ambient(self, *args: Any, **kwargs: Any) -> None:
         if self._frozen_snapshot_provider is not None:
             self._frozen_snapshot_provider.lookup_ambient(*args, **kwargs)
@@ -803,6 +818,8 @@ def build_candidate_transaction(
     session_id: str,
     turn_id: str,
     plan_hash: str,
+    revision_id: str,
+    parent_revision: str,
     submit_graph: Mapping[str, Any],
     candidate_graph: Mapping[str, Any],
     accepted_batch: Sequence[Mapping[str, Any]] | None = None,
@@ -822,6 +839,7 @@ def build_candidate_transaction(
     state: str = "candidate_ready",
     layout_operation_envelope: Mapping[str, Any] | None = None,
     mutation_materialization_envelope: Mapping[str, Any] | None = None,
+    bundle_digests: Mapping[str, Any],
 ) -> dict[str, Any]:
     if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
@@ -836,6 +854,10 @@ def build_candidate_transaction(
     canonical_state = state
     actions = available_actions_for_state(canonical_state) if applyable else ()
     workflow_identity_v1(workflow_id)
+    revision_identity_v1(revision_id, parent_revision)
+    bundle_metadata = staged_bundle_metadata_v1(bundle_digests)
+    if bundle_metadata["workflow_identity"] != workflow_id:
+        raise ValueError("Candidate bundle workflow identity does not match workflow_id.")
     if derived_envelope.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
         raise ValueError("New candidate authority requires delta wire schema 2.0.0.")
     if (
@@ -859,6 +881,17 @@ def build_candidate_transaction(
         {"contract_version": "baseline_snapshot_v1", "ref": restoration_ref}
     )
     delta_ops = list(derived_envelope.get("ops", []))
+    # A layout receipt with a non-empty semantic delta is a composite
+    # semantic+layout turn (candidate-mode auto-reorganise): the candidate
+    # structurally changes the graph, so it is structural family. The layout
+    # leg stays proven by the receipt's layout_structural_noop replay plus
+    # layout_verification. Pure-layout turns (empty delta) remain layout
+    # family with the layout_operation bound.
+    if family == "layout" and delta_ops:
+        family = "structural"
+        projection = "structural_v1"
+        precondition = projection_reference_v1(submit_graph, projection)
+        postcondition = projection_reference_v1(candidate_graph, projection)
     operation: dict[str, Any] = {
         "delta_contract": "delta_v1",
         "wire_version": "2.0.0",
@@ -908,6 +941,8 @@ def build_candidate_transaction(
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
         "operation": operation,
         "operation_family": family,
         "precondition": precondition,
@@ -932,6 +967,7 @@ def build_candidate_transaction(
             "precondition_digest": structural_pre["digest"],
             "postcondition_digest": structural_post["digest"],
         }
+    revision_identity_from_mapping(candidate_authority, bundle_metadata)
     return {
         "contract_version": CANDIDATE_TRANSACTION_CONTRACT_VERSION,
         "candidate_authority": candidate_authority,
@@ -941,6 +977,9 @@ def build_candidate_transaction(
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
+        "bundle": bundle_metadata,
         "generation": None,
         "lease_nonce": None,
         "plan": {

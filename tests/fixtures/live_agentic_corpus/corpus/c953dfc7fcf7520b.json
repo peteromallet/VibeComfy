@@ -1,0 +1,3024 @@
+{
+  "edges": [
+    {
+      "from_node": "61",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "67"
+    },
+    {
+      "from_node": "71",
+      "from_output": "0",
+      "to_input": "prompt",
+      "to_node": "67"
+    },
+    {
+      "from_node": "66",
+      "from_output": "0",
+      "to_input": "string",
+      "to_node": "71"
+    },
+    {
+      "from_node": "65",
+      "from_output": "0",
+      "to_input": "replace",
+      "to_node": "71"
+    },
+    {
+      "from_node": "70",
+      "from_output": "0",
+      "to_input": "replace",
+      "to_node": "72"
+    },
+    {
+      "from_node": "72",
+      "from_output": "0",
+      "to_input": "string",
+      "to_node": "66"
+    },
+    {
+      "from_node": "68",
+      "from_output": "0",
+      "to_input": "replace",
+      "to_node": "66"
+    },
+    {
+      "from_node": "69",
+      "from_output": "0",
+      "to_input": "key",
+      "to_node": "70"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "source",
+      "to_node": "77"
+    },
+    {
+      "from_node": "68",
+      "from_output": "0",
+      "to_input": "on_false",
+      "to_node": "63"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "on_true",
+      "to_node": "63"
+    },
+    {
+      "from_node": "73",
+      "from_output": "0",
+      "to_input": "switch",
+      "to_node": "63"
+    },
+    {
+      "from_node": "60",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "58"
+    },
+    {
+      "from_node": "75",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "58"
+    },
+    {
+      "from_node": "74",
+      "from_output": "0",
+      "to_input": "seconds",
+      "to_node": "59"
+    },
+    {
+      "from_node": "76",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "62"
+    },
+    {
+      "from_node": "63",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "62"
+    },
+    {
+      "from_node": "76",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "57"
+    },
+    {
+      "from_node": "64",
+      "from_output": "1",
+      "to_input": "source",
+      "to_node": "65"
+    },
+    {
+      "from_node": "74",
+      "from_output": "0",
+      "to_input": "values.a",
+      "to_node": "64"
+    },
+    {
+      "from_node": "75",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "60"
+    },
+    {
+      "from_node": "62",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "60"
+    },
+    {
+      "from_node": "57",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "60"
+    },
+    {
+      "from_node": "59",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "60"
+    },
+    {
+      "from_node": "58",
+      "from_output": "0",
+      "to_input": "audio",
+      "to_node": "19"
+    }
+  ],
+  "groups": [],
+  "id": "b52ce75c81efa8c1",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "75",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "audio/stable_audio_3_medium_base.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "57",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": ""
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "60",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 121624132017018
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "60",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 50
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "19": {
+        "class_type": "SaveAudioMP3",
+        "incoming_edge_sig": [
+          [
+            "audio",
+            [
+              "58",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'audio/stable_audio_3'"
+          ],
+          [
+            "quality",
+            "'V0'"
+          ]
+        ]
+      },
+      "55": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'## Stable Audio 3\\n\\n**Stable Audio 3** turns a **text description** into **stereo audio**: music, instruments, SFX, short one-shots, and similar material, guided by what you write (style, instruments, energy, length, and so on).\\n\\n**What this graph does:** you supply a **short idea**. The workflow can **expand it with Qwen** using a **category-aware** reprompt template (Music / Instrument / SFX / One-shot), then runs the **Stable Audio** checkpoint so the expanded text becomes a **full clip**. The subgraph returns **`AUDIO`** (decoded waveform).\\n\\n---\\n\\n## About the Audio Generation (Stable Audio 3 Base)  subgraph\\n\\n**Inputs** (same order as pins on the subgraph node)\\n\\n- `user_input` \u2014 short text fed into the reprompt template.\\n- `duration` \u2014 clip length in seconds.\\n- `seed` \u2014 KSampler seed.\\n- `use_reprompt` \u2014 enables the reprompt / text-switch path.\\n- `category` \u2014 reprompt preset (Music, Instrument, SFX, One-shot).\\n- `ckpt_name` \u2014 Stable Audio checkpoint.\\n- `sa_clip` \u2014 text encoder for Stable Audio conditioning.\\n- `qwen_clip` \u2014 text encoder for Qwen TextGenerate.\\n\\n**Output:** `AUDIO`'"
+          ]
+        ]
+      },
+      "56": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\\n\\n## Model Links (for Local Users)\\n\\n-  [Comfy-Org/stable-audio-3](https://huggingface.co/Comfy-Org/stable-audio-3)\\n\\n**text_encoders**\\n\\n- [qwen3.5_2b_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen3.5/resolve/main/text_encoders/qwen3.5_2b_bf16.safetensors)\\n- [t5gemma_b_b_ul2.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors)\\n\\n**checkpoints**\\n\\n- [stable_audio_3_medium_base.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_medium_base.safetensors)\\n\\n\\n## Model Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\\n\u2502   \u2502   \u251c\u2500\u2500 qwen3.5_2b_bf16.safetensors\\n\u2502   \u2502   \u2514\u2500\u2500 t5gemma_b_b_ul2.safetensors\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\\n\u2502       \u2514\u2500\u2500 stable_audio_3_medium_base.safetensors\\n```\\n\\n## Report Issue\\n\\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\\n\\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\\n'"
+          ]
+        ]
+      },
+      "57": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "76",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "58": {
+        "class_type": "VAEDecodeAudio",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "60",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "75",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "audio"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "59": {
+        "class_type": "EmptyLatentAudio",
+        "incoming_edge_sig": [
+          [
+            "seconds",
+            [
+              "74",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "60"
+          ],
+          [
+            "widget_1",
+            "1"
+          ]
+        ]
+      },
+      "60": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "59",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "75",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "57",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "62",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "58",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'lcm'"
+          ],
+          [
+            "scheduler",
+            "'simple'"
+          ],
+          [
+            "seed",
+            "121624132017018"
+          ],
+          [
+            "steps",
+            "50"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "61": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "67",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'qwen3.5_2b_bf16.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'stable_audio'"
+          ]
+        ]
+      },
+      "62": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "76",
+              "0"
+            ]
+          ],
+          [
+            "text",
+            [
+              "63",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "63": {
+        "class_type": "ComfySwitchNode",
+        "incoming_edge_sig": [
+          [
+            "on_false",
+            [
+              "68",
+              "0"
+            ]
+          ],
+          [
+            "on_true",
+            [
+              "67",
+              "0"
+            ]
+          ],
+          [
+            "switch",
+            [
+              "73",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "62",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "64": {
+        "class_type": "ComfyMathExpression",
+        "incoming_edge_sig": [
+          [
+            "values.a",
+            [
+              "74",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "1",
+            [
+              "65",
+              "source"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'a'"
+          ]
+        ]
+      },
+      "65": {
+        "class_type": "PreviewAny",
+        "incoming_edge_sig": [
+          [
+            "source",
+            [
+              "64",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "71",
+              "replace"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "None"
+          ],
+          [
+            "widget_1",
+            "None"
+          ],
+          [
+            "widget_2",
+            "None"
+          ]
+        ]
+      },
+      "66": {
+        "class_type": "StringReplace",
+        "incoming_edge_sig": [
+          [
+            "replace",
+            [
+              "68",
+              "0"
+            ]
+          ],
+          [
+            "string",
+            [
+              "72",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "71",
+              "string"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "'USER_INPUT'"
+          ],
+          [
+            "widget_2",
+            "''"
+          ]
+        ]
+      },
+      "67": {
+        "class_type": "TextGenerate",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "61",
+              "0"
+            ]
+          ],
+          [
+            "prompt",
+            [
+              "71",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "63",
+              "on_true"
+            ]
+          ],
+          [
+            "0",
+            [
+              "77",
+              "source"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "256"
+          ],
+          [
+            "widget_10",
+            "False"
+          ],
+          [
+            "widget_11",
+            "True"
+          ],
+          [
+            "widget_2",
+            "'on'"
+          ],
+          [
+            "widget_3",
+            "0.7"
+          ],
+          [
+            "widget_4",
+            "64"
+          ],
+          [
+            "widget_5",
+            "0.95"
+          ],
+          [
+            "widget_6",
+            "0.05"
+          ],
+          [
+            "widget_7",
+            "1.05"
+          ],
+          [
+            "widget_8",
+            "0"
+          ],
+          [
+            "widget_9",
+            "0"
+          ]
+        ]
+      },
+      "68": {
+        "class_type": "PrimitiveStringMultiline",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "63",
+              "on_false"
+            ]
+          ],
+          [
+            "0",
+            [
+              "66",
+              "replace"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "'Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe.'"
+          ]
+        ]
+      },
+      "69": {
+        "class_type": "CustomCombo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "70",
+              "key"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Music'"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "'Music'"
+          ],
+          [
+            "widget_3",
+            "'Instrument'"
+          ],
+          [
+            "widget_4",
+            "'SFX'"
+          ],
+          [
+            "widget_5",
+            "'One-shot'"
+          ],
+          [
+            "widget_6",
+            "''"
+          ]
+        ]
+      },
+      "70": {
+        "class_type": "JsonExtractString",
+        "incoming_edge_sig": [
+          [
+            "key",
+            [
+              "69",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "72",
+              "replace"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'{\\n  \"Music\": \"You are an expert musician and musicologist and prompt engineer. Transform the user\\'s input into a detailed, vivid music prompt for a full instrumental track.\\\\n\\\\n1. Start with the genre or style and optional adjectives (e.g., upbeat, dreamy, aggressive).\\\\n2. List the main instruments that define the track.\\\\n3. Add supporting elements or layers such as pads, harmonics, effects, or field recordings.\\\\n4. Include rhythm or percussion elements like drums, hi-hats, congas, brushes, or polyrhythms.\\\\n5. Integrate mood and energy naturally in the sentence (e.g., \\\\\"creating suspenseful tension\\\\\" or \\\\\"bright and uplifting\\\\\").\\\\n6. Specify the BPM.\\\\n7. Specify the track length as an integer in seconds. Use ranges: energetic/dance 120-180s, pop/rock 180-210s, cinematic/ambient 240-300s.\\\\n8. Combine all elements into one natural, fluid sentence. Avoid semicolons.\\\\n\\\\nTemplate:\\\\nGenre/Style with main instruments, supporting instruments/layers, and rhythm/percussion creating mood/energy. BPM: X. Length: Y seconds\\\\n\\\\nExamples:\\\\n- Jazz ballad with smooth saxophone lead, piano chords, upright bass, brushed drums, and soft strings that swing gently for a warm and cozy evening. BPM: 85. Length: 180 seconds\\\\n- EDM festival track with pulsing synth leads, plucked arpeggios, layered pads, side-chained bass, punchy kick and snare, and hi-hat rolls creating bright, energetic, and uplifting dance energy. BPM: 128. Length: 150 seconds\\\\n- Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe. BPM: 75. Length: 150 seconds\\\\n- Heavy metal anthem with distorted electric guitars, bass guitar, double bass drums, and cymbal crashes with fast palm-muted riffs creating intense, aggressive energy. BPM: 160. Length: 180 seconds\\\\n- Melancholic piano piece with soft piano lead, string pads, subtle atmospheric synths, and minimal brush percussion evoking a reflective rainy-day feeling. BPM: 60. Length: 240 seconds\\\\n- Suspenseful electronic thriller with pulsing bass synth, arpeggiated lead synth, cinematic pads, glitchy percussion, and high string stabs creating dark and tense energy. BPM: 100. Length: 200 seconds\\\\n- Dreamy ambient soundscape with layered pads, soft bell textures, gentle drones, and wind and water field recordings for ethereal and spacious meditation. BPM: 40. Length: 300 seconds\\\\n- Fingerpicking acoustic guitar solo with harmonics, subtle reverb, occasional shaker and soft stomp percussion, and soft pad layers for warm intimate storytelling. BPM: 70. Length: 120 seconds\\\\n- Synthwave 80s retro track with arpeggiated synth leads, analog pads, electric bass, punchy electronic drums, gated reverb snares, and atmospheric FX for nostalgic and vibrant energy. BPM: 110. Length: 180 seconds\\\\n- Tribal percussion ensemble with congas, djembes, bongos, shakers, and frame drums layered with deep synthetic sub-bass in complex polyrhythms. BPM: 100. Length: 140 seconds\\\\n- 1920s swing jazz with brass section, upright bass, piano, brushed drums, banjo, clarinet, and soft strings that swing lively for energetic dance vibes. BPM: 110. Length: 180 seconds\\\\n- Futuristic electronic sci-fi track with pulsing bass synth, evolving lead synths, layered pads, glitch percussion, robotic FX, and sub-bass for tense cinematic energy. BPM: 125. Length: 200 seconds\\\\n- Ambient underwater soundscape with flowing water textures, soft piano motifs, synth drones, distant bells, and underwater reverb for spacious meditative immersion. BPM: 45. Length: 300 seconds\\\\n- Horror cinematic track with dissonant strings, eerie piano stabs, cinematic percussion including taiko and low toms, and synth FX producing suspenseful creepy tension. BPM: 90. Length: 240 seconds\\\\n- Reggae track with offbeat guitar, warm basslines, snare, kick, congas, and horn stabs giving laid-back groovy energy. BPM: 85. Length: 150 seconds\\\\n- Blues track with soulful electric guitar solos, walking bass, piano, and shuffle drums creating expressive and emotive storytelling. BPM: 90. Length: 180 seconds\\\\n- Latin salsa with congas, timbales, horns, piano montunos, bass, and layered percussion for vibrant danceable energy. BPM: 120. Length: 210 seconds\\\\n- Afrobeat track with electric guitar stabs, horns, layered percussion, congas, shakers, bass groove, and synth pads for vibrant rhythmic energy. BPM: 105. Length: 200 seconds\\\\n- Indie rock track with electric guitar riffs, bass, live drum kit, layered synths, and subtle strings for energetic yet emotional feel. BPM: 110. Length: 180 seconds\\\\n- Funk groove with slap bass, electric guitar chords, brass stabs, drums, congas, and rhythmic keyboards creating high-energy danceable rhythm. BPM: 105. Length: 180 seconds\\\\n- Drum and bass track with fast breakbeat drums, deep sub-bass, sharp synth leads, pads, and atmospheric FX for high-energy club motion. BPM: 175. Length: 150 seconds\\\\n- Dark ambient track with drones, distant bells, low rumbles, soft wind textures, and synth pads producing eerie immersive tension. BPM: 50. Length: 300 seconds\\\\n- Tropical house track with marimba, steel drums, soft synths, smooth bass, layered percussion, and light piano riffs for sunny chill dance vibes. BPM: 110. Length: 180 seconds\\\\n- Progressive rock track with electric guitar leads, organ, bass, drum kit, synth layers, and occasional strings for epic layered energy. BPM: 100. Length: 220 seconds\\\\n- Music box melody with delicate metallic tones and soft resonance, lullaby style, with gentle ambient reverb. BPM: 60. Length: 20 seconds\\\\n- Soft piano arpeggio with warm felted tone and slow attack, lullaby style, with intimate room ambience. BPM: 60. Length: 30 seconds\\\\n- Harp gentle plucked pattern with airy resonance, lullaby style, with dreamy reverb tail. BPM: 65. Length: 25 seconds\\\\n- Acoustic guitar fingerstyle pattern with warm nylon strings and soft dynamics, lullaby style, with subtle room resonance. BPM: 60. Length: 30 seconds\\\\n- Ambient synth pad with smooth evolving texture and soft harmonics, lullaby style, with wide stereo ambience. BPM: 50. Length: 40 seconds\\\\n- Early rock piano with walking left-hand bass line, shuffle rhythms, and blues scale improvisations in energetic 1950s boogie-woogie style. BPM: 160. Length: 180 seconds\\\\n- Trip Hop track with jazzy sampled vibraphone, mid-tempo breakbeat drums, harp, Latin ethnic percussion, and sweeping cinematic strings creating airy, relaxing, soulful lounge vibes. BPM: 90. Length: 180 seconds\\\\n- Country outlaw cinematic instrumental with blues pedal steel guitar, rustic mandolin, fiddle call-and-response, tape-driven rattly drum kit, autoharp, and soaring accordion solo for raw, emotional southern blues expression. BPM: 85. Length: 200 seconds\\\\n- Neo Classical track with sweeping string section, elegant horns, and delicate piano creating soothing, hypnotic, modern, soft, and classic mood. BPM: 70. Length: 180 seconds\\\\n- Art Rock desert track with desolate piano chords, western-themed rhythm guitars, unique lead guitars, rattly vintage drum kit, and supporting bass creating lonely, expansive, beautiful, and strange atmospheres. BPM: 95. Length: 180 seconds\\\\n- Cinematic Sci-Fi score with dramatic horn section, building marcato strings, gliding bassoon, thunderous cymbals, subdued timpani, and subtle synth drones producing awe-inspiring, uplifting, epic intergalactic energy. BPM: 100. Length: 220 seconds\\\\n- West Coast Hip Hop instrumental with cascading harp melodies, smooth Rhodes piano chops, vintage boom bap drums, and walking double bass producing raw, street, and soulful block-party vibes. BPM: 92. Length: 180 seconds\\\\n- Synthwave futuristic track with pulsating synth bass, exciting chords, soaring leads, and reverberating drum machine patterns creating gritty, pounding, and cool energy. BPM: 110. Length: 180 seconds\\\\n- Breakbeat track with complex percussion, intricate breakbeats, gritty synths, lush pads, and 808 bassline producing fresh, modern, futuristic, and rave-ready energy. BPM: 140. Length: 160 seconds\\\\n- Lounge Jazz 1960s smooth track with laid-back drums, piano chords, double bass, soft electric piano, subtle flute, and unique percussion creating beautiful, atmospheric, eclectic, retro, and chill vibes. BPM: 85. Length: 180 seconds\\\\n- Latin Jazz 1950s blissful track with laid-back Latin drums, euphoric piano chords, double bass, orchestral accompaniment, acoustic guitar, and vibraphone producing nostalgic, beautiful, atmospheric, cinematic, and chill mood. BPM: 95. Length: 180 seconds\\\\n- Acid Jazz 1970s summertime track with smooth electric piano, trippy synth leads, laid-back vintage drum kit, fuzzy electric bass, and uplifting violin producing retro, psychedelic, jazzy, relaxing energy. BPM: 100. Length: 180 seconds\\\\n- Progressive Soul 1970s track with feel-good piano, psychedelic organ, groovy vintage drum kit with percussion, fuzzy electric bass, and synth strings producing retro, raw, soulful, joyous atmosphere. BPM: 90. Length: 180 seconds\\\\n- Discotheque 1970s French-inspired track with sultry piano, psychedelic guitars, groovy drum kit, fuzzy electric bass, and melancholic organ producing retro, raw, laid-back, and relaxing mood. BPM: 105. Length: 180 seconds\\\\n- Soul Jazz 1970s track with expressive saxophone, smooth piano, groovy drum kit, rhythmic upright bass, sweeping strings, and minimal vibraphone producing retro, raw, laid-back, and epic energy. BPM: 95. Length: 180 seconds\\\\n- Vintage R&B 1970s live studio track with subtle brass, smooth piano, sweeping strings, and minimal drums producing retro, beautiful, uplifting, nostalgic mood. BPM: 85. Length: 180 seconds\\\\n- 50s Pop track with Latin influence, string section, bold brass, vibraphone, acoustic guitar, flute, ethnic percussion, and brushed drums creating sexy, epic, vintage, retro, melancholic, jazzy, dramatic energy. BPM: 100. Length: 180 seconds\\\\n- A piece of calm, quiet, mellow, serene music perfect for a peaceful film score, featuring soft modulating piano, ambient sfx and foley, beautiful vibraphone, and subtle synthesizer drones. The mood is cinematic, thoughtful, serene and nostalgic. BPM: 55. Length: 300 seconds\",\\n  \"Instrument\": \"You are a music metadata expert. Given an instrument, generate a descriptive prompt for a generative audio model.\\\\n\\\\n1. Identify the instrument.\\\\n2. Add playing style or technique.\\\\n3. Include details about material, timbre, or texture.\\\\n4. Add musical style or mood. Specify the genre, context, or emotional character.\\\\n5. Add spatial or production qualities.\\\\n6. Specify BPM: Always include a BPM appropriate to the style and context.\\\\n7. Specify length: Provide an integer in seconds (6\u201320 s for loops, 20\u2013180 s for stems).\\\\n\\\\nExamples:\\\\n- Synth arpeggio loop with bright detuned oscillators. BPM: 120. Length: 8 seconds\\\\n- Chord stab loop with sharp percussive attack. BPM: 90. Length: 6 seconds\\\\n- Guitar muted strum loop with tight rhythmic feel. BPM: 100. Length: 8 seconds\\\\n- Pluck sequence loop with bright resonant tone. BPM: 128. Length: 10 seconds\\\\n- Marimba and vibraphone percussive loop with resonant wooden and metallic tones. BPM: 110. Length: 12 seconds\\\\n- Drum loop with deep muffled kick on beat one, snappy rimshot snare on beats two and four with rolling ghost note fills, and tight closed hi-hats with subtle open accents. BPM: 85. Length: 10 seconds\\\\n- Drum groove loop with brushed snare swinging on the ride, soft feathered kick on downbeats, and light closed hi-hat taps on the upbeats. BPM: 130. Length: 12 seconds\\\\n- Kick and hi-hat loop with four-on-the-floor punchy kick, tight closed hi-hats on every eighth note, and a sharp dry snare on beats two and four. BPM: 130. Length: 15 seconds\\\\n- Vinyl crackle drum loop with warm low-pass filtered kick, dusty snare with tape saturation, and shuffled closed hi-hats with subtle vinyl crackle ambiance. BPM: 80. Length: 10 seconds\\\\n- Ambient pad loop with evolving texture. BPM: 80. Length: 12 seconds\\\\n- Melodic synth bass groove loop with pumping sidechain feel. BPM: 122. Length: 10 seconds\\\\n- Melodic Bass slap and pop rhythm loop. BPM: 100. Length: 8 seconds\\\\n- Acoustic bass walking line loop with natural wooden resonance. BPM: 120. Length: 12 seconds\\\\n- String pizzicato motif loop, suspenseful, with tight string texture. BPM: 90. Length: 8 seconds\\\\n- Brass staccato riff loop with sharp bright attack. BPM: 130. Length: 10 seconds\\\\n- Flute airy melodic loop with wooden headjoint resonance. BPM: 100. Length: 6 seconds\\\\n- Pan flute ambient loop with breathy timbre. BPM: 75. Length: 8 seconds\\\\n- Clarinet riff loop with warm smooth reed tone. BPM: 120. Length: 10 seconds\\\\n- Oboe motif loop, orchestral, with rich double reed resonance. BPM: 80. Length: 8 seconds\\\\n- Recorder Renaissance motif loop with soft wooden timbre. BPM: 100. Length: 6 seconds\\\\n- Electric sitar riff loop with buzzing resonant tone. BPM: 90. Length: 10 seconds\\\\n- Koto plucked motif loop with resonant wooden strings. BPM: 90. Length: 8 seconds\\\\n- Shamisen folk melody loop with percussive twang. BPM: 100. Length: 8 seconds\\\\n- Banjo fingerpicking loop with metallic string resonance. BPM: 110. Length: 10 seconds\\\\n- Mandolin tremolo loop with crisp wooden body tone. BPM: 120. Length: 10 seconds\\\\n- Acoustic guitar chord vamp loop with natural room resonance. BPM: 110. Length: 12 seconds\\\\n- Nylon string guitar arpeggio loop with warm, soft timbre. BPM: 90. Length: 15 seconds\\\\n- Electric guitar riff loop with driven distorted tone. BPM: 130. Length: 10 seconds\\\\n- Slide guitar melody loop with warm resonant glide. BPM: 100. Length: 12 seconds\\\\n- Steel guitar slide loop with bright pedal steel tone. BPM: 95. Length: 12 seconds\\\\n- Harpsichord arpeggio loop with crisp plucked attack. BPM: 120. Length: 10 seconds\\\\n- Rhodes chord vamp loop with warm electric piano tone. BPM: 100. Length: 12 seconds\\\\n- Clavinet funky rhythm loop. BPM: 105. Length: 10 seconds\\\\n- Organ chord vamp loop with full drawbar warmth. BPM: 90. Length: 12 seconds\\\\n- Drum loop with booming 808 kick on beat one, crisp snare on beat three, and rapid triplet hi-hat rolls with open hat accents for aggressive high-energy feel. BPM: 140. Length: 8 seconds\\\\n- Breakbeat drum loop with chopped Amen-style snare flurries, driving kick on the one, fast sixteenth-note closed hi-hats, and syncopated open hat accents. BPM: 170. Length: 10 seconds\\\\n- Glitch percussion loop with stuttered kick transients, randomised snare hits processed with bit-crushing, and erratic hi-hat patterns with pitch-shifted metallic ticks. BPM: 120. Length: 12 seconds\\\\n- Metallic hits loop with distorted kick impacts, processed metal-plate snare slams, and grinding hi-hat noise bursts for aggressive mechanical texture. BPM: 120. Length: 10 seconds\\\\n- Timpani hits loop, cinematic, with deep resonant kick-like timpani strikes on beat one, rolling snare-style timpani fills, and no hi-hats for a grand orchestral feel. BPM: 70. Length: 8 seconds\\\\n- Snare roll loop, dramatic, with accelerating snare drum rolls building from soft to crashing, deep supporting kick pulses, and no hi-hats for maximum impact. BPM: 100. Length: 8 seconds\\\\n- Accordion motif loop with bright reedy bellows tone. BPM: 100. Length: 10 seconds\\\\n- Harmonica blues riff loop with expressive reed timbre. BPM: 90. Length: 10 seconds\\\\n- Trombone riff loop with warm sliding brass tone. BPM: 120. Length: 10 seconds\\\\n- French horn melodic loop, cinematic. BPM: 80. Length: 12 seconds\\\\n- Soprano sax ballad loop. BPM: 70. Length: 12 seconds\\\\n- Alto sax bebop riff loop. BPM: 200. Length: 10 seconds\\\\n- Electric violin melodic loop with reverb. BPM: 90. Length: 10 seconds\\\\n- String pad loop with cinematic texture. BPM: 70. Length: 15 seconds\\\\n- Granular synth evolving texture loop. BPM: 90. Length: 15 seconds\\\\n- Piano motif loop with soft felt hammer tone. BPM: 80. Length: 10 seconds\\\\n- Pad and synth loop with lush detuned shimmer. BPM: 85. Length: 12 seconds\\\\n- Synth lead loop with sidechain pumping compression. BPM: 128. Length: 10 seconds\\\\n- Analog synth bassline loop with deep warm low-end. BPM: 122. Length: 12 seconds\\\\n- FM synth lead motif loop with bright metallic shimmer. BPM: 110. Length: 10 seconds\\\\n- Bass groove loop with tight rhythmic two-bar pattern. BPM: 100. Length: 16 seconds\\\\n- Acoustic guitar fingerstyle motif loop with warm wood resonance. BPM: 90. Length: 45 seconds\\\\n- Sombre acoustic guitar motif loop with cavernous reverb, delicate fingerpicking, and expressive melancholic tone. BPM: 70. Length: 45 seconds\\\\n- Electric guitar rock riff motif loop. BPM: 130. Length: 40 seconds\\\\n- Vintage electric guitar motif loop, live-recorded in a vintage studio, with expressive and dynamic solo performance. BPM: 90. Length: 40 seconds\\\\n- Piano chord progression motif loop with rich harmonic movement. BPM: 120. Length: 60 seconds\\\\n- String ensemble cinematic motif loop with rich wooden resonance. BPM: 80. Length: 120 seconds\\\\n- Brass ensemble cinematic motif loop with bright metallic timbre. BPM: 90. Length: 90 seconds\\\\n- Ethnic percussion ensemble motif loop with deep resonant djembe kick tones, slapped snare-like rim hits on congas, and layered shakers and bells providing hi-hat-like rhythmic texture with polyrhythmic patterns. BPM: 100. Length: 90 seconds\\\\n- Synth ambient motif loop with evolving textures. BPM: 80. Length: 180 seconds\\\\n- Motif loop with warm dusty vinyl crackle and tape saturation. BPM: 80. Length: 60 seconds\\\\n- Synth lead and bass motif loop with bright punchy energy. BPM: 128. Length: 90 seconds\\\\n- Funk band motif loop: bass, drums, guitar. BPM: 100. Length: 90 seconds\\\\n- Ethnic flute motif for cinematic use. BPM: 80. Length: 30 seconds\\\\n- Steel drum melodic motif loop with bright metallic resonance. BPM: 110. Length: 20 seconds\\\\n- Marimba percussive motif loop with resonant wooden tone. BPM: 100. Length: 20 seconds\\\\n- Vibraphone melodic motif loop with metallic shimmer. BPM: 90. Length: 25 seconds\\\\n- Piano cinematic motif loop with resonant wooden tone. BPM: 80. Length: 30 seconds\\\\n- Violin expressive cinematic motif loop with rich wooden resonance. BPM: 75. Length: 25 seconds\\\\n- Cello expressive motif loop with deep wooden resonance. BPM: 70. Length: 30 seconds\\\\n- Trumpet expressive motif loop with brassy overtones. BPM: 100. Length: 25 seconds\\\\n- Sax expressive motif loop with warm reed timbre. BPM: 95. Length: 25 seconds\\\\n- Ethnic drum ensemble motif loop with booming natural-skin bass drum kicks, sharp hand-slap snare accents on djembes and talking drums, and layered wooden and metal percussion providing rhythmic hi-hat-like patterns. BPM: 95. Length: 30 seconds\\\\n- Ambient drone motif loop. BPM: 60. Length: 180 seconds\\\\n- Orchestral tension motif loop. BPM: 90. Length: 150 seconds\\\\n- Electronic track motif loop with drums, bass, synth. BPM: 128. Length: 180 seconds\",\\n  \"SFX\": \"You are a professional sound design expert. Convert the user\\'s input into a precise, vivid sound effects description suitable for generative audio models.\\\\n\\\\nDescribe clearly:\\\\n- Sound source\\\\n- Physical character (texture, timbre, material: metal, wood, glass, concrete, etc.)\\\\n- Spatial qualities (indoor/outdoor, cave/open field/underwater, dry/reverberant, close-up/distant, echoing/muffled)\\\\n- Temporal evolution (attack, decay, movement, transitions over time)\\\\n- Include motion or spatial movement if applicable (passing, approaching, stereo movement)\\\\n\\\\nAudio length rules:\\\\n- Very short sounds (impacts, clicks, gunshots): 1\u20133 seconds\\\\n- Medium actions (footsteps, object movement, transitions): 3\u20136 seconds\\\\n- Ambience / environments: 6\u201315 seconds\\\\n- Always append: Length: X seconds (integer only, no decimals).\\\\n\\\\nOutput constraints:\\\\n- Length: 1\u20132 dense sentences maximum\\\\n- Output ONLY the final rewritten prompt\\\\n- No explanations, no formatting, no quotes\\\\n- Use concise but dense technical language\\\\n- Focus strictly on sound effects or ambience\\\\n- Always append: Length: X seconds (integer only, no decimals).\\\\n\\\\nQuality guidelines:\\\\n- Be specific and avoid vague terms\\\\n- Prioritize clarity and realism\\\\n- Combine elements into one coherent scene\\\\n- Avoid redundancy\\\\n\\\\nExamples:\\\\n- Heavy rain hitting a metal roof during a thunderstorm, distant thunder rumbles, stereo, realistic ambience. Length: 45 seconds\\\\n- Quiet forest at dawn with birds chirping, soft wind through leaves, distant stream flowing. Length: 60 seconds\\\\n- Busy city street at night, cars passing, muffled conversations, occasional horn, urban ambience. Length: 50 seconds\\\\n- Ocean waves crashing against rocky cliffs, strong wind, dramatic and cinematic. Length: 70 seconds\\\\n- Wooden door creaking open slowly in an old house, echoing interior, eerie tone. Length: 3 seconds\\\\n- Glass bottle shattering on concrete, sharp impact, scattered fragments. Length: 2 seconds\\\\n- Footsteps on gravel, steady walking pace, close perspective. Length: 8 seconds\\\\n- Typing rapidly on a mechanical keyboard, crisp tactile clicks. Length: 5 seconds\\\\n- Punch impact with deep bass hit, cinematic trailer style. Length: 2 seconds\\\\n- Car speeding past at high velocity, doppler effect, realistic whoosh. Length: 3 seconds\\\\n- Object falling from height and hitting ground with a heavy thud. Length: 2 seconds\\\\n- Sword swing whooshing through air, fast motion, clean metallic tone. Length: 2 seconds\\\\n- Futuristic laser blast, clean energy pulse, high-tech sound design. Length: 1 seconds\\\\n- Spaceship engine humming, low frequency rumble, interior perspective. Length: 90 seconds\\\\n- Magical spell casting, shimmering particles, rising tonal energy. Length: 8 seconds\\\\n- Teleportation effect, glitchy digital distortion with a soft whoosh. Length: 5 seconds\\\\n- Dark eerie drone with distant whispers, creepy, slow build tension. Length: 120 seconds\\\\n- Sudden horror jump scare sting, sharp violin hit, cinematic. Length: 1 second\\\\n- Metal scraping slowly in a dark tunnel, echoing and ominous. Length: 20 seconds\\\\n- Explosion with debris scattering, deep bass, cinematic realism. Length: 4 seconds\\\\n- Building collapsing, rumbling concrete, dust and debris falling. Length: 25 seconds\\\\n- Fire crackling intensely, wood burning, close-up detail. Length: 80 seconds\\\\n- Gunshot in a large empty warehouse, loud echo decay. Length: 2 seconds\\\\n- Retro arcade coin insert sound, 8-bit style. Length: 1 second\\\\n- Level up chime, bright, rewarding, fantasy RPG style. Length: 2 seconds\\\\n- Error buzzer, short, digital, UI feedback. Length: 1 second\\\\n- Menu navigation clicks, soft futuristic interface sounds. Length: 3 seconds\\\\n- Layered soundscape: rain, thunder, footsteps, and distant sirens all blending naturally. Length: 90 seconds\\\\n- Rapid sequence of three impacts: metal hit, glass break, wood crack, spaced evenly. Length: 4 seconds\\\\n- Sound moving from left to right stereo field: passing motorcycle. Length: 5 seconds\\\\n- Close vs far perspective transition: footsteps approaching then fading away. Length: 6 seconds\\\\n- Tape stop sub drop, a massive sub-bass note that mimics a vinyl record or tape machine being turned off, the pitch and speed drop simultaneously, causing the high-end harmonics to smear and thicken as the sound grinds to a halt at a sub-sonic frequency. Length: 11 seconds\\\\n- Gravel and leaves footsteps, the sound of a hard boot stepping onto dry leaves or gravel, crisp and natural with detailed texture. Length: 11 seconds\\\\n- Ghostship moan, a massive, deep wooden groan with a low-frequency moan, like heavy timber under immense structural tension, swaying slowly, processed with long, dark wooden room reverb for a sense of scale. Length: 11 seconds\\\\n- Bicycle chain, a continuous metallic whirring sound of a chain moving over sprockets, with individual teeth catching the links, processed with resonant band-pass filter to emphasize metallic singing. Length: 11 seconds\\\\n- Warp drive, a sound that starts with a massive suck-back of ambient noise, followed by a supersonic crack and high-pitched zing that disappears into the distance, giving the sense of stretching space-time. Length: 11 seconds\\\\n- Ice cubes, high-pitched musical clinking of hard ice hitting a thin glass, bright resonant ring with subtle liquid sloshing around the edges. Length: 11 seconds\\\\n- Paper shuffle, the sound of a thick stack of heavy bond paper being squared up on a desk, dry papery thud with a quick fanning sound as air moves between the pages. Length: 11 seconds\\\\n- Drawer slam, a blunt, powerful thud made by slamming a wooden desk drawer shut, pronounced low-mid body, slightly distorted for aggressive character. Length: 3 seconds\",\\n  \"One-shot\": \"You are a music metadata expert. Given an instrument or sound, generate a descriptive prompt for a short, isolated one-shot audio sample for music production.\\\\n\\\\n1. Identify the instrument or sound source.\\\\n2. Describe the playing technique or hit type (e.g., pluck, slam, tap, stab).\\\\n3. Include details about material, timbre, or texture.\\\\n4. Add spatial or production qualities (dry/wet, room, close-mic).\\\\n5. Specify length: short integer in seconds (1\u201311 s).\\\\n\\\\nExamples:\\\\n- Piano key hit with bright percussive attack and resonant wooden body. Length: 2 seconds\\\\n- Kick drum punchy low-end hit with warm skin resonance. Length: 2 seconds\\\\n- Snare drum rimshot accent with crisp snare wires. Length: 2 seconds\\\\n- Acoustic guitar fingerstyle note with warm spruce tone. Length: 3 seconds\\\\n- Bass pluck with jazzy tone and resonant wooden body. Length: 3 seconds\\\\n- Electric guitar power chord with distortion. Length: 3 seconds\\\\n- Metallic glitch percussion hit with sharp metallic texture. Length: 2 seconds\\\\n- Tabla resonant tone hit with natural skin timbre. Length: 2 seconds\\\\n- Djembe slap accent with dry wooden resonance. Length: 2 seconds\\\\n- Synth stab with reverb tail. Length: 3 seconds\\\\n- Violin expressive note with vibrato and rich wooden resonance. Length: 3 seconds\\\\n- Cello legato note, cinematic, with warm resonant body. Length: 3 seconds\\\\n- Trumpet bright accent with slightly brassy overtones. Length: 2 seconds\\\\n- Melodic saxophone jazz riff with smooth reed timbre and a slight vibrato bend. Length: 3 seconds\\\\n- Harp pluck with airy tone and resonant strings. Length: 2 seconds\\\\n- Glockenspiel bell-like note with bright metallic clarity. Length: 2 seconds\\\\n- Metallic clang sound design hit. Length: 2 seconds\\\\n- Granular texture hit. Length: 3 seconds\\\\n- Reversed piano hit. Length: 2 seconds\\\\n- Synth riser effect. Length: 6 seconds\\\\n- Percussion impact hit. Length: 2 seconds\\\\n- Cinematic hit. Length: 2 seconds\\\\n- Dry clap, a crisp, natural single hand clap recorded in a dead room with an extremely sharp transient and no room reflections. Length: 1 second\\\\n- Studio hat, a classic, natural recording of 14-inch hi-hats played tightly closed, zero ring, very fast decay. Length: 1 second\\\\n- Disco open hat, bright 14-inch open hi-hat with long, shimmering decay, perfect for disco or dance grooves. Length: 1 second\\\\n- Pillow kick, acoustic kick drum muffled with a heavy blanket, producing a short, dry \\\\\"thump\\\\\" with almost zero resonance. Length: 1 second\\\\n- Short 808, punchy 808 kick with sharp, distorted transient and fast-decaying sub-tail. Length: 1 second\\\\n- Egg shaker, classic plastic egg shaker recorded with a small-diaphragm condenser mic, producing a light, consistent \\\\\"tick\\\\\" with very short sustain. Length: 1 second\\\\n- African drums, dynamic African drums and percussion ensemble with natural acoustic textures. Length: 3 seconds\\\\n- Latin drums, dynamic Latin drums and percussion ensemble featuring authentic rhythmic patterns. Length: 3 seconds\\\\n- String quartet, euphoric string quartet with dynamic and emotional playing, full of expressive harmonies and movement. Length: 3 seconds\\\\n- Piano, nostalgic, atmospheric piano piece with dynamic and emotional performance, intimate and resonant. Length: 3 seconds\\\\n- Analogue drift pad, warm polyphonic pad with three detuned oscillators (saw + triangle), subtle pitch drift, and lush bucket-brigade chorus for wide, nostalgic stereo image. Length: 11 seconds\\\\n- Phase distortion bass, Casio CZ-style phase-distorted sine wave warped into a jagged sawtooth for retro synth bass tone. Length: 11 seconds\\\\n- Vibrato saxophone, bright lyrical alto sax with fast fluttery vibrato, reedy vintage tone, captured with ribbon mic for warm nostalgic sound. Length: 11 seconds\\\\n- Lofi upright bass, upright bass recorded with ribbon mic in a wooden room, natural air with slightly boxy resonance, tape-saturated for dusty 1950s jazz feel. Length: 2 seconds\"\\n}'"
+          ],
+          [
+            "widget_1",
+            "'Music'"
+          ]
+        ]
+      },
+      "71": {
+        "class_type": "StringReplace",
+        "incoming_edge_sig": [
+          [
+            "replace",
+            [
+              "65",
+              "0"
+            ]
+          ],
+          [
+            "string",
+            [
+              "66",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "67",
+              "prompt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "''"
+          ],
+          [
+            "widget_1",
+            "'AUDIO_LENGTH'"
+          ],
+          [
+            "widget_2",
+            "''"
+          ]
+        ]
+      },
+      "72": {
+        "class_type": "StringReplace",
+        "incoming_edge_sig": [
+          [
+            "replace",
+            [
+              "70",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "66",
+              "string"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'SYSTEM_PROMPTS\\n\\nInput: USER_INPUT\\nTarget audio length: AUDIO_LENGTH seconds.\\nOutput:'"
+          ],
+          [
+            "widget_1",
+            "'SYSTEM_PROMPTS'"
+          ],
+          [
+            "widget_2",
+            "''"
+          ]
+        ]
+      },
+      "73": {
+        "class_type": "PrimitiveBoolean",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "63",
+              "switch"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "False"
+          ]
+        ]
+      },
+      "74": {
+        "class_type": "PrimitiveFloat",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "59",
+              "seconds"
+            ]
+          ],
+          [
+            "0",
+            [
+              "64",
+              "values.a"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "30"
+          ]
+        ]
+      },
+      "75": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "model"
+            ]
+          ],
+          [
+            "2",
+            [
+              "58",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'audio/stable_audio_3_medium_base.safetensors'"
+          ]
+        ]
+      },
+      "76": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "62",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'t5gemma_b_b_ul2.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'stable_audio'"
+          ]
+        ]
+      },
+      "77": {
+        "class_type": "PreviewAny",
+        "incoming_edge_sig": [
+          [
+            "source",
+            [
+              "67",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "None"
+          ],
+          [
+            "widget_1",
+            "None"
+          ],
+          [
+            "widget_2",
+            "None"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c953dfc7fcf7520be2589a0663188678a49bd1ebcf8fedc714207f6c76e63950",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1224092268575723611,
+      "channel_name": "music",
+      "discord_message_url": "https://discord.com/channels/@me/1224092268575723611/1506797272719953960",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1506797272719953960:audio_stable_audio_3_medium_base.json:b52ce75c81efa8c1",
+      "filename": "audio_stable_audio_3_medium_base.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:58+00:00",
+      "message_id": 1506797272719953960,
+      "node_class_multiset": {
+        "CLIPLoader": 2,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ComfyMathExpression": 1,
+        "ComfySwitchNode": 1,
+        "CustomCombo": 1,
+        "EmptyLatentAudio": 1,
+        "JsonExtractString": 1,
+        "KSampler": 1,
+        "MarkdownNote": 2,
+        "PreviewAny": 2,
+        "PrimitiveBoolean": 1,
+        "PrimitiveFloat": 1,
+        "PrimitiveStringMultiline": 1,
+        "SaveAudioMP3": 1,
+        "StringReplace": 3,
+        "TextGenerate": 1,
+        "VAEDecodeAudio": 1
+      },
+      "node_count": 24,
+      "origin_date": "2026-05-20T23:14:24.756000+00:00",
+      "originator_global_name": "Lumori",
+      "originator_id": "123564144354918400",
+      "originator_type": "discord_message_author",
+      "originator_username": "lumoria",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b52ce75c81efa8c1d6636356c02018741c4f02d37e254029456930dac4ce06f4",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1224092268575723611/1506797272913154168/audio_stable_audio_3_medium_base.json?ex=6a0f91d0&is=6a0e4050&hm=17d03c053aa5c1a6b0de19d4cde805b54a951ee2b671c0bda44a8f48c926a881&",
+      "source_workflow_sha256": "0ebd29c858087a347eb9e1a9e5aab95c44bf45857a3a9fe0348bc09812d86cd4",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "a17cef2bb4d5612eb01bb9cef1c32a09c85fb1f2719a53d2b44bef80fa7b519a",
+      "complexity": 4,
+      "description": "Generates audio from text prompts using a Stable Audio model, with support for text replacement and JSON data extraction.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "audio",
+      "tags": [
+        "audio-generation",
+        "text-to-audio",
+        "stable-audio",
+        "json-extraction",
+        "string-replacement"
+      ],
+      "task_type": "text_to_image",
+      "title": "Audio Generation with Text Prompting and JSON Extraction"
+    }
+  },
+  "nodes": {
+    "19": {
+      "class_type": "SaveAudioMP3",
+      "id": "19",
+      "inputs": {
+        "filename_prefix": "audio/stable_audio_3",
+        "quality": "V0"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 108,
+              "name": "audio",
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [],
+          "pos": [
+            2055.1499239198674,
+            534.6416322490812
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAudioMP3",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            466.0719965870121,
+            136
+          ],
+          "type": "SaveAudioMP3",
+          "widgets_values": [
+            "audio/stable_audio_3",
+            "V0"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/stable_audio_3",
+          "V0"
+        ]
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "55": {
+      "class_type": "MarkdownNote",
+      "id": "55",
+      "inputs": {
+        "unused_widget_0": "## Stable Audio 3\n\n**Stable Audio 3** turns a **text description** into **stereo audio**: music, instruments, SFX, short one-shots, and similar material, guided by what you write (style, instruments, energy, length, and so on).\n\n**What this graph does:** you supply a **short idea**. The workflow can **expand it with Qwen** using a **category-aware** reprompt template (Music / Instrument / SFX / One-shot), then runs the **Stable Audio** checkpoint so the expanded text becomes a **full clip**. The subgraph returns **`AUDIO`** (decoded waveform).\n\n---\n\n## About the Audio Generation (Stable Audio 3 Base)  subgraph\n\n**Inputs** (same order as pins on the subgraph node)\n\n- `user_input` \u2014 short text fed into the reprompt template.\n- `duration` \u2014 clip length in seconds.\n- `seed` \u2014 KSampler seed.\n- `use_reprompt` \u2014 enables the reprompt / text-switch path.\n- `category` \u2014 reprompt preset (Music, Instrument, SFX, One-shot).\n- `ckpt_name` \u2014 Stable Audio checkpoint.\n- `sa_clip` \u2014 text encoder for Stable Audio conditioning.\n- `qwen_clip` \u2014 text encoder for Qwen TextGenerate.\n\n**Output:** `AUDIO`"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 55,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            -664.1495293953036,
+            2032.8600443630692
+          ],
+          "properties": {},
+          "size": [
+            490,
+            850
+          ],
+          "title": "Note: About Stable Audio 3",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "## Stable Audio 3\n\n**Stable Audio 3** turns a **text description** into **stereo audio**: music, instruments, SFX, short one-shots, and similar material, guided by what you write (style, instruments, energy, length, and so on).\n\n**What this graph does:** you supply a **short idea**. The workflow can **expand it with Qwen** using a **category-aware** reprompt template (Music / Instrument / SFX / One-shot), then runs the **Stable Audio** checkpoint so the expanded text becomes a **full clip**. The subgraph returns **`AUDIO`** (decoded waveform).\n\n---\n\n## About the Audio Generation (Stable Audio 3 Base)  subgraph\n\n**Inputs** (same order as pins on the subgraph node)\n\n- `user_input` \u2014 short text fed into the reprompt template.\n- `duration` \u2014 clip length in seconds.\n- `seed` \u2014 KSampler seed.\n- `use_reprompt` \u2014 enables the reprompt / text-switch path.\n- `category` \u2014 reprompt preset (Music, Instrument, SFX, One-shot).\n- `ckpt_name` \u2014 Stable Audio checkpoint.\n- `sa_clip` \u2014 text encoder for Stable Audio conditioning.\n- `qwen_clip` \u2014 text encoder for Qwen TextGenerate.\n\n**Output:** `AUDIO`"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "## Stable Audio 3\n\n**Stable Audio 3** turns a **text description** into **stereo audio**: music, instruments, SFX, short one-shots, and similar material, guided by what you write (style, instruments, energy, length, and so on).\n\n**What this graph does:** you supply a **short idea**. The workflow can **expand it with Qwen** using a **category-aware** reprompt template (Music / Instrument / SFX / One-shot), then runs the **Stable Audio** checkpoint so the expanded text becomes a **full clip**. The subgraph returns **`AUDIO`** (decoded waveform).\n\n---\n\n## About the Audio Generation (Stable Audio 3 Base)  subgraph\n\n**Inputs** (same order as pins on the subgraph node)\n\n- `user_input` \u2014 short text fed into the reprompt template.\n- `duration` \u2014 clip length in seconds.\n- `seed` \u2014 KSampler seed.\n- `use_reprompt` \u2014 enables the reprompt / text-switch path.\n- `category` \u2014 reprompt preset (Music, Instrument, SFX, One-shot).\n- `ckpt_name` \u2014 Stable Audio checkpoint.\n- `sa_clip` \u2014 text encoder for Stable Audio conditioning.\n- `qwen_clip` \u2014 text encoder for Qwen TextGenerate.\n\n**Output:** `AUDIO`"
+        ]
+      },
+      "uid": "55",
+      "widgets": {}
+    },
+    "56": {
+      "class_type": "MarkdownNote",
+      "id": "56",
+      "inputs": {
+        "unused_widget_0": "Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n## Model Links (for Local Users)\n\n-  [Comfy-Org/stable-audio-3](https://huggingface.co/Comfy-Org/stable-audio-3)\n\n**text_encoders**\n\n- [qwen3.5_2b_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen3.5/resolve/main/text_encoders/qwen3.5_2b_bf16.safetensors)\n- [t5gemma_b_b_ul2.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors)\n\n**checkpoints**\n\n- [stable_audio_3_medium_base.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_medium_base.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen3.5_2b_bf16.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 t5gemma_b_b_ul2.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502       \u2514\u2500\u2500 stable_audio_3_medium_base.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#000",
+          "color": "#222",
+          "flags": {},
+          "id": 56,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -670,
+            1120
+          ],
+          "properties": {},
+          "size": [
+            480,
+            850
+          ],
+          "title": "Model Links",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n## Model Links (for Local Users)\n\n-  [Comfy-Org/stable-audio-3](https://huggingface.co/Comfy-Org/stable-audio-3)\n\n**text_encoders**\n\n- [qwen3.5_2b_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen3.5/resolve/main/text_encoders/qwen3.5_2b_bf16.safetensors)\n- [t5gemma_b_b_ul2.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors)\n\n**checkpoints**\n\n- [stable_audio_3_medium_base.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_medium_base.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen3.5_2b_bf16.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 t5gemma_b_b_ul2.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502       \u2514\u2500\u2500 stable_audio_3_medium_base.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+          ]
+        },
+        "bgcolor": "#000",
+        "color": "#222",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n## Model Links (for Local Users)\n\n-  [Comfy-Org/stable-audio-3](https://huggingface.co/Comfy-Org/stable-audio-3)\n\n**text_encoders**\n\n- [qwen3.5_2b_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen3.5/resolve/main/text_encoders/qwen3.5_2b_bf16.safetensors)\n- [t5gemma_b_b_ul2.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors)\n\n**checkpoints**\n\n- [stable_audio_3_medium_base.safetensors](https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_medium_base.safetensors)\n\n\n## Model Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u251c\u2500\u2500 qwen3.5_2b_bf16.safetensors\n\u2502   \u2502   \u2514\u2500\u2500 t5gemma_b_b_ul2.safetensors\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502       \u2514\u2500\u2500 stable_audio_3_medium_base.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+        ]
+      },
+      "uid": "56",
+      "widgets": {}
+    },
+    "57": {
+      "class_type": "CLIPTextEncode",
+      "id": "57",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#335",
+          "color": "#223",
+          "flags": {},
+          "id": 57,
+          "inputs": [
+            {
+              "link": 85,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                91
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            952.6250916276576,
+            766.9532769084155
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            311.59817946634917,
+            158.98115068756192
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#335",
+        "color": "#223",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "57",
+      "widgets": {}
+    },
+    "58": {
+      "class_type": "VAEDecodeAudio",
+      "id": "58",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 58,
+          "inputs": [
+            {
+              "link": 86,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 87,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "outputs": [
+            {
+              "links": [
+                108
+              ],
+              "name": "AUDIO",
+              "slot_index": 0,
+              "type": "AUDIO"
+            }
+          ],
+          "pos": [
+            1743.5462189049586,
+            555.2085910558902
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecodeAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            198.96174816242683,
+            46
+          ],
+          "type": "VAEDecodeAudio",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "58",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "EmptyLatentAudio",
+      "id": "59",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [
+            {
+              "link": 88,
+              "name": "seconds",
+              "type": "FLOAT",
+              "widget": {
+                "name": "seconds"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                92
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1119.4226181917768,
+            1064.4361846292863
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentAudio",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            216.50738694701863,
+            82
+          ],
+          "type": "EmptyLatentAudio",
+          "widgets_values": [
+            60,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          60,
+          1
+        ]
+      },
+      "uid": "59",
+      "widgets": {
+        "widget_0": 60,
+        "widget_1": 1
+      }
+    },
+    "60": {
+      "class_type": "KSampler",
+      "id": "60",
+      "inputs": {
+        "cfg": 1,
+        "denoise": 1,
+        "sampler_name": "lcm",
+        "scheduler": "simple",
+        "seed": 121624132017018,
+        "steps": 50,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 60,
+          "inputs": [
+            {
+              "link": 89,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 90,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 91,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 92,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [
+            {
+              "links": [
+                86
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1393.5462189049586,
+            545.2085910558905
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            330.9052715313899,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            121624132017018,
+            "randomize",
+            50,
+            1,
+            "lcm",
+            "simple",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          121624132017018,
+          "randomize",
+          50,
+          1,
+          "lcm",
+          "simple",
+          1
+        ]
+      },
+      "uid": "60",
+      "widgets": {}
+    },
+    "61": {
+      "class_type": "CLIPLoader",
+      "id": "61",
+      "inputs": {
+        "clip_name": "qwen3.5_2b_bf16.safetensors",
+        "device": "default",
+        "type": "stable_audio"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 61,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                102
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            983.5462189049586,
+            2025.2085910558903
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "qwen3.5_2b_bf16.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Qwen3.5/resolve/main/text_encoders/qwen3.5_2b_bf16.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.18.1"
+          },
+          "showAdvanced": false,
+          "size": [
+            430,
+            170
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "qwen3.5_2b_bf16.safetensors",
+            "stable_audio",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "qwen3.5_2b_bf16.safetensors",
+          "stable_audio",
+          "default"
+        ]
+      },
+      "uid": "61",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "CLIPTextEncode",
+      "id": "62",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 62,
+          "inputs": [
+            {
+              "link": 93,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 94,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                90
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            969.4218839711066,
+            607.5881634706867
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            218.659765625,
+            88
+          ],
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "62",
+      "widgets": {}
+    },
+    "63": {
+      "class_type": "ComfySwitchNode",
+      "id": "63",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 63,
+          "inputs": [
+            {
+              "link": 95,
+              "name": "on_false",
+              "type": "STRING"
+            },
+            {
+              "link": 96,
+              "name": "on_true",
+              "type": "STRING"
+            },
+            {
+              "link": 97,
+              "name": "switch",
+              "type": "BOOLEAN",
+              "widget": {
+                "name": "switch"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                94
+              ],
+              "name": "output",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            503.54621890495844,
+            1076.5243026420758
+          ],
+          "properties": {
+            "Node name for S&R": "ComfySwitchNode",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            280.6578557930925,
+            78
+          ],
+          "type": "ComfySwitchNode",
+          "widgets_values": [
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false
+        ]
+      },
+      "uid": "63",
+      "widgets": {}
+    },
+    "64": {
+      "class_type": "ComfyMathExpression",
+      "id": "64",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 64,
+          "inputs": [
+            {
+              "label": "a",
+              "link": 98,
+              "name": "values.a",
+              "type": "FLOAT,INT,BOOLEAN"
+            },
+            {
+              "label": "b",
+              "link": null,
+              "name": "values.b",
+              "shape": 7,
+              "type": "FLOAT,INT,BOOLEAN"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [],
+              "name": "FLOAT",
+              "type": "FLOAT"
+            },
+            {
+              "links": [
+                99
+              ],
+              "name": "INT",
+              "type": "INT"
+            },
+            {
+              "links": [],
+              "name": "BOOL",
+              "type": "BOOLEAN"
+            }
+          ],
+          "pos": [
+            1654.4110068685786,
+            1832.106927057134
+          ],
+          "properties": {
+            "Node name for S&R": "ComfyMathExpression",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            225,
+            128
+          ],
+          "type": "ComfyMathExpression",
+          "widgets_values": [
+            "a"
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "a"
+        ]
+      },
+      "uid": "64",
+      "widgets": {
+        "widget_0": "a"
+      }
+    },
+    "65": {
+      "class_type": "PreviewAny",
+      "id": "65",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 65,
+          "inputs": [
+            {
+              "link": 99,
+              "name": "source",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                106
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1649.8432614566973,
+            1674.5133739616233
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewAny",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            225,
+            112
+          ],
+          "type": "PreviewAny",
+          "widgets_values": [
+            null,
+            null,
+            null
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          null,
+          null
+        ]
+      },
+      "uid": "65",
+      "widgets": {
+        "widget_0": null,
+        "widget_1": null,
+        "widget_2": null
+      }
+    },
+    "66": {
+      "class_type": "StringReplace",
+      "id": "66",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 66,
+          "inputs": [
+            {
+              "link": 100,
+              "name": "string",
+              "type": "STRING",
+              "widget": {
+                "name": "string"
+              }
+            },
+            {
+              "link": 101,
+              "name": "replace",
+              "type": "STRING",
+              "widget": {
+                "name": "replace"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                105
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1339.6257643595043,
+            1350.6126108451522
+          ],
+          "properties": {
+            "Node name for S&R": "StringReplace",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            270,
+            280
+          ],
+          "title": "Text Replace (USER INPUT)",
+          "type": "StringReplace",
+          "widgets_values": [
+            "",
+            "USER_INPUT",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "USER_INPUT",
+          ""
+        ]
+      },
+      "uid": "66",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": "USER_INPUT",
+        "widget_2": ""
+      }
+    },
+    "67": {
+      "class_type": "TextGenerate",
+      "id": "67",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 67,
+          "inputs": [
+            {
+              "link": 102,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": null,
+              "name": "image",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "video",
+              "shape": 7,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            },
+            {
+              "link": 103,
+              "name": "prompt",
+              "type": "STRING",
+              "widget": {
+                "name": "prompt"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                96,
+                109
+              ],
+              "name": "generated_text",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1493.546218904959,
+            2025.2085910558903
+          ],
+          "properties": {
+            "Node name for S&R": "TextGenerate",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.18.1"
+          },
+          "size": [
+            430,
+            412
+          ],
+          "type": "TextGenerate",
+          "widgets_values": [
+            "",
+            256,
+            "on",
+            0.7,
+            64,
+            0.95,
+            0.05,
+            1.05,
+            0,
+            0,
+            false,
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 12,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          256,
+          "on",
+          0.7,
+          64,
+          0.95,
+          0.05,
+          1.05,
+          0,
+          0,
+          false,
+          true
+        ]
+      },
+      "uid": "67",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": 256,
+        "widget_10": false,
+        "widget_11": true,
+        "widget_2": "on",
+        "widget_3": 0.7,
+        "widget_4": 64,
+        "widget_5": 0.95,
+        "widget_6": 0.05,
+        "widget_7": 1.05,
+        "widget_8": 0,
+        "widget_9": 0
+      }
+    },
+    "68": {
+      "class_type": "PrimitiveStringMultiline",
+      "id": "68",
+      "inputs": {
+        "value": "Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe."
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 68,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                95,
+                101
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            -96.45378109504163,
+            605.2085910558902
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveStringMultiline",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            400,
+            200
+          ],
+          "title": "User: short description (USER_INPUT in template)",
+          "type": "PrimitiveStringMultiline",
+          "widgets_values": [
+            "Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe."
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe."
+        ]
+      },
+      "uid": "68",
+      "widgets": {}
+    },
+    "69": {
+      "class_type": "CustomCombo",
+      "id": "69",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 69,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                104
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            },
+            {
+              "links": [],
+              "name": "INDEX",
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            403.1484916322317,
+            1525.4358637831633
+          ],
+          "properties": {
+            "Node name for S&R": "CustomCombo",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            550,
+            320
+          ],
+          "title": "Custom Combo (Category index)",
+          "type": "CustomCombo",
+          "widgets_values": [
+            "Music",
+            0,
+            "Music",
+            "Instrument",
+            "SFX",
+            "One-shot",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Music",
+          0,
+          "Music",
+          "Instrument",
+          "SFX",
+          "One-shot",
+          ""
+        ]
+      },
+      "uid": "69",
+      "widgets": {
+        "widget_0": "Music",
+        "widget_1": 0,
+        "widget_2": "Music",
+        "widget_3": "Instrument",
+        "widget_4": "SFX",
+        "widget_5": "One-shot",
+        "widget_6": ""
+      }
+    },
+    "70": {
+      "class_type": "JsonExtractString",
+      "id": "70",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 70,
+          "inputs": [
+            {
+              "link": 104,
+              "name": "key",
+              "type": "STRING",
+              "widget": {
+                "name": "key"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                107
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1012.5312005080903,
+            1674.1370567799981
+          ],
+          "properties": {
+            "Node name for S&R": "JsonExtractString",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            300,
+            180
+          ],
+          "type": "JsonExtractString",
+          "widgets_values": [
+            "{\n  \"Music\": \"You are an expert musician and musicologist and prompt engineer. Transform the user's input into a detailed, vivid music prompt for a full instrumental track.\\n\\n1. Start with the genre or style and optional adjectives (e.g., upbeat, dreamy, aggressive).\\n2. List the main instruments that define the track.\\n3. Add supporting elements or layers such as pads, harmonics, effects, or field recordings.\\n4. Include rhythm or percussion elements like drums, hi-hats, congas, brushes, or polyrhythms.\\n5. Integrate mood and energy naturally in the sentence (e.g., \\\"creating suspenseful tension\\\" or \\\"bright and uplifting\\\").\\n6. Specify the BPM.\\n7. Specify the track length as an integer in seconds. Use ranges: energetic/dance 120-180s, pop/rock 180-210s, cinematic/ambient 240-300s.\\n8. Combine all elements into one natural, fluid sentence. Avoid semicolons.\\n\\nTemplate:\\nGenre/Style with main instruments, supporting instruments/layers, and rhythm/percussion creating mood/energy. BPM: X. Length: Y seconds\\n\\nExamples:\\n- Jazz ballad with smooth saxophone lead, piano chords, upright bass, brushed drums, and soft strings that swing gently for a warm and cozy evening. BPM: 85. Length: 180 seconds\\n- EDM festival track with pulsing synth leads, plucked arpeggios, layered pads, side-chained bass, punchy kick and snare, and hi-hat rolls creating bright, energetic, and uplifting dance energy. BPM: 128. Length: 150 seconds\\n- Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe. BPM: 75. Length: 150 seconds\\n- Heavy metal anthem with distorted electric guitars, bass guitar, double bass drums, and cymbal crashes with fast palm-muted riffs creating intense, aggressive energy. BPM: 160. Length: 180 seconds\\n- Melancholic piano piece with soft piano lead, string pads, subtle atmospheric synths, and minimal brush percussion evoking a reflective rainy-day feeling. BPM: 60. Length: 240 seconds\\n- Suspenseful electronic thriller with pulsing bass synth, arpeggiated lead synth, cinematic pads, glitchy percussion, and high string stabs creating dark and tense energy. BPM: 100. Length: 200 seconds\\n- Dreamy ambient soundscape with layered pads, soft bell textures, gentle drones, and wind and water field recordings for ethereal and spacious meditation. BPM: 40. Length: 300 seconds\\n- Fingerpicking acoustic guitar solo with harmonics, subtle reverb, occasional shaker and soft stomp percussion, and soft pad layers for warm intimate storytelling. BPM: 70. Length: 120 seconds\\n- Synthwave 80s retro track with arpeggiated synth leads, analog pads, electric bass, punchy electronic drums, gated reverb snares, and atmospheric FX for nostalgic and vibrant energy. BPM: 110. Length: 180 seconds\\n- Tribal percussion ensemble with congas, djembes, bongos, shakers, and frame drums layered with deep synthetic sub-bass in complex polyrhythms. BPM: 100. Length: 140 seconds\\n- 1920s swing jazz with brass section, upright bass, piano, brushed drums, banjo, clarinet, and soft strings that swing lively for energetic dance vibes. BPM: 110. Length: 180 seconds\\n- Futuristic electronic sci-fi track with pulsing bass synth, evolving lead synths, layered pads, glitch percussion, robotic FX, and sub-bass for tense cinematic energy. BPM: 125. Length: 200 seconds\\n- Ambient underwater soundscape with flowing water textures, soft piano motifs, synth drones, distant bells, and underwater reverb for spacious meditative immersion. BPM: 45. Length: 300 seconds\\n- Horror cinematic track with dissonant strings, eerie piano stabs, cinematic percussion including taiko and low toms, and synth FX producing suspenseful creepy tension. BPM: 90. Length: 240 seconds\\n- Reggae track with offbeat guitar, warm basslines, snare, kick, congas, and horn stabs giving laid-back groovy energy. BPM: 85. Length: 150 seconds\\n- Blues track with soulful electric guitar solos, walking bass, piano, and shuffle drums creating expressive and emotive storytelling. BPM: 90. Length: 180 seconds\\n- Latin salsa with congas, timbales, horns, piano montunos, bass, and layered percussion for vibrant danceable energy. BPM: 120. Length: 210 seconds\\n- Afrobeat track with electric guitar stabs, horns, layered percussion, congas, shakers, bass groove, and synth pads for vibrant rhythmic energy. BPM: 105. Length: 200 seconds\\n- Indie rock track with electric guitar riffs, bass, live drum kit, layered synths, and subtle strings for energetic yet emotional feel. BPM: 110. Length: 180 seconds\\n- Funk groove with slap bass, electric guitar chords, brass stabs, drums, congas, and rhythmic keyboards creating high-energy danceable rhythm. BPM: 105. Length: 180 seconds\\n- Drum and bass track with fast breakbeat drums, deep sub-bass, sharp synth leads, pads, and atmospheric FX for high-energy club motion. BPM: 175. Length: 150 seconds\\n- Dark ambient track with drones, distant bells, low rumbles, soft wind textures, and synth pads producing eerie immersive tension. BPM: 50. Length: 300 seconds\\n- Tropical house track with marimba, steel drums, soft synths, smooth bass, layered percussion, and light piano riffs for sunny chill dance vibes. BPM: 110. Length: 180 seconds\\n- Progressive rock track with electric guitar leads, organ, bass, drum kit, synth layers, and occasional strings for epic layered energy. BPM: 100. Length: 220 seconds\\n- Music box melody with delicate metallic tones and soft resonance, lullaby style, with gentle ambient reverb. BPM: 60. Length: 20 seconds\\n- Soft piano arpeggio with warm felted tone and slow attack, lullaby style, with intimate room ambience. BPM: 60. Length: 30 seconds\\n- Harp gentle plucked pattern with airy resonance, lullaby style, with dreamy reverb tail. BPM: 65. Length: 25 seconds\\n- Acoustic guitar fingerstyle pattern with warm nylon strings and soft dynamics, lullaby style, with subtle room resonance. BPM: 60. Length: 30 seconds\\n- Ambient synth pad with smooth evolving texture and soft harmonics, lullaby style, with wide stereo ambience. BPM: 50. Length: 40 seconds\\n- Early rock piano with walking left-hand bass line, shuffle rhythms, and blues scale improvisations in energetic 1950s boogie-woogie style. BPM: 160. Length: 180 seconds\\n- Trip Hop track with jazzy sampled vibraphone, mid-tempo breakbeat drums, harp, Latin ethnic percussion, and sweeping cinematic strings creating airy, relaxing, soulful lounge vibes. BPM: 90. Length: 180 seconds\\n- Country outlaw cinematic instrumental with blues pedal steel guitar, rustic mandolin, fiddle call-and-response, tape-driven rattly drum kit, autoharp, and soaring accordion solo for raw, emotional southern blues expression. BPM: 85. Length: 200 seconds\\n- Neo Classical track with sweeping string section, elegant horns, and delicate piano creating soothing, hypnotic, modern, soft, and classic mood. BPM: 70. Length: 180 seconds\\n- Art Rock desert track with desolate piano chords, western-themed rhythm guitars, unique lead guitars, rattly vintage drum kit, and supporting bass creating lonely, expansive, beautiful, and strange atmospheres. BPM: 95. Length: 180 seconds\\n- Cinematic Sci-Fi score with dramatic horn section, building marcato strings, gliding bassoon, thunderous cymbals, subdued timpani, and subtle synth drones producing awe-inspiring, uplifting, epic intergalactic energy. BPM: 100. Length: 220 seconds\\n- West Coast Hip Hop instrumental with cascading harp melodies, smooth Rhodes piano chops, vintage boom bap drums, and walking double bass producing raw, street, and soulful block-party vibes. BPM: 92. Length: 180 seconds\\n- Synthwave futuristic track with pulsating synth bass, exciting chords, soaring leads, and reverberating drum machine patterns creating gritty, pounding, and cool energy. BPM: 110. Length: 180 seconds\\n- Breakbeat track with complex percussion, intricate breakbeats, gritty synths, lush pads, and 808 bassline producing fresh, modern, futuristic, and rave-ready energy. BPM: 140. Length: 160 seconds\\n- Lounge Jazz 1960s smooth track with laid-back drums, piano chords, double bass, soft electric piano, subtle flute, and unique percussion creating beautiful, atmospheric, eclectic, retro, and chill vibes. BPM: 85. Length: 180 seconds\\n- Latin Jazz 1950s blissful track with laid-back Latin drums, euphoric piano chords, double bass, orchestral accompaniment, acoustic guitar, and vibraphone producing nostalgic, beautiful, atmospheric, cinematic, and chill mood. BPM: 95. Length: 180 seconds\\n- Acid Jazz 1970s summertime track with smooth electric piano, trippy synth leads, laid-back vintage drum kit, fuzzy electric bass, and uplifting violin producing retro, psychedelic, jazzy, relaxing energy. BPM: 100. Length: 180 seconds\\n- Progressive Soul 1970s track with feel-good piano, psychedelic organ, groovy vintage drum kit with percussion, fuzzy electric bass, and synth strings producing retro, raw, soulful, joyous atmosphere. BPM: 90. Length: 180 seconds\\n- Discotheque 1970s French-inspired track with sultry piano, psychedelic guitars, groovy drum kit, fuzzy electric bass, and melancholic organ producing retro, raw, laid-back, and relaxing mood. BPM: 105. Length: 180 seconds\\n- Soul Jazz 1970s track with expressive saxophone, smooth piano, groovy drum kit, rhythmic upright bass, sweeping strings, and minimal vibraphone producing retro, raw, laid-back, and epic energy. BPM: 95. Length: 180 seconds\\n- Vintage R&B 1970s live studio track with subtle brass, smooth piano, sweeping strings, and minimal drums producing retro, beautiful, uplifting, nostalgic mood. BPM: 85. Length: 180 seconds\\n- 50s Pop track with Latin influence, string section, bold brass, vibraphone, acoustic guitar, flute, ethnic percussion, and brushed drums creating sexy, epic, vintage, retro, melancholic, jazzy, dramatic energy. BPM: 100. Length: 180 seconds\\n- A piece of calm, quiet, mellow, serene music perfect for a peaceful film score, featuring soft modulating piano, ambient sfx and foley, beautiful vibraphone, and subtle synthesizer drones. The mood is cinematic, thoughtful, serene and nostalgic. BPM: 55. Length: 300 seconds\",\n  \"Instrument\": \"You are a music metadata expert. Given an instrument, generate a descriptive prompt for a generative audio model.\\n\\n1. Identify the instrument.\\n2. Add playing style or technique.\\n3. Include details about material, timbre, or texture.\\n4. Add musical style or mood. Specify the genre, context, or emotional character.\\n5. Add spatial or production qualities.\\n6. Specify BPM: Always include a BPM appropriate to the style and context.\\n7. Specify length: Provide an integer in seconds (6\u201320 s for loops, 20\u2013180 s for stems).\\n\\nExamples:\\n- Synth arpeggio loop with bright detuned oscillators. BPM: 120. Length: 8 seconds\\n- Chord stab loop with sharp percussive attack. BPM: 90. Length: 6 seconds\\n- Guitar muted strum loop with tight rhythmic feel. BPM: 100. Length: 8 seconds\\n- Pluck sequence loop with bright resonant tone. BPM: 128. Length: 10 seconds\\n- Marimba and vibraphone percussive loop with resonant wooden and metallic tones. BPM: 110. Length: 12 seconds\\n- Drum loop with deep muffled kick on beat one, snappy rimshot snare on beats two and four with rolling ghost note fills, and tight closed hi-hats with subtle open accents. BPM: 85. Length: 10 seconds\\n- Drum groove loop with brushed snare swinging on the ride, soft feathered kick on downbeats, and light closed hi-hat taps on the upbeats. BPM: 130. Length: 12 seconds\\n- Kick and hi-hat loop with four-on-the-floor punchy kick, tight closed hi-hats on every eighth note, and a sharp dry snare on beats two and four. BPM: 130. Length: 15 seconds\\n- Vinyl crackle drum loop with warm low-pass filtered kick, dusty snare with tape saturation, and shuffled closed hi-hats with subtle vinyl crackle ambiance. BPM: 80. Length: 10 seconds\\n- Ambient pad loop with evolving texture. BPM: 80. Length: 12 seconds\\n- Melodic synth bass groove loop with pumping sidechain feel. BPM: 122. Length: 10 seconds\\n- Melodic Bass slap and pop rhythm loop. BPM: 100. Length: 8 seconds\\n- Acoustic bass walking line loop with natural wooden resonance. BPM: 120. Length: 12 seconds\\n- String pizzicato motif loop, suspenseful, with tight string texture. BPM: 90. Length: 8 seconds\\n- Brass staccato riff loop with sharp bright attack. BPM: 130. Length: 10 seconds\\n- Flute airy melodic loop with wooden headjoint resonance. BPM: 100. Length: 6 seconds\\n- Pan flute ambient loop with breathy timbre. BPM: 75. Length: 8 seconds\\n- Clarinet riff loop with warm smooth reed tone. BPM: 120. Length: 10 seconds\\n- Oboe motif loop, orchestral, with rich double reed resonance. BPM: 80. Length: 8 seconds\\n- Recorder Renaissance motif loop with soft wooden timbre. BPM: 100. Length: 6 seconds\\n- Electric sitar riff loop with buzzing resonant tone. BPM: 90. Length: 10 seconds\\n- Koto plucked motif loop with resonant wooden strings. BPM: 90. Length: 8 seconds\\n- Shamisen folk melody loop with percussive twang. BPM: 100. Length: 8 seconds\\n- Banjo fingerpicking loop with metallic string resonance. BPM: 110. Length: 10 seconds\\n- Mandolin tremolo loop with crisp wooden body tone. BPM: 120. Length: 10 seconds\\n- Acoustic guitar chord vamp loop with natural room resonance. BPM: 110. Length: 12 seconds\\n- Nylon string guitar arpeggio loop with warm, soft timbre. BPM: 90. Length: 15 seconds\\n- Electric guitar riff loop with driven distorted tone. BPM: 130. Length: 10 seconds\\n- Slide guitar melody loop with warm resonant glide. BPM: 100. Length: 12 seconds\\n- Steel guitar slide loop with bright pedal steel tone. BPM: 95. Length: 12 seconds\\n- Harpsichord arpeggio loop with crisp plucked attack. BPM: 120. Length: 10 seconds\\n- Rhodes chord vamp loop with warm electric piano tone. BPM: 100. Length: 12 seconds\\n- Clavinet funky rhythm loop. BPM: 105. Length: 10 seconds\\n- Organ chord vamp loop with full drawbar warmth. BPM: 90. Length: 12 seconds\\n- Drum loop with booming 808 kick on beat one, crisp snare on beat three, and rapid triplet hi-hat rolls with open hat accents for aggressive high-energy feel. BPM: 140. Length: 8 seconds\\n- Breakbeat drum loop with chopped Amen-style snare flurries, driving kick on the one, fast sixteenth-note closed hi-hats, and syncopated open hat accents. BPM: 170. Length: 10 seconds\\n- Glitch percussion loop with stuttered kick transients, randomised snare hits processed with bit-crushing, and erratic hi-hat patterns with pitch-shifted metallic ticks. BPM: 120. Length: 12 seconds\\n- Metallic hits loop with distorted kick impacts, processed metal-plate snare slams, and grinding hi-hat noise bursts for aggressive mechanical texture. BPM: 120. Length: 10 seconds\\n- Timpani hits loop, cinematic, with deep resonant kick-like timpani strikes on beat one, rolling snare-style timpani fills, and no hi-hats for a grand orchestral feel. BPM: 70. Length: 8 seconds\\n- Snare roll loop, dramatic, with accelerating snare drum rolls building from soft to crashing, deep supporting kick pulses, and no hi-hats for maximum impact. BPM: 100. Length: 8 seconds\\n- Accordion motif loop with bright reedy bellows tone. BPM: 100. Length: 10 seconds\\n- Harmonica blues riff loop with expressive reed timbre. BPM: 90. Length: 10 seconds\\n- Trombone riff loop with warm sliding brass tone. BPM: 120. Length: 10 seconds\\n- French horn melodic loop, cinematic. BPM: 80. Length: 12 seconds\\n- Soprano sax ballad loop. BPM: 70. Length: 12 seconds\\n- Alto sax bebop riff loop. BPM: 200. Length: 10 seconds\\n- Electric violin melodic loop with reverb. BPM: 90. Length: 10 seconds\\n- String pad loop with cinematic texture. BPM: 70. Length: 15 seconds\\n- Granular synth evolving texture loop. BPM: 90. Length: 15 seconds\\n- Piano motif loop with soft felt hammer tone. BPM: 80. Length: 10 seconds\\n- Pad and synth loop with lush detuned shimmer. BPM: 85. Length: 12 seconds\\n- Synth lead loop with sidechain pumping compression. BPM: 128. Length: 10 seconds\\n- Analog synth bassline loop with deep warm low-end. BPM: 122. Length: 12 seconds\\n- FM synth lead motif loop with bright metallic shimmer. BPM: 110. Length: 10 seconds\\n- Bass groove loop with tight rhythmic two-bar pattern. BPM: 100. Length: 16 seconds\\n- Acoustic guitar fingerstyle motif loop with warm wood resonance. BPM: 90. Length: 45 seconds\\n- Sombre acoustic guitar motif loop with cavernous reverb, delicate fingerpicking, and expressive melancholic tone. BPM: 70. Length: 45 seconds\\n- Electric guitar rock riff motif loop. BPM: 130. Length: 40 seconds\\n- Vintage electric guitar motif loop, live-recorded in a vintage studio, with expressive and dynamic solo performance. BPM: 90. Length: 40 seconds\\n- Piano chord progression motif loop with rich harmonic movement. BPM: 120. Length: 60 seconds\\n- String ensemble cinematic motif loop with rich wooden resonance. BPM: 80. Length: 120 seconds\\n- Brass ensemble cinematic motif loop with bright metallic timbre. BPM: 90. Length: 90 seconds\\n- Ethnic percussion ensemble motif loop with deep resonant djembe kick tones, slapped snare-like rim hits on congas, and layered shakers and bells providing hi-hat-like rhythmic texture with polyrhythmic patterns. BPM: 100. Length: 90 seconds\\n- Synth ambient motif loop with evolving textures. BPM: 80. Length: 180 seconds\\n- Motif loop with warm dusty vinyl crackle and tape saturation. BPM: 80. Length: 60 seconds\\n- Synth lead and bass motif loop with bright punchy energy. BPM: 128. Length: 90 seconds\\n- Funk band motif loop: bass, drums, guitar. BPM: 100. Length: 90 seconds\\n- Ethnic flute motif for cinematic use. BPM: 80. Length: 30 seconds\\n- Steel drum melodic motif loop with bright metallic resonance. BPM: 110. Length: 20 seconds\\n- Marimba percussive motif loop with resonant wooden tone. BPM: 100. Length: 20 seconds\\n- Vibraphone melodic motif loop with metallic shimmer. BPM: 90. Length: 25 seconds\\n- Piano cinematic motif loop with resonant wooden tone. BPM: 80. Length: 30 seconds\\n- Violin expressive cinematic motif loop with rich wooden resonance. BPM: 75. Length: 25 seconds\\n- Cello expressive motif loop with deep wooden resonance. BPM: 70. Length: 30 seconds\\n- Trumpet expressive motif loop with brassy overtones. BPM: 100. Length: 25 seconds\\n- Sax expressive motif loop with warm reed timbre. BPM: 95. Length: 25 seconds\\n- Ethnic drum ensemble motif loop with booming natural-skin bass drum kicks, sharp hand-slap snare accents on djembes and talking drums, and layered wooden and metal percussion providing rhythmic hi-hat-like patterns. BPM: 95. Length: 30 seconds\\n- Ambient drone motif loop. BPM: 60. Length: 180 seconds\\n- Orchestral tension motif loop. BPM: 90. Length: 150 seconds\\n- Electronic track motif loop with drums, bass, synth. BPM: 128. Length: 180 seconds\",\n  \"SFX\": \"You are a professional sound design expert. Convert the user's input into a precise, vivid sound effects description suitable for generative audio models.\\n\\nDescribe clearly:\\n- Sound source\\n- Physical character (texture, timbre, material: metal, wood, glass, concrete, etc.)\\n- Spatial qualities (indoor/outdoor, cave/open field/underwater, dry/reverberant, close-up/distant, echoing/muffled)\\n- Temporal evolution (attack, decay, movement, transitions over time)\\n- Include motion or spatial movement if applicable (passing, approaching, stereo movement)\\n\\nAudio length rules:\\n- Very short sounds (impacts, clicks, gunshots): 1\u20133 seconds\\n- Medium actions (footsteps, object movement, transitions): 3\u20136 seconds\\n- Ambience / environments: 6\u201315 seconds\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nOutput constraints:\\n- Length: 1\u20132 dense sentences maximum\\n- Output ONLY the final rewritten prompt\\n- No explanations, no formatting, no quotes\\n- Use concise but dense technical language\\n- Focus strictly on sound effects or ambience\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nQuality guidelines:\\n- Be specific and avoid vague terms\\n- Prioritize clarity and realism\\n- Combine elements into one coherent scene\\n- Avoid redundancy\\n\\nExamples:\\n- Heavy rain hitting a metal roof during a thunderstorm, distant thunder rumbles, stereo, realistic ambience. Length: 45 seconds\\n- Quiet forest at dawn with birds chirping, soft wind through leaves, distant stream flowing. Length: 60 seconds\\n- Busy city street at night, cars passing, muffled conversations, occasional horn, urban ambience. Length: 50 seconds\\n- Ocean waves crashing against rocky cliffs, strong wind, dramatic and cinematic. Length: 70 seconds\\n- Wooden door creaking open slowly in an old house, echoing interior, eerie tone. Length: 3 seconds\\n- Glass bottle shattering on concrete, sharp impact, scattered fragments. Length: 2 seconds\\n- Footsteps on gravel, steady walking pace, close perspective. Length: 8 seconds\\n- Typing rapidly on a mechanical keyboard, crisp tactile clicks. Length: 5 seconds\\n- Punch impact with deep bass hit, cinematic trailer style. Length: 2 seconds\\n- Car speeding past at high velocity, doppler effect, realistic whoosh. Length: 3 seconds\\n- Object falling from height and hitting ground with a heavy thud. Length: 2 seconds\\n- Sword swing whooshing through air, fast motion, clean metallic tone. Length: 2 seconds\\n- Futuristic laser blast, clean energy pulse, high-tech sound design. Length: 1 seconds\\n- Spaceship engine humming, low frequency rumble, interior perspective. Length: 90 seconds\\n- Magical spell casting, shimmering particles, rising tonal energy. Length: 8 seconds\\n- Teleportation effect, glitchy digital distortion with a soft whoosh. Length: 5 seconds\\n- Dark eerie drone with distant whispers, creepy, slow build tension. Length: 120 seconds\\n- Sudden horror jump scare sting, sharp violin hit, cinematic. Length: 1 second\\n- Metal scraping slowly in a dark tunnel, echoing and ominous. Length: 20 seconds\\n- Explosion with debris scattering, deep bass, cinematic realism. Length: 4 seconds\\n- Building collapsing, rumbling concrete, dust and debris falling. Length: 25 seconds\\n- Fire crackling intensely, wood burning, close-up detail. Length: 80 seconds\\n- Gunshot in a large empty warehouse, loud echo decay. Length: 2 seconds\\n- Retro arcade coin insert sound, 8-bit style. Length: 1 second\\n- Level up chime, bright, rewarding, fantasy RPG style. Length: 2 seconds\\n- Error buzzer, short, digital, UI feedback. Length: 1 second\\n- Menu navigation clicks, soft futuristic interface sounds. Length: 3 seconds\\n- Layered soundscape: rain, thunder, footsteps, and distant sirens all blending naturally. Length: 90 seconds\\n- Rapid sequence of three impacts: metal hit, glass break, wood crack, spaced evenly. Length: 4 seconds\\n- Sound moving from left to right stereo field: passing motorcycle. Length: 5 seconds\\n- Close vs far perspective transition: footsteps approaching then fading away. Length: 6 seconds\\n- Tape stop sub drop, a massive sub-bass note that mimics a vinyl record or tape machine being turned off, the pitch and speed drop simultaneously, causing the high-end harmonics to smear and thicken as the sound grinds to a halt at a sub-sonic frequency. Length: 11 seconds\\n- Gravel and leaves footsteps, the sound of a hard boot stepping onto dry leaves or gravel, crisp and natural with detailed texture. Length: 11 seconds\\n- Ghostship moan, a massive, deep wooden groan with a low-frequency moan, like heavy timber under immense structural tension, swaying slowly, processed with long, dark wooden room reverb for a sense of scale. Length: 11 seconds\\n- Bicycle chain, a continuous metallic whirring sound of a chain moving over sprockets, with individual teeth catching the links, processed with resonant band-pass filter to emphasize metallic singing. Length: 11 seconds\\n- Warp drive, a sound that starts with a massive suck-back of ambient noise, followed by a supersonic crack and high-pitched zing that disappears into the distance, giving the sense of stretching space-time. Length: 11 seconds\\n- Ice cubes, high-pitched musical clinking of hard ice hitting a thin glass, bright resonant ring with subtle liquid sloshing around the edges. Length: 11 seconds\\n- Paper shuffle, the sound of a thick stack of heavy bond paper being squared up on a desk, dry papery thud with a quick fanning sound as air moves between the pages. Length: 11 seconds\\n- Drawer slam, a blunt, powerful thud made by slamming a wooden desk drawer shut, pronounced low-mid body, slightly distorted for aggressive character. Length: 3 seconds\",\n  \"One-shot\": \"You are a music metadata expert. Given an instrument or sound, generate a descriptive prompt for a short, isolated one-shot audio sample for music production.\\n\\n1. Identify the instrument or sound source.\\n2. Describe the playing technique or hit type (e.g., pluck, slam, tap, stab).\\n3. Include details about material, timbre, or texture.\\n4. Add spatial or production qualities (dry/wet, room, close-mic).\\n5. Specify length: short integer in seconds (1\u201311 s).\\n\\nExamples:\\n- Piano key hit with bright percussive attack and resonant wooden body. Length: 2 seconds\\n- Kick drum punchy low-end hit with warm skin resonance. Length: 2 seconds\\n- Snare drum rimshot accent with crisp snare wires. Length: 2 seconds\\n- Acoustic guitar fingerstyle note with warm spruce tone. Length: 3 seconds\\n- Bass pluck with jazzy tone and resonant wooden body. Length: 3 seconds\\n- Electric guitar power chord with distortion. Length: 3 seconds\\n- Metallic glitch percussion hit with sharp metallic texture. Length: 2 seconds\\n- Tabla resonant tone hit with natural skin timbre. Length: 2 seconds\\n- Djembe slap accent with dry wooden resonance. Length: 2 seconds\\n- Synth stab with reverb tail. Length: 3 seconds\\n- Violin expressive note with vibrato and rich wooden resonance. Length: 3 seconds\\n- Cello legato note, cinematic, with warm resonant body. Length: 3 seconds\\n- Trumpet bright accent with slightly brassy overtones. Length: 2 seconds\\n- Melodic saxophone jazz riff with smooth reed timbre and a slight vibrato bend. Length: 3 seconds\\n- Harp pluck with airy tone and resonant strings. Length: 2 seconds\\n- Glockenspiel bell-like note with bright metallic clarity. Length: 2 seconds\\n- Metallic clang sound design hit. Length: 2 seconds\\n- Granular texture hit. Length: 3 seconds\\n- Reversed piano hit. Length: 2 seconds\\n- Synth riser effect. Length: 6 seconds\\n- Percussion impact hit. Length: 2 seconds\\n- Cinematic hit. Length: 2 seconds\\n- Dry clap, a crisp, natural single hand clap recorded in a dead room with an extremely sharp transient and no room reflections. Length: 1 second\\n- Studio hat, a classic, natural recording of 14-inch hi-hats played tightly closed, zero ring, very fast decay. Length: 1 second\\n- Disco open hat, bright 14-inch open hi-hat with long, shimmering decay, perfect for disco or dance grooves. Length: 1 second\\n- Pillow kick, acoustic kick drum muffled with a heavy blanket, producing a short, dry \\\"thump\\\" with almost zero resonance. Length: 1 second\\n- Short 808, punchy 808 kick with sharp, distorted transient and fast-decaying sub-tail. Length: 1 second\\n- Egg shaker, classic plastic egg shaker recorded with a small-diaphragm condenser mic, producing a light, consistent \\\"tick\\\" with very short sustain. Length: 1 second\\n- African drums, dynamic African drums and percussion ensemble with natural acoustic textures. Length: 3 seconds\\n- Latin drums, dynamic Latin drums and percussion ensemble featuring authentic rhythmic patterns. Length: 3 seconds\\n- String quartet, euphoric string quartet with dynamic and emotional playing, full of expressive harmonies and movement. Length: 3 seconds\\n- Piano, nostalgic, atmospheric piano piece with dynamic and emotional performance, intimate and resonant. Length: 3 seconds\\n- Analogue drift pad, warm polyphonic pad with three detuned oscillators (saw + triangle), subtle pitch drift, and lush bucket-brigade chorus for wide, nostalgic stereo image. Length: 11 seconds\\n- Phase distortion bass, Casio CZ-style phase-distorted sine wave warped into a jagged sawtooth for retro synth bass tone. Length: 11 seconds\\n- Vibrato saxophone, bright lyrical alto sax with fast fluttery vibrato, reedy vintage tone, captured with ribbon mic for warm nostalgic sound. Length: 11 seconds\\n- Lofi upright bass, upright bass recorded with ribbon mic in a wooden room, natural air with slightly boxy resonance, tape-saturated for dusty 1950s jazz feel. Length: 2 seconds\"\n}",
+            "Music"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "{\n  \"Music\": \"You are an expert musician and musicologist and prompt engineer. Transform the user's input into a detailed, vivid music prompt for a full instrumental track.\\n\\n1. Start with the genre or style and optional adjectives (e.g., upbeat, dreamy, aggressive).\\n2. List the main instruments that define the track.\\n3. Add supporting elements or layers such as pads, harmonics, effects, or field recordings.\\n4. Include rhythm or percussion elements like drums, hi-hats, congas, brushes, or polyrhythms.\\n5. Integrate mood and energy naturally in the sentence (e.g., \\\"creating suspenseful tension\\\" or \\\"bright and uplifting\\\").\\n6. Specify the BPM.\\n7. Specify the track length as an integer in seconds. Use ranges: energetic/dance 120-180s, pop/rock 180-210s, cinematic/ambient 240-300s.\\n8. Combine all elements into one natural, fluid sentence. Avoid semicolons.\\n\\nTemplate:\\nGenre/Style with main instruments, supporting instruments/layers, and rhythm/percussion creating mood/energy. BPM: X. Length: Y seconds\\n\\nExamples:\\n- Jazz ballad with smooth saxophone lead, piano chords, upright bass, brushed drums, and soft strings that swing gently for a warm and cozy evening. BPM: 85. Length: 180 seconds\\n- EDM festival track with pulsing synth leads, plucked arpeggios, layered pads, side-chained bass, punchy kick and snare, and hi-hat rolls creating bright, energetic, and uplifting dance energy. BPM: 128. Length: 150 seconds\\n- Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe. BPM: 75. Length: 150 seconds\\n- Heavy metal anthem with distorted electric guitars, bass guitar, double bass drums, and cymbal crashes with fast palm-muted riffs creating intense, aggressive energy. BPM: 160. Length: 180 seconds\\n- Melancholic piano piece with soft piano lead, string pads, subtle atmospheric synths, and minimal brush percussion evoking a reflective rainy-day feeling. BPM: 60. Length: 240 seconds\\n- Suspenseful electronic thriller with pulsing bass synth, arpeggiated lead synth, cinematic pads, glitchy percussion, and high string stabs creating dark and tense energy. BPM: 100. Length: 200 seconds\\n- Dreamy ambient soundscape with layered pads, soft bell textures, gentle drones, and wind and water field recordings for ethereal and spacious meditation. BPM: 40. Length: 300 seconds\\n- Fingerpicking acoustic guitar solo with harmonics, subtle reverb, occasional shaker and soft stomp percussion, and soft pad layers for warm intimate storytelling. BPM: 70. Length: 120 seconds\\n- Synthwave 80s retro track with arpeggiated synth leads, analog pads, electric bass, punchy electronic drums, gated reverb snares, and atmospheric FX for nostalgic and vibrant energy. BPM: 110. Length: 180 seconds\\n- Tribal percussion ensemble with congas, djembes, bongos, shakers, and frame drums layered with deep synthetic sub-bass in complex polyrhythms. BPM: 100. Length: 140 seconds\\n- 1920s swing jazz with brass section, upright bass, piano, brushed drums, banjo, clarinet, and soft strings that swing lively for energetic dance vibes. BPM: 110. Length: 180 seconds\\n- Futuristic electronic sci-fi track with pulsing bass synth, evolving lead synths, layered pads, glitch percussion, robotic FX, and sub-bass for tense cinematic energy. BPM: 125. Length: 200 seconds\\n- Ambient underwater soundscape with flowing water textures, soft piano motifs, synth drones, distant bells, and underwater reverb for spacious meditative immersion. BPM: 45. Length: 300 seconds\\n- Horror cinematic track with dissonant strings, eerie piano stabs, cinematic percussion including taiko and low toms, and synth FX producing suspenseful creepy tension. BPM: 90. Length: 240 seconds\\n- Reggae track with offbeat guitar, warm basslines, snare, kick, congas, and horn stabs giving laid-back groovy energy. BPM: 85. Length: 150 seconds\\n- Blues track with soulful electric guitar solos, walking bass, piano, and shuffle drums creating expressive and emotive storytelling. BPM: 90. Length: 180 seconds\\n- Latin salsa with congas, timbales, horns, piano montunos, bass, and layered percussion for vibrant danceable energy. BPM: 120. Length: 210 seconds\\n- Afrobeat track with electric guitar stabs, horns, layered percussion, congas, shakers, bass groove, and synth pads for vibrant rhythmic energy. BPM: 105. Length: 200 seconds\\n- Indie rock track with electric guitar riffs, bass, live drum kit, layered synths, and subtle strings for energetic yet emotional feel. BPM: 110. Length: 180 seconds\\n- Funk groove with slap bass, electric guitar chords, brass stabs, drums, congas, and rhythmic keyboards creating high-energy danceable rhythm. BPM: 105. Length: 180 seconds\\n- Drum and bass track with fast breakbeat drums, deep sub-bass, sharp synth leads, pads, and atmospheric FX for high-energy club motion. BPM: 175. Length: 150 seconds\\n- Dark ambient track with drones, distant bells, low rumbles, soft wind textures, and synth pads producing eerie immersive tension. BPM: 50. Length: 300 seconds\\n- Tropical house track with marimba, steel drums, soft synths, smooth bass, layered percussion, and light piano riffs for sunny chill dance vibes. BPM: 110. Length: 180 seconds\\n- Progressive rock track with electric guitar leads, organ, bass, drum kit, synth layers, and occasional strings for epic layered energy. BPM: 100. Length: 220 seconds\\n- Music box melody with delicate metallic tones and soft resonance, lullaby style, with gentle ambient reverb. BPM: 60. Length: 20 seconds\\n- Soft piano arpeggio with warm felted tone and slow attack, lullaby style, with intimate room ambience. BPM: 60. Length: 30 seconds\\n- Harp gentle plucked pattern with airy resonance, lullaby style, with dreamy reverb tail. BPM: 65. Length: 25 seconds\\n- Acoustic guitar fingerstyle pattern with warm nylon strings and soft dynamics, lullaby style, with subtle room resonance. BPM: 60. Length: 30 seconds\\n- Ambient synth pad with smooth evolving texture and soft harmonics, lullaby style, with wide stereo ambience. BPM: 50. Length: 40 seconds\\n- Early rock piano with walking left-hand bass line, shuffle rhythms, and blues scale improvisations in energetic 1950s boogie-woogie style. BPM: 160. Length: 180 seconds\\n- Trip Hop track with jazzy sampled vibraphone, mid-tempo breakbeat drums, harp, Latin ethnic percussion, and sweeping cinematic strings creating airy, relaxing, soulful lounge vibes. BPM: 90. Length: 180 seconds\\n- Country outlaw cinematic instrumental with blues pedal steel guitar, rustic mandolin, fiddle call-and-response, tape-driven rattly drum kit, autoharp, and soaring accordion solo for raw, emotional southern blues expression. BPM: 85. Length: 200 seconds\\n- Neo Classical track with sweeping string section, elegant horns, and delicate piano creating soothing, hypnotic, modern, soft, and classic mood. BPM: 70. Length: 180 seconds\\n- Art Rock desert track with desolate piano chords, western-themed rhythm guitars, unique lead guitars, rattly vintage drum kit, and supporting bass creating lonely, expansive, beautiful, and strange atmospheres. BPM: 95. Length: 180 seconds\\n- Cinematic Sci-Fi score with dramatic horn section, building marcato strings, gliding bassoon, thunderous cymbals, subdued timpani, and subtle synth drones producing awe-inspiring, uplifting, epic intergalactic energy. BPM: 100. Length: 220 seconds\\n- West Coast Hip Hop instrumental with cascading harp melodies, smooth Rhodes piano chops, vintage boom bap drums, and walking double bass producing raw, street, and soulful block-party vibes. BPM: 92. Length: 180 seconds\\n- Synthwave futuristic track with pulsating synth bass, exciting chords, soaring leads, and reverberating drum machine patterns creating gritty, pounding, and cool energy. BPM: 110. Length: 180 seconds\\n- Breakbeat track with complex percussion, intricate breakbeats, gritty synths, lush pads, and 808 bassline producing fresh, modern, futuristic, and rave-ready energy. BPM: 140. Length: 160 seconds\\n- Lounge Jazz 1960s smooth track with laid-back drums, piano chords, double bass, soft electric piano, subtle flute, and unique percussion creating beautiful, atmospheric, eclectic, retro, and chill vibes. BPM: 85. Length: 180 seconds\\n- Latin Jazz 1950s blissful track with laid-back Latin drums, euphoric piano chords, double bass, orchestral accompaniment, acoustic guitar, and vibraphone producing nostalgic, beautiful, atmospheric, cinematic, and chill mood. BPM: 95. Length: 180 seconds\\n- Acid Jazz 1970s summertime track with smooth electric piano, trippy synth leads, laid-back vintage drum kit, fuzzy electric bass, and uplifting violin producing retro, psychedelic, jazzy, relaxing energy. BPM: 100. Length: 180 seconds\\n- Progressive Soul 1970s track with feel-good piano, psychedelic organ, groovy vintage drum kit with percussion, fuzzy electric bass, and synth strings producing retro, raw, soulful, joyous atmosphere. BPM: 90. Length: 180 seconds\\n- Discotheque 1970s French-inspired track with sultry piano, psychedelic guitars, groovy drum kit, fuzzy electric bass, and melancholic organ producing retro, raw, laid-back, and relaxing mood. BPM: 105. Length: 180 seconds\\n- Soul Jazz 1970s track with expressive saxophone, smooth piano, groovy drum kit, rhythmic upright bass, sweeping strings, and minimal vibraphone producing retro, raw, laid-back, and epic energy. BPM: 95. Length: 180 seconds\\n- Vintage R&B 1970s live studio track with subtle brass, smooth piano, sweeping strings, and minimal drums producing retro, beautiful, uplifting, nostalgic mood. BPM: 85. Length: 180 seconds\\n- 50s Pop track with Latin influence, string section, bold brass, vibraphone, acoustic guitar, flute, ethnic percussion, and brushed drums creating sexy, epic, vintage, retro, melancholic, jazzy, dramatic energy. BPM: 100. Length: 180 seconds\\n- A piece of calm, quiet, mellow, serene music perfect for a peaceful film score, featuring soft modulating piano, ambient sfx and foley, beautiful vibraphone, and subtle synthesizer drones. The mood is cinematic, thoughtful, serene and nostalgic. BPM: 55. Length: 300 seconds\",\n  \"Instrument\": \"You are a music metadata expert. Given an instrument, generate a descriptive prompt for a generative audio model.\\n\\n1. Identify the instrument.\\n2. Add playing style or technique.\\n3. Include details about material, timbre, or texture.\\n4. Add musical style or mood. Specify the genre, context, or emotional character.\\n5. Add spatial or production qualities.\\n6. Specify BPM: Always include a BPM appropriate to the style and context.\\n7. Specify length: Provide an integer in seconds (6\u201320 s for loops, 20\u2013180 s for stems).\\n\\nExamples:\\n- Synth arpeggio loop with bright detuned oscillators. BPM: 120. Length: 8 seconds\\n- Chord stab loop with sharp percussive attack. BPM: 90. Length: 6 seconds\\n- Guitar muted strum loop with tight rhythmic feel. BPM: 100. Length: 8 seconds\\n- Pluck sequence loop with bright resonant tone. BPM: 128. Length: 10 seconds\\n- Marimba and vibraphone percussive loop with resonant wooden and metallic tones. BPM: 110. Length: 12 seconds\\n- Drum loop with deep muffled kick on beat one, snappy rimshot snare on beats two and four with rolling ghost note fills, and tight closed hi-hats with subtle open accents. BPM: 85. Length: 10 seconds\\n- Drum groove loop with brushed snare swinging on the ride, soft feathered kick on downbeats, and light closed hi-hat taps on the upbeats. BPM: 130. Length: 12 seconds\\n- Kick and hi-hat loop with four-on-the-floor punchy kick, tight closed hi-hats on every eighth note, and a sharp dry snare on beats two and four. BPM: 130. Length: 15 seconds\\n- Vinyl crackle drum loop with warm low-pass filtered kick, dusty snare with tape saturation, and shuffled closed hi-hats with subtle vinyl crackle ambiance. BPM: 80. Length: 10 seconds\\n- Ambient pad loop with evolving texture. BPM: 80. Length: 12 seconds\\n- Melodic synth bass groove loop with pumping sidechain feel. BPM: 122. Length: 10 seconds\\n- Melodic Bass slap and pop rhythm loop. BPM: 100. Length: 8 seconds\\n- Acoustic bass walking line loop with natural wooden resonance. BPM: 120. Length: 12 seconds\\n- String pizzicato motif loop, suspenseful, with tight string texture. BPM: 90. Length: 8 seconds\\n- Brass staccato riff loop with sharp bright attack. BPM: 130. Length: 10 seconds\\n- Flute airy melodic loop with wooden headjoint resonance. BPM: 100. Length: 6 seconds\\n- Pan flute ambient loop with breathy timbre. BPM: 75. Length: 8 seconds\\n- Clarinet riff loop with warm smooth reed tone. BPM: 120. Length: 10 seconds\\n- Oboe motif loop, orchestral, with rich double reed resonance. BPM: 80. Length: 8 seconds\\n- Recorder Renaissance motif loop with soft wooden timbre. BPM: 100. Length: 6 seconds\\n- Electric sitar riff loop with buzzing resonant tone. BPM: 90. Length: 10 seconds\\n- Koto plucked motif loop with resonant wooden strings. BPM: 90. Length: 8 seconds\\n- Shamisen folk melody loop with percussive twang. BPM: 100. Length: 8 seconds\\n- Banjo fingerpicking loop with metallic string resonance. BPM: 110. Length: 10 seconds\\n- Mandolin tremolo loop with crisp wooden body tone. BPM: 120. Length: 10 seconds\\n- Acoustic guitar chord vamp loop with natural room resonance. BPM: 110. Length: 12 seconds\\n- Nylon string guitar arpeggio loop with warm, soft timbre. BPM: 90. Length: 15 seconds\\n- Electric guitar riff loop with driven distorted tone. BPM: 130. Length: 10 seconds\\n- Slide guitar melody loop with warm resonant glide. BPM: 100. Length: 12 seconds\\n- Steel guitar slide loop with bright pedal steel tone. BPM: 95. Length: 12 seconds\\n- Harpsichord arpeggio loop with crisp plucked attack. BPM: 120. Length: 10 seconds\\n- Rhodes chord vamp loop with warm electric piano tone. BPM: 100. Length: 12 seconds\\n- Clavinet funky rhythm loop. BPM: 105. Length: 10 seconds\\n- Organ chord vamp loop with full drawbar warmth. BPM: 90. Length: 12 seconds\\n- Drum loop with booming 808 kick on beat one, crisp snare on beat three, and rapid triplet hi-hat rolls with open hat accents for aggressive high-energy feel. BPM: 140. Length: 8 seconds\\n- Breakbeat drum loop with chopped Amen-style snare flurries, driving kick on the one, fast sixteenth-note closed hi-hats, and syncopated open hat accents. BPM: 170. Length: 10 seconds\\n- Glitch percussion loop with stuttered kick transients, randomised snare hits processed with bit-crushing, and erratic hi-hat patterns with pitch-shifted metallic ticks. BPM: 120. Length: 12 seconds\\n- Metallic hits loop with distorted kick impacts, processed metal-plate snare slams, and grinding hi-hat noise bursts for aggressive mechanical texture. BPM: 120. Length: 10 seconds\\n- Timpani hits loop, cinematic, with deep resonant kick-like timpani strikes on beat one, rolling snare-style timpani fills, and no hi-hats for a grand orchestral feel. BPM: 70. Length: 8 seconds\\n- Snare roll loop, dramatic, with accelerating snare drum rolls building from soft to crashing, deep supporting kick pulses, and no hi-hats for maximum impact. BPM: 100. Length: 8 seconds\\n- Accordion motif loop with bright reedy bellows tone. BPM: 100. Length: 10 seconds\\n- Harmonica blues riff loop with expressive reed timbre. BPM: 90. Length: 10 seconds\\n- Trombone riff loop with warm sliding brass tone. BPM: 120. Length: 10 seconds\\n- French horn melodic loop, cinematic. BPM: 80. Length: 12 seconds\\n- Soprano sax ballad loop. BPM: 70. Length: 12 seconds\\n- Alto sax bebop riff loop. BPM: 200. Length: 10 seconds\\n- Electric violin melodic loop with reverb. BPM: 90. Length: 10 seconds\\n- String pad loop with cinematic texture. BPM: 70. Length: 15 seconds\\n- Granular synth evolving texture loop. BPM: 90. Length: 15 seconds\\n- Piano motif loop with soft felt hammer tone. BPM: 80. Length: 10 seconds\\n- Pad and synth loop with lush detuned shimmer. BPM: 85. Length: 12 seconds\\n- Synth lead loop with sidechain pumping compression. BPM: 128. Length: 10 seconds\\n- Analog synth bassline loop with deep warm low-end. BPM: 122. Length: 12 seconds\\n- FM synth lead motif loop with bright metallic shimmer. BPM: 110. Length: 10 seconds\\n- Bass groove loop with tight rhythmic two-bar pattern. BPM: 100. Length: 16 seconds\\n- Acoustic guitar fingerstyle motif loop with warm wood resonance. BPM: 90. Length: 45 seconds\\n- Sombre acoustic guitar motif loop with cavernous reverb, delicate fingerpicking, and expressive melancholic tone. BPM: 70. Length: 45 seconds\\n- Electric guitar rock riff motif loop. BPM: 130. Length: 40 seconds\\n- Vintage electric guitar motif loop, live-recorded in a vintage studio, with expressive and dynamic solo performance. BPM: 90. Length: 40 seconds\\n- Piano chord progression motif loop with rich harmonic movement. BPM: 120. Length: 60 seconds\\n- String ensemble cinematic motif loop with rich wooden resonance. BPM: 80. Length: 120 seconds\\n- Brass ensemble cinematic motif loop with bright metallic timbre. BPM: 90. Length: 90 seconds\\n- Ethnic percussion ensemble motif loop with deep resonant djembe kick tones, slapped snare-like rim hits on congas, and layered shakers and bells providing hi-hat-like rhythmic texture with polyrhythmic patterns. BPM: 100. Length: 90 seconds\\n- Synth ambient motif loop with evolving textures. BPM: 80. Length: 180 seconds\\n- Motif loop with warm dusty vinyl crackle and tape saturation. BPM: 80. Length: 60 seconds\\n- Synth lead and bass motif loop with bright punchy energy. BPM: 128. Length: 90 seconds\\n- Funk band motif loop: bass, drums, guitar. BPM: 100. Length: 90 seconds\\n- Ethnic flute motif for cinematic use. BPM: 80. Length: 30 seconds\\n- Steel drum melodic motif loop with bright metallic resonance. BPM: 110. Length: 20 seconds\\n- Marimba percussive motif loop with resonant wooden tone. BPM: 100. Length: 20 seconds\\n- Vibraphone melodic motif loop with metallic shimmer. BPM: 90. Length: 25 seconds\\n- Piano cinematic motif loop with resonant wooden tone. BPM: 80. Length: 30 seconds\\n- Violin expressive cinematic motif loop with rich wooden resonance. BPM: 75. Length: 25 seconds\\n- Cello expressive motif loop with deep wooden resonance. BPM: 70. Length: 30 seconds\\n- Trumpet expressive motif loop with brassy overtones. BPM: 100. Length: 25 seconds\\n- Sax expressive motif loop with warm reed timbre. BPM: 95. Length: 25 seconds\\n- Ethnic drum ensemble motif loop with booming natural-skin bass drum kicks, sharp hand-slap snare accents on djembes and talking drums, and layered wooden and metal percussion providing rhythmic hi-hat-like patterns. BPM: 95. Length: 30 seconds\\n- Ambient drone motif loop. BPM: 60. Length: 180 seconds\\n- Orchestral tension motif loop. BPM: 90. Length: 150 seconds\\n- Electronic track motif loop with drums, bass, synth. BPM: 128. Length: 180 seconds\",\n  \"SFX\": \"You are a professional sound design expert. Convert the user's input into a precise, vivid sound effects description suitable for generative audio models.\\n\\nDescribe clearly:\\n- Sound source\\n- Physical character (texture, timbre, material: metal, wood, glass, concrete, etc.)\\n- Spatial qualities (indoor/outdoor, cave/open field/underwater, dry/reverberant, close-up/distant, echoing/muffled)\\n- Temporal evolution (attack, decay, movement, transitions over time)\\n- Include motion or spatial movement if applicable (passing, approaching, stereo movement)\\n\\nAudio length rules:\\n- Very short sounds (impacts, clicks, gunshots): 1\u20133 seconds\\n- Medium actions (footsteps, object movement, transitions): 3\u20136 seconds\\n- Ambience / environments: 6\u201315 seconds\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nOutput constraints:\\n- Length: 1\u20132 dense sentences maximum\\n- Output ONLY the final rewritten prompt\\n- No explanations, no formatting, no quotes\\n- Use concise but dense technical language\\n- Focus strictly on sound effects or ambience\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nQuality guidelines:\\n- Be specific and avoid vague terms\\n- Prioritize clarity and realism\\n- Combine elements into one coherent scene\\n- Avoid redundancy\\n\\nExamples:\\n- Heavy rain hitting a metal roof during a thunderstorm, distant thunder rumbles, stereo, realistic ambience. Length: 45 seconds\\n- Quiet forest at dawn with birds chirping, soft wind through leaves, distant stream flowing. Length: 60 seconds\\n- Busy city street at night, cars passing, muffled conversations, occasional horn, urban ambience. Length: 50 seconds\\n- Ocean waves crashing against rocky cliffs, strong wind, dramatic and cinematic. Length: 70 seconds\\n- Wooden door creaking open slowly in an old house, echoing interior, eerie tone. Length: 3 seconds\\n- Glass bottle shattering on concrete, sharp impact, scattered fragments. Length: 2 seconds\\n- Footsteps on gravel, steady walking pace, close perspective. Length: 8 seconds\\n- Typing rapidly on a mechanical keyboard, crisp tactile clicks. Length: 5 seconds\\n- Punch impact with deep bass hit, cinematic trailer style. Length: 2 seconds\\n- Car speeding past at high velocity, doppler effect, realistic whoosh. Length: 3 seconds\\n- Object falling from height and hitting ground with a heavy thud. Length: 2 seconds\\n- Sword swing whooshing through air, fast motion, clean metallic tone. Length: 2 seconds\\n- Futuristic laser blast, clean energy pulse, high-tech sound design. Length: 1 seconds\\n- Spaceship engine humming, low frequency rumble, interior perspective. Length: 90 seconds\\n- Magical spell casting, shimmering particles, rising tonal energy. Length: 8 seconds\\n- Teleportation effect, glitchy digital distortion with a soft whoosh. Length: 5 seconds\\n- Dark eerie drone with distant whispers, creepy, slow build tension. Length: 120 seconds\\n- Sudden horror jump scare sting, sharp violin hit, cinematic. Length: 1 second\\n- Metal scraping slowly in a dark tunnel, echoing and ominous. Length: 20 seconds\\n- Explosion with debris scattering, deep bass, cinematic realism. Length: 4 seconds\\n- Building collapsing, rumbling concrete, dust and debris falling. Length: 25 seconds\\n- Fire crackling intensely, wood burning, close-up detail. Length: 80 seconds\\n- Gunshot in a large empty warehouse, loud echo decay. Length: 2 seconds\\n- Retro arcade coin insert sound, 8-bit style. Length: 1 second\\n- Level up chime, bright, rewarding, fantasy RPG style. Length: 2 seconds\\n- Error buzzer, short, digital, UI feedback. Length: 1 second\\n- Menu navigation clicks, soft futuristic interface sounds. Length: 3 seconds\\n- Layered soundscape: rain, thunder, footsteps, and distant sirens all blending naturally. Length: 90 seconds\\n- Rapid sequence of three impacts: metal hit, glass break, wood crack, spaced evenly. Length: 4 seconds\\n- Sound moving from left to right stereo field: passing motorcycle. Length: 5 seconds\\n- Close vs far perspective transition: footsteps approaching then fading away. Length: 6 seconds\\n- Tape stop sub drop, a massive sub-bass note that mimics a vinyl record or tape machine being turned off, the pitch and speed drop simultaneously, causing the high-end harmonics to smear and thicken as the sound grinds to a halt at a sub-sonic frequency. Length: 11 seconds\\n- Gravel and leaves footsteps, the sound of a hard boot stepping onto dry leaves or gravel, crisp and natural with detailed texture. Length: 11 seconds\\n- Ghostship moan, a massive, deep wooden groan with a low-frequency moan, like heavy timber under immense structural tension, swaying slowly, processed with long, dark wooden room reverb for a sense of scale. Length: 11 seconds\\n- Bicycle chain, a continuous metallic whirring sound of a chain moving over sprockets, with individual teeth catching the links, processed with resonant band-pass filter to emphasize metallic singing. Length: 11 seconds\\n- Warp drive, a sound that starts with a massive suck-back of ambient noise, followed by a supersonic crack and high-pitched zing that disappears into the distance, giving the sense of stretching space-time. Length: 11 seconds\\n- Ice cubes, high-pitched musical clinking of hard ice hitting a thin glass, bright resonant ring with subtle liquid sloshing around the edges. Length: 11 seconds\\n- Paper shuffle, the sound of a thick stack of heavy bond paper being squared up on a desk, dry papery thud with a quick fanning sound as air moves between the pages. Length: 11 seconds\\n- Drawer slam, a blunt, powerful thud made by slamming a wooden desk drawer shut, pronounced low-mid body, slightly distorted for aggressive character. Length: 3 seconds\",\n  \"One-shot\": \"You are a music metadata expert. Given an instrument or sound, generate a descriptive prompt for a short, isolated one-shot audio sample for music production.\\n\\n1. Identify the instrument or sound source.\\n2. Describe the playing technique or hit type (e.g., pluck, slam, tap, stab).\\n3. Include details about material, timbre, or texture.\\n4. Add spatial or production qualities (dry/wet, room, close-mic).\\n5. Specify length: short integer in seconds (1\u201311 s).\\n\\nExamples:\\n- Piano key hit with bright percussive attack and resonant wooden body. Length: 2 seconds\\n- Kick drum punchy low-end hit with warm skin resonance. Length: 2 seconds\\n- Snare drum rimshot accent with crisp snare wires. Length: 2 seconds\\n- Acoustic guitar fingerstyle note with warm spruce tone. Length: 3 seconds\\n- Bass pluck with jazzy tone and resonant wooden body. Length: 3 seconds\\n- Electric guitar power chord with distortion. Length: 3 seconds\\n- Metallic glitch percussion hit with sharp metallic texture. Length: 2 seconds\\n- Tabla resonant tone hit with natural skin timbre. Length: 2 seconds\\n- Djembe slap accent with dry wooden resonance. Length: 2 seconds\\n- Synth stab with reverb tail. Length: 3 seconds\\n- Violin expressive note with vibrato and rich wooden resonance. Length: 3 seconds\\n- Cello legato note, cinematic, with warm resonant body. Length: 3 seconds\\n- Trumpet bright accent with slightly brassy overtones. Length: 2 seconds\\n- Melodic saxophone jazz riff with smooth reed timbre and a slight vibrato bend. Length: 3 seconds\\n- Harp pluck with airy tone and resonant strings. Length: 2 seconds\\n- Glockenspiel bell-like note with bright metallic clarity. Length: 2 seconds\\n- Metallic clang sound design hit. Length: 2 seconds\\n- Granular texture hit. Length: 3 seconds\\n- Reversed piano hit. Length: 2 seconds\\n- Synth riser effect. Length: 6 seconds\\n- Percussion impact hit. Length: 2 seconds\\n- Cinematic hit. Length: 2 seconds\\n- Dry clap, a crisp, natural single hand clap recorded in a dead room with an extremely sharp transient and no room reflections. Length: 1 second\\n- Studio hat, a classic, natural recording of 14-inch hi-hats played tightly closed, zero ring, very fast decay. Length: 1 second\\n- Disco open hat, bright 14-inch open hi-hat with long, shimmering decay, perfect for disco or dance grooves. Length: 1 second\\n- Pillow kick, acoustic kick drum muffled with a heavy blanket, producing a short, dry \\\"thump\\\" with almost zero resonance. Length: 1 second\\n- Short 808, punchy 808 kick with sharp, distorted transient and fast-decaying sub-tail. Length: 1 second\\n- Egg shaker, classic plastic egg shaker recorded with a small-diaphragm condenser mic, producing a light, consistent \\\"tick\\\" with very short sustain. Length: 1 second\\n- African drums, dynamic African drums and percussion ensemble with natural acoustic textures. Length: 3 seconds\\n- Latin drums, dynamic Latin drums and percussion ensemble featuring authentic rhythmic patterns. Length: 3 seconds\\n- String quartet, euphoric string quartet with dynamic and emotional playing, full of expressive harmonies and movement. Length: 3 seconds\\n- Piano, nostalgic, atmospheric piano piece with dynamic and emotional performance, intimate and resonant. Length: 3 seconds\\n- Analogue drift pad, warm polyphonic pad with three detuned oscillators (saw + triangle), subtle pitch drift, and lush bucket-brigade chorus for wide, nostalgic stereo image. Length: 11 seconds\\n- Phase distortion bass, Casio CZ-style phase-distorted sine wave warped into a jagged sawtooth for retro synth bass tone. Length: 11 seconds\\n- Vibrato saxophone, bright lyrical alto sax with fast fluttery vibrato, reedy vintage tone, captured with ribbon mic for warm nostalgic sound. Length: 11 seconds\\n- Lofi upright bass, upright bass recorded with ribbon mic in a wooden room, natural air with slightly boxy resonance, tape-saturated for dusty 1950s jazz feel. Length: 2 seconds\"\n}",
+          "Music"
+        ]
+      },
+      "uid": "70",
+      "widgets": {
+        "widget_0": "{\n  \"Music\": \"You are an expert musician and musicologist and prompt engineer. Transform the user's input into a detailed, vivid music prompt for a full instrumental track.\\n\\n1. Start with the genre or style and optional adjectives (e.g., upbeat, dreamy, aggressive).\\n2. List the main instruments that define the track.\\n3. Add supporting elements or layers such as pads, harmonics, effects, or field recordings.\\n4. Include rhythm or percussion elements like drums, hi-hats, congas, brushes, or polyrhythms.\\n5. Integrate mood and energy naturally in the sentence (e.g., \\\"creating suspenseful tension\\\" or \\\"bright and uplifting\\\").\\n6. Specify the BPM.\\n7. Specify the track length as an integer in seconds. Use ranges: energetic/dance 120-180s, pop/rock 180-210s, cinematic/ambient 240-300s.\\n8. Combine all elements into one natural, fluid sentence. Avoid semicolons.\\n\\nTemplate:\\nGenre/Style with main instruments, supporting instruments/layers, and rhythm/percussion creating mood/energy. BPM: X. Length: Y seconds\\n\\nExamples:\\n- Jazz ballad with smooth saxophone lead, piano chords, upright bass, brushed drums, and soft strings that swing gently for a warm and cozy evening. BPM: 85. Length: 180 seconds\\n- EDM festival track with pulsing synth leads, plucked arpeggios, layered pads, side-chained bass, punchy kick and snare, and hi-hat rolls creating bright, energetic, and uplifting dance energy. BPM: 128. Length: 150 seconds\\n- Lo-fi hip-hop chill track with mellow electric piano, soft vinyl crackle, subtle synth pads, low-pass filtered drums, percussion loops, and soft plucked bass for a relaxed, dreamy vibe. BPM: 75. Length: 150 seconds\\n- Heavy metal anthem with distorted electric guitars, bass guitar, double bass drums, and cymbal crashes with fast palm-muted riffs creating intense, aggressive energy. BPM: 160. Length: 180 seconds\\n- Melancholic piano piece with soft piano lead, string pads, subtle atmospheric synths, and minimal brush percussion evoking a reflective rainy-day feeling. BPM: 60. Length: 240 seconds\\n- Suspenseful electronic thriller with pulsing bass synth, arpeggiated lead synth, cinematic pads, glitchy percussion, and high string stabs creating dark and tense energy. BPM: 100. Length: 200 seconds\\n- Dreamy ambient soundscape with layered pads, soft bell textures, gentle drones, and wind and water field recordings for ethereal and spacious meditation. BPM: 40. Length: 300 seconds\\n- Fingerpicking acoustic guitar solo with harmonics, subtle reverb, occasional shaker and soft stomp percussion, and soft pad layers for warm intimate storytelling. BPM: 70. Length: 120 seconds\\n- Synthwave 80s retro track with arpeggiated synth leads, analog pads, electric bass, punchy electronic drums, gated reverb snares, and atmospheric FX for nostalgic and vibrant energy. BPM: 110. Length: 180 seconds\\n- Tribal percussion ensemble with congas, djembes, bongos, shakers, and frame drums layered with deep synthetic sub-bass in complex polyrhythms. BPM: 100. Length: 140 seconds\\n- 1920s swing jazz with brass section, upright bass, piano, brushed drums, banjo, clarinet, and soft strings that swing lively for energetic dance vibes. BPM: 110. Length: 180 seconds\\n- Futuristic electronic sci-fi track with pulsing bass synth, evolving lead synths, layered pads, glitch percussion, robotic FX, and sub-bass for tense cinematic energy. BPM: 125. Length: 200 seconds\\n- Ambient underwater soundscape with flowing water textures, soft piano motifs, synth drones, distant bells, and underwater reverb for spacious meditative immersion. BPM: 45. Length: 300 seconds\\n- Horror cinematic track with dissonant strings, eerie piano stabs, cinematic percussion including taiko and low toms, and synth FX producing suspenseful creepy tension. BPM: 90. Length: 240 seconds\\n- Reggae track with offbeat guitar, warm basslines, snare, kick, congas, and horn stabs giving laid-back groovy energy. BPM: 85. Length: 150 seconds\\n- Blues track with soulful electric guitar solos, walking bass, piano, and shuffle drums creating expressive and emotive storytelling. BPM: 90. Length: 180 seconds\\n- Latin salsa with congas, timbales, horns, piano montunos, bass, and layered percussion for vibrant danceable energy. BPM: 120. Length: 210 seconds\\n- Afrobeat track with electric guitar stabs, horns, layered percussion, congas, shakers, bass groove, and synth pads for vibrant rhythmic energy. BPM: 105. Length: 200 seconds\\n- Indie rock track with electric guitar riffs, bass, live drum kit, layered synths, and subtle strings for energetic yet emotional feel. BPM: 110. Length: 180 seconds\\n- Funk groove with slap bass, electric guitar chords, brass stabs, drums, congas, and rhythmic keyboards creating high-energy danceable rhythm. BPM: 105. Length: 180 seconds\\n- Drum and bass track with fast breakbeat drums, deep sub-bass, sharp synth leads, pads, and atmospheric FX for high-energy club motion. BPM: 175. Length: 150 seconds\\n- Dark ambient track with drones, distant bells, low rumbles, soft wind textures, and synth pads producing eerie immersive tension. BPM: 50. Length: 300 seconds\\n- Tropical house track with marimba, steel drums, soft synths, smooth bass, layered percussion, and light piano riffs for sunny chill dance vibes. BPM: 110. Length: 180 seconds\\n- Progressive rock track with electric guitar leads, organ, bass, drum kit, synth layers, and occasional strings for epic layered energy. BPM: 100. Length: 220 seconds\\n- Music box melody with delicate metallic tones and soft resonance, lullaby style, with gentle ambient reverb. BPM: 60. Length: 20 seconds\\n- Soft piano arpeggio with warm felted tone and slow attack, lullaby style, with intimate room ambience. BPM: 60. Length: 30 seconds\\n- Harp gentle plucked pattern with airy resonance, lullaby style, with dreamy reverb tail. BPM: 65. Length: 25 seconds\\n- Acoustic guitar fingerstyle pattern with warm nylon strings and soft dynamics, lullaby style, with subtle room resonance. BPM: 60. Length: 30 seconds\\n- Ambient synth pad with smooth evolving texture and soft harmonics, lullaby style, with wide stereo ambience. BPM: 50. Length: 40 seconds\\n- Early rock piano with walking left-hand bass line, shuffle rhythms, and blues scale improvisations in energetic 1950s boogie-woogie style. BPM: 160. Length: 180 seconds\\n- Trip Hop track with jazzy sampled vibraphone, mid-tempo breakbeat drums, harp, Latin ethnic percussion, and sweeping cinematic strings creating airy, relaxing, soulful lounge vibes. BPM: 90. Length: 180 seconds\\n- Country outlaw cinematic instrumental with blues pedal steel guitar, rustic mandolin, fiddle call-and-response, tape-driven rattly drum kit, autoharp, and soaring accordion solo for raw, emotional southern blues expression. BPM: 85. Length: 200 seconds\\n- Neo Classical track with sweeping string section, elegant horns, and delicate piano creating soothing, hypnotic, modern, soft, and classic mood. BPM: 70. Length: 180 seconds\\n- Art Rock desert track with desolate piano chords, western-themed rhythm guitars, unique lead guitars, rattly vintage drum kit, and supporting bass creating lonely, expansive, beautiful, and strange atmospheres. BPM: 95. Length: 180 seconds\\n- Cinematic Sci-Fi score with dramatic horn section, building marcato strings, gliding bassoon, thunderous cymbals, subdued timpani, and subtle synth drones producing awe-inspiring, uplifting, epic intergalactic energy. BPM: 100. Length: 220 seconds\\n- West Coast Hip Hop instrumental with cascading harp melodies, smooth Rhodes piano chops, vintage boom bap drums, and walking double bass producing raw, street, and soulful block-party vibes. BPM: 92. Length: 180 seconds\\n- Synthwave futuristic track with pulsating synth bass, exciting chords, soaring leads, and reverberating drum machine patterns creating gritty, pounding, and cool energy. BPM: 110. Length: 180 seconds\\n- Breakbeat track with complex percussion, intricate breakbeats, gritty synths, lush pads, and 808 bassline producing fresh, modern, futuristic, and rave-ready energy. BPM: 140. Length: 160 seconds\\n- Lounge Jazz 1960s smooth track with laid-back drums, piano chords, double bass, soft electric piano, subtle flute, and unique percussion creating beautiful, atmospheric, eclectic, retro, and chill vibes. BPM: 85. Length: 180 seconds\\n- Latin Jazz 1950s blissful track with laid-back Latin drums, euphoric piano chords, double bass, orchestral accompaniment, acoustic guitar, and vibraphone producing nostalgic, beautiful, atmospheric, cinematic, and chill mood. BPM: 95. Length: 180 seconds\\n- Acid Jazz 1970s summertime track with smooth electric piano, trippy synth leads, laid-back vintage drum kit, fuzzy electric bass, and uplifting violin producing retro, psychedelic, jazzy, relaxing energy. BPM: 100. Length: 180 seconds\\n- Progressive Soul 1970s track with feel-good piano, psychedelic organ, groovy vintage drum kit with percussion, fuzzy electric bass, and synth strings producing retro, raw, soulful, joyous atmosphere. BPM: 90. Length: 180 seconds\\n- Discotheque 1970s French-inspired track with sultry piano, psychedelic guitars, groovy drum kit, fuzzy electric bass, and melancholic organ producing retro, raw, laid-back, and relaxing mood. BPM: 105. Length: 180 seconds\\n- Soul Jazz 1970s track with expressive saxophone, smooth piano, groovy drum kit, rhythmic upright bass, sweeping strings, and minimal vibraphone producing retro, raw, laid-back, and epic energy. BPM: 95. Length: 180 seconds\\n- Vintage R&B 1970s live studio track with subtle brass, smooth piano, sweeping strings, and minimal drums producing retro, beautiful, uplifting, nostalgic mood. BPM: 85. Length: 180 seconds\\n- 50s Pop track with Latin influence, string section, bold brass, vibraphone, acoustic guitar, flute, ethnic percussion, and brushed drums creating sexy, epic, vintage, retro, melancholic, jazzy, dramatic energy. BPM: 100. Length: 180 seconds\\n- A piece of calm, quiet, mellow, serene music perfect for a peaceful film score, featuring soft modulating piano, ambient sfx and foley, beautiful vibraphone, and subtle synthesizer drones. The mood is cinematic, thoughtful, serene and nostalgic. BPM: 55. Length: 300 seconds\",\n  \"Instrument\": \"You are a music metadata expert. Given an instrument, generate a descriptive prompt for a generative audio model.\\n\\n1. Identify the instrument.\\n2. Add playing style or technique.\\n3. Include details about material, timbre, or texture.\\n4. Add musical style or mood. Specify the genre, context, or emotional character.\\n5. Add spatial or production qualities.\\n6. Specify BPM: Always include a BPM appropriate to the style and context.\\n7. Specify length: Provide an integer in seconds (6\u201320 s for loops, 20\u2013180 s for stems).\\n\\nExamples:\\n- Synth arpeggio loop with bright detuned oscillators. BPM: 120. Length: 8 seconds\\n- Chord stab loop with sharp percussive attack. BPM: 90. Length: 6 seconds\\n- Guitar muted strum loop with tight rhythmic feel. BPM: 100. Length: 8 seconds\\n- Pluck sequence loop with bright resonant tone. BPM: 128. Length: 10 seconds\\n- Marimba and vibraphone percussive loop with resonant wooden and metallic tones. BPM: 110. Length: 12 seconds\\n- Drum loop with deep muffled kick on beat one, snappy rimshot snare on beats two and four with rolling ghost note fills, and tight closed hi-hats with subtle open accents. BPM: 85. Length: 10 seconds\\n- Drum groove loop with brushed snare swinging on the ride, soft feathered kick on downbeats, and light closed hi-hat taps on the upbeats. BPM: 130. Length: 12 seconds\\n- Kick and hi-hat loop with four-on-the-floor punchy kick, tight closed hi-hats on every eighth note, and a sharp dry snare on beats two and four. BPM: 130. Length: 15 seconds\\n- Vinyl crackle drum loop with warm low-pass filtered kick, dusty snare with tape saturation, and shuffled closed hi-hats with subtle vinyl crackle ambiance. BPM: 80. Length: 10 seconds\\n- Ambient pad loop with evolving texture. BPM: 80. Length: 12 seconds\\n- Melodic synth bass groove loop with pumping sidechain feel. BPM: 122. Length: 10 seconds\\n- Melodic Bass slap and pop rhythm loop. BPM: 100. Length: 8 seconds\\n- Acoustic bass walking line loop with natural wooden resonance. BPM: 120. Length: 12 seconds\\n- String pizzicato motif loop, suspenseful, with tight string texture. BPM: 90. Length: 8 seconds\\n- Brass staccato riff loop with sharp bright attack. BPM: 130. Length: 10 seconds\\n- Flute airy melodic loop with wooden headjoint resonance. BPM: 100. Length: 6 seconds\\n- Pan flute ambient loop with breathy timbre. BPM: 75. Length: 8 seconds\\n- Clarinet riff loop with warm smooth reed tone. BPM: 120. Length: 10 seconds\\n- Oboe motif loop, orchestral, with rich double reed resonance. BPM: 80. Length: 8 seconds\\n- Recorder Renaissance motif loop with soft wooden timbre. BPM: 100. Length: 6 seconds\\n- Electric sitar riff loop with buzzing resonant tone. BPM: 90. Length: 10 seconds\\n- Koto plucked motif loop with resonant wooden strings. BPM: 90. Length: 8 seconds\\n- Shamisen folk melody loop with percussive twang. BPM: 100. Length: 8 seconds\\n- Banjo fingerpicking loop with metallic string resonance. BPM: 110. Length: 10 seconds\\n- Mandolin tremolo loop with crisp wooden body tone. BPM: 120. Length: 10 seconds\\n- Acoustic guitar chord vamp loop with natural room resonance. BPM: 110. Length: 12 seconds\\n- Nylon string guitar arpeggio loop with warm, soft timbre. BPM: 90. Length: 15 seconds\\n- Electric guitar riff loop with driven distorted tone. BPM: 130. Length: 10 seconds\\n- Slide guitar melody loop with warm resonant glide. BPM: 100. Length: 12 seconds\\n- Steel guitar slide loop with bright pedal steel tone. BPM: 95. Length: 12 seconds\\n- Harpsichord arpeggio loop with crisp plucked attack. BPM: 120. Length: 10 seconds\\n- Rhodes chord vamp loop with warm electric piano tone. BPM: 100. Length: 12 seconds\\n- Clavinet funky rhythm loop. BPM: 105. Length: 10 seconds\\n- Organ chord vamp loop with full drawbar warmth. BPM: 90. Length: 12 seconds\\n- Drum loop with booming 808 kick on beat one, crisp snare on beat three, and rapid triplet hi-hat rolls with open hat accents for aggressive high-energy feel. BPM: 140. Length: 8 seconds\\n- Breakbeat drum loop with chopped Amen-style snare flurries, driving kick on the one, fast sixteenth-note closed hi-hats, and syncopated open hat accents. BPM: 170. Length: 10 seconds\\n- Glitch percussion loop with stuttered kick transients, randomised snare hits processed with bit-crushing, and erratic hi-hat patterns with pitch-shifted metallic ticks. BPM: 120. Length: 12 seconds\\n- Metallic hits loop with distorted kick impacts, processed metal-plate snare slams, and grinding hi-hat noise bursts for aggressive mechanical texture. BPM: 120. Length: 10 seconds\\n- Timpani hits loop, cinematic, with deep resonant kick-like timpani strikes on beat one, rolling snare-style timpani fills, and no hi-hats for a grand orchestral feel. BPM: 70. Length: 8 seconds\\n- Snare roll loop, dramatic, with accelerating snare drum rolls building from soft to crashing, deep supporting kick pulses, and no hi-hats for maximum impact. BPM: 100. Length: 8 seconds\\n- Accordion motif loop with bright reedy bellows tone. BPM: 100. Length: 10 seconds\\n- Harmonica blues riff loop with expressive reed timbre. BPM: 90. Length: 10 seconds\\n- Trombone riff loop with warm sliding brass tone. BPM: 120. Length: 10 seconds\\n- French horn melodic loop, cinematic. BPM: 80. Length: 12 seconds\\n- Soprano sax ballad loop. BPM: 70. Length: 12 seconds\\n- Alto sax bebop riff loop. BPM: 200. Length: 10 seconds\\n- Electric violin melodic loop with reverb. BPM: 90. Length: 10 seconds\\n- String pad loop with cinematic texture. BPM: 70. Length: 15 seconds\\n- Granular synth evolving texture loop. BPM: 90. Length: 15 seconds\\n- Piano motif loop with soft felt hammer tone. BPM: 80. Length: 10 seconds\\n- Pad and synth loop with lush detuned shimmer. BPM: 85. Length: 12 seconds\\n- Synth lead loop with sidechain pumping compression. BPM: 128. Length: 10 seconds\\n- Analog synth bassline loop with deep warm low-end. BPM: 122. Length: 12 seconds\\n- FM synth lead motif loop with bright metallic shimmer. BPM: 110. Length: 10 seconds\\n- Bass groove loop with tight rhythmic two-bar pattern. BPM: 100. Length: 16 seconds\\n- Acoustic guitar fingerstyle motif loop with warm wood resonance. BPM: 90. Length: 45 seconds\\n- Sombre acoustic guitar motif loop with cavernous reverb, delicate fingerpicking, and expressive melancholic tone. BPM: 70. Length: 45 seconds\\n- Electric guitar rock riff motif loop. BPM: 130. Length: 40 seconds\\n- Vintage electric guitar motif loop, live-recorded in a vintage studio, with expressive and dynamic solo performance. BPM: 90. Length: 40 seconds\\n- Piano chord progression motif loop with rich harmonic movement. BPM: 120. Length: 60 seconds\\n- String ensemble cinematic motif loop with rich wooden resonance. BPM: 80. Length: 120 seconds\\n- Brass ensemble cinematic motif loop with bright metallic timbre. BPM: 90. Length: 90 seconds\\n- Ethnic percussion ensemble motif loop with deep resonant djembe kick tones, slapped snare-like rim hits on congas, and layered shakers and bells providing hi-hat-like rhythmic texture with polyrhythmic patterns. BPM: 100. Length: 90 seconds\\n- Synth ambient motif loop with evolving textures. BPM: 80. Length: 180 seconds\\n- Motif loop with warm dusty vinyl crackle and tape saturation. BPM: 80. Length: 60 seconds\\n- Synth lead and bass motif loop with bright punchy energy. BPM: 128. Length: 90 seconds\\n- Funk band motif loop: bass, drums, guitar. BPM: 100. Length: 90 seconds\\n- Ethnic flute motif for cinematic use. BPM: 80. Length: 30 seconds\\n- Steel drum melodic motif loop with bright metallic resonance. BPM: 110. Length: 20 seconds\\n- Marimba percussive motif loop with resonant wooden tone. BPM: 100. Length: 20 seconds\\n- Vibraphone melodic motif loop with metallic shimmer. BPM: 90. Length: 25 seconds\\n- Piano cinematic motif loop with resonant wooden tone. BPM: 80. Length: 30 seconds\\n- Violin expressive cinematic motif loop with rich wooden resonance. BPM: 75. Length: 25 seconds\\n- Cello expressive motif loop with deep wooden resonance. BPM: 70. Length: 30 seconds\\n- Trumpet expressive motif loop with brassy overtones. BPM: 100. Length: 25 seconds\\n- Sax expressive motif loop with warm reed timbre. BPM: 95. Length: 25 seconds\\n- Ethnic drum ensemble motif loop with booming natural-skin bass drum kicks, sharp hand-slap snare accents on djembes and talking drums, and layered wooden and metal percussion providing rhythmic hi-hat-like patterns. BPM: 95. Length: 30 seconds\\n- Ambient drone motif loop. BPM: 60. Length: 180 seconds\\n- Orchestral tension motif loop. BPM: 90. Length: 150 seconds\\n- Electronic track motif loop with drums, bass, synth. BPM: 128. Length: 180 seconds\",\n  \"SFX\": \"You are a professional sound design expert. Convert the user's input into a precise, vivid sound effects description suitable for generative audio models.\\n\\nDescribe clearly:\\n- Sound source\\n- Physical character (texture, timbre, material: metal, wood, glass, concrete, etc.)\\n- Spatial qualities (indoor/outdoor, cave/open field/underwater, dry/reverberant, close-up/distant, echoing/muffled)\\n- Temporal evolution (attack, decay, movement, transitions over time)\\n- Include motion or spatial movement if applicable (passing, approaching, stereo movement)\\n\\nAudio length rules:\\n- Very short sounds (impacts, clicks, gunshots): 1\u20133 seconds\\n- Medium actions (footsteps, object movement, transitions): 3\u20136 seconds\\n- Ambience / environments: 6\u201315 seconds\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nOutput constraints:\\n- Length: 1\u20132 dense sentences maximum\\n- Output ONLY the final rewritten prompt\\n- No explanations, no formatting, no quotes\\n- Use concise but dense technical language\\n- Focus strictly on sound effects or ambience\\n- Always append: Length: X seconds (integer only, no decimals).\\n\\nQuality guidelines:\\n- Be specific and avoid vague terms\\n- Prioritize clarity and realism\\n- Combine elements into one coherent scene\\n- Avoid redundancy\\n\\nExamples:\\n- Heavy rain hitting a metal roof during a thunderstorm, distant thunder rumbles, stereo, realistic ambience. Length: 45 seconds\\n- Quiet forest at dawn with birds chirping, soft wind through leaves, distant stream flowing. Length: 60 seconds\\n- Busy city street at night, cars passing, muffled conversations, occasional horn, urban ambience. Length: 50 seconds\\n- Ocean waves crashing against rocky cliffs, strong wind, dramatic and cinematic. Length: 70 seconds\\n- Wooden door creaking open slowly in an old house, echoing interior, eerie tone. Length: 3 seconds\\n- Glass bottle shattering on concrete, sharp impact, scattered fragments. Length: 2 seconds\\n- Footsteps on gravel, steady walking pace, close perspective. Length: 8 seconds\\n- Typing rapidly on a mechanical keyboard, crisp tactile clicks. Length: 5 seconds\\n- Punch impact with deep bass hit, cinematic trailer style. Length: 2 seconds\\n- Car speeding past at high velocity, doppler effect, realistic whoosh. Length: 3 seconds\\n- Object falling from height and hitting ground with a heavy thud. Length: 2 seconds\\n- Sword swing whooshing through air, fast motion, clean metallic tone. Length: 2 seconds\\n- Futuristic laser blast, clean energy pulse, high-tech sound design. Length: 1 seconds\\n- Spaceship engine humming, low frequency rumble, interior perspective. Length: 90 seconds\\n- Magical spell casting, shimmering particles, rising tonal energy. Length: 8 seconds\\n- Teleportation effect, glitchy digital distortion with a soft whoosh. Length: 5 seconds\\n- Dark eerie drone with distant whispers, creepy, slow build tension. Length: 120 seconds\\n- Sudden horror jump scare sting, sharp violin hit, cinematic. Length: 1 second\\n- Metal scraping slowly in a dark tunnel, echoing and ominous. Length: 20 seconds\\n- Explosion with debris scattering, deep bass, cinematic realism. Length: 4 seconds\\n- Building collapsing, rumbling concrete, dust and debris falling. Length: 25 seconds\\n- Fire crackling intensely, wood burning, close-up detail. Length: 80 seconds\\n- Gunshot in a large empty warehouse, loud echo decay. Length: 2 seconds\\n- Retro arcade coin insert sound, 8-bit style. Length: 1 second\\n- Level up chime, bright, rewarding, fantasy RPG style. Length: 2 seconds\\n- Error buzzer, short, digital, UI feedback. Length: 1 second\\n- Menu navigation clicks, soft futuristic interface sounds. Length: 3 seconds\\n- Layered soundscape: rain, thunder, footsteps, and distant sirens all blending naturally. Length: 90 seconds\\n- Rapid sequence of three impacts: metal hit, glass break, wood crack, spaced evenly. Length: 4 seconds\\n- Sound moving from left to right stereo field: passing motorcycle. Length: 5 seconds\\n- Close vs far perspective transition: footsteps approaching then fading away. Length: 6 seconds\\n- Tape stop sub drop, a massive sub-bass note that mimics a vinyl record or tape machine being turned off, the pitch and speed drop simultaneously, causing the high-end harmonics to smear and thicken as the sound grinds to a halt at a sub-sonic frequency. Length: 11 seconds\\n- Gravel and leaves footsteps, the sound of a hard boot stepping onto dry leaves or gravel, crisp and natural with detailed texture. Length: 11 seconds\\n- Ghostship moan, a massive, deep wooden groan with a low-frequency moan, like heavy timber under immense structural tension, swaying slowly, processed with long, dark wooden room reverb for a sense of scale. Length: 11 seconds\\n- Bicycle chain, a continuous metallic whirring sound of a chain moving over sprockets, with individual teeth catching the links, processed with resonant band-pass filter to emphasize metallic singing. Length: 11 seconds\\n- Warp drive, a sound that starts with a massive suck-back of ambient noise, followed by a supersonic crack and high-pitched zing that disappears into the distance, giving the sense of stretching space-time. Length: 11 seconds\\n- Ice cubes, high-pitched musical clinking of hard ice hitting a thin glass, bright resonant ring with subtle liquid sloshing around the edges. Length: 11 seconds\\n- Paper shuffle, the sound of a thick stack of heavy bond paper being squared up on a desk, dry papery thud with a quick fanning sound as air moves between the pages. Length: 11 seconds\\n- Drawer slam, a blunt, powerful thud made by slamming a wooden desk drawer shut, pronounced low-mid body, slightly distorted for aggressive character. Length: 3 seconds\",\n  \"One-shot\": \"You are a music metadata expert. Given an instrument or sound, generate a descriptive prompt for a short, isolated one-shot audio sample for music production.\\n\\n1. Identify the instrument or sound source.\\n2. Describe the playing technique or hit type (e.g., pluck, slam, tap, stab).\\n3. Include details about material, timbre, or texture.\\n4. Add spatial or production qualities (dry/wet, room, close-mic).\\n5. Specify length: short integer in seconds (1\u201311 s).\\n\\nExamples:\\n- Piano key hit with bright percussive attack and resonant wooden body. Length: 2 seconds\\n- Kick drum punchy low-end hit with warm skin resonance. Length: 2 seconds\\n- Snare drum rimshot accent with crisp snare wires. Length: 2 seconds\\n- Acoustic guitar fingerstyle note with warm spruce tone. Length: 3 seconds\\n- Bass pluck with jazzy tone and resonant wooden body. Length: 3 seconds\\n- Electric guitar power chord with distortion. Length: 3 seconds\\n- Metallic glitch percussion hit with sharp metallic texture. Length: 2 seconds\\n- Tabla resonant tone hit with natural skin timbre. Length: 2 seconds\\n- Djembe slap accent with dry wooden resonance. Length: 2 seconds\\n- Synth stab with reverb tail. Length: 3 seconds\\n- Violin expressive note with vibrato and rich wooden resonance. Length: 3 seconds\\n- Cello legato note, cinematic, with warm resonant body. Length: 3 seconds\\n- Trumpet bright accent with slightly brassy overtones. Length: 2 seconds\\n- Melodic saxophone jazz riff with smooth reed timbre and a slight vibrato bend. Length: 3 seconds\\n- Harp pluck with airy tone and resonant strings. Length: 2 seconds\\n- Glockenspiel bell-like note with bright metallic clarity. Length: 2 seconds\\n- Metallic clang sound design hit. Length: 2 seconds\\n- Granular texture hit. Length: 3 seconds\\n- Reversed piano hit. Length: 2 seconds\\n- Synth riser effect. Length: 6 seconds\\n- Percussion impact hit. Length: 2 seconds\\n- Cinematic hit. Length: 2 seconds\\n- Dry clap, a crisp, natural single hand clap recorded in a dead room with an extremely sharp transient and no room reflections. Length: 1 second\\n- Studio hat, a classic, natural recording of 14-inch hi-hats played tightly closed, zero ring, very fast decay. Length: 1 second\\n- Disco open hat, bright 14-inch open hi-hat with long, shimmering decay, perfect for disco or dance grooves. Length: 1 second\\n- Pillow kick, acoustic kick drum muffled with a heavy blanket, producing a short, dry \\\"thump\\\" with almost zero resonance. Length: 1 second\\n- Short 808, punchy 808 kick with sharp, distorted transient and fast-decaying sub-tail. Length: 1 second\\n- Egg shaker, classic plastic egg shaker recorded with a small-diaphragm condenser mic, producing a light, consistent \\\"tick\\\" with very short sustain. Length: 1 second\\n- African drums, dynamic African drums and percussion ensemble with natural acoustic textures. Length: 3 seconds\\n- Latin drums, dynamic Latin drums and percussion ensemble featuring authentic rhythmic patterns. Length: 3 seconds\\n- String quartet, euphoric string quartet with dynamic and emotional playing, full of expressive harmonies and movement. Length: 3 seconds\\n- Piano, nostalgic, atmospheric piano piece with dynamic and emotional performance, intimate and resonant. Length: 3 seconds\\n- Analogue drift pad, warm polyphonic pad with three detuned oscillators (saw + triangle), subtle pitch drift, and lush bucket-brigade chorus for wide, nostalgic stereo image. Length: 11 seconds\\n- Phase distortion bass, Casio CZ-style phase-distorted sine wave warped into a jagged sawtooth for retro synth bass tone. Length: 11 seconds\\n- Vibrato saxophone, bright lyrical alto sax with fast fluttery vibrato, reedy vintage tone, captured with ribbon mic for warm nostalgic sound. Length: 11 seconds\\n- Lofi upright bass, upright bass recorded with ribbon mic in a wooden room, natural air with slightly boxy resonance, tape-saturated for dusty 1950s jazz feel. Length: 2 seconds\"\n}",
+        "widget_1": "Music"
+      }
+    },
+    "71": {
+      "class_type": "StringReplace",
+      "id": "71",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 71,
+          "inputs": [
+            {
+              "link": 105,
+              "name": "string",
+              "type": "STRING",
+              "widget": {
+                "name": "string"
+              }
+            },
+            {
+              "link": 106,
+              "name": "replace",
+              "type": "STRING",
+              "widget": {
+                "name": "replace"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                103
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1643.546218904959,
+            1345.20859105589
+          ],
+          "properties": {
+            "Node name for S&R": "StringReplace",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            260,
+            280
+          ],
+          "title": "Text Replace (AUDIO LENGTH)",
+          "type": "StringReplace",
+          "widgets_values": [
+            "",
+            "AUDIO_LENGTH",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "",
+          "AUDIO_LENGTH",
+          ""
+        ]
+      },
+      "uid": "71",
+      "widgets": {
+        "widget_0": "",
+        "widget_1": "AUDIO_LENGTH",
+        "widget_2": ""
+      }
+    },
+    "72": {
+      "class_type": "StringReplace",
+      "id": "72",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 72,
+          "inputs": [
+            {
+              "link": 107,
+              "name": "replace",
+              "type": "STRING",
+              "widget": {
+                "name": "replace"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                100
+              ],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            1013.5462189049588,
+            1345.20859105589
+          ],
+          "properties": {
+            "Node name for S&R": "StringReplace",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            290,
+            280
+          ],
+          "title": "Text Replace (PROMPT TEMPLATE)",
+          "type": "StringReplace",
+          "widgets_values": [
+            "SYSTEM_PROMPTS\n\nInput: USER_INPUT\nTarget audio length: AUDIO_LENGTH seconds.\nOutput:",
+            "SYSTEM_PROMPTS",
+            ""
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "SYSTEM_PROMPTS\n\nInput: USER_INPUT\nTarget audio length: AUDIO_LENGTH seconds.\nOutput:",
+          "SYSTEM_PROMPTS",
+          ""
+        ]
+      },
+      "uid": "72",
+      "widgets": {
+        "widget_0": "SYSTEM_PROMPTS\n\nInput: USER_INPUT\nTarget audio length: AUDIO_LENGTH seconds.\nOutput:",
+        "widget_1": "SYSTEM_PROMPTS",
+        "widget_2": ""
+      }
+    },
+    "73": {
+      "class_type": "PrimitiveBoolean",
+      "id": "73",
+      "inputs": {
+        "value": false
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 73,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                97
+              ],
+              "name": "BOOLEAN",
+              "type": "BOOLEAN"
+            }
+          ],
+          "pos": [
+            -26.923975456864653,
+            1016.7311418834755
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveBoolean",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            301.54168217315123,
+            58
+          ],
+          "title": "Boolean (Enable_Reprompt)",
+          "type": "PrimitiveBoolean",
+          "widgets_values": [
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          false
+        ]
+      },
+      "uid": "73",
+      "widgets": {}
+    },
+    "74": {
+      "class_type": "PrimitiveFloat",
+      "id": "74",
+      "inputs": {
+        "value": 30
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 74,
+          "inputs": [],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                88,
+                98
+              ],
+              "name": "FLOAT",
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            25.35028511172903,
+            867.3889976765679
+          ],
+          "properties": {
+            "Node name for S&R": "PrimitiveFloat",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            211.2036509149417,
+            58
+          ],
+          "title": "Float (Duration)",
+          "type": "PrimitiveFloat",
+          "widgets_values": [
+            30
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          30
+        ]
+      },
+      "uid": "74",
+      "widgets": {}
+    },
+    "75": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "75",
+      "inputs": {
+        "ckpt_name": "audio/stable_audio_3_medium_base.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 75,
+          "inputs": [],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                89
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            },
+            {
+              "links": [],
+              "name": "CLIP",
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                87
+              ],
+              "name": "VAE",
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            393.5462189049588,
+            575.2085910558902
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "checkpoints",
+                "name": "stable_audio_3_medium_base.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_medium_base.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            448.1202401040755,
+            98
+          ],
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "audio/stable_audio_3_medium_base.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "audio/stable_audio_3_medium_base.safetensors"
+        ]
+      },
+      "uid": "75",
+      "widgets": {}
+    },
+    "76": {
+      "class_type": "CLIPLoader",
+      "id": "76",
+      "inputs": {
+        "clip_name": "t5gemma_b_b_ul2.safetensors",
+        "device": "default",
+        "type": "stable_audio"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 76,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                85,
+                93
+              ],
+              "name": "CLIP",
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            393.5462189049588,
+            835.2085910558909
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "enableTabs": false,
+            "hasSecondTab": false,
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "t5gemma_b_b_ul2.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors"
+              }
+            ],
+            "secondTabOffset": 80,
+            "secondTabText": "Send Back",
+            "secondTabWidth": 65,
+            "tabWidth": 65,
+            "tabXOffset": 10,
+            "ver": "0.21.1"
+          },
+          "size": [
+            385.0540020508729,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "t5gemma_b_b_ul2.safetensors",
+            "stable_audio",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "t5gemma_b_b_ul2.safetensors",
+          "stable_audio",
+          "default"
+        ]
+      },
+      "uid": "76",
+      "widgets": {}
+    },
+    "77": {
+      "class_type": "PreviewAny",
+      "id": "77",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 77,
+          "inputs": [
+            {
+              "link": 109,
+              "name": "source",
+              "type": "*"
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [],
+              "name": "STRING",
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2013.5462189049576,
+            2025.2085910558903
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewAny",
+            "cnr_id": "comfy-core",
+            "ver": "0.22.0"
+          },
+          "size": [
+            420,
+            550
+          ],
+          "type": "PreviewAny",
+          "widgets_values": [
+            null,
+            null,
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          null,
+          null,
+          null
+        ]
+      },
+      "uid": "77",
+      "widgets": {
+        "widget_0": null,
+        "widget_1": null,
+        "widget_2": null
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "19",
+      "output_type": "SaveAudioMP3"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "audio/stable_audio_3_medium_base.safetensors",
+      "qwen3.5_2b_bf16.safetensors",
+      "t5gemma_b_b_ul2.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "b52ce75c81efa8c1",
+    "path": "external_workflows/.shadow/source/b52ce75c81efa8c1-audio_stable_audio_3_medium_base.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "c953dfc7fcf7520be2589a0663188678a49bd1ebcf8fedc714207f6c76e63950",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1224092268575723611,
+      "channel_name": "music",
+      "discord_message_url": "https://discord.com/channels/@me/1224092268575723611/1506797272719953960",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1506797272719953960:audio_stable_audio_3_medium_base.json:b52ce75c81efa8c1",
+      "filename": "audio_stable_audio_3_medium_base.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:58+00:00",
+      "message_id": 1506797272719953960,
+      "node_class_multiset": {
+        "CLIPLoader": 2,
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "ComfyMathExpression": 1,
+        "ComfySwitchNode": 1,
+        "CustomCombo": 1,
+        "EmptyLatentAudio": 1,
+        "JsonExtractString": 1,
+        "KSampler": 1,
+        "MarkdownNote": 2,
+        "PreviewAny": 2,
+        "PrimitiveBoolean": 1,
+        "PrimitiveFloat": 1,
+        "PrimitiveStringMultiline": 1,
+        "SaveAudioMP3": 1,
+        "StringReplace": 3,
+        "TextGenerate": 1,
+        "VAEDecodeAudio": 1
+      },
+      "node_count": 24,
+      "origin_date": "2026-05-20T23:14:24.756000+00:00",
+      "originator_global_name": "Lumori",
+      "originator_id": "123564144354918400",
+      "originator_type": "discord_message_author",
+      "originator_username": "lumoria",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "b52ce75c81efa8c1d6636356c02018741c4f02d37e254029456930dac4ce06f4",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1224092268575723611/1506797272913154168/audio_stable_audio_3_medium_base.json?ex=6a0f91d0&is=6a0e4050&hm=17d03c053aa5c1a6b0de19d4cde805b54a951ee2b671c0bda44a8f48c926a881&",
+      "source_workflow_sha256": "0ebd29c858087a347eb9e1a9e5aab95c44bf45857a3a9fe0348bc09812d86cd4",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

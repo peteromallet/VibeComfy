@@ -394,11 +394,16 @@ def test_implementation_result_unchanged_prose_does_not_gate_scoring(
     ]
 
 
-def _successful_edit_response() -> dict:
+def _successful_edit_response(*, candidate_graph: dict | None = None) -> dict:
+    if candidate_graph is None:
+        candidate_graph = {
+            "nodes": [{"id": 1, "type": "KSampler"}],
+            "links": [],
+        }
     return {
         "ok": True,
         "graph_unchanged": False,
-        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "candidate_graph": candidate_graph,
         "outcome": {"kind": "candidate"},
         "change_details": {"landed_operation_count": 1},
         "gates": {
@@ -509,8 +514,12 @@ def test_shared_source_effective_edit_passes_by_default(tmp_path: Path) -> None:
     several consumers."""
     run_dir = tmp_path / "shared-default"
     run_dir.mkdir(parents=True, exist_ok=True)
+    candidate_graph = _frame_graph(
+        source_value=16, target_value=8, linked=True, shared_source=True
+    )
     (run_dir / "response.json").write_text(
-        json.dumps(_successful_edit_response()), encoding="utf-8"
+        json.dumps(_successful_edit_response(candidate_graph=candidate_graph)),
+        encoding="utf-8",
     )
     (run_dir / "original.ui.json").write_text(
         json.dumps(
@@ -521,11 +530,7 @@ def test_shared_source_effective_edit_passes_by_default(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "candidate.ui.json").write_text(
-        json.dumps(
-            _frame_graph(
-                source_value=16, target_value=8, linked=True, shared_source=True
-            )
-        ),
+        json.dumps(candidate_graph),
         encoding="utf-8",
     )
     _seed_lineage(run_dir, scenario_id="effective-edit")
@@ -547,8 +552,12 @@ def test_shared_source_effective_edit_fails_when_isolation_opted_in(
     assessment.isolate_shared_effective_sources=true."""
     run_dir = tmp_path / "shared-isolated"
     run_dir.mkdir(parents=True, exist_ok=True)
+    candidate_graph = _frame_graph(
+        source_value=16, target_value=8, linked=True, shared_source=True
+    )
     (run_dir / "response.json").write_text(
-        json.dumps(_successful_edit_response()), encoding="utf-8"
+        json.dumps(_successful_edit_response(candidate_graph=candidate_graph)),
+        encoding="utf-8",
     )
     (run_dir / "original.ui.json").write_text(
         json.dumps(
@@ -559,11 +568,7 @@ def test_shared_source_effective_edit_fails_when_isolation_opted_in(
         encoding="utf-8",
     )
     (run_dir / "candidate.ui.json").write_text(
-        json.dumps(
-            _frame_graph(
-                source_value=16, target_value=8, linked=True, shared_source=True
-            )
-        ),
+        json.dumps(candidate_graph),
         encoding="utf-8",
     )
 
@@ -588,30 +593,36 @@ def test_equivalent_effect_different_paths_score_equally(tmp_path: Path) -> None
     identically — implementation path never affects the score."""
     direct_dir = tmp_path / "direct-widget"
     direct_dir.mkdir(parents=True, exist_ok=True)
+    direct_candidate = _frame_graph(
+        source_value=8, target_value=16, linked=False
+    )
     (direct_dir / "response.json").write_text(
-        json.dumps(_successful_edit_response()), encoding="utf-8"
+        json.dumps(_successful_edit_response(candidate_graph=direct_candidate)),
+        encoding="utf-8",
     )
     (direct_dir / "original.ui.json").write_text(
         json.dumps(_frame_graph(source_value=8, target_value=8, linked=False)),
         encoding="utf-8",
     )
     (direct_dir / "candidate.ui.json").write_text(
-        json.dumps(_frame_graph(source_value=8, target_value=16, linked=False)),
+        json.dumps(direct_candidate),
         encoding="utf-8",
     )
     _seed_lineage(direct_dir, scenario_id="effective-edit")
 
     linked_dir = tmp_path / "linked-source"
     linked_dir.mkdir(parents=True, exist_ok=True)
+    linked_candidate = _frame_graph(source_value=16, target_value=8, linked=True)
     (linked_dir / "response.json").write_text(
-        json.dumps(_successful_edit_response()), encoding="utf-8"
+        json.dumps(_successful_edit_response(candidate_graph=linked_candidate)),
+        encoding="utf-8",
     )
     (linked_dir / "original.ui.json").write_text(
         json.dumps(_frame_graph(source_value=8, target_value=8, linked=True)),
         encoding="utf-8",
     )
     (linked_dir / "candidate.ui.json").write_text(
-        json.dumps(_frame_graph(source_value=16, target_value=8, linked=True)),
+        json.dumps(linked_candidate),
         encoding="utf-8",
     )
     _seed_lineage(linked_dir, scenario_id="effective-edit")
@@ -1055,6 +1066,78 @@ def test_assessor_rejects_explicit_null_candidate_aliases(
     assert any(issue["check"] == "response_malformed" for issue in assessment["issues"])
 
 
+def test_real_successful_non_edit_terminal_may_carry_sole_null_candidate() -> None:
+    from vibecomfy.executor.contracts import (
+        ClassifyDecision,
+        ExecutorResult,
+        ImplementationResult,
+        Report,
+    )
+
+    response = ExecutorResult.success(
+        report=Report(
+            plan=ClassifyDecision(
+                research=True,
+                implement=False,
+                route="research",
+                task="research_nodes",
+            ),
+            implementation=ImplementationResult(
+                message="Grounded answer.",
+                durable_response={"graph_unchanged": True},
+            ),
+        ),
+        reply="Grounded answer.",
+    ).to_dict()
+
+    assert response["candidate"] is None
+    assert response["graph_unchanged"] is True
+    assert response["route"] == "research"
+    assert assessor_module._response_envelope_is_valid(response) is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "ok": True,
+            "graph_unchanged": False,
+            "route": "research",
+            "candidate": None,
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "revise",
+            "candidate": None,
+        },
+        {
+            "ok": False,
+            "graph_unchanged": True,
+            "route": "research",
+            "candidate": None,
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "research",
+            "candidate": None,
+            "candidate_graph": {"nodes": [], "links": []},
+        },
+        {
+            "ok": True,
+            "graph_unchanged": True,
+            "route": "research",
+            "outcome": {"kind": "answer", "candidate": None},
+        },
+    ],
+)
+def test_null_candidate_exemption_rejects_changed_edit_failed_or_ambiguous_carriers(
+    response: dict,
+) -> None:
+    assert assessor_module._candidate_carriers_are_well_formed(response) is False
+
+
 def test_assessor_rejects_unsupported_nested_candidate_transaction_contract(
     tmp_path: Path,
 ) -> None:
@@ -1120,13 +1203,21 @@ def test_assessor_rejects_malformed_direct_changes_carrier(
     "response",
     [
         _candidate_assessment_response(
-            candidate_graph={"nodes": [{"id": 1}], "links": []}
+            candidate_graph={
+                "nodes": [{"id": 1, "type": "KSampler"}],
+                "links": [],
+            }
         ),
         _candidate_assessment_response(
             candidate_graph={"1": {"class_type": "KSampler", "inputs": {}}}
         ),
         _candidate_assessment_response(
-            candidate={"graph": {"nodes": [{"id": 1}], "links": []}}
+            candidate={
+                "graph": {
+                    "nodes": [{"id": 1, "type": "KSampler"}],
+                    "links": [],
+                }
+            }
         ),
         {
             "ok": True,
@@ -1934,6 +2025,8 @@ def _valid_candidate_transaction() -> dict:
         session_id="session",
         turn_id="0001",
         plan_hash="plan",
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=[],
@@ -1948,6 +2041,15 @@ def _valid_candidate_transaction() -> dict:
         candidate_matches=True,
         applyable=True,
         verification_kind="delta_replay",
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
 
 

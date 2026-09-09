@@ -5,6 +5,7 @@ from typing import Any
 
 from vibecomfy.errors import VibeComfyError, WorkflowBuildError, WorkflowValidationError
 from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, WorkflowBundleError
 
 
 def emit_schema_unavailable_once(owner: Any, logger: Any, msg: str) -> None:
@@ -88,43 +89,27 @@ async def _warm_schema_provider(
 
 
 def _prepare_prompt(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str,
     schema_provider: Any | None = None,
 ) -> dict[str, Any]:
-    # Schema validation: cache-hit on every submit after the first per-runtime; first-fetch latency acceptable.
-    report = workflow.validate(schema_provider=schema_provider)
-    if not report.ok:
-        messages = "; ".join(issue.message for issue in report.issues)
-        raise WorkflowValidationError(
-            f"Workflow validation failed: {messages}",
-            next_action="Fix the reported workflow validation issues before queueing this workflow.",
-        )
-
-    try:
-        return workflow.compile(backend=backend)
-    except VibeComfyError:
-        raise
-    except ValueError as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the compile backend and workflow graph, then rebuild the workflow.",
-        ) from exc
-    except RuntimeError as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the workflow graph and any generated scratchpad code before retrying.",
-        ) from exc
-    except Exception as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the workflow graph and any generated scratchpad code before retrying.",
-        ) from exc
+    if backend != "api" or not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime prompt preparation requires an approved API record and bundle")
+    record.assert_matches(
+        bundle,
+        record.selected_variant,
+        record.input_binding,
+        api_projection=record.api_projection,
+        ui_projection=record.ui_projection,
+    )
+    return record.to_dict()["api_projection"]
 
 
 async def _prepare_prompt_async(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str,
     schema_provider: Any | None,
@@ -136,32 +121,8 @@ async def _prepare_prompt_async(
         on_unavailable=on_unavailable,
         cache_only=cache_only,
     )
-    report = workflow.validate(schema_provider=effective)
-    if not report.ok:
-        raise WorkflowValidationError(
-            _validation_failed_message(report),
-            next_action="Fix the reported workflow validation issues before queueing this workflow.",
-        )
-
-    try:
-        return workflow.compile(backend=backend)
-    except VibeComfyError:
-        raise
-    except ValueError as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the compile backend and workflow graph, then rebuild the workflow.",
-        ) from exc
-    except RuntimeError as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the workflow graph and any generated scratchpad code before retrying.",
-        ) from exc
-    except Exception as exc:
-        raise WorkflowBuildError(
-            f"Workflow build failed: {exc}",
-            next_action="Check the workflow graph and any generated scratchpad code before retrying.",
-        ) from exc
+    del effective
+    return _prepare_prompt(record, bundle, backend=backend, schema_provider=schema_provider)
 
 
 def _validation_failed_message(report: Any) -> str:

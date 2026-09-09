@@ -1,7 +1,7 @@
 {
   "id": "multi-svd-image-to-video-with-sdxl-conditioning-389d90",
   "query": "Can you explain how each stage of this workflow contributes to generating the final WEBP video, particularly the role of the CLIP text conditioning and how the SVD model uses the input image and text prompt together to determine motion?",
-  "workflow_path": "external_workflows/corpus/389d9080e42e36dd.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/389d9080e42e36dd.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/389d9080e42e36dd.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/389d9080e42e36dd.json",
     "required_node_evidence": [
       "CheckpointLoaderSimple",
       "CLIPTextEncode",

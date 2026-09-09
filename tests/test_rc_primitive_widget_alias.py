@@ -53,8 +53,24 @@ def _float_workflow() -> VibeWorkflow:
     return workflow
 
 
+def _frozen_primitive_provider() -> object:
+    """Capture the declared primitive schema at the fixture ingress door."""
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
+    source = _PrimitiveProvider()
+    ui = {
+        "nodes": [dict(_float_workflow().nodes["218"].metadata["_ui"])],
+        "links": [],
+    }
+    snapshot = capture_ingress_schema_snapshot(schema_provider=source, graph=ui)
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def test_float_value_write_updates_every_serialized_alias_and_candidate() -> None:
-    provider = _PrimitiveProvider()
+    provider = _frozen_primitive_provider()
     edited = apply_edit_cow(
         _float_workflow(),
         SetNodeFieldOp(
@@ -78,7 +94,7 @@ def test_float_value_write_updates_every_serialized_alias_and_candidate() -> Non
 
 
 def test_float_widget_zero_write_updates_named_value() -> None:
-    provider = _PrimitiveProvider()
+    provider = _frozen_primitive_provider()
     edited = apply_edit_cow(
         _float_workflow(),
         SetNodeFieldOp(
@@ -93,7 +109,7 @@ def test_float_widget_zero_write_updates_named_value() -> None:
 
 
 def test_float_write_updates_every_existing_alias_carrier() -> None:
-    provider = _PrimitiveProvider()
+    provider = _frozen_primitive_provider()
     workflow = _float_workflow()
     original = workflow.nodes["218"]
     original.inputs["value"] = 25.0

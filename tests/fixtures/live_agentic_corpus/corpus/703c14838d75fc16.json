@@ -1,0 +1,2717 @@
+{
+  "edges": [
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "111"
+    },
+    {
+      "from_node": "122",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "112"
+    },
+    {
+      "from_node": "112",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "113"
+    },
+    {
+      "from_node": "146",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "108"
+    },
+    {
+      "from_node": "58",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "154"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "54",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "57"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "57"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "57"
+    },
+    {
+      "from_node": "59",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "57"
+    },
+    {
+      "from_node": "156",
+      "from_output": "0",
+      "to_input": "steps",
+      "to_node": "57"
+    },
+    {
+      "from_node": "155",
+      "from_output": "0",
+      "to_input": "end_at_step",
+      "to_node": "57"
+    },
+    {
+      "from_node": "55",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "58"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "58"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "58"
+    },
+    {
+      "from_node": "57",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "58"
+    },
+    {
+      "from_node": "156",
+      "from_output": "0",
+      "to_input": "steps",
+      "to_node": "58"
+    },
+    {
+      "from_node": "155",
+      "from_output": "0",
+      "to_input": "start_at_step",
+      "to_node": "58"
+    },
+    {
+      "from_node": "153",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "122"
+    },
+    {
+      "from_node": "152",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "146"
+    },
+    {
+      "from_node": "113",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "55"
+    },
+    {
+      "from_node": "111",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "54"
+    }
+  ],
+  "groups": [],
+  "id": "157364f624781519",
+  "inputs": {
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70, cgi, animated, drawing, 3d, render, anime, manga, videogame, game, fake, plastic, "
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "noise_seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "57",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 211457270716941
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "108": {
+        "class_type": "PathchSageAttentionKJ",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "146",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "111",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sage_attention",
+            "'auto'"
+          ]
+        ]
+      },
+      "111": {
+        "class_type": "ModelPatchTorchSettings",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "108",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "54",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ]
+        ]
+      },
+      "112": {
+        "class_type": "PathchSageAttentionKJ",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "122",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "113",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "sage_attention",
+            "'auto'"
+          ]
+        ]
+      },
+      "113": {
+        "class_type": "ModelPatchTorchSettings",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "112",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "55",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "True"
+          ]
+        ]
+      },
+      "122": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "153",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "112",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'Wan2.2-Lightning_T2V-A14B-4steps-lora_LOW_fp16.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1.0000000000000004"
+          ]
+        ]
+      },
+      "146": {
+        "class_type": "LoraLoaderModelOnly",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "152",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "lora_name",
+            "'Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors'"
+          ],
+          [
+            "strength_model",
+            "1.0000000000000004"
+          ]
+        ]
+      },
+      "152": {
+        "class_type": "DiffusionModelLoaderKJ",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "146",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'wan2.2_t2v_high_noise_14B_fp16.safetensors'"
+          ],
+          [
+            "widget_1",
+            "'default'"
+          ],
+          [
+            "widget_2",
+            "'default'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'auto'"
+          ],
+          [
+            "widget_5",
+            "True"
+          ]
+        ]
+      },
+      "153": {
+        "class_type": "DiffusionModelLoaderKJ",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "122",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'wan2.2_t2v_low_noise_14B_fp16.safetensors'"
+          ],
+          [
+            "widget_1",
+            "'default'"
+          ],
+          [
+            "widget_2",
+            "'default'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ],
+          [
+            "widget_4",
+            "'auto'"
+          ],
+          [
+            "widget_5",
+            "True"
+          ]
+        ]
+      },
+      "154": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "155": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "end_at_step"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "start_at_step"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "4"
+          ]
+        ]
+      },
+      "156": {
+        "class_type": "PrimitiveNode",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "steps"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "steps"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ],
+          [
+            "value",
+            "8"
+          ]
+        ]
+      },
+      "38": {
+        "class_type": "CLIPLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'umt5_xxl_fp16.safetensors'"
+          ],
+          [
+            "device",
+            "'default'"
+          ],
+          [
+            "type",
+            "'wan'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'wan_2.1_vae.safetensors'"
+          ]
+        ]
+      },
+      "54": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "111",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "12.000000000000005"
+          ]
+        ]
+      },
+      "55": {
+        "class_type": "ModelSamplingSD3",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "113",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "58",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "shift",
+            "12.000000000000005"
+          ]
+        ]
+      },
+      "57": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "end_at_step",
+            [
+              "155",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "59",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "54",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "steps",
+            [
+              "156",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "58",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "noise_seed"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'enable'"
+          ],
+          [
+            "cfg",
+            "1"
+          ],
+          [
+            "noise_seed",
+            "211457270716941"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'enable'"
+          ],
+          [
+            "sampler_name",
+            "'res_2m_ode'"
+          ],
+          [
+            "scheduler",
+            "'bong_tangent'"
+          ],
+          [
+            "start_at_step",
+            "0"
+          ],
+          [
+            "unused_widget_2",
+            "'fixed'"
+          ]
+        ]
+      },
+      "58": {
+        "class_type": "KSamplerAdvanced",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "57",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "55",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "start_at_step",
+            [
+              "155",
+              "0"
+            ]
+          ],
+          [
+            "steps",
+            [
+              "156",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "add_noise",
+            "'disable'"
+          ],
+          [
+            "cfg",
+            "1"
+          ],
+          [
+            "end_at_step",
+            "10000"
+          ],
+          [
+            "noise_seed",
+            "929975885755679"
+          ],
+          [
+            "return_with_leftover_noise",
+            "'disable'"
+          ],
+          [
+            "sampler_name",
+            "'res_2m_ode'"
+          ],
+          [
+            "scheduler",
+            "'bong_tangent'"
+          ],
+          [
+            "unused_widget_2",
+            "'fixed'"
+          ]
+        ]
+      },
+      "59": {
+        "class_type": "EmptyHunyuanLatentVideo",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "batch_size",
+            "1"
+          ],
+          [
+            "height",
+            "1088"
+          ],
+          [
+            "length",
+            "1"
+          ],
+          [
+            "width",
+            "1920"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "positive"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'Hyper-realistic portrait, eye-level, medium-format look. A poised dark-skinned woman with long, bead-tipped braids sits centered in a vintage art-deco armchair of warm walnut and worn black leather. She cradles a full-grown albino alligator across her lap\u2014its creamy-pink scales, closed jaws and muscular tail glowing softly against her deep-olive wool skirt. She wears an unbuttoned ivory blouse with rolled sleeves, layered gold necklaces, and mismatched rings; one knee is raised, showing chunky cream-and-sage striped socks tucked into glossy oxblood Oxfords. Background: a dark empty warehouse with sunlight streaming in through high windows. Lighting: bright lighting casts dark shadows in a dramatic chiaoscuro portrait with high dynamic range. Cinematic color grading, fine-grain detail, shallow depth of field, 8 K resolution, dramatic yet elegant mood.\\n\\n\\n\\n\\n\\n\\n'"
+          ]
+        ]
+      },
+      "62": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "\"[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\\n)\\n\\n**Diffusion Model**\\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\\n\\n**VAE**\\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\\n\\n**Text Encoder**   \\n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\\n\\n---\\n\\n### \ud83d\udd34 FusionX T2V LoRa \\n`Wan2.1_T2V_14B_FusionX_LoRA'  \\n\ud83d\udd17 [Download Link](https://civitai.com/models/1678575?modelVersionId=1899873)\\n\\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\\n\\n---\\n\\n### \ud83d\udd34 Face Naturalizer LoRa \\n`Face Naturalizer'  \\n\ud83d\udd17 [Download Link](https://civitai.com/models/1755105\\n)\\n\\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\\n\\n---\\n\\nFile save location\\n\\n```\\nComfyUI/\\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \\n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\\n```\\n\""
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "38",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "57",
+              "negative"
+            ]
+          ],
+          [
+            "0",
+            [
+              "58",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70, cgi, animated, drawing, 3d, render, anime, manga, videogame, game, fake, plastic, '"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "58",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "154",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "703c14838d75fc16cdf4f712bc5c7e33d486a102c0da7d82a1db0abe54053bdf",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1344057524935983125,
+      "channel_name": "wan_gens",
+      "content_preview": "Nope but I'm using a sampler/scheduler from RES4LYF",
+      "discord_message_url": "https://discord.com/channels/@me/1344057524935983125/1401970810700431400",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1401970810700431400:Lightning.json:157364f624781519",
+      "filename": "Lightning.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:29+00:00",
+      "message_id": 1401970810700431400,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "DiffusionModelLoaderKJ": 2,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSamplerAdvanced": 2,
+        "LoraLoaderModelOnly": 2,
+        "MarkdownNote": 1,
+        "ModelPatchTorchSettings": 2,
+        "ModelSamplingSD3": 2,
+        "PathchSageAttentionKJ": 2,
+        "PreviewImage": 1,
+        "PrimitiveNode": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 22,
+      "origin_date": "2025-08-04T16:51:28.629000+00:00",
+      "originator_global_name": "Zuko",
+      "originator_id": "430030959874932737",
+      "originator_type": "discord_message_author",
+      "originator_username": "zuko4230",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "157364f624781519159c583fc9b236fada4611dea2c8ccb5299f823ff0148050",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1344057524935983125/1401970810201182310/Lightning.json?ex=68923690&is=6890e510&hm=7d4deaf23e84b97f86362ab707780dc2b7264beead962527c5f383c3b624a8ca&",
+      "source_workflow_sha256": "386dd7474f87c4c89cab6e811766aab9b95a3608ba0323ea250fb54c4a098295",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "fbc13bdbfeb87c8c4ae9ad1762a43f528532f4654ec701f246ed87e506bab829",
+      "complexity": 3,
+      "description": "Generates a video from text prompts using the Wan2.2 Lightning T2V model with two LoRA strength settings, sampling, and VAE decoding.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "text-to-video",
+        "wan2.2",
+        "lightning",
+        "lora",
+        "video-generation",
+        "hunyuan"
+      ],
+      "task_type": "text_to_image",
+      "title": "Wan2.2 Lightning T2V Video Generation with LoRA"
+    }
+  },
+  "nodes": {
+    "108": {
+      "class_type": "PathchSageAttentionKJ",
+      "id": "108",
+      "inputs": {
+        "sage_attention": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 108,
+          "inputs": [
+            {
+              "link": 193,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                134
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            649.2021484375,
+            -695.3795166015625
+          ],
+          "properties": {
+            "Node name for S&R": "PathchSageAttentionKJ",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "5dcda71011870278c35d92ff77a677ed2e538f2d",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "PathchSageAttentionKJ",
+          "widgets_values": [
+            "auto"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "auto"
+        ]
+      },
+      "uid": "108",
+      "widgets": {}
+    },
+    "111": {
+      "class_type": "ModelPatchTorchSettings",
+      "id": "111",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 111,
+          "inputs": [
+            {
+              "link": 134,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                135
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            639.5845947265625,
+            -585.9335327148438
+          ],
+          "properties": {
+            "Node name for S&R": "ModelPatchTorchSettings",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "5dcda71011870278c35d92ff77a677ed2e538f2d",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            307.443359375,
+            58
+          ],
+          "type": "ModelPatchTorchSettings",
+          "widgets_values": [
+            true
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true
+        ]
+      },
+      "uid": "111",
+      "widgets": {
+        "widget_0": true
+      }
+    },
+    "112": {
+      "class_type": "PathchSageAttentionKJ",
+      "id": "112",
+      "inputs": {
+        "sage_attention": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 112,
+          "inputs": [
+            {
+              "link": 171,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                137
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            636.8832397460938,
+            -398.4743347167969
+          ],
+          "properties": {
+            "Node name for S&R": "PathchSageAttentionKJ",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "5dcda71011870278c35d92ff77a677ed2e538f2d",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            270,
+            58
+          ],
+          "type": "PathchSageAttentionKJ",
+          "widgets_values": [
+            "auto"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "auto"
+        ]
+      },
+      "uid": "112",
+      "widgets": {}
+    },
+    "113": {
+      "class_type": "ModelPatchTorchSettings",
+      "id": "113",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {},
+          "id": 113,
+          "inputs": [
+            {
+              "link": 137,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                138
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            640.0185546875,
+            -265.7401123046875
+          ],
+          "properties": {
+            "Node name for S&R": "ModelPatchTorchSettings",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "5dcda71011870278c35d92ff77a677ed2e538f2d",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            307.443359375,
+            58
+          ],
+          "type": "ModelPatchTorchSettings",
+          "widgets_values": [
+            true
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          true
+        ]
+      },
+      "uid": "113",
+      "widgets": {
+        "widget_0": true
+      }
+    },
+    "122": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "122",
+      "inputs": {
+        "lora_name": "Wan2.2-Lightning_T2V-A14B-4steps-lora_LOW_fp16.safetensors",
+        "strength_model": 1.0000000000000004
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 122,
+          "inputs": [
+            {
+              "link": 197,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                171
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            249.77268981933594,
+            -360.16986083984375
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.46",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            308.1750793457031,
+            84.27497100830078
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "Wan2.2-Lightning_T2V-A14B-4steps-lora_LOW_fp16.safetensors",
+            1.0000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.2-Lightning_T2V-A14B-4steps-lora_LOW_fp16.safetensors",
+          1.0000000000000004
+        ]
+      },
+      "uid": "122",
+      "widgets": {}
+    },
+    "146": {
+      "class_type": "LoraLoaderModelOnly",
+      "id": "146",
+      "inputs": {
+        "lora_name": "Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors",
+        "strength_model": 1.0000000000000004
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 146,
+          "inputs": [
+            {
+              "link": 196,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                193
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            263.9977111816406,
+            -703.3094482421875
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoaderModelOnly",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.46",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            308.1750793457031,
+            84.27497100830078
+          ],
+          "type": "LoraLoaderModelOnly",
+          "widgets_values": [
+            "Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors",
+            1.0000000000000004
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors",
+          1.0000000000000004
+        ]
+      },
+      "uid": "146",
+      "widgets": {}
+    },
+    "152": {
+      "class_type": "DiffusionModelLoaderKJ",
+      "id": "152",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 152,
+          "inputs": [],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                196
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -124.49185943603516,
+            -711.2011108398438
+          ],
+          "properties": {
+            "Node name for S&R": "DiffusionModelLoaderKJ",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "fbdb08f9d6b0e821919d2c9f9caf8972ed439690",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            307.443359375,
+            178
+          ],
+          "type": "DiffusionModelLoaderKJ",
+          "widgets_values": [
+            "wan2.2_t2v_high_noise_14B_fp16.safetensors",
+            "default",
+            "default",
+            false,
+            "auto",
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan2.2_t2v_high_noise_14B_fp16.safetensors",
+          "default",
+          "default",
+          false,
+          "auto",
+          true
+        ]
+      },
+      "uid": "152",
+      "widgets": {
+        "widget_0": "wan2.2_t2v_high_noise_14B_fp16.safetensors",
+        "widget_1": "default",
+        "widget_2": "default",
+        "widget_3": false,
+        "widget_4": "auto",
+        "widget_5": true
+      }
+    },
+    "153": {
+      "class_type": "DiffusionModelLoaderKJ",
+      "id": "153",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 153,
+          "inputs": [],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                197
+              ],
+              "name": "MODEL",
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            -111.73505401611328,
+            -408.49591064453125
+          ],
+          "properties": {
+            "Node name for S&R": "DiffusionModelLoaderKJ",
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "fbdb08f9d6b0e821919d2c9f9caf8972ed439690",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            307.443359375,
+            178
+          ],
+          "type": "DiffusionModelLoaderKJ",
+          "widgets_values": [
+            "wan2.2_t2v_low_noise_14B_fp16.safetensors",
+            "default",
+            "default",
+            false,
+            "auto",
+            true
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan2.2_t2v_low_noise_14B_fp16.safetensors",
+          "default",
+          "default",
+          false,
+          "auto",
+          true
+        ]
+      },
+      "uid": "153",
+      "widgets": {
+        "widget_0": "wan2.2_t2v_low_noise_14B_fp16.safetensors",
+        "widget_1": "default",
+        "widget_2": "default",
+        "widget_3": false,
+        "widget_4": "auto",
+        "widget_5": true
+      }
+    },
+    "154": {
+      "class_type": "PreviewImage",
+      "id": "154",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 154,
+          "inputs": [
+            {
+              "link": 198,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "outputs": [],
+          "pos": [
+            1318.7891845703125,
+            83.71759796142578
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.48",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            791.0360717773438,
+            556.5623779296875
+          ],
+          "type": "PreviewImage",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "154",
+      "widgets": {}
+    },
+    "155": {
+      "class_type": "PrimitiveNode",
+      "id": "155",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 4
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 155,
+          "inputs": [],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                199,
+                200
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            }
+          ],
+          "pos": [
+            482.11993408203125,
+            597.5573120117188
+          ],
+          "properties": {
+            "Run widget replace on values": false,
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            82
+          ],
+          "title": "end_at_step",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            4,
+            "fixed"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          4,
+          "fixed"
+        ]
+      },
+      "uid": "155",
+      "widgets": {}
+    },
+    "156": {
+      "class_type": "PrimitiveNode",
+      "id": "156",
+      "inputs": {
+        "unused_widget_1": "fixed",
+        "value": 8
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 156,
+          "inputs": [],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                201,
+                202
+              ],
+              "name": "INT",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            }
+          ],
+          "pos": [
+            468.5828857421875,
+            396.1230773925781
+          ],
+          "properties": {
+            "Run widget replace on values": false,
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            82
+          ],
+          "title": "steps",
+          "type": "PrimitiveNode",
+          "widgets_values": [
+            8,
+            "fixed"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          8,
+          "fixed"
+        ]
+      },
+      "uid": "156",
+      "widgets": {}
+    },
+    "38": {
+      "class_type": "CLIPLoader",
+      "id": "38",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp16.safetensors",
+        "device": "default",
+        "type": "wan"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                74,
+                75
+              ],
+              "name": "CLIP",
+              "slot_index": 0,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            27.85370445251465,
+            -54.35014343261719
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPLoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "text_encoders",
+                "name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            346.391845703125,
+            106
+          ],
+          "type": "CLIPLoader",
+          "widgets_values": [
+            "umt5_xxl_fp16.safetensors",
+            "wan",
+            "default"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "umt5_xxl_fp16.safetensors",
+          "wan",
+          "default"
+        ]
+      },
+      "uid": "38",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "VAELoader",
+      "id": "39",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                76
+              ],
+              "name": "VAE",
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            33.11820983886719,
+            118.77194213867188
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader",
+            "cnr_id": "comfy-core",
+            "models": [
+              {
+                "directory": "vae",
+                "name": "wan_2.1_vae.safetensors",
+                "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+              }
+            ],
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            344.731689453125,
+            59.98149108886719
+          ],
+          "type": "VAELoader",
+          "widgets_values": [
+            "wan_2.1_vae.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "wan_2.1_vae.safetensors"
+        ]
+      },
+      "uid": "39",
+      "widgets": {}
+    },
+    "54": {
+      "class_type": "ModelSamplingSD3",
+      "id": "54",
+      "inputs": {
+        "shift": 12.000000000000005
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 54,
+          "inputs": [
+            {
+              "link": 135,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                125
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1022.4229736328125,
+            -528.5401000976562
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            60
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            12.000000000000005
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          12.000000000000005
+        ]
+      },
+      "uid": "54",
+      "widgets": {}
+    },
+    "55": {
+      "class_type": "ModelSamplingSD3",
+      "id": "55",
+      "inputs": {
+        "shift": 12.000000000000005
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 55,
+          "inputs": [
+            {
+              "link": 138,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                123
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1023.4696044921875,
+            -328.8318786621094
+          ],
+          "properties": {
+            "Node name for S&R": "ModelSamplingSD3",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            58
+          ],
+          "type": "ModelSamplingSD3",
+          "widgets_values": [
+            12.000000000000005
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          12.000000000000005
+        ]
+      },
+      "uid": "55",
+      "widgets": {}
+    },
+    "57": {
+      "class_type": "KSamplerAdvanced",
+      "id": "57",
+      "inputs": {
+        "add_noise": "enable",
+        "cfg": 1,
+        "noise_seed": 211457270716941,
+        "return_with_leftover_noise": "enable",
+        "sampler_name": "res_2m_ode",
+        "scheduler": "bong_tangent",
+        "start_at_step": 0,
+        "unused_widget_2": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 57,
+          "inputs": [
+            {
+              "link": 125,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 127,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 129,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 126,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 202,
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 199,
+              "name": "end_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "end_at_step"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                113
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            899.5594482421875,
+            -77.51420593261719
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            304.748046875,
+            546
+          ],
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "enable",
+            211457270716941,
+            "fixed",
+            8,
+            1,
+            "res_2m_ode",
+            "bong_tangent",
+            0,
+            4,
+            "enable"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          211457270716941,
+          "fixed",
+          8,
+          1,
+          "res_2m_ode",
+          "bong_tangent",
+          0,
+          4,
+          "enable"
+        ]
+      },
+      "uid": "57",
+      "widgets": {}
+    },
+    "58": {
+      "class_type": "KSamplerAdvanced",
+      "id": "58",
+      "inputs": {
+        "add_noise": "disable",
+        "cfg": 1,
+        "end_at_step": 10000,
+        "noise_seed": 929975885755679,
+        "return_with_leftover_noise": "disable",
+        "sampler_name": "res_2m_ode",
+        "scheduler": "bong_tangent",
+        "unused_widget_2": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 58,
+          "inputs": [
+            {
+              "link": 123,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 128,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 130,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 113,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 201,
+              "name": "steps",
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 200,
+              "name": "start_at_step",
+              "type": "INT",
+              "widget": {
+                "name": "start_at_step"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                124
+              ],
+              "name": "LATENT",
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            906.532958984375,
+            527.1625366210938
+          ],
+          "properties": {
+            "Node name for S&R": "KSamplerAdvanced",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            292.6480407714844,
+            546
+          ],
+          "type": "KSamplerAdvanced",
+          "widgets_values": [
+            "disable",
+            929975885755679,
+            "fixed",
+            8,
+            1,
+            "res_2m_ode",
+            "bong_tangent",
+            4,
+            10000,
+            "disable"
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "disable",
+          929975885755679,
+          "fixed",
+          8,
+          1,
+          "res_2m_ode",
+          "bong_tangent",
+          4,
+          10000,
+          "disable"
+        ]
+      },
+      "uid": "58",
+      "widgets": {}
+    },
+    "59": {
+      "class_type": "EmptyHunyuanLatentVideo",
+      "id": "59",
+      "inputs": {
+        "batch_size": 1,
+        "height": 1088,
+        "length": 1,
+        "width": 1920
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 59,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                126
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            54.12907028198242,
+            340.0626525878906
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyHunyuanLatentVideo",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            315,
+            130
+          ],
+          "type": "EmptyHunyuanLatentVideo",
+          "widgets_values": [
+            1920,
+            1088,
+            1,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1920,
+          1088,
+          1,
+          1
+        ]
+      },
+      "uid": "59",
+      "widgets": {}
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "Hyper-realistic portrait, eye-level, medium-format look. A poised dark-skinned woman with long, bead-tipped braids sits centered in a vintage art-deco armchair of warm walnut and worn black leather. She cradles a full-grown albino alligator across her lap\u2014its creamy-pink scales, closed jaws and muscular tail glowing softly against her deep-olive wool skirt. She wears an unbuttoned ivory blouse with rolled sleeves, layered gold necklaces, and mismatched rings; one knee is raised, showing chunky cream-and-sage striped socks tucked into glossy oxblood Oxfords. Background: a dark empty warehouse with sunlight streaming in through high windows. Lighting: bright lighting casts dark shadows in a dramatic chiaoscuro portrait with high dynamic range. Cinematic color grading, fine-grain detail, shallow depth of field, 8 K resolution, dramatic yet elegant mood.\n\n\n\n\n\n\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 74,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                127,
+                128
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            428.2582702636719,
+            -76.47657775878906
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            422.84503173828125,
+            164.31304931640625
+          ],
+          "title": "CLIP Text Encode (Positive Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "Hyper-realistic portrait, eye-level, medium-format look. A poised dark-skinned woman with long, bead-tipped braids sits centered in a vintage art-deco armchair of warm walnut and worn black leather. She cradles a full-grown albino alligator across her lap\u2014its creamy-pink scales, closed jaws and muscular tail glowing softly against her deep-olive wool skirt. She wears an unbuttoned ivory blouse with rolled sleeves, layered gold necklaces, and mismatched rings; one knee is raised, showing chunky cream-and-sage striped socks tucked into glossy oxblood Oxfords. Background: a dark empty warehouse with sunlight streaming in through high windows. Lighting: bright lighting casts dark shadows in a dramatic chiaoscuro portrait with high dynamic range. Cinematic color grading, fine-grain detail, shallow depth of field, 8 K resolution, dramatic yet elegant mood.\n\n\n\n\n\n\n"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Hyper-realistic portrait, eye-level, medium-format look. A poised dark-skinned woman with long, bead-tipped braids sits centered in a vintage art-deco armchair of warm walnut and worn black leather. She cradles a full-grown albino alligator across her lap\u2014its creamy-pink scales, closed jaws and muscular tail glowing softly against her deep-olive wool skirt. She wears an unbuttoned ivory blouse with rolled sleeves, layered gold necklaces, and mismatched rings; one knee is raised, showing chunky cream-and-sage striped socks tucked into glossy oxblood Oxfords. Background: a dark empty warehouse with sunlight streaming in through high windows. Lighting: bright lighting casts dark shadows in a dramatic chiaoscuro portrait with high dynamic range. Cinematic color grading, fine-grain detail, shallow depth of field, 8 K resolution, dramatic yet elegant mood.\n\n\n\n\n\n\n"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "62": {
+      "class_type": "MarkdownNote",
+      "id": "62",
+      "inputs": {
+        "unused_widget_0": "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n---\n\n### \ud83d\udd34 FusionX T2V LoRa \n`Wan2.1_T2V_14B_FusionX_LoRA'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1678575?modelVersionId=1899873)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\n### \ud83d\udd34 Face Naturalizer LoRa \n`Face Naturalizer'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1755105\n)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 62,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [],
+          "pos": [
+            -516.363525390625,
+            -110
+          ],
+          "properties": {
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            514.287841796875,
+            849.5369262695312
+          ],
+          "title": "Model Links",
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n---\n\n### \ud83d\udd34 FusionX T2V LoRa \n`Wan2.1_T2V_14B_FusionX_LoRA'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1678575?modelVersionId=1899873)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\n### \ud83d\udd34 Face Naturalizer LoRa \n`Face Naturalizer'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1755105\n)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "[Tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2\n) | [\u6559\u7a0b](https://docs.comfy.org/zh-CN/tutorials/video/wan/wan2_2\n)\n\n**Diffusion Model**\n- [wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors)\n- [wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors)\n\n**VAE**\n- [wan_2.1_vae.safetensors](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors)\n\n**Text Encoder**   \n- [umt5_xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors)\n\n---\n\n### \ud83d\udd34 FusionX T2V LoRa \n`Wan2.1_T2V_14B_FusionX_LoRA'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1678575?modelVersionId=1899873)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\n### \ud83d\udd34 Face Naturalizer LoRa \n`Face Naturalizer'  \n\ud83d\udd17 [Download Link](https://civitai.com/models/1755105\n)\n\n\ud83d\uddc2\ufe0f Place in: `ComfyUI/models/loras`\n\n---\n\nFile save location\n\n```\nComfyUI/\n\u251c\u2500\u2500\u2500\ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 diffusion_models/\n\u2502   \u2502   \u251c\u2500\u2500\u2500 wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors\n\u2502   \u2502   \u2514\u2500\u2500\u2500 wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors\n\u2502   \u251c\u2500\u2500\u2500\ud83d\udcc2 text_encoders/\n\u2502   \u2502   \u2514\u2500\u2500\u2500 umt5_xxl_fp8_e4m3fn_scaled.safetensors \n\u2502   \u2514\u2500\u2500\u2500\ud83d\udcc2 vae/\n\u2502       \u2514\u2500\u2500 wan_2.1_vae.safetensors\n```\n"
+        ]
+      },
+      "uid": "62",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70, cgi, animated, drawing, 3d, render, anime, manga, videogame, game, fake, plastic, "
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 75,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                129,
+                130
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            428.2582702636719,
+            123.52354431152344
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            425.27801513671875,
+            180.6060791015625
+          ],
+          "title": "CLIP Text Encode (Negative Prompt)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70, cgi, animated, drawing, 3d, render, anime, manga, videogame, game, fake, plastic, "
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70, cgi, animated, drawing, 3d, render, anime, manga, videogame, game, fake, plastic, "
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 124,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 76,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": [
+                198
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1441.031494140625,
+            -56.41427993774414
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode",
+            "cnr_id": "comfy-core",
+            "ver": "0.3.45",
+            "widget_ue_connectable": {}
+          },
+          "size": [
+            210,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "154",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "Wan2.2-Lightning_T2V-A14B-4steps-lora_HIGH_fp16.safetensors",
+      "Wan2.2-Lightning_T2V-A14B-4steps-lora_LOW_fp16.safetensors",
+      "umt5_xxl_fp16.safetensors",
+      "wan_2.1_vae.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "157364f624781519",
+    "path": "external_workflows/.shadow/source/157364f624781519-Lightning.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "703c14838d75fc16cdf4f712bc5c7e33d486a102c0da7d82a1db0abe54053bdf",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1344057524935983125,
+      "channel_name": "wan_gens",
+      "content_preview": "Nope but I'm using a sampler/scheduler from RES4LYF",
+      "discord_message_url": "https://discord.com/channels/@me/1344057524935983125/1401970810700431400",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1401970810700431400:Lightning.json:157364f624781519",
+      "filename": "Lightning.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:29+00:00",
+      "message_id": 1401970810700431400,
+      "node_class_multiset": {
+        "CLIPLoader": 1,
+        "CLIPTextEncode": 2,
+        "DiffusionModelLoaderKJ": 2,
+        "EmptyHunyuanLatentVideo": 1,
+        "KSamplerAdvanced": 2,
+        "LoraLoaderModelOnly": 2,
+        "MarkdownNote": 1,
+        "ModelPatchTorchSettings": 2,
+        "ModelSamplingSD3": 2,
+        "PathchSageAttentionKJ": 2,
+        "PreviewImage": 1,
+        "PrimitiveNode": 2,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 22,
+      "origin_date": "2025-08-04T16:51:28.629000+00:00",
+      "originator_global_name": "Zuko",
+      "originator_id": "430030959874932737",
+      "originator_type": "discord_message_author",
+      "originator_username": "zuko4230",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "157364f624781519159c583fc9b236fada4611dea2c8ccb5299f823ff0148050",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1344057524935983125/1401970810201182310/Lightning.json?ex=68923690&is=6890e510&hm=7d4deaf23e84b97f86362ab707780dc2b7264beead962527c5f383c3b624a8ca&",
+      "source_workflow_sha256": "386dd7474f87c4c89cab6e811766aab9b95a3608ba0323ea250fb54c4a098295",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

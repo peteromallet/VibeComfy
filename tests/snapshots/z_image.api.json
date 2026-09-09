@@ -15,14 +15,16 @@
   "3": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "z_image_bf16.safetensors"
+      "unet_name": "z_image_bf16.safetensors",
+      "weight_dtype": "default"
     }
   },
   "4": {
     "class_type": "EmptySD3LatentImage",
     "inputs": {
-      "width": 1024,
-      "height": 1024
+      "batch_size": 1,
+      "height": 1024,
+      "width": 1024
     }
   },
   "5": {
@@ -58,24 +60,26 @@
   "8": {
     "class_type": "KSampler",
     "inputs": {
+      "cfg": 4,
+      "denoise": 1,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
       "seed": 770044821593082,
       "steps": 25,
-      "cfg": 4,
-      "sampler_name": "res_multistep",
-      "model": [
-        "6",
+      "latent_image": [
+        "4",
         0
       ],
-      "positive": [
-        "5",
+      "model": [
+        "6",
         0
       ],
       "negative": [
         "7",
         0
       ],
-      "latent_image": [
-        "4",
+      "positive": [
+        "5",
         0
       ]
     }

@@ -1,5 +1,12 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Type stubs for generated ComfyUI node wrappers."""
+# vibecomfy:generated
+# pack: gguf
+# source: object_info cache ComfyUI-GGUF@local-6ea2651.json sha256:a4cc46702e38
+# source_sha256: 9cbe636a73102fb56d60bacfa3b81696238242b147e0de017cfa758c9077e531
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 2
+
+"""Type stubs for generated public node wrappers."""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -12,9 +19,6 @@ _UNSET: _Omitted
 def DualCLIPLoaderGGUF(
     *args: VibeWorkflow,
     _id: str | None = ...,
-    clip_name1: Any | _Omitted = ...,
-    clip_name2: Any | _Omitted = ...,
-    type_: Any | _Omitted = ...,
     pass_raw: bool = ...,
     **_extras: Any,
 ) -> Any: ...
@@ -27,4 +31,4 @@ def UnetLoaderGGUF(
     **_extras: Any,
 ) -> Any: ...
 
-__all__: list[str]
+__all__ = ['DualCLIPLoaderGGUF', 'UnetLoaderGGUF']

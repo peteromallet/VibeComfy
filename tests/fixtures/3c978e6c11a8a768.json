@@ -1200,6 +1200,12 @@
               "name": "audio",
               "shape": 3,
               "type": "VHS_AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "shape": 3,
+              "type": "VHS_VIDEOINFO"
             }
           ],
           "pos": [
@@ -1437,6 +1443,12 @@
               "name": "audio",
               "shape": 3,
               "type": "VHS_AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "shape": 3,
+              "type": "VHS_VIDEOINFO"
             }
           ],
           "pos": [
@@ -1724,6 +1736,12 @@
               "name": "audio",
               "shape": 3,
               "type": "VHS_AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "shape": 3,
+              "type": "VHS_VIDEOINFO"
             }
           ],
           "pos": [
@@ -2092,6 +2110,12 @@
               "name": "audio",
               "shape": 3,
               "type": "VHS_AUDIO"
+            },
+            {
+              "links": null,
+              "name": "video_info",
+              "shape": 3,
+              "type": "VHS_VIDEOINFO"
             }
           ],
           "pos": [

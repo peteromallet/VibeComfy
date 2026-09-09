@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from vibecomfy.porting.emit.entrypoints import (
-    _NODE_HELPER_SOURCE,
     _emit_build_function,
+    emit_canonical_python as _emit_canonical_python,
     emit_agent_edit_python as _emit_agent_edit_python,
     emit_ready_template_python as _emit_ready_template_python,
     emit_scratchpad_python as _emit_scratchpad_python,
@@ -87,10 +87,8 @@ from vibecomfy.porting.emit.emit_ready import (
     _ltx_travel_template_omits_synthetic_audio,
     _import_binding_name,
     _lock_entries_by_class,
-    _raw_workflow_from_metadata,
     _prune_dead_branches_for_emit,
     _ready_template_tail_lines,
-    _source_workflow_path,
     _strip_unused_template_imports,
     _terminal_output_node_ids,
 )
@@ -98,6 +96,11 @@ from vibecomfy.porting.emit.emit_ready import (
 
 def format_as_python(*args, **kwargs):
     return _format_as_python(*args, **kwargs)
+
+
+def emit_canonical_python(*args, **kwargs):
+    """Emit the single canonical executable ``build()`` source."""
+    return _emit_canonical_python(*args, **kwargs)
 
 
 def emit_ready_template_python(*args, **kwargs):
@@ -134,6 +137,7 @@ __all__ = [
     "emit_available_node_signatures",
     "format_signature_rows",
     "format_as_python",
+    "emit_canonical_python",
     "emit_ready_template_python",
     "emit_agent_edit_python",
     "emit_scratchpad_python",

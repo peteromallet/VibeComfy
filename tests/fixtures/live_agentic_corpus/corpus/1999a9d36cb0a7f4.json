@@ -1,0 +1,1959 @@
+{
+  "edges": [
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "23"
+    },
+    {
+      "from_node": "33",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "34"
+    },
+    {
+      "from_node": "27",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "33"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "36"
+    },
+    {
+      "from_node": "35",
+      "from_output": "0",
+      "to_input": "control_net",
+      "to_node": "36"
+    },
+    {
+      "from_node": "33",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "36"
+    },
+    {
+      "from_node": "40",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "36",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "37",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "ipadapter",
+      "to_node": "40"
+    },
+    {
+      "from_node": "38",
+      "from_output": "0",
+      "to_input": "clip_vision",
+      "to_node": "40"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "40"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "40"
+    }
+  ],
+  "groups": [],
+  "id": "65a324ea16b12411",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "4",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "dreamshaper_8.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "blurry, horror, low quality"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 37
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 25
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "11": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'vae-ft-mse-840000-ema-pruned.safetensors'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'Result'"
+          ]
+        ]
+      },
+      "24": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'cwf_marble_statue.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "27": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "33",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'cwf_portrait.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "37",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "40",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "36",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "8"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'ddim'"
+          ],
+          [
+            "scheduler",
+            "'ddim_uniform'"
+          ],
+          [
+            "seed",
+            "37"
+          ],
+          [
+            "steps",
+            "25"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "33": {
+        "class_type": "Canny",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "27",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "34",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "36",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.3"
+          ],
+          [
+            "widget_1",
+            "0.8"
+          ]
+        ]
+      },
+      "34": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "33",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "35": {
+        "class_type": "ControlNetLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "36",
+              "control_net"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'control_v11p_sd15_canny_fp16.safetensors'"
+          ]
+        ]
+      },
+      "36": {
+        "class_type": "ControlNetApply",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "6",
+              "0"
+            ]
+          ],
+          [
+            "control_net",
+            [
+              "35",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "33",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.9500000000000001"
+          ]
+        ]
+      },
+      "37": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "512"
+          ],
+          [
+            "widget_1",
+            "512"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "38": {
+        "class_type": "CLIPVisionLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "clip_vision"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'IPAdapter_image_encoder_sd15.safetensors'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "IPAdapterModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "ipadapter"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ip-adapter-plus_sd15.bin'"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'dreamshaper_8.safetensors'"
+          ]
+        ]
+      },
+      "40": {
+        "class_type": "IPAdapterApply",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "38",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "24",
+              "0"
+            ]
+          ],
+          [
+            "ipadapter",
+            [
+              "39",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "4",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.7000000000000001"
+          ],
+          [
+            "widget_1",
+            "0"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "36",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'statue of a woman'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'blurry, horror, low quality'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1999a9d36cb0a7f4c43fb7ecbaeed0459de24e867e45341d8a908973387e06e0",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "update IPAdapter models",
+      "commit_sha": "8378f474cb54766e72ccffa43a0bc0cdd7bde95a",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/8378f474cb54766e72ccffa43a0bc0cdd7bde95a",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:image_conditioning/experiments/IPAdapter_canny.json:IPAdapter_canny.json:65a324ea16b12411",
+      "filename": "IPAdapter_canny.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CLIPVisionLoader": 1,
+        "Canny": 1,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApply": 1,
+        "ControlNetLoader": 1,
+        "EmptyLatentImage": 1,
+        "IPAdapterApply": 1,
+        "IPAdapterModelLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 2,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 17,
+      "origin_date": "2023-09-15T17:35:29Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "image_conditioning/experiments/IPAdapter_canny.json",
+      "source": "github",
+      "source_file_sha256": "65a324ea16b124114e1d35cfee7427ec2d4299721ad2ea7d993f15db67302f29",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/image_conditioning/experiments/IPAdapter_canny.json",
+      "source_workflow_sha256": "955f21f24951022ecbe14f766aade632a60c5e75952ed93c84606e41e8d17d91",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "8c61c6b2e9c9b1fa4f4ba25caf71dc9f2350126c8edf35c9338aaf0091efe716",
+      "complexity": 3,
+      "description": "This workflow takes an input image, applies Canny edge detection, and uses ControlNet and IPAdapter to guide image generation with a checkpoint model and CLIP text prompts.",
+      "flags": {
+        "has_controlnet": true,
+        "has_ipadapter": true,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "image-to-image",
+        "controlnet",
+        "ipadapter",
+        "canny",
+        "stable-diffusion",
+        "text-to-image",
+        "image-generation"
+      ],
+      "task_type": "controlnet",
+      "title": "Image-to-Image with IPAdapter and ControlNet"
+    }
+  },
+  "nodes": {
+    "11": {
+      "class_type": "VAELoader",
+      "id": "11",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -100,
+            770
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": {
+            "0": 280,
+            "1": 60
+          },
+          "type": "VAELoader",
+          "widgets_values": [
+            "vae-ft-mse-840000-ema-pruned.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vae-ft-mse-840000-ema-pruned.safetensors"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "SaveImage",
+      "id": "23",
+      "inputs": {
+        "filename_prefix": "Result"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 33,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "pos": [
+            1300,
+            590
+          ],
+          "properties": {},
+          "size": {
+            "0": 424.4323425292969,
+            "1": 480.7194519042969
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "Result"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Result"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "LoadImage",
+      "id": "24",
+      "inputs": {
+        "image": "cwf_marble_statue.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 24,
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                74
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            240,
+            250
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 220,
+            "1": 320
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "cwf_marble_statue.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cwf_marble_statue.jpg",
+          "image"
+        ]
+      },
+      "uid": "24",
+      "widgets": {}
+    },
+    "27": {
+      "class_type": "LoadImage",
+      "id": "27",
+      "inputs": {
+        "image": "cwf_portrait.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 27,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                61
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -10,
+            940
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 230,
+            "1": 320
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "cwf_portrait.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cwf_portrait.jpg",
+          "image"
+        ]
+      },
+      "uid": "27",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 8,
+        "denoise": 1,
+        "sampler_name": "ddim",
+        "scheduler": "ddim_uniform",
+        "seed": 37,
+        "steps": 25,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 76,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 66,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 6,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 64,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            800,
+            590
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 300,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            37,
+            "fixed",
+            25,
+            8,
+            "ddim",
+            "ddim_uniform",
+            1
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          37,
+          "fixed",
+          25,
+          8,
+          "ddim",
+          "ddim_uniform",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "33": {
+      "class_type": "Canny",
+      "id": "33",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 33,
+          "inputs": [
+            {
+              "link": 61,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                62,
+                67
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            250,
+            940
+          ],
+          "properties": {
+            "Node name for S&R": "Canny"
+          },
+          "size": {
+            "0": 220,
+            "1": 82
+          },
+          "type": "Canny",
+          "widgets_values": [
+            0.3,
+            0.8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.3,
+          0.8
+        ]
+      },
+      "uid": "33",
+      "widgets": {
+        "widget_0": 0.3,
+        "widget_1": 0.8
+      }
+    },
+    "34": {
+      "class_type": "PreviewImage",
+      "id": "34",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 34,
+          "inputs": [
+            {
+              "link": 62,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "pos": [
+            260,
+            1060
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 246
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "34",
+      "widgets": {}
+    },
+    "35": {
+      "class_type": "ControlNetLoader",
+      "id": "35",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 35,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                63
+              ],
+              "name": "CONTROL_NET",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONTROL_NET"
+            }
+          ],
+          "pos": [
+            260,
+            1340
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetLoader"
+          },
+          "size": {
+            "0": 210,
+            "1": 60
+          },
+          "type": "ControlNetLoader",
+          "widgets_values": [
+            "control_v11p_sd15_canny_fp16.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "control_v11p_sd15_canny_fp16.safetensors"
+        ]
+      },
+      "uid": "35",
+      "widgets": {
+        "widget_0": "control_v11p_sd15_canny_fp16.safetensors"
+      }
+    },
+    "36": {
+      "class_type": "ControlNetApply",
+      "id": "36",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 36,
+          "inputs": [
+            {
+              "link": 65,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 63,
+              "name": "control_net",
+              "type": "CONTROL_NET"
+            },
+            {
+              "link": 67,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                66
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            530,
+            900
+          ],
+          "properties": {
+            "Node name for S&R": "ControlNetApply"
+          },
+          "size": {
+            "0": 211.60000610351562,
+            "1": 100
+          },
+          "type": "ControlNetApply",
+          "widgets_values": [
+            0.9500000000000001
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.9500000000000001
+        ]
+      },
+      "uid": "36",
+      "widgets": {
+        "widget_0": 0.9500000000000001
+      }
+    },
+    "37": {
+      "class_type": "EmptyLatentImage",
+      "id": "37",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 37,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                64
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            529,
+            738
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 110
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            512,
+            512,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          512,
+          512,
+          1
+        ]
+      },
+      "uid": "37",
+      "widgets": {
+        "widget_0": 512,
+        "widget_1": 512,
+        "widget_2": 1
+      }
+    },
+    "38": {
+      "class_type": "CLIPVisionLoader",
+      "id": "38",
+      "inputs": {
+        "clip_name": "IPAdapter_image_encoder_sd15.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 38,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                72
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            }
+          ],
+          "pos": [
+            -100,
+            390
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPVisionLoader"
+          },
+          "size": [
+            280,
+            60
+          ],
+          "type": "CLIPVisionLoader",
+          "widgets_values": [
+            "IPAdapter_image_encoder_sd15.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "IPAdapter_image_encoder_sd15.safetensors"
+        ]
+      },
+      "uid": "38",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "IPAdapterModelLoader",
+      "id": "39",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                71
+              ],
+              "name": "IPADAPTER",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IPADAPTER"
+            }
+          ],
+          "pos": [
+            -30,
+            290
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterModelLoader"
+          },
+          "size": [
+            210,
+            60
+          ],
+          "type": "IPAdapterModelLoader",
+          "widgets_values": [
+            "ip-adapter-plus_sd15.bin"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ip-adapter-plus_sd15.bin"
+        ]
+      },
+      "uid": "39",
+      "widgets": {
+        "widget_0": "ip-adapter-plus_sd15.bin"
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "4",
+      "inputs": {
+        "ckpt_name": "dreamshaper_8.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                75
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                3,
+                5
+              ],
+              "name": "CLIP",
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [],
+              "name": "VAE",
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -100,
+            490
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 280,
+            "1": 100
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "dreamshaper_8.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "dreamshaper_8.safetensors"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "40": {
+      "class_type": "IPAdapterApply",
+      "id": "40",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 40,
+          "inputs": [
+            {
+              "link": 71,
+              "name": "ipadapter",
+              "type": "IPADAPTER"
+            },
+            {
+              "link": 72,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 74,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 75,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                76
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            550,
+            350
+          ],
+          "properties": {
+            "Node name for S&R": "IPAdapterApply"
+          },
+          "size": {
+            "0": 210,
+            "1": 142
+          },
+          "type": "IPAdapterApply",
+          "widgets_values": [
+            0.7000000000000001,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.7000000000000001,
+          0
+        ]
+      },
+      "uid": "40",
+      "widgets": {
+        "widget_0": 0.7000000000000001,
+        "widget_1": 0
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "statue of a woman"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                65
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            230,
+            620
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 230,
+            "1": 90
+          },
+          "title": "CLIP Text Encode (Positive)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "statue of a woman"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "statue of a woman"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "blurry, horror, low quality"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            230,
+            750
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 230,
+            "1": 90
+          },
+          "title": "CLIP Text Encode (Negative)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "blurry, horror, low quality"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "blurry, horror, low quality"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 12,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                33
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1130,
+            590
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 140,
+            "1": 50
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "23",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "34",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "IPAdapter_image_encoder_sd15.safetensors",
+      "dreamshaper_8.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "65a324ea16b12411",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/65a324ea16b12411-IPAdapter_canny.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "1999a9d36cb0a7f4c43fb7ecbaeed0459de24e867e45341d8a908973387e06e0",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "update IPAdapter models",
+      "commit_sha": "8378f474cb54766e72ccffa43a0bc0cdd7bde95a",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/8378f474cb54766e72ccffa43a0bc0cdd7bde95a",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:image_conditioning/experiments/IPAdapter_canny.json:IPAdapter_canny.json:65a324ea16b12411",
+      "filename": "IPAdapter_canny.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CLIPVisionLoader": 1,
+        "Canny": 1,
+        "CheckpointLoaderSimple": 1,
+        "ControlNetApply": 1,
+        "ControlNetLoader": 1,
+        "EmptyLatentImage": 1,
+        "IPAdapterApply": 1,
+        "IPAdapterModelLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 2,
+        "PreviewImage": 1,
+        "SaveImage": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 17,
+      "origin_date": "2023-09-15T17:35:29Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "image_conditioning/experiments/IPAdapter_canny.json",
+      "source": "github",
+      "source_file_sha256": "65a324ea16b124114e1d35cfee7427ec2d4299721ad2ea7d993f15db67302f29",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/image_conditioning/experiments/IPAdapter_canny.json",
+      "source_workflow_sha256": "955f21f24951022ecbe14f766aade632a60c5e75952ed93c84606e41e8d17d91",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

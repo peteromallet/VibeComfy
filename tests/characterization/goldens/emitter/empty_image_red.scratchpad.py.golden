@@ -1,74 +1,87 @@
-# vibecomfy: generated scratchpad
-"""Auto-generated VibeComfy scratchpad."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import EmptyImage, SaveImage
 
+
+PUBLIC_INPUT_METADATA = {
+    'width': InputSpec(node='1', field='width', default=64),
+    'height': InputSpec(node='1', field='height', default=64),
+}
+
+READY_METADATA = ReadyMetadata.build(
+    capability='runtime_smoke',
+    template_id='smoke/empty_image_red',
+    inputs=PUBLIC_INPUT_METADATA,
+    approach='minimal Python ready template for cloud/runtime/artifact validation',
+    runtime_note='No model assets; use corpus/model matrices for production model coverage.',
+)
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = VibeWorkflow(
-        'smoke/empty_image_red',
-        WorkflowSource(
-            id='smoke/empty_image_red',
-            path='<REPO_ROOT>',
-            source_type='scratchpad',
-            provenance={},
-        ),
-    )
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-    emptyimage = _node(wf, 'EmptyImage', '1', _uid='n1',
-        _outputs=('IMAGE',),
+    emptyimage = EmptyImage(
+        _id='1',
         width=64,
         height=64,
         batch_size=1,
         color=16711680,
+        _uid='n1',
+        _native_ports={'native_input_names': ['width', 'height', 'batch_size', 'color'], 'native_output_names': ['IMAGE'], 'native_input_types': ['INT', 'INT', 'INT', 'INT'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    saveimage = _node(wf, 'SaveImage', '2', _uid='n2',
+
+    saveimage = SaveImage(
+        _id='2',
         filename_prefix='vibecomfy_ready_smoke_red',
-        images=emptyimage.out('IMAGE'),
+        _uid='n2',
+        _native_ports={'native_input_names': ['filename_prefix', 'extra_pnginfo', 'prompt', 'images'], 'native_output_names': None, 'native_input_types': ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE'], 'native_output_types': None, 'native_input_optional': [False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    wf.finalize_metadata()
+    wf.connect('1.0', '2.images')
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='vibecomfy_ready_smoke_red')
+    wf.nodes['1'].inputs = {'batch_size': 1, 'color': 16711680, 'height': 64, 'width': 64}
+    wf.nodes['1'].widgets = {}
+    wf.nodes['1'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['batch_size', 'color', 'height', 'width']}
+    wf.nodes['1'].native_input_names = ['width', 'height', 'batch_size', 'color']
+    wf.nodes['1'].native_output_names = ['IMAGE']
+    wf.nodes['1'].native_input_types = ['INT', 'INT', 'INT', 'INT']
+    wf.nodes['1'].native_output_types = ['IMAGE']
+    wf.nodes['1'].native_input_optional = [False, False, False, False]
+    wf.nodes['1'].native_input_asset_kinds = None
+    wf.nodes['1'].native_output_slots = None
+    wf.nodes['2'].inputs = {'filename_prefix': 'vibecomfy_ready_smoke_red'}
+    wf.nodes['2'].widgets = {}
+    wf.nodes['2'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['filename_prefix', 'images']}
+    wf.nodes['2'].native_input_names = ['filename_prefix', 'extra_pnginfo', 'prompt', 'images']
+    wf.nodes['2'].native_output_names = None
+    wf.nodes['2'].native_input_types = ['STRING', 'EXTRA_PNGINFO', 'PROMPT', 'IMAGE']
+    wf.nodes['2'].native_output_types = None
+    wf.nodes['2'].native_input_optional = [False, True, True, False]
+    wf.nodes['2'].native_input_asset_kinds = None
+    wf.nodes['2'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('height', '1', 'height', 64, type='INT', default=64, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('width', '1', 'width', 64, type='INT', default=64, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    public_output_0 = wf.outputs[0]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveImage'
+    public_output_0.name = 'image'
+    public_output_0.artifact_kind = 'image'
+    public_output_0.mime_type = 'image/png'
+    public_output_0.filename_prefix = 'vibecomfy_ready_smoke_red'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    wf.requirements.models = []
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
     return wf
-
-
-def _node(
-    wf: VibeWorkflow,
-    class_type: str,
-    _id: str,
-    _extras: dict | None = None,
-    _outputs: tuple[str, ...] | None = None,
-    _uid: str | None = None,
-    **kwargs,
-):
-    """Create a node, preserving the original node id from the source workflow.
-
-    `_extras` carries kwargs whose names are not valid Python identifiers
-    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
-    They are applied to the new node post-construction.
-    """
-    from vibecomfy.handles import Handle
-    builder = wf.node(class_type, **kwargs)
-    if _uid:
-        builder.node.uid = _uid
-    if _outputs is not None:
-        builder.node.metadata["output_names"] = list(_outputs)
-    if _extras:
-        for key, value in _extras.items():
-            if isinstance(value, Handle):
-                wf.connect(value, f"{builder.node.id}.{key}")
-            else:
-                builder.node.inputs[key] = value
-    if builder.node.id != _id:
-        old_id = builder.node.id
-        node = wf.nodes.pop(old_id)
-        node.id = _id
-        wf.nodes[_id] = node
-        for edge in wf.edges:
-            if edge.to_node == old_id:
-                edge.to_node = _id
-            if edge.from_node == old_id:
-                edge.from_node = _id
-    return builder
 

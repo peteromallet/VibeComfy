@@ -101,6 +101,18 @@ class FieldCompatibility:
 
 
 FIELD_COMPATIBILITY: tuple[FieldCompatibility, ...] = (
+    # ComfyUI core's current ResolutionSelector adds the advanced ``multiple``
+    # control. The checked-in 0.24/runpod object-info snapshots predate it;
+    # official source defines it as an INT with default 8 and range 8..128.
+    # Keep this allowance field-scoped so the old snapshot remains honestly
+    # identified as historical capture evidence.
+    FieldCompatibility(
+        class_type="ResolutionSelector",
+        input="multiple",
+        reason="Current ComfyUI core ResolutionSelector defines optional INT input multiple; historical snapshots predate it.",
+        evidence="https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_resolution.py (define_schema: ResolutionSelector.multiple)",
+        codes=("unknown_input", "value_out_of_range", "value_type_mismatch"),
+    ),
     # ComfyUI-WanVideoWrapper — WanVideoModelLoader schema snapshot predates
     # the vace_model optional input added in a newer WanVideoWrapper version.
     FieldCompatibility(
@@ -268,7 +280,12 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
             continue
 
         for name, spec in raw_schema_inputs.items():
-            if getattr(spec, "required", False) and name not in provided_inputs and getattr(spec, "default", None) is None:
+            if (
+                getattr(spec, "required", False)
+                and name not in provided_inputs
+                and getattr(spec, "default", None) is None
+                and not _dynamic_controller_satisfied(name, provided_inputs, raw_schema_inputs)
+            ):
                 issues.append(
                     ValidationIssue(
                         "missing_required_input",
@@ -899,7 +916,29 @@ def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str
         return True
     if class_type == "SimpleCalculatorKJ":
         return input_name in _simple_calculator_variables(inputs or {})
+    # ComfyMathExpression declares one ``values`` auto-grow controller in
+    # object_info, while the API expands each connected variable to a dotted
+    # field (values.a, values.b, ...).  These names are runtime schema fields,
+    # not unknown inputs or invented aliases.
+    if class_type == "ComfyMathExpression":
+        return bool(re.fullmatch(r"values\.[a-z]", input_name))
     return False
+
+
+def _dynamic_controller_satisfied(
+    name: str,
+    provided_inputs: set[str],
+    declared_inputs: dict[str, Any],
+) -> bool:
+    """Treat a populated auto-grow controller as satisfying its required row."""
+    spec = declared_inputs.get(name)
+    if name != "values" or spec is None:
+        return False
+    input_type = str(getattr(spec, "type", "") or "").upper()
+    if "AUTOGROW" not in input_type:
+        return False
+    prefix = f"{name}."
+    return any(field.startswith(prefix) and len(field) > len(prefix) for field in provided_inputs)
 
 
 def _validate_dynamic_payload_inputs(

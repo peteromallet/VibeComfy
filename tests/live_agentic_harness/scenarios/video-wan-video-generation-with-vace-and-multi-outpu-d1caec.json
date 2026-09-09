@@ -1,7 +1,7 @@
 {
   "id": "video-wan-video-generation-with-vace-and-multi-outpu-d1caec",
   "query": "The video output has severe temporal flickering and only the first image in my batch produces a coherent result \u2014 the rest are pure noise. What's causing this?",
-  "workflow_path": "external_workflows/corpus/d1caece85b04698e.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d1caece85b04698e.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/d1caece85b04698e.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d1caece85b04698e.json",
     "required_node_evidence": [
       "ImageBatch",
       "ImageBatchMulti",

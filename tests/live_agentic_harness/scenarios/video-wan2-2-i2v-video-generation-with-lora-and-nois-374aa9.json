@@ -1,7 +1,7 @@
 {
   "id": "video-wan2-2-i2v-video-generation-with-lora-and-nois-374aa9",
   "query": "The high-noise LoRA variant produces outputs that look identical to the low-noise variant \u2014 no difference in motion or texture. Also, the video appears to have incorrect brightness/contrast, as if the latent scaling is off.",
-  "workflow_path": "external_workflows/corpus/374aa988d0a133be.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/374aa988d0a133be.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/374aa988d0a133be.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/374aa988d0a133be.json",
     "required_node_evidence": [
       "UnetLoaderGGUF",
       "LoraLoaderModelOnly",

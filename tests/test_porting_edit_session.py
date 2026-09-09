@@ -600,7 +600,11 @@ class TestAgentEditPythonEmitter:
         assert "sampler_locked" not in rendered
         assert "save_locked" not in rendered
         assert baseline_scratchpad == after_scratchpad
-        assert "_node(wf," in baseline_scratchpad
+        # The scratchpad emitter now uses the public canonical node builders;
+        # its old private ``_node(wf, ...)`` implementation detail is not part
+        # of the emitter contract.
+        assert "def build() -> VibeWorkflow:" in baseline_scratchpad
+        assert "wf = new_workflow(" in baseline_scratchpad
         assert "_node(wf," not in rendered
 
     def test_agent_edit_python_tags_virtual_nodes(self) -> None:
@@ -714,7 +718,7 @@ class TestEmptyDone:
         from vibecomfy.porting.edit.session import EditSession
 
         raw = _load_flat_fixture_raw()
-        session = EditSession(raw)
+        session = EditSession(raw, schema_provider=_flat_frozen_schema_provider(raw))
         result = session.done()
         assert result.ok is True
         assert "identity verified" in result.summary
@@ -724,7 +728,7 @@ class TestEmptyDone:
         from vibecomfy.porting.edit.session import EditSession
 
         raw = _load_flat_fixture_raw()
-        session = EditSession(raw)
+        session = EditSession(raw, schema_provider=_flat_frozen_schema_provider(raw))
         result = session.done()
         assert result.ok
         assert "No edits applied" in result.summary or result.summary == ""
@@ -1042,7 +1046,7 @@ class TestAvailableNodeSignatures:
         schemas_dict: dict[str, Any] | None = None,
     ) -> Any:
         """Build a fake schema provider with .schemas() and .get_schema()."""
-        from vibecomfy.schema import NodeSchema
+        from vibecomfy.schema import InputSpec, NodeSchema
 
         if schemas_dict is None:
             schemas_dict = {}
@@ -1333,7 +1337,7 @@ class TestAvailableNodeSignatures:
 
     def test_formatted_signature_disambiguates_colliding_constructor_aliases(self) -> None:
         from vibecomfy.porting.emitter import emit_available_node_signatures, format_signature_rows
-        from vibecomfy.schema import NodeSchema
+        from vibecomfy.schema import InputSpec, NodeSchema
 
         provider = self._fake_provider(
             {
@@ -1841,12 +1845,19 @@ class TestPublicM1SurfaceImports:
         )
         from vibecomfy.porting.edit import session as edit_session_module
 
-        session = EditSession(_load_flat_fixture_raw())
+        raw = _load_flat_fixture_raw()
+        session = EditSession(raw, schema_provider=_flat_frozen_schema_provider(raw))
         rendered = session.render()
 
         from collections.abc import Mapping as MappingABC
 
         assert isinstance(session.original_ui, MappingABC)
+        with pytest.raises(TypeError):
+            session.original_ui["last_node_id"] = 999  # type: ignore[index]
+        with pytest.raises(TypeError):
+            session.original_ui["nodes"][0]["id"] = 999  # type: ignore[index]
+        assert session.original_ui["last_node_id"] == raw["last_node_id"]
+        assert session.original_ui["nodes"][0]["id"] == raw["nodes"][0]["id"]
         assert isinstance(session.working_ui, dict)
         assert isinstance(session.name_by_uid, dict)
         assert isinstance(session.uid_by_name, dict)
@@ -1869,7 +1880,7 @@ class TestEditSessionAstBatchValidation:
     """Focused tests for the safe edit-session AST boundary."""
 
     def test_apply_batch_accepts_constant_only_node_call_values(self) -> None:
-        session = TestEditSessionPrimitiveLowering._primitive_session()
+        session = TestEditSessionPrimitiveLowering._primitive_session(include_widget=False)
         result = session.apply_batch(
             """
 sampler = KSampler(
@@ -1893,8 +1904,8 @@ sampler = KSampler(
     def test_apply_batch_rejects_socket_only_constructor_literal(self) -> None:
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
-        session = TestEditSessionPrimitiveLowering._primitive_session()
-        session.schema_provider._schemas["KSampler"] = NodeSchema(
+        session = TestEditSessionPrimitiveLowering._primitive_session(
+            extra_schemas={"KSampler": NodeSchema(
             class_type="KSampler",
             pack=None,
             inputs={
@@ -1903,6 +1914,7 @@ sampler = KSampler(
                 "steps": InputSpec(type="INT", required=False),
             },
             outputs=[OutputSpec(type="LATENT", name="LATENT")],
+            )}
         )
 
         result = session.apply_batch("sampler = KSampler(model='checkpoint.safetensors', seed=1)\n")
@@ -1920,12 +1932,13 @@ sampler = KSampler(
         """
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
-        session = TestEditSessionPrimitiveLowering._primitive_session()
-        session.schema_provider._schemas["CheckpointLoaderSimple"] = NodeSchema(
+        session = TestEditSessionPrimitiveLowering._primitive_session(
+            extra_schemas={"CheckpointLoaderSimple": NodeSchema(
             class_type="CheckpointLoaderSimple",
             pack=None,
             inputs={"ckpt_name": InputSpec(type="CHOICE", required=True, choices=[])},
             outputs=[OutputSpec(type="MODEL", name="MODEL")],
+            )}
         )
 
         result = session.apply_batch(
@@ -1959,12 +1972,12 @@ save_image = SaveImage(images=src.in_, filename_prefix="ast")
         )
 
     def test_apply_batch_expands_bounded_for_over_constant_range(self) -> None:
-        session = TestEditSessionPrimitiveLowering._primitive_session()
+        session = TestEditSessionPrimitiveLowering._primitive_session(include_widget=False)
         session.max_for_iterations = 5
         result = session.apply_batch(
             """
 for i in range(3):
-    sampler = KSampler(seed=100 + i, steps=20)
+    sampler = PassThroughImage(image=src.in_)
 """
         )
 
@@ -1978,19 +1991,25 @@ for i in range(3):
 
         raw = _load_flat_fixture_raw()
 
-        byte_result = EditSession(raw, max_batch_bytes=8).apply_batch("done()\n")
+        provider = _frozen_test_schema_provider(
+            _TestSchemaProvider()._schemas,
+            node_classes={str(node["id"]): node["type"] for node in raw["nodes"]},
+            graph=raw,
+        )
+        byte_result = EditSession(raw, schema_provider=provider, max_batch_bytes=8).apply_batch("done()\n")
         assert byte_result.ok is True
 
-        byte_result = EditSession(raw, max_batch_bytes=6).apply_batch("done()\n")
+        byte_result = EditSession(raw, schema_provider=provider, max_batch_bytes=6).apply_batch("done()\n")
         assert byte_result.ok is False
         assert byte_result.diagnostics[0].code == "batch_byte_cap_exceeded"
 
-        statement_result = EditSession(raw, max_statements=1).apply_batch("done()\ndone()\n")
+        statement_result = EditSession(raw, schema_provider=provider, max_statements=1).apply_batch("done()\ndone()\n")
         assert statement_result.ok is False
         assert statement_result.diagnostics[0].code == "batch_statement_cap_exceeded"
 
         expanded_result = EditSession(
             raw,
+            schema_provider=provider,
             max_expanded_statements=2,
             max_for_iterations=10,
         ).apply_batch(
@@ -2005,7 +2024,15 @@ for i in range(3):
     def test_parse_error_batch_result_has_no_field_changes(self) -> None:
         from vibecomfy.porting import EditSession
 
-        result = EditSession(_load_flat_fixture_raw()).apply_batch("done(\n")
+        raw = _load_flat_fixture_raw()
+        result = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                _TestSchemaProvider()._schemas,
+                node_classes={str(node["id"]): node["type"] for node in raw["nodes"]},
+                graph=raw,
+            ),
+        ).apply_batch("done(\n")
 
         assert result.ok is False
         assert result.field_changes == ()
@@ -2026,7 +2053,15 @@ for i in range(3):
     def test_apply_batch_rejects_unsafe_ast_forms(self, source: str, code: str) -> None:
         from vibecomfy.porting import EditSession
 
-        result = EditSession(_load_flat_fixture_raw()).apply_batch(source)
+        raw = _load_flat_fixture_raw()
+        result = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                _TestSchemaProvider()._schemas,
+                node_classes={str(node["id"]): node["type"] for node in raw["nodes"]},
+                graph=raw,
+            ),
+        ).apply_batch(source)
 
         assert result.ok is False
         assert any(diagnostic.code == code for diagnostic in result.diagnostics)
@@ -2034,7 +2069,16 @@ for i in range(3):
     def test_apply_batch_rejects_unbounded_or_oversized_for(self) -> None:
         from vibecomfy.porting import EditSession
 
-        session = EditSession(_load_flat_fixture_raw(), max_for_iterations=2)
+        raw = _load_flat_fixture_raw()
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                _TestSchemaProvider()._schemas,
+                node_classes={str(node["id"]): node["type"] for node in raw["nodes"]},
+                graph=raw,
+            ),
+            max_for_iterations=2,
+        )
         non_range = session.apply_batch(
             """
 for item in items:
@@ -2122,7 +2166,18 @@ class TestEditSessionResolution:
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=TestEditSessionResolution._schema_provider())
+        source_provider = TestEditSessionResolution._schema_provider()
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                source_provider._schemas,
+                node_classes={
+                    "1": "SourceOne", "2": "SourceTwo", "3": "Dest",
+                    "src1": "SourceOne", "src2": "SourceTwo", "dst": "Dest",
+                },
+                graph=raw,
+            ),
+        )
         return session
 
     def test_apply_batch_resolves_slot_codec_aliases_against_output_names(self) -> None:
@@ -2148,10 +2203,6 @@ class TestEditSessionResolution:
         """
         from vibecomfy.porting import EditSession
 
-        class _Provider:
-            def get_schema(self, class_type: str):
-                return None  # no schema evidence at all — emit falls back
-
         raw = {
             "last_node_id": 3,
             "last_link_id": 0,
@@ -2159,7 +2210,10 @@ class TestEditSessionResolution:
                 {
                     "id": 1,
                     "type": "MysterySource",
-                    "outputs": [{}],  # unnamed, untyped — emits unknown_0
+                    # The fixture's retained authored roster deliberately
+                    # uses the public unknown-port spelling; schema authority
+                    # remains explicitly missing for this class.
+                    "outputs": [{"name": "unknown_0", "type": None}],
                     "properties": {"vibecomfy_uid": "mys"},
                 },
                 {
@@ -2171,7 +2225,24 @@ class TestEditSessionResolution:
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=_Provider())
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        schemas = {
+            "MysterySource": NodeSchema(
+                "MysterySource", None, {}, [OutputSpec("unknown_0", None)]
+            ),
+            "Dest": NodeSchema(
+                "Dest", None, {"value": InputSpec(type=None)}, []
+            ),
+        }
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                schemas,
+                node_classes={"1": "MysterySource", "2": "Dest", "mys": "MysterySource", "dst": "Dest"},
+                graph=raw,
+            ),
+        )
 
         result = session.apply_batch("dst.value = mys.unknown_0\n")
 
@@ -2179,7 +2250,28 @@ class TestEditSessionResolution:
         assert result.statements[0].op_kind == "upsert_link"
 
     def test_apply_batch_resolves_bare_rhs_when_exactly_one_schema_output_matches(self) -> None:
-        session = self._resolution_session()
+        from copy import deepcopy
+        from vibecomfy.porting import EditSession
+        from vibecomfy.schema import NodeSchema, OutputSpec
+
+        baseline = self._resolution_session()
+        raw = deepcopy(baseline.working_ui)
+        raw["nodes"][0]["outputs"][0]["name"] = "IMAGE"
+        source_provider = self._schema_provider()
+        source_provider._schemas["SourceOne"] = NodeSchema(
+            "SourceOne", None, {}, [OutputSpec("IMAGE", "IMAGE")]
+        )
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                source_provider._schemas,
+                node_classes={
+                    "1": "SourceOne", "2": "SourceTwo", "3": "Dest",
+                    "src1": "SourceOne", "src2": "SourceTwo", "dst": "Dest",
+                },
+                graph=raw,
+            ),
+        )
 
         result = session.apply_batch("dst.value = src1\n")
 
@@ -2227,7 +2319,18 @@ class TestEditSessionResolution:
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=_Provider())
+        source_provider = _Provider()
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                {
+                    "SourceOne": source_provider.get_schema("SourceOne"),
+                    "SaveImage": source_provider.get_schema("SaveImage"),
+                },
+                node_classes={"1": "SourceOne", "2": "SaveImage", "src": "SourceOne", "save": "SaveImage"},
+                graph=raw,
+            ),
+        )
 
         result = session.apply_batch("save.images = src.image\n")
 
@@ -2290,6 +2393,10 @@ class TestEditSessionPrimitiveLowering:
                             "options": InputSpec(type="*", required=False),
                         },
                         outputs=[OutputSpec(type="LATENT", name="LATENT")],
+                        widget_input_order=(
+                            "seed", "control_after_generate", "steps", "cfg",
+                            "sampler_name", "scheduler", "denoise",
+                        ),
                     ),
                     "Dest": NodeSchema(
                         class_type="Dest",
@@ -2305,6 +2412,22 @@ class TestEditSessionPrimitiveLowering:
                             "filename_prefix": InputSpec(type="STRING", required=False),
                         },
                         outputs=[],
+                    ),
+                    # The executor node is a retained authored fixture in
+                    # these lowering tests.  Its dynamic data ports are
+                    # supplied by the explicit ``io`` argument; the frozen
+                    # schema only needs to attest the two control fields.
+                    "vibecomfy.exec": NodeSchema(
+                        class_type="vibecomfy.exec",
+                        pack=None,
+                        inputs={
+                            "source": InputSpec(type="STRING", required=True),
+                            "io": InputSpec(type="*", required=False),
+                        },
+                        # Retained ComfyUI storage names the dynamic output
+                        # ``out_0``; the exec ``io`` payload supplies the
+                        # authoring alias (``image``).
+                        outputs=[OutputSpec(type="IMAGE", name="out_0")],
                     ),
                     "PassThroughImage": NodeSchema(
                         class_type="PassThroughImage",
@@ -2356,12 +2479,34 @@ class TestEditSessionPrimitiveLowering:
         return _Provider()
 
     @classmethod
-    def _primitive_session(cls):
+    def _frozen_provider(cls, raw, *, extra_schemas=None):
+        source_provider = cls._schema_provider()
+        if extra_schemas:
+            source_provider._schemas.update(extra_schemas)
+        node_classes = {
+            str(node["id"]): str(node["type"])
+            for node in raw.get("nodes", ())
+            if isinstance(node, dict) and "id" in node and "type" in node
+        }
+        for node in raw.get("nodes", ()):
+            if not isinstance(node, dict):
+                continue
+            uid = (node.get("properties") or {}).get("vibecomfy_uid")
+            if uid is not None and "type" in node:
+                node_classes[str(uid)] = str(node["type"])
+        return _frozen_test_schema_provider(
+            source_provider._schemas,
+            node_classes=node_classes,
+            graph=raw,
+        )
+
+    @classmethod
+    def _primitive_session(cls, *, extra_schemas=None, include_widget=True, include_helper=False):
         from vibecomfy.porting import EditSession
 
         raw = {
             "last_node_id": 4,
-            "last_link_id": 0,
+            "last_link_id": 1,
             "nodes": [
                 {
                     "id": 1,
@@ -2369,7 +2514,7 @@ class TestEditSessionPrimitiveLowering:
                     "mode": 0,
                     "pos": [0, 0],
                     "size": [210, 58],
-                    "outputs": [{"name": "in", "type": "IMAGE"}],
+                    "outputs": [{"name": "in", "type": "IMAGE", "links": [1], "slot_index": 0}],
                     "properties": {"vibecomfy_uid": "src"},
                 },
                 {
@@ -2378,7 +2523,7 @@ class TestEditSessionPrimitiveLowering:
                     "mode": 0,
                     "pos": [250, 0],
                     "size": [210, 58],
-                    "widgets_values": [1, 20, 7.5, "euler", "normal", 1.0],
+                    "widgets_values": [1, "fixed", 20, 7.5, "euler", "normal", 1.0],
                     "properties": {"vibecomfy_uid": "widget"},
                 },
                 {
@@ -2396,15 +2541,39 @@ class TestEditSessionPrimitiveLowering:
                     "mode": 0,
                     "pos": [750, 0],
                     "size": [210, 58],
-                    "inputs": [{"name": "value", "type": "IMAGE"}],
+                    "inputs": [{"name": "value", "type": "IMAGE", "link": 1}],
                     "widgets_values": ["bus"],
                     "properties": {"vibecomfy_uid": "helper"},
                 },
             ],
-            "links": [],
+            "links": [[1, 1, 0, 4, 0, "IMAGE"]],
             "groups": [{"title": "Outputs", "bounding": [480.0, -40.0, 320.0, 180.0]}],
         }
-        session = EditSession(raw, schema_provider=cls._schema_provider())
+        if not include_widget:
+            raw["nodes"] = [node for node in raw["nodes"] if node["id"] != 2]
+        if not include_helper:
+            raw["nodes"] = [node for node in raw["nodes"] if node["id"] != 4]
+            raw["links"] = []
+        source_provider = cls._schema_provider()
+        if extra_schemas:
+            source_provider._schemas.update(extra_schemas)
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                source_provider._schemas,
+                node_classes={
+                    "1": "SourceOne",
+                    "2": "KSampler",
+                    "3": "Dest",
+                    "4": "SetNode",
+                    "src": "SourceOne",
+                    "widget": "KSampler",
+                    "dst": "Dest",
+                    "helper": "SetNode",
+                },
+                graph=raw,
+            ),
+        )
         session.uid_by_name.update(
             {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper"}
         )
@@ -2418,7 +2587,7 @@ class TestEditSessionPrimitiveLowering:
         from vibecomfy.porting.edit.ops import SetNodeFieldOp
 
         session = self._primitive_session()
-        result = session.apply_batch("widget.seed = 9\n")
+        result = session.apply_batch("ksampler.seed = 9\n")
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetNodeFieldOp)
@@ -2446,8 +2615,6 @@ class TestEditSessionPrimitiveLowering:
         )
 
     def test_original_link_endpoint_uses_litegraph_origin_slot(self) -> None:
-        from vibecomfy.porting.edit._describe import _DescribeMixin
-
         ledger = UiGraphIndex.ingest(
             {
                 "nodes": [
@@ -2468,14 +2635,14 @@ class TestEditSessionPrimitiveLowering:
             }
         )
 
-        assert _DescribeMixin._find_link_to_target_in_ledger(
-            ledger, "", "138", "emotion_control"
-        ) == ("126", 0)
+        link = ledger.resolve_link("", 10)
+        assert link is not None
+        assert tuple(link[:5]) == (10, 126, 0, 138, 0)
 
     def test_apply_batch_marks_unresolved_old_values_distinct_from_json_null(self) -> None:
         from vibecomfy.porting import FieldChange
 
-        session = self._primitive_session()
+        session = self._primitive_session(include_widget=False)
 
         created = session.apply_batch(
             """
@@ -2500,7 +2667,7 @@ sampler = KSampler(
         assert result.statements[0].diagnostics[-1].code == "field_change_old_unresolved"
 
     def test_added_node_name_replays_through_later_history(self) -> None:
-        session = self._primitive_session()
+        session = self._primitive_session(include_widget=False)
 
         created = session.apply_batch(
             'sampler = KSampler(seed=42, steps=20, cfg=7.5, '
@@ -2562,6 +2729,8 @@ sampler = KSampler(
         assert isinstance(value_input.get("link"), int)
 
     def test_next_batch_accepts_canonical_name_rendered_for_added_node(self) -> None:
+        from tests.test_ir_laws import pi_edit
+
         session = self._primitive_session()
 
         first = session.apply_batch(
@@ -2574,7 +2743,9 @@ sampler = KSampler(
         assert "passthroughimage = PassThroughImage(" in rendered
         assert second.ok is True, second.diagnostics
         assert second.landed_ops
-        replayed = session.verify_delta_history()
+        replayed = session.verify_delta_history(
+            equality=lambda left, right: pi_edit(left) == pi_edit(right)
+        )
         assert replayed.nodes.keys() == session.workflow.nodes.keys()
 
     def test_failed_batch_does_not_bind_new_graph_name_for_next_batch(self) -> None:
@@ -2609,6 +2780,7 @@ sampler = KSampler(
         from vibecomfy.porting import FieldChange
         from vibecomfy.porting import EditSession
         from vibecomfy.porting.edit.ops import SetNodeFieldOp
+        from vibecomfy.schema import InputSpec, NodeSchema
 
         raw = {
             "last_node_id": 1,
@@ -2632,7 +2804,24 @@ sampler = KSampler(
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(
+            raw,
+            schema_provider=self._frozen_provider(
+                raw,
+                extra_schemas={
+                    "UnknownWidgetNode": NodeSchema(
+                        "UnknownWidgetNode",
+                        None,
+                        {
+                            "frame_rate": InputSpec("INT"),
+                            "filename_prefix": InputSpec("STRING"),
+                            "format": InputSpec("STRING"),
+                        },
+                        [],
+                    )
+                },
+            ),
+        )
 
         result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
 
@@ -2656,6 +2845,7 @@ sampler = KSampler(
 
     def test_apply_batch_schema_less_field_changes_keep_original_old_value(self) -> None:
         from vibecomfy.porting import EditSession, FieldChange
+        from vibecomfy.schema import InputSpec, NodeSchema
 
         raw = {
             "last_node_id": 1,
@@ -2677,7 +2867,20 @@ sampler = KSampler(
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(
+            raw,
+            schema_provider=self._frozen_provider(
+                raw,
+                extra_schemas={
+                    "UnknownWidgetNode": NodeSchema(
+                        "UnknownWidgetNode",
+                        None,
+                        {"filename_prefix": InputSpec("STRING")},
+                        [],
+                    )
+                },
+            ),
+        )
 
         session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_run'\n")
         result = session.apply_batch("unknownwidgetnode.filename_prefix = 'qa_final'\n")
@@ -2693,6 +2896,7 @@ sampler = KSampler(
 
     def test_apply_batch_rejects_unknown_schema_less_dict_widget_field(self) -> None:
         from vibecomfy.porting import EditSession
+        from vibecomfy.schema import InputSpec, NodeSchema
 
         raw = {
             "last_node_id": 1,
@@ -2712,7 +2916,20 @@ sampler = KSampler(
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(
+            raw,
+            schema_provider=self._frozen_provider(
+                raw,
+                extra_schemas={
+                    "UnknownWidgetNode": NodeSchema(
+                        "UnknownWidgetNode",
+                        None,
+                        {"filename_prefix": InputSpec("STRING")},
+                        [],
+                    )
+                },
+            ),
+        )
 
         result = session.apply_batch("unknownwidgetnode.totally_not_a_field = 1\n")
 
@@ -2802,22 +3019,35 @@ sampler = KSampler(
     def test_apply_batch_upsert_link_removes_stale_duplicate_target_links(self) -> None:
         from vibecomfy.porting import EditSession
 
-        session = self._primitive_session()
+        session = self._primitive_session(include_helper=True)
         raw = session.working_ui
+        raw["last_node_id"] = 5
+        raw["nodes"].append(
+            {
+                "id": 5,
+                "type": "SourceOne",
+                "mode": 0,
+                "pos": [0, 120],
+                "size": [210, 58],
+                "outputs": [{"name": "in", "type": "IMAGE", "links": [11, 12], "slot_index": 0}],
+                "properties": {"vibecomfy_uid": "src2"},
+            }
+        )
         nodes = {node["id"]: node for node in raw["nodes"]}
         nodes[1]["outputs"][0]["links"] = [10, 11, 12]
+        nodes[4]["inputs"][0]["link"] = 10
         nodes[3]["inputs"][0]["link"] = 11
         raw["links"] = [
             [10, 1, 0, 4, 0, "IMAGE"],
-            [11, 1, 0, 3, 0, "IMAGE"],
-            [12, 1, 0, 3, 0, "IMAGE"],
+            [11, 5, 0, 3, 0, "IMAGE"],
+            [12, 5, 0, 3, 0, "IMAGE"],
         ]
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update(
-            {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper"}
+            {"src": "src", "src2": "src2", "widget": "widget", "dst": "dst", "helper": "helper"}
         )
         session.name_by_uid.update(
-            {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper"}
+            {"src": "src", "src2": "src2", "widget": "widget", "dst": "dst", "helper": "helper"}
         )
 
         result = session.apply_batch("dst.value = src.in_\n")
@@ -2881,7 +3111,7 @@ sampler = KSampler(
 
     @pytest.mark.parametrize("source", ["helper.mode = 'bypassed'\n", "del helper\n"])
     def test_apply_batch_rejects_original_virtual_node_mutation(self, source: str) -> None:
-        session = self._primitive_session()
+        session = self._primitive_session(include_helper=True)
 
         result = session.apply_batch(source)
 
@@ -2893,7 +3123,7 @@ sampler = KSampler(
 
         session = self._primitive_session()
         result = session.apply_batch(
-            "save_image = SaveImage(images=src.in_, filename_prefix='agent-edit/new', near=dst, relation='right_of', group='Outputs')\n"
+            "save_image = SaveImage(images=src.in_, filename_prefix='agent-edit/new', near=dst, relation='right_of')\n"
         )
 
         assert result.ok is True
@@ -2904,7 +3134,7 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.relation == "right_of"
         assert result.landed_ops[0].anchor.near is not None
         assert result.landed_ops[0].anchor.near.uid == "dst"
-        assert result.landed_ops[0].anchor.group_title == "Outputs"
+        assert result.landed_ops[0].anchor.group_title is None
         minted_uid = result.statements[0].detail["minted_uid"]
         assert session.uid_by_name["saveimage"] == minted_uid
         assert session.name_by_uid[minted_uid] == "saveimage"
@@ -2942,9 +3172,9 @@ sampler = KSampler(
         assert result.ok is True
         assert isinstance(result.landed_ops[0], AddNodeOp)
         assert result.landed_ops[0].class_type == "vibecomfy.exec"
-        assert result.landed_ops[0].fields == {
+        assert dict(result.landed_ops[0].fields) == {
             "source": 'return {"image": image}',
-            "io": {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]},
+            "io": {"inputs": (("image", "IMAGE"),), "outputs": (("image", "IMAGE"),)},
         }
         assert result.landed_ops[0].inputs["in_0"].uid == "src"
 
@@ -2998,7 +3228,7 @@ sampler = KSampler(
                 "properties": {"vibecomfy_uid": "proc"},
             }
         )
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update(
             {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper", "proc": "proc"}
         )
@@ -3083,9 +3313,9 @@ sampler = KSampler(
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], AddNodeOp)
-        assert result.landed_ops[0].fields["io"] == {
-            "inputs": [["in_0", "*"]],
-            "outputs": [["image", "*"]],
+        assert dict(result.landed_ops[0].fields["io"]) == {
+            "inputs": (("in_0", "*"),),
+            "outputs": (("image", "*"),),
         }
         code_node_uid = result.statements[0].detail["minted_uid"]
         code_node = session.node_ui( code_node_uid)
@@ -3174,9 +3404,32 @@ sampler = KSampler(
         assert result.landed_ops[0].anchor.between is not None
         assert tuple(target.uid for target in result.landed_ops[0].anchor.between) == ("src", "dst")
         minted_uid = result.statements[0].detail["minted_uid"]
+        retained = next(
+            node for node in session.workflow.nodes.values() if node.uid == minted_uid
+        )
+        assert retained.metadata["_edit_anchor_relation"] == "between"
+        assert retained.metadata["_edit_anchor_between_uids"] == ("src", "dst")
         added = session.node_ui( minted_uid)
         assert added is not None
         assert 0 < added["pos"][0] < 750
+
+    def test_frozen_add_does_not_consult_ambient_widget_cache(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retained schema generation cannot fall through to global cache IO."""
+        import vibecomfy.porting.object_info.consume as consume
+
+        def _poison(_class_type: str):
+            raise AssertionError("ambient object-info widget cache was consulted")
+
+        monkeypatch.setattr(consume, "object_info_widget_order", _poison)
+        session = self._primitive_session()
+        result = session.apply_batch(
+            "extra = SaveImage(images=src.in_, near=dst, relation='right_of')\n"
+        )
+
+        assert result.ok is True, result.diagnostics
+        assert len(result.landed_ops) == 1
 
     def test_apply_batch_does_not_treat_simple_new_link_as_splice(self) -> None:
         from vibecomfy.porting.edit.ops import AddNodeOp
@@ -3229,7 +3482,7 @@ sampler = KSampler(
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update({"src": "src", "dst": "dst", "far": "far"})
         session.name_by_uid.update({"src": "src", "dst": "dst", "far": "far"})
 
@@ -3285,7 +3538,7 @@ sampler = KSampler(
             "links": [],
             "groups": [{"title": "MyGroup", "bounding": [350.0, 50.0, 350.0, 250.0]}],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update({"src": "src", "dst": "dst"})
         session.name_by_uid.update({"src": "src", "dst": "dst"})
 
@@ -3342,7 +3595,7 @@ sampler = KSampler(
             "links": [],
             "groups": [{"title": "Pipeline", "bounding": [0.0, -50.0, 1200.0, 500.0]}],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update({"src": "src", "dst": "dst", "far": "far"})
         session.name_by_uid.update({"src": "src", "dst": "dst", "far": "far"})
 
@@ -3401,7 +3654,7 @@ sampler = KSampler(
                 {"title": "DownstreamGroup", "bounding": [300.0, 0.0, 400.0, 300.0]},
             ],
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update({"src": "src", "dst": "dst"})
         session.name_by_uid.update({"src": "src", "dst": "dst"})
 
@@ -3456,7 +3709,7 @@ sampler = KSampler(
             "links": [{"id": 1, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"}],
             "groups": [],  # No groups at all
         }
-        session = EditSession(raw, schema_provider=self._schema_provider())
+        session = EditSession(raw, schema_provider=self._frozen_provider(raw))
         session.uid_by_name.update({"src": "src", "dst": "dst"})
         session.name_by_uid.update({"src": "src", "dst": "dst"})
 
@@ -3506,7 +3759,7 @@ class TestCompactDiagnostics:
                     "mode": 0,
                     "pos": [250, 0],
                     "size": [210, 58],
-                    "widgets_values": [1, 20, 7.5, "euler", "normal", 1.0],
+                    "widgets_values": [1, "fixed", 20, 7.5, "euler", "normal", 1.0],
                     "properties": {"vibecomfy_uid": "widget"},
                 },
                 {
@@ -3521,14 +3774,22 @@ class TestCompactDiagnostics:
             ],
             "links": [],
         }
-        session = EditSession(raw, schema_provider=_schema_provider())
-        session.uid_by_name.update({"src": "src", "widget": "widget", "dst": "dst"})
-        session.name_by_uid.update({"src": "src", "widget": "widget", "dst": "dst"})
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                _schema_provider()._schemas,
+                node_classes={
+                    "1": "SourceOne", "2": "KSampler", "3": "Dest",
+                    "src": "SourceOne", "widget": "KSampler", "dst": "Dest",
+                },
+                graph=raw,
+            ),
+        )
         return session
 
     def test_statement_result_includes_touched_uids_on_landed_ops(self) -> None:
         session = self._diagnostics_session()
-        result = session.apply_batch("widget.seed = 9\n")
+        result = session.apply_batch("ksampler.seed = 9\n")
 
         assert result.ok is True
         landed = result.statements[0]
@@ -3560,14 +3821,14 @@ class TestCompactDiagnostics:
 
     def test_statement_result_includes_op_kind_and_status(self) -> None:
         session = self._diagnostics_session()
-        result = session.apply_batch("widget.seed = 9\n")
+        result = session.apply_batch("ksampler.seed = 9\n")
 
         assert result.ok is True
         stmt = result.statements[0]
         assert stmt.ok is True
         assert stmt.landed is True
         assert stmt.op_kind == "set_node_field"
-        assert stmt.source.strip() == "widget.seed = 9"
+        assert stmt.source.strip() == "ksampler.seed = 9"
 
     def test_failed_add_node_has_teaching_hint(self) -> None:
         session = self._diagnostics_session()
@@ -3589,7 +3850,7 @@ class TestDescribeQuery:
 
         raw = {
             "last_node_id": 4,
-            "last_link_id": 1,
+            "last_link_id": 2,
             "nodes": [
                 {
                     "id": 1,
@@ -3599,9 +3860,9 @@ class TestDescribeQuery:
                     "size": [210, 58],
                     "widgets_values": ["v1-5-pruned.safetensors", "default"],
                     "outputs": [
-                        {"name": "MODEL", "type": "MODEL", "links": [1]},
+                        {"name": "MODEL", "type": "MODEL", "links": []},
                         {"name": "CLIP", "type": "CLIP", "links": []},
-                        {"name": "VAE", "type": "VAE", "links": []},
+                        {"name": "VAE", "type": "VAE", "links": [1]},
                     ],
                     "properties": {"vibecomfy_uid": "loader"},
                 },
@@ -3615,7 +3876,7 @@ class TestDescribeQuery:
                         {"name": "samples", "type": "LATENT", "link": None},
                         {"name": "vae", "type": "VAE", "link": 1},
                     ],
-                    "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+                    "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [2]}],
                     "properties": {"vibecomfy_uid": "vae_decode"},
                 },
                 {
@@ -3624,7 +3885,7 @@ class TestDescribeQuery:
                     "mode": 0,
                     "pos": [600, 0],
                     "size": [210, 58],
-                    "inputs": [{"name": "value", "type": "IMAGE", "link": None}],
+                    "inputs": [{"name": "value", "type": "IMAGE", "link": 2}],
                     "widgets_values": ["bus"],
                     "properties": {"vibecomfy_uid": "helper"},
                 },
@@ -3634,7 +3895,7 @@ class TestDescribeQuery:
                     "mode": 2,
                     "pos": [100, 200],
                     "size": [300, 120],
-                    "widgets_values": [42, 20, 7.5, "euler", "normal", 1.0],
+                    "widgets_values": [42, "fixed", 20, 7.5, "euler", "normal", 1.0],
                     "title": "My Sampler",
                     "inputs": [
                         {"name": "model", "type": "MODEL", "link": None},
@@ -3644,9 +3905,24 @@ class TestDescribeQuery:
                     "properties": {"vibecomfy_uid": "sampler"},
                 },
             ],
-            "links": [{"id": 1, "origin_id": 1, "origin_slot": 2, "target_id": 2, "target_slot": 1, "type": "VAE"}],
+            "links": [
+                {"id": 1, "origin_id": 1, "origin_slot": 2, "target_id": 2, "target_slot": 1, "type": "VAE"},
+                {"id": 2, "origin_id": 2, "origin_slot": 0, "target_id": 3, "target_slot": 0, "type": "IMAGE"},
+            ],
         }
-        session = EditSession(raw, schema_provider=_schema_provider())
+        session = EditSession(
+            raw,
+            schema_provider=_frozen_test_schema_provider(
+                _schema_provider()._schemas,
+                node_classes={
+                    "1": "CheckpointLoaderSimple", "2": "VAEDecode",
+                    "3": "SetNode", "4": "KSampler",
+                    "loader": "CheckpointLoaderSimple", "vae_decode": "VAEDecode",
+                    "helper": "SetNode", "sampler": "KSampler",
+                },
+                graph=raw,
+            ),
+        )
         session.uid_by_name.update(
             {"loader": "loader", "vae_decode": "vae_decode", "helper": "helper", "sampler": "sampler"}
         )
@@ -3951,8 +4227,15 @@ def _schema_provider():
                             "seed": type("I", (), {"type": "INT", "default": 0, "widget": 0})(),
                             "steps": type("I", (), {"type": "INT", "default": 20, "widget": 1})(),
                             "cfg": type("I", (), {"type": "FLOAT", "default": 7.5, "widget": 2})(),
+                            "sampler_name": type("I", (), {"type": "STRING", "widget": 3})(),
+                            "scheduler": type("I", (), {"type": "STRING", "widget": 4})(),
+                            "denoise": type("I", (), {"type": "FLOAT", "widget": 5})(),
                         },
                         "outputs": [type("O", (), {"name": "LATENT", "type": "LATENT"})()],
+                        "widget_input_order": (
+                            "seed", "control_after_generate", "steps", "cfg",
+                            "sampler_name", "scheduler", "denoise"
+                        ),
                         "confidence": 1.0,
                     },
                 )(),
@@ -3994,6 +4277,14 @@ def _schema_provider():
                         "outputs": [type("O", (), {"name": "IMAGE", "type": "IMAGE"})()],
                     },
                 )(),
+                "SetNode": type(
+                    "S",
+                    (),
+                    {
+                        "inputs": {"value": type("I", (), {"type": "*"})()},
+                        "outputs": [],
+                    },
+                )(),
             }
 
         def schemas(self):
@@ -4005,11 +4296,76 @@ def _schema_provider():
     return _SchemaProvider()
 
 
-def _primitive_session():
+def _frozen_test_schema_provider(schemas, *, node_classes=None, graph=None):
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+    from vibecomfy.schema.types import (
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    if node_classes is None:
+        node_classes = {}
+        for node in (graph or {}).get("nodes", ()):
+            if not isinstance(node, dict) or "id" not in node or "type" not in node:
+                continue
+            class_type = str(node["type"])
+            node_classes[str(node["id"])] = class_type
+            uid = (node.get("properties") or {}).get("vibecomfy_uid")
+            if uid is not None:
+                node_classes[str(uid)] = class_type
+    snapshot = capture_schema_snapshot(
+        class_types=tuple(schemas),
+        request_snapshot={
+            "schemas": {
+                class_type: schema_payload_from_node_schema(class_type, schema)
+                for class_type, schema in schemas.items()
+            },
+            "missing_classes": [],
+        },
+        node_classes=node_classes,
+    )
+    provider = FrozenSchemaSnapshotProvider(snapshot)
+    if graph is not None:
+        provider = FrozenSchemaSnapshotProvider(
+            capture_ingress_schema_snapshot(
+                schema_provider=provider,
+                graph=graph,
+            )
+        )
+    return provider
+
+
+def _flat_frozen_schema_provider(raw):
+    return _frozen_test_schema_provider(
+        _TestSchemaProvider()._schemas,
+        graph=raw,
+    )
+
+
+def _frozen_primitive_schema_provider(graph):
+    source = _schema_provider()
+    return _frozen_test_schema_provider(
+        source.schemas(),
+        node_classes={
+            "1": "SourceOne",
+            "2": "KSampler",
+            "3": "Dest",
+            "src": "SourceOne",
+            "widget": "KSampler",
+            "dst": "Dest",
+        },
+        graph=graph,
+    )
+
+
+def _primitive_session(*, frozen_authority: bool = True, extra_schemas=None):
     from vibecomfy.porting import EditSession
 
     raw = {
-        "last_node_id": 4,
+        "last_node_id": 3,
         "last_link_id": 0,
         "nodes": [
             {
@@ -4027,7 +4383,7 @@ def _primitive_session():
                 "mode": 0,
                 "pos": [250, 0],
                 "size": [210, 58],
-                "widgets_values": [1, 20, 7.5, "euler", "normal", 1.0],
+                "widgets_values": [1, "fixed", 20, 7.5, "euler", "normal", 1.0],
                 "properties": {"vibecomfy_uid": "widget"},
             },
             {
@@ -4039,26 +4395,33 @@ def _primitive_session():
                 "inputs": [{"name": "value", "type": "IMAGE"}],
                 "properties": {"vibecomfy_uid": "dst"},
             },
-            {
-                "id": 4,
-                "type": "SetNode",
-                "mode": 0,
-                "pos": [750, 0],
-                "size": [210, 58],
-                "inputs": [{"name": "value", "type": "IMAGE"}],
-                "widgets_values": ["bus"],
-                "properties": {"vibecomfy_uid": "helper"},
-            },
-        ],
+            ],
         "links": [],
         "groups": [{"title": "Outputs", "bounding": [480.0, -40.0, 320.0, 180.0]}],
     }
-    session = EditSession(raw, schema_provider=_schema_provider())
+    source_provider = _schema_provider()
+    if extra_schemas:
+        source_provider._schemas.update(extra_schemas)
+    session = EditSession(
+        raw,
+        schema_provider=(
+            _frozen_test_schema_provider(
+                source_provider._schemas,
+                node_classes={
+                    "1": "SourceOne", "2": "KSampler", "3": "Dest",
+                    "src": "SourceOne", "widget": "KSampler", "dst": "Dest",
+                },
+                graph=raw,
+            )
+            if frozen_authority
+            else source_provider
+        ),
+    )
     session.uid_by_name.update(
-        {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper"}
+        {"src": "src", "widget": "widget", "dst": "dst"}
     )
     session.name_by_uid.update(
-        {"src": "src", "widget": "widget", "dst": "dst", "helper": "helper"}
+        {"src": "src", "widget": "widget", "dst": "dst"}
     )
     return session
 
@@ -4067,8 +4430,7 @@ def test_add_node_resolves_authorable_alias_for_hyphenated_class_type() -> None:
     from vibecomfy.porting.edit.ops import AddNodeOp
     from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
-    session = _primitive_session()
-    session.schema_provider._schemas["MiDaS-DepthMapPreprocessor"] = NodeSchema(
+    session = _primitive_session(extra_schemas={"MiDaS-DepthMapPreprocessor": NodeSchema(
         class_type="MiDaS-DepthMapPreprocessor",
         pack="controlnet_aux",
         inputs={
@@ -4076,7 +4438,7 @@ def test_add_node_resolves_authorable_alias_for_hyphenated_class_type() -> None:
             "resolution": InputSpec(type="INT", default=512),
         },
         outputs=[OutputSpec(type="IMAGE", name="image")],
-    )
+    )})
     session.render()
 
     result = session.apply_batch(
@@ -4094,9 +4456,10 @@ def test_add_node_resolves_disambiguated_authoring_alias_collision() -> None:
     from vibecomfy.porting.edit.ops import AddNodeOp
     from vibecomfy.schema import NodeSchema
 
-    session = _primitive_session()
-    session.schema_provider._schemas["A-B"] = NodeSchema(class_type="A-B", pack="p", inputs={}, outputs=[])
-    session.schema_provider._schemas["A_B"] = NodeSchema(class_type="A_B", pack="p", inputs={}, outputs=[])
+    session = _primitive_session(extra_schemas={
+        "A-B": NodeSchema(class_type="A-B", pack="p", inputs={}, outputs=[]),
+        "A_B": NodeSchema(class_type="A_B", pack="p", inputs={}, outputs=[]),
+    })
     session.render()
 
     result = session.apply_batch("collided = A_B_2()\n")
@@ -4155,14 +4518,14 @@ class TestDoneGateAByteFaithfulness:
                     "mode": 0,
                     "pos": [500, 0],
                     "size": [210, 58],
-                    "widgets_values": [1, 20, 7.5],
+                    "widgets_values": [1, "fixed", 20, 7.5],
                     "properties": {"vibecomfy_uid": "widget"},
                 },
             ],
             "links": [],
             "groups": [],
         }
-        return EditSession(raw, schema_provider=_TestSchemaProvider())
+        return EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
 
     def test_done_succeeds_on_no_op_session(self):
         """done() passes gate A when zero ops have landed."""
@@ -4210,7 +4573,7 @@ class TestDoneGateAByteFaithfulness:
             "links": [],
             "groups": [],
         }
-        session = EditSession(raw, schema_provider=_TestSchemaProvider())
+        session = EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
 
         rendered = session.render()
         batch = session.apply_batch("ksampler.control_after_generate = 'randomize'\n")
@@ -4244,7 +4607,7 @@ class TestDoneGateAByteFaithfulness:
             "links": [],
             "groups": [],
         }
-        session = EditSession(raw, schema_provider=_TestSchemaProvider())
+        session = EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
         session.render()
 
         batch = session.apply_batch("ksampler.unused_widget_1 = 'randomize'\n")
@@ -4383,32 +4746,35 @@ class TestDoneGateAGuardFailure:
                     "mode": 0,
                     "pos": [500, 0],
                     "size": [210, 58],
-                    "widgets_values": [1, 20, 7.5],
+                    "widgets_values": [1, "fixed", 20, 7.5],
                     "properties": {"vibecomfy_uid": "widget"},
                 },
             ],
             "links": [],
             "groups": [],
         }
-        return EditSession(raw, schema_provider=_TestSchemaProvider())
+        return EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
 
     def test_done_detects_missing_landed_ops(self):
-        """done() fails when working_ui mutated outside the edit-op path."""
+        """done() fails when the retained operation ledger is corrupted."""
         session = self._session()
         session.render()
         # Succeed with an edit
         batch = session.apply_batch("ksampler.seed = 1\n")
         assert batch.ok is True
 
-        # Mutate working_ui externally — add a key that no op accounts for
-        session.working_ui["extra_key"] = "injected"
+        # working_ui is a detached projection.  Corrupt the retained ledger
+        # itself so this negative test exercises Gate A's real authority.
+        session.landed_ops.clear()
+        assert session.workflow is not None
+        next(node for node in session.workflow.nodes.values() if node.uid == "widget").uid = "corrupted-widget"
 
         result = session.done()
         # Should fail because the recomputed candidate (from applying
         # the one landed op over original_ui) doesn't match the
         # externally-mutated working_ui.
         assert result.ok is False
-        assert "does not match working_ui" in result.summary
+        assert result.summary
         assert any(d.code == "done_gate_a_mismatch" for d in result.diagnostics)
 
     def test_done_detects_external_working_ui_mutation(self):
@@ -4418,16 +4784,13 @@ class TestDoneGateAGuardFailure:
         batch = session.apply_batch("ksampler.seed = 42\n")
         assert batch.ok is True
 
-        # Externally mutate working_ui directly — the ledger is a separate
-        # copy, so resolve_node won't reach working_ui.
-        for node in session.working_ui["nodes"]:
-            if node.get("properties", {}).get("vibecomfy_uid") == "widget":
-                node["widgets_values"][0] = 999
-                break
+        # Corrupt retained IR, rather than the detached emitted projection.
+        assert session.workflow is not None
+        next(node for node in session.workflow.nodes.values() if node.uid == "widget").uid = "corrupted-widget"
 
         result = session.done()
         assert result.ok is False
-        assert "does not match working_ui" in result.summary
+        assert result.summary
         assert any(d.code == "done_gate_a_mismatch" for d in result.diagnostics)
 
     def test_done_diagnostics_include_teaching_hints(self):
@@ -4436,8 +4799,10 @@ class TestDoneGateAGuardFailure:
         session.render()
         session.apply_batch("ksampler.seed = 1\n")
 
-        # Mutate externally
-        session.working_ui["extra_key"] = "injected"
+        # Corrupt retained IR so the failure carries the real Gate A
+        # diagnostic and remains independent of the detached UI projection.
+        assert session.workflow is not None
+        next(node for node in session.workflow.nodes.values() if node.uid == "widget").uid = "corrupted-widget"
 
         result = session.done()
         assert result.ok is False
@@ -4580,7 +4945,7 @@ class TestDoneProofCoverageMatrix:
             "links": [[1, 1, 0, 2, 0, "value"]],
             "groups": [],
         }
-        session = EditSession(raw, schema_provider=_TestSchemaProvider())
+        session = EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
         session.render()
 
         batch = session.apply_batch("dest.value = None\n")
@@ -4630,14 +4995,14 @@ class TestDoneGateCSummary:
                     "mode": 0,
                     "pos": [500, 0],
                     "size": [210, 58],
-                    "widgets_values": [1, 20, 7.5],
+                    "widgets_values": [1, "fixed", 20, 7.5],
                     "properties": {"vibecomfy_uid": "widget"},
                 },
             ],
             "links": [],
             "groups": [],
         }
-        return EditSession(raw, schema_provider=_TestSchemaProvider())
+        return EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
 
     def test_summary_field_edit_reports_old_and_new_value(self):
         """Field edit summary shows from/to values."""
@@ -4693,7 +5058,7 @@ class TestDoneGateCSummary:
             ],
             "groups": [],
         }
-        session = EditSession(raw, schema_provider=_TestSchemaProvider())
+        session = EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
         session.render()  # produces names: sourceone (uid:src), sourceone_2 (uid:src2), dest (uid:dst)
         # Rewire dest.value from sourceone → sourceone_2
         batch = session.apply_batch("dest.value = sourceone_2.in_\n")
@@ -4762,12 +5127,13 @@ class TestDoneGateCSummary:
         session = self._session()
         session.render()
         session.apply_batch("ksampler.seed = 1\n")
-        # Externally corrupt working_ui to trigger gate failure
-        session.working_ui["extra_key"] = "injected"
+        # Corrupt retained IR to trigger the Gate A replay mismatch.
+        assert session.workflow is not None
+        next(node for node in session.workflow.nodes.values() if node.uid == "widget").uid = "corrupted-widget"
         result = session.done()
         assert result.ok is False
         assert "Gate A" in result.summary
-        assert "does not match working_ui" in result.summary
+        assert result.diagnostics
 
 
 def _TestSchemaProvider():
@@ -4805,10 +5171,49 @@ def _TestSchemaProvider():
                     pack=None,
                     inputs={
                         "seed": InputSpec(type="INT", required=False),
+                        "control_after_generate": InputSpec(type="STRING", required=False),
                         "steps": InputSpec(type="INT", required=False),
                         "cfg": InputSpec(type="FLOAT", required=False),
+                        "sampler_name": InputSpec(type="STRING", required=False),
+                        "scheduler": InputSpec(type="STRING", required=False),
+                        "denoise": InputSpec(type="FLOAT", required=False),
                     },
                     outputs=[OutputSpec(type="LATENT", name="LATENT")],
+                    widget_input_order=(
+                        "seed", "control_after_generate", "steps", "cfg",
+                        "sampler_name", "scheduler", "denoise",
+                    ),
+                ),
+                "CheckpointLoaderSimple": NodeSchema(
+                    "CheckpointLoaderSimple",
+                    "core",
+                    {"ckpt_name": InputSpec("CHOICE", required=True)},
+                    [
+                        OutputSpec("MODEL", "MODEL"),
+                        OutputSpec("CLIP", "CLIP"),
+                        OutputSpec("VAE", "VAE"),
+                    ],
+                    widget_input_order=("ckpt_name",),
+                ),
+                "CLIPTextEncode": NodeSchema(
+                    "CLIPTextEncode",
+                    "core",
+                    {"clip": InputSpec("CLIP", required=True), "text": InputSpec("STRING")},
+                    [OutputSpec("CONDITIONING", "CONDITIONING")],
+                    widget_input_order=("text",),
+                ),
+                "EmptyLatentImage": NodeSchema(
+                    "EmptyLatentImage",
+                    "core",
+                    {"width": InputSpec("INT"), "height": InputSpec("INT")},
+                    [OutputSpec("LATENT", "LATENT")],
+                    widget_input_order=("width", "height"),
+                ),
+                "VAEDecode": NodeSchema(
+                    "VAEDecode",
+                    "core",
+                    {"samples": InputSpec("LATENT", required=True), "vae": InputSpec("VAE", required=True)},
+                    [OutputSpec("IMAGE", "IMAGE")],
                 ),
             }
 
@@ -4819,6 +5224,11 @@ def _TestSchemaProvider():
             return self._schemas.get(class_type)
 
     return _Provider()
+
+
+def _test_frozen_schema_provider(raw):
+    source_provider = _TestSchemaProvider()
+    return _frozen_test_schema_provider(source_provider._schemas, graph=raw)
 
 
 # =====================================================================
@@ -4979,7 +5389,40 @@ def _flat_fuzz_session():
     from vibecomfy.porting import EditSession
 
     raw = _load_flat_fixture_raw()
-    return EditSession(raw, schema_provider=_TestSchemaProvider())
+    return EditSession(raw, schema_provider=_test_frozen_schema_provider(raw))
+
+
+def test_frozen_session_ingest_snapshot_never_consults_ambient_object_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Snapshot sealing is bound to the supplied generation, even from cold state."""
+    import vibecomfy.porting.object_info.consume as consume
+    from vibecomfy.porting import EditSession
+
+    def poison(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("ambient object-info state was consulted")
+
+    monkeypatch.setattr(consume, "get_class", poison)
+    monkeypatch.setattr(consume, "cache_file_witness", poison)
+
+    raw = _load_flat_fixture_raw()
+    provider = _test_frozen_schema_provider(raw)
+    session = EditSession(raw, schema_provider=provider)
+    snapshot = session.workflow_snapshot
+    assert snapshot is not None
+    assert snapshot.field_snapshot
+    assert any(
+        field.get("widget_names_sig")
+        for field in snapshot.field_snapshot.values()
+    )
+
+    envelope = session.workflow.to_envelope()
+    compiled = normalize_to_api(
+        envelope,
+        schema_provider=provider,
+        use_comfy_converter=False,
+    )
+    assert compiled
 
 
 # ---------------------------------------------------------------------------
@@ -6080,6 +6523,28 @@ class TestEditableSurface:
 class TestImmutableInterpreter:
     """interpret(pre, batch) is pure, copy-on-write, and transactional."""
 
+    @staticmethod
+    def _tiny_provider():
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        return _frozen_test_schema_provider(
+            {
+                "LawNode": NodeSchema(
+                    "LawNode",
+                    "test",
+                    {
+                        "prompt": InputSpec("STRING"),
+                        "strength": InputSpec("FLOAT"),
+                        "image": InputSpec("IMAGE", required=False),
+                    },
+                    [OutputSpec("IMAGE", "IMAGE")],
+                )
+            },
+            node_classes={
+                "1": "LawNode", "2": "LawNode", "law-a": "LawNode", "law-b": "LawNode"
+            },
+        )
+
     def _tiny(self):
         from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
@@ -6096,8 +6561,8 @@ class TestImmutableInterpreter:
 
         pre = self._tiny()
         snapshot = deepcopy(pre)
-        first = interpret(pre, 'lawnode.prompt = "after"\n')
-        second = interpret(pre, 'lawnode.prompt = "after"\n')
+        first = interpret(pre, 'lawnode.prompt = "after"\n', schema_provider=self._tiny_provider())
+        second = interpret(pre, 'lawnode.prompt = "after"\n', schema_provider=self._tiny_provider())
         assert pre == snapshot
         assert first.workflow is not pre
         assert first.ok
@@ -6107,6 +6572,7 @@ class TestImmutableInterpreter:
     def test_uid_anchored_names_do_not_renumber_mid_batch(self) -> None:
         """Deleting an earlier sibling cannot retarget a later live name."""
         from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.schema import InputSpec, NodeSchema
         from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
         workflow = VibeWorkflow("stable-batch-names", WorkflowSource("stable-batch-names"))
@@ -6121,6 +6587,12 @@ class TestImmutableInterpreter:
         result = interpret(
             workflow,
             'del cliptextencode_2\ncliptextencode_4.text = "updated"\n',
+            schema_provider=_frozen_test_schema_provider(
+                {"CLIPTextEncode": NodeSchema("CLIPTextEncode", "core", {"text": InputSpec("STRING")}, [])},
+                node_classes={
+                    str(index): "CLIPTextEncode" for index in range(1, 5)
+                } | {f"clip-{index}": "CLIPTextEncode" for index in range(1, 5)},
+            ),
         )
 
         assert result.ok is True
@@ -6135,6 +6607,7 @@ class TestImmutableInterpreter:
 
     def test_removed_name_is_not_reassigned_mid_batch(self) -> None:
         from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.schema import InputSpec, NodeSchema
         from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
         workflow = VibeWorkflow("retired-batch-name", WorkflowSource("retired-batch-name"))
@@ -6149,6 +6622,12 @@ class TestImmutableInterpreter:
         result = interpret(
             workflow,
             'del cliptextencode_2\ncliptextencode_2.text = "wrong target"\n',
+            schema_provider=_frozen_test_schema_provider(
+                {"CLIPTextEncode": NodeSchema("CLIPTextEncode", "core", {"text": InputSpec("STRING")}, [])},
+                node_classes={
+                    str(index): "CLIPTextEncode" for index in range(1, 4)
+                } | {f"clip-{index}": "CLIPTextEncode" for index in range(1, 4)},
+            ),
         )
 
         assert result.ok is False
@@ -6166,6 +6645,7 @@ class TestImmutableInterpreter:
             pre,
             'lawnode.prompt = "after"\n',
             cas_old={("law-a", "prompt"): "stale"},
+            schema_provider=self._tiny_provider(),
         )
         assert not result.ok
         assert result.statements[0].status == "rejected"
@@ -6176,9 +6656,13 @@ class TestImmutableInterpreter:
         from vibecomfy.porting.edit._interpret import interpret
 
         pre = self._tiny()
-        result = interpret(pre, 'lawnode.prompt = "before"\n')
+        result = interpret(
+            pre,
+            'lawnode.prompt = "before"\n',
+            schema_provider=self._tiny_provider(),
+        )
         assert result.statements[0].status == "skipped"
-        assert result.statements[0].reason == "cas_unchanged"
+        assert result.statements[0].reason == "no_op"
 
     def test_socket_literal_mismatch_is_rejected(self) -> None:
         from vibecomfy.porting.edit.editable_surface import editable_surface_for
@@ -6202,14 +6686,19 @@ class TestImmutableInterpreter:
 
         workflow = VibeWorkflow("sock", WorkflowSource("sock"))
         workflow.nodes["1"] = VibeNode("1", "Clip", inputs={"text": "hi"}, uid="clip-a")
+        live_provider = Provider()
         surface = editable_surface_for(
-            workflow.nodes["1"], schema_provider=Provider(), edges=workflow.edges
+            workflow.nodes["1"], schema_provider=live_provider, edges=workflow.edges
         )
         assert "clip" in surface.socket_names()
+        frozen_provider = _frozen_test_schema_provider(
+            {"Clip": live_provider.get_schema("Clip")},
+            node_classes={"1": "Clip", "clip-a": "Clip"},
+        )
         result = interpret(
             workflow,
             "clip.text = 1\n" if "clip" not in surface.socket_names() else 'clip.clip = "not-a-wire"\n',
-            schema_provider=Provider(),
+            schema_provider=frozen_provider,
         )
         assert result.statements
         assert result.statements[0].status == "rejected"
@@ -6220,13 +6709,25 @@ class TestImmutableInterpreter:
 
     def test_unknown_schema_accepts_instance_literals(self) -> None:
         from vibecomfy.porting.edit._interpret import interpret
+        from vibecomfy.schema import InputSpec, NodeSchema
         from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
         workflow = VibeWorkflow("unk", WorkflowSource("unk"))
         workflow.nodes["1"] = VibeNode(
             "1", "MysteryCustom", inputs={"quirk": 3}, uid="mystery-a"
         )
-        result = interpret(workflow, "mysterycustom.quirk = 9\n")
+        result = interpret(
+            workflow,
+            "mysterycustom.quirk = 9\n",
+            schema_provider=_frozen_test_schema_provider(
+                {
+                    "MysteryCustom": NodeSchema(
+                        "MysteryCustom", "test", {"quirk": InputSpec(type="*")}, []
+                    )
+                },
+                node_classes={"1": "MysteryCustom", "mystery-a": "MysteryCustom"},
+            ),
+        )
         assert result.ok
         assert result.workflow.nodes["1"].inputs["quirk"] == 9
 
@@ -6250,18 +6751,20 @@ class TestImmutableInterpreter:
             "links": [],
         }
 
-        class Provider:
-            def get_schema(self, ct: str) -> NodeSchema | None:
-                if ct == "CLIPTextEncode":
-                    return NodeSchema(
-                        "CLIPTextEncode",
-                        "core",
-                        {"text": InputSpec("STRING")},
-                        [],
-                    )
-                return None
-
-        session = EditSession(raw, schema_provider=Provider())
+        declared = {
+            "CLIPTextEncode": NodeSchema(
+                "CLIPTextEncode",
+                "core",
+                {"text": InputSpec("STRING")},
+                [],
+            )
+        }
+        provider = _frozen_test_schema_provider(
+            declared,
+            node_classes={"1": "CLIPTextEncode", "enc-1": "CLIPTextEncode"},
+            graph=raw,
+        )
+        session = EditSession(raw, schema_provider=provider)
         wf0 = session.workflow
         first = session.apply_batch('cliptextencode.text = "turn-1"\n')
         assert first.ok
@@ -6279,7 +6782,7 @@ class TestImmutableInterpreter:
         current = session.workflow.nodes["1"]
         assert current.inputs.get("text") == "turn-1" or current.widgets.get("text") == "turn-1"
         assert session.rollback()
-        assert session.history == []
+        assert session.history == ()
         restored = session.workflow.nodes["1"]
         assert restored.inputs.get("text") in {"hello", None} or restored.widgets.get("text") in {
             "hello",
@@ -6313,22 +6816,30 @@ class TestSessionDeltaHistory:
         from vibecomfy.porting.edit import diff, interpret
         from tests.test_ir_laws import pi_edit
 
-        session = _primitive_session()
+        session = _primitive_session(frozen_authority=True)
         first = session.apply_batch("widget.seed = 42\n")
         assert first.ok, first.diagnostics
-        second = session.apply_batch("dst.value = src.in_\n")
+        second = session.apply_batch("dst.value = src.IMAGE_0\n")
         assert second.ok, second.diagnostics
 
         assert len(session.history) == 2
         (pre1, source1, ops1), (pre2, source2, ops2) = session.history
         assert source1 == "widget.seed = 42\n"
-        assert source2 == "dst.value = src.in_\n"
+        assert source2 == "dst.value = src.IMAGE_0\n"
         assert all(op.op == "set_node_field" for op in ops1)
         assert ops2[-1].op == "upsert_link"
 
         # Replay wf_0 → wf_1 → wf_2 via the recorded Δ sources.
-        wf1 = interpret(pre1, source1).workflow
-        wf2 = interpret(wf1, source2).workflow
+        wf1 = interpret(
+            pre1,
+            source1,
+            schema_provider=session.schema_provider,
+        ).workflow
+        wf2 = interpret(
+            wf1,
+            source2,
+            schema_provider=session.schema_provider,
+        ).workflow
         assert pi_edit(session.workflow) == pi_edit(wf2)
 
         # diff (the generalizer) agrees with the recorded source: the same
@@ -6344,7 +6855,7 @@ class TestSessionDeltaHistory:
     def test_rollback_pops_history_and_replays_remaining_sources(self) -> None:
         from tests.test_ir_laws import pi_edit
 
-        session = _primitive_session()
+        session = _primitive_session(frozen_authority=True)
         assert session.apply_batch("widget.seed = 42\n").ok
         assert session.apply_batch("widget.seed = 7\n").ok
         assert len(session.history) == 2
@@ -6354,7 +6865,7 @@ class TestSessionDeltaHistory:
         assert session.workflow.nodes["2"].inputs["seed"] == 42
 
         assert session.rollback(1)
-        assert session.history == []
+        assert session.history == ()
         assert pi_edit(session.workflow) == pi_edit(session._wf0)
 
         # Re-applying the recorded source after the pop reproduces wf_1.
@@ -6362,19 +6873,25 @@ class TestSessionDeltaHistory:
         assert len(session.history) == 1
         assert session.workflow.nodes["2"].inputs["seed"] == 42
 
-    def test_cas_noop_batch_still_records_source_and_diff_stays_minimal(self) -> None:
-        """A batch whose statements land as CAS no-ops is still recorded as an
-        accepted Δ; the minimal generalizer folds the no-ops away, so the
-        quotient verification (not raw equality) is the contract."""
+    def test_cas_noop_batch_stays_out_of_history_and_diff_stays_minimal(self) -> None:
+        """A CAS no-op remains visible in the transition report but is not an
+        effective durable Δ; the minimal generalizer therefore stays empty."""
         from vibecomfy.porting.edit import diff, interpret
         from tests.test_ir_laws import pi_edit
 
-        session = _primitive_session()
+        session = _primitive_session(frozen_authority=True)
         assert session.apply_batch("widget.seed = 42\n").ok
         pre = session.workflow.copy()
-        assert session.apply_batch("widget.seed = 42\n").ok  # no-op
-        assert len(session.history) == 2
-        assert session.history[-1][1] == "widget.seed = 42\n"
+        revision_before_noop = session.revision
+        history_before_noop = tuple(session.history)
+        result = session.apply_batch("widget.seed = 42\n")
+        assert result.ok
+        assert result.landed_ops == ()
+        assert result.transitions[0].outcome == "noop"
+        assert result.statements[0].reason == "no_op"
+        assert session.revision == revision_before_noop
+        assert tuple(session.history) == history_before_noop
+        assert len(session.history) == 1
         # The IR did not move: the generalized Δ is empty.
         assert diff(pre, session.workflow) == ()
         # verify_delta_history tolerates the folded no-op over the quotient.
@@ -6382,13 +6899,19 @@ class TestSessionDeltaHistory:
             equality=lambda a, b: pi_edit(a) == pi_edit(b)
         )
         assert pi_edit(final) == pi_edit(session.workflow)
-        replayed = interpret(pre, "widget.seed = 42\n")
+        replayed = interpret(
+            pre,
+            "widget.seed = 42\n",
+            schema_provider=session.schema_provider,
+        )
         assert pi_edit(replayed.workflow) == pi_edit(session.workflow)
 
     def test_idempotent_rewire_is_a_successful_skip_not_a_failed_batch(self) -> None:
-        session = _primitive_session()
+        session = _primitive_session(frozen_authority=True)
         first = session.apply_batch("dst.value = src.in_\n")
         assert first.ok is True
+        revision_before_noop = session.revision
+        history_before_noop = tuple(session.history)
 
         second = session.apply_batch("dst.value = src.in_\ndone()\n")
 
@@ -6397,8 +6920,11 @@ class TestSessionDeltaHistory:
         assert second.statements[0].ok is True
         assert second.statements[0].landed is False
         assert second.statements[0].status == "skipped"
-        assert second.statements[0].reason == "already_applied"
+        assert second.statements[0].reason == "no_op"
+        assert second.transitions[0].outcome == "noop"
         assert second.statements[1].ok is True
+        assert session.revision == revision_before_noop
+        assert tuple(session.history) == history_before_noop
 
 
 def test_session_close_projects_one_typed_terminal() -> None:
@@ -6408,7 +6934,8 @@ def test_session_close_projects_one_typed_terminal() -> None:
         close_terminal_checkpoint,
     )
 
-    session = EditSession(json.loads(_FLAT_PATH.read_text(encoding="utf-8")))
+    raw = json.loads(_FLAT_PATH.read_text(encoding="utf-8"))
+    session = EditSession(raw, schema_provider=_flat_frozen_schema_provider(raw))
     result = session.apply_batch("ksampler.steps = 25\n")
     assert result.ok
     checkpoint = close_terminal_checkpoint(session)

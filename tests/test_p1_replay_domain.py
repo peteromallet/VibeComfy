@@ -83,6 +83,15 @@ def _drift_object_info(slot_order: tuple[str, str]) -> dict:
 class _DriftedAmbientProvider:
     """Second provider whose widget roster disagrees with the sealed domain."""
 
+    def __init__(self) -> None:
+        schema = self.get_schema(DRIFT_CLASS)
+        assert schema is not None
+        self.snapshot = capture_schema_snapshot(
+            class_types=[DRIFT_CLASS],
+            request_snapshot=_drift_object_info(("steps", "seed")),
+            node_classes={"9": DRIFT_CLASS},
+        )
+
     def get_schema(self, class_type: str) -> NodeSchema | None:
         if class_type != DRIFT_CLASS:
             return None
@@ -103,6 +112,7 @@ def _frozen_replay_provider() -> tuple[Any, FrozenSchemaSnapshotProvider]:
     snapshot = capture_schema_snapshot(
         request_snapshot=_drift_object_info(("seed", "steps")),
         class_types=[DRIFT_CLASS],
+        node_classes={"9": DRIFT_CLASS},
     )
     locked = FrozenSchemaSnapshotProvider(snapshot)
     witness = build_schema_witness(

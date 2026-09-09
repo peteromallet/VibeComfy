@@ -155,10 +155,7 @@ def collect_broadcast_sources(nodes: Mapping[str, Any], edges: Sequence[Any]) ->
         if _edge_attr(edge, "to_input") == "widget_0":
             continue
         from_output = _edge_attr(edge, "from_output")
-        try:
-            output_slot = int(from_output)
-        except (TypeError, ValueError):
-            output_slot = 0
+        output_slot = _numeric_or_name(from_output)
         edge_sources_by_target[str(_edge_attr(edge, "to_node"))] = [str(_edge_attr(edge, "from_node")), output_slot]
 
     for node_id, node in nodes.items():
@@ -193,8 +190,17 @@ def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
         if key == "widget_0":
             continue
         if is_api_link(value):
-            return [str(value[0]), int(value[1])]
+            return [str(value[0]), _numeric_or_name(value[1])]
     return None
+
+
+def _numeric_or_name(value: Any) -> int | str:
+    if isinstance(value, bool):
+        return str(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _compile_helper_inputs(node: Any) -> dict[str, Any]:

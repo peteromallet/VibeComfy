@@ -31,14 +31,94 @@ from tests.live_agentic_harness.intent_judge import (
 from vibecomfy.porting.edit._diff import diff
 
 from vibecomfy.porting.edit.ops import parse_edit_delta
-from vibecomfy.schema import get_schema_provider
+from vibecomfy.schema import (
+    FrozenSchemaSnapshotProvider,
+    InputSpec,
+    NodeSchema,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
+
+
+def _frozen_provider_for(*graphs: Mapping[str, object]) -> FrozenSchemaSnapshotProvider:
+    """Capture one explicit schema generation for an assessor replay.
+
+    The intent judge may inspect an external provider at its evidence seam,
+    but replay itself consumes only the resulting immutable class/identity
+    snapshot.  Unknown fixture classes remain explicit misses.
+    """
+    schemas = {
+        "KSampler": NodeSchema(
+            class_type="KSampler",
+            pack="core",
+            inputs={
+                "seed": InputSpec("INT", required=True),
+                "control_after_generate": InputSpec("COMBO", required=False),
+                "steps": InputSpec("INT", required=True),
+                "cfg": InputSpec("FLOAT", required=True),
+                "sampler_name": InputSpec("COMBO", required=True),
+                "scheduler": InputSpec("COMBO", required=True),
+                "denoise": InputSpec("FLOAT", required=True),
+            },
+            outputs=[],
+        ),
+        "EmptyLatentImage": NodeSchema(
+            class_type="EmptyLatentImage",
+            pack="core",
+            inputs={
+                "width": InputSpec("INT", required=True),
+                "height": InputSpec("INT", required=True),
+                "batch_size": InputSpec("INT", required=True),
+            },
+            outputs=[],
+        ),
+        "ReplayValueCarrier": NodeSchema(
+            class_type="ReplayValueCarrier",
+            pack="test",
+            inputs={"steps": InputSpec("*", required=True)},
+            outputs=[],
+        ),
+    }
+    node_classes: dict[str, str] = {}
+    class_types: set[str] = set()
+    for graph in graphs:
+        for raw in graph.get("nodes", ()):
+            if not isinstance(raw, Mapping):
+                continue
+            class_type = raw.get("type")
+            node_id = raw.get("id")
+            if not isinstance(class_type, str) or node_id is None:
+                continue
+            class_types.add(class_type)
+            node_classes[str(node_id)] = class_type
+            properties = raw.get("properties")
+            if isinstance(properties, Mapping):
+                uid = properties.get("vibecomfy_uid")
+                if uid is not None:
+                    node_classes[str(uid)] = class_type
+    payloads = {}
+    for class_type in sorted(class_types):
+        schema = schemas.get(class_type)
+        if schema is not None:
+            payloads[class_type] = schema_payload_from_node_schema(class_type, schema)
+    snapshot = capture_schema_snapshot(
+        class_types=sorted(class_types),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": payloads,
+            "missing_classes": sorted(class_types - payloads.keys()),
+        },
+        node_classes=node_classes,
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
 
 
 def _ksampler_ui(steps: object, *, uid: str = "sampler") -> dict:
+    native_id = {"a": 1, "b": 2, "sampler": 5}.get(uid, 5)
     return {
         "nodes": [
             {
-                "id": uid,
+                "id": native_id,
                 "type": "KSampler",
                 "mode": 0,
                 "properties": {"vibecomfy_uid": uid},
@@ -46,6 +126,31 @@ def _ksampler_ui(steps: object, *, uid: str = "sampler") -> dict:
             }
         ],
         "links": [],
+        "last_node_id": native_id,
+        "last_link_id": 0,
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+
+
+def _value_carrier_ui(value: object) -> dict:
+    return {
+        "nodes": [{
+            "id": 8,
+            "type": "ReplayValueCarrier",
+            "mode": 0,
+            "properties": {"vibecomfy_uid": "value"},
+            "widgets_values": [value],
+        }],
+        "links": [],
+        "last_node_id": 8,
+        "last_link_id": 0,
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
     }
 
 
@@ -58,12 +163,12 @@ def _set_field_op(uid: str, field: str, value: object) -> dict:
 
 def test_claimed_int_float_and_text_spellings_all_verify() -> None:
     """(a) claimed Δ == actual diff modulo int/float/text spelling → verified."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_value_carrier_ui(20))
     for claimed_value in (30, 30.0, "30"):
         result = _verify_delta_replay(
-            _ksampler_ui(20),
-            _ksampler_ui(30),
-            [_set_field_op("sampler", "steps", claimed_value)],
+            _value_carrier_ui(20),
+            _value_carrier_ui(30),
+            [_set_field_op("value", "steps", claimed_value)],
             schema_provider=schema_provider,
         )
         assert result["verified"] is True, (claimed_value, result)
@@ -133,7 +238,7 @@ def test_canonical_value_keeps_non_canonical_text_strict() -> None:
 
 def test_different_target_node_still_mismatches() -> None:
     """(b) claimed Δ targeting a DIFFERENT node than actual → still mismatched."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_ksampler_ui(20, uid="a"), _ksampler_ui(20, uid="b"))
     pre = {
         "nodes": [_ksampler_ui(20, uid="a")["nodes"][0], _ksampler_ui(20, uid="b")["nodes"][0]],
         "links": [],
@@ -163,7 +268,7 @@ def test_different_target_node_still_mismatches() -> None:
 
 def test_different_value_beyond_numeric_identity_still_mismatches() -> None:
     """(c) a different target value (31 / '31' / 30.5) never passes as 30."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_ksampler_ui(20))
     for claimed in (31, "31", 30.5):
         result = _verify_delta_replay(
             _ksampler_ui(20),
@@ -176,7 +281,7 @@ def test_different_value_beyond_numeric_identity_still_mismatches() -> None:
 
 def test_claimed_op_absent_from_actual_still_mismatches() -> None:
     """(d) extra-op strictness: a claim with no actual counterpart fails."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_ksampler_ui(20))
     identical = _ksampler_ui(20)
     result = _verify_delta_replay(
         identical,
@@ -190,7 +295,7 @@ def test_claimed_op_absent_from_actual_still_mismatches() -> None:
 
 def test_genuine_drift_stays_unverified() -> None:
     """(f) drift: Δ names a change that is not what actually changed."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_ksampler_ui(20))
     drifted = json.loads(json.dumps(_ksampler_ui(20)))
     drifted["nodes"][0]["widgets_values"][4] = "dpm_2"  # scheduler changed, not steps
     result = _verify_delta_replay(
@@ -212,11 +317,11 @@ def test_window_shape_string_typed_step_value_verifies_end_to_end() -> None:
     accepted Δ spells the same number as text.  Field names resolve through
     the ingest-side compact tables exactly as in the judged runs.
     """
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_value_carrier_ui(6))
     result = _verify_delta_replay(
-        _ksampler_ui(6),
-        _ksampler_ui(8),
-        [_set_field_op("sampler", "steps", "8")],
+        _value_carrier_ui(6),
+        _value_carrier_ui(8),
+        [_set_field_op("value", "steps", "8")],
         schema_provider=schema_provider,
     )
     assert result == {"verified": True, "checked": 1, "mismatches": []}
@@ -240,7 +345,7 @@ def _splitsigmas_ui(step_value: float | int | str, *, uid: str = "47") -> dict:
 
 def test_positional_alias_claims_stay_rejected() -> None:
     """Canonicalization never bypasses the layer's own validation gates."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_splitsigmas_ui(6))
     result = _verify_delta_replay(
         _splitsigmas_ui(6),
         _splitsigmas_ui(8),
@@ -252,7 +357,7 @@ def test_positional_alias_claims_stay_rejected() -> None:
 
 def test_verify_is_deterministic_pure_function_of_contents() -> None:
     """(R3) same inputs, same verdict — no environment dependence."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_ksampler_ui(20))
     args = (
         _ksampler_ui(20),
         _ksampler_ui(30),
@@ -346,13 +451,13 @@ def test_delta_masked_by_none_elision_is_rejected_end_to_end() -> None:
     """(P8-R2 must a, end-to-end) post stores {'y': None}; a claimed Δ of {}
     used to verify True because elision collapsed both fingerprints AND the
     leftover spelling filter. Both directions are rejected now."""
-    schema_provider = get_schema_provider("auto")
-    pre = _ksampler_ui(20)
+    schema_provider = _frozen_provider_for(_value_carrier_ui(20))
+    pre = _value_carrier_ui(20)
     for post_value, claimed_value in (({"y": None}, {}), ({}, {"y": None})):
         result = _verify_delta_replay(
             pre,
-            _ksampler_ui(post_value),
-            [_set_field_op("sampler", "steps", claimed_value)],
+            _value_carrier_ui(post_value),
+            [_set_field_op("value", "steps", claimed_value)],
             schema_provider=schema_provider,
         )
         assert result["verified"] is False, (post_value, claimed_value, result)
@@ -360,8 +465,8 @@ def test_delta_masked_by_none_elision_is_rejected_end_to_end() -> None:
     # Control: the honest nested claim still verifies.
     honest = _verify_delta_replay(
         pre,
-        _ksampler_ui({"y": None}),
-        [_set_field_op("sampler", "steps", {"y": None})],
+        _value_carrier_ui({"y": None}),
+        [_set_field_op("value", "steps", {"y": None})],
         schema_provider=schema_provider,
     )
     assert honest == {"verified": True, "checked": 1, "mismatches": []}
@@ -414,7 +519,7 @@ def _empty_latent_ui(batch_size: object, *, uid: str = "9") -> dict:
     return {
         "nodes": [
             {
-                "id": uid,
+                "id": int(uid),
                 "type": "EmptyLatentImage",
                 "mode": 0,
                 "properties": {"vibecomfy_uid": uid},
@@ -422,6 +527,12 @@ def _empty_latent_ui(batch_size: object, *, uid: str = "9") -> dict:
             }
         ],
         "links": [],
+        "last_node_id": int(uid),
+        "last_link_id": 0,
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
     }
 
 
@@ -439,7 +550,7 @@ def test_widget_n_and_named_slot_spellings_are_one_statement() -> None:
     ``test_positional_alias_claims_stay_rejected``); canonicalization never
     bypasses that gate.
     """
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_empty_latent_ui(16))
     result = _verify_delta_replay(
         _empty_latent_ui(16),
         _empty_latent_ui(8),
@@ -456,7 +567,7 @@ def test_widget_n_and_named_slot_spellings_are_one_statement() -> None:
     actual = next(
         op
         for op in diff(pre_wf, post_wf)
-        if getattr(getattr(op, "target", None), "field_path", "") == "widget_2"
+        if getattr(getattr(op, "target", None), "field_path", "") == "batch_size"
     )
     assert _op_fingerprint(_canonicalize_op_field_paths(claimed, ctx)) == _op_fingerprint(
         _canonicalize_op_field_paths(actual, ctx)
@@ -469,7 +580,7 @@ def test_widget_n_and_named_slot_spellings_are_one_statement() -> None:
 def test_positional_named_pair_with_different_value_still_mismatches() -> None:
     """(h) Same shape as (g) but a genuinely different target value never
     passes — the spelling bridge must not carry value divergence."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_empty_latent_ui(16))
     result = _verify_delta_replay(
         _empty_latent_ui(16),
         _empty_latent_ui(8),
@@ -490,7 +601,7 @@ def test_positional_named_pair_with_different_value_still_mismatches() -> None:
     actual = next(
         op
         for op in diff(pre_wf, post_wf)
-        if getattr(getattr(op, "target", None), "field_path", "") == "widget_2"
+        if getattr(getattr(op, "target", None), "field_path", "") == "batch_size"
     )
     assert _op_fingerprint(_canonicalize_op_field_paths(claimed, ctx)) != _op_fingerprint(
         _canonicalize_op_field_paths(actual, ctx)
@@ -505,7 +616,7 @@ def test_positional_named_pair_with_different_value_still_mismatches() -> None:
 def test_unresolved_path_fallback_keeps_both_sides_symmetric() -> None:
     """(i) Unresolvable paths fall back to the RAW string on BOTH sides —
     no invented equality, no lost equality."""
-    schema_provider = get_schema_provider("auto")
+    schema_provider = _frozen_provider_for(_empty_latent_ui(16), _splitsigmas_ui(6))
     pre_wf = _to_workflow_ir(_empty_latent_ui(16), schema_provider=schema_provider)
     post_wf = _to_workflow_ir(_empty_latent_ui(8), schema_provider=schema_provider)
     ctx = _field_canon_context(pre_wf, post_wf, schema_provider=schema_provider)

@@ -22,20 +22,22 @@ Houses:
 - _apply_overrides
 - _prune_dead_branches_for_emit, _is_dead_optional_output_input
 - _ltx_travel_template_omits_synthetic_audio
-- _source_workflow_path, _raw_workflow_from_metadata
 - _all_nodes_for_imports
-- _NODE_HELPER_SOURCE
 
 Part of the M2 structural decomposition of vibecomfy/porting/emitter.py.
 """
 from __future__ import annotations
 
+from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
+
 from vibecomfy.ingest.normalize import door_nodes
 import ast
+import copy
 import json
-import warnings
+import keyword as _keyword
 from dataclasses import replace
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -84,13 +86,10 @@ from vibecomfy.porting.emit.emit_kwargs import (
 )
 from vibecomfy.porting.emit.emit_subgraph import (
     _SubgraphDef,
-    _subgraph_definitions_from_raw,
     _subgraph_emitted_node_id,
     _subgraph_node_id_required,
     _apply_subgraph_names_to_prepared,
     _emit_subgraph_call_statement,
-    _emit_subgraph_functions,
-    _short_subgraph_id_prefix,
     _subgraph_instance_port_candidate_names,
     _subgraph_return_expr,
 )
@@ -150,11 +149,20 @@ def _node_title(node: Any) -> str:
 
 def _resolved_field_values(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
-    aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+    metadata = getattr(node, "metadata", {})
+    aliases = metadata.get("input_aliases") if isinstance(metadata, Mapping) else None
     values: dict[str, Any] = {}
-    for key, value in {**getattr(node, "inputs", {}), **getattr(node, "widgets", {})}.items():
+    # ``inputs`` is the semantic channel and wins only after translating both
+    # channels to their canonical field names.  This mirrors direct compile's
+    # widgets-then-inputs precedence without consulting presentation ``_ui`` or
+    # silently selecting widgets for a same-name collision.
+    for key, value in getattr(node, "inputs", {}).items():
         translated = _translate_widget_for_key(str(key), aliases, class_type)
         if translated is not None:
+            values[translated] = value
+    for key, value in getattr(node, "widgets", {}).items():
+        translated = _translate_widget_for_key(str(key), aliases, class_type)
+        if translated is not None and translated not in values:
             values[translated] = value
     return values
 
@@ -168,9 +176,11 @@ def _infer_public_input_bindings(
     edges_in: dict[str, list[Any]],
     *,
     reserved_names: set[str] | None = None,
+    reserved_targets: set[tuple[str, str]] | None = None,
 ) -> list[_PublicInputBinding]:
     bindings: list[_PublicInputBinding] = []
     used_names: set[str] = set(reserved_names or set())
+    used_targets: set[tuple[str, str]] = set(reserved_targets or set())
 
     def add(
         name: str,
@@ -185,6 +195,13 @@ def _infer_public_input_bindings(
         candidate_names = {name, *aliases}
         if candidate_names & used_names:
             return
+        target = (str(node_id), str(field))
+        # A retained public-input descriptor owns its target even when its
+        # authored name differs from the heuristic role name.  Inference must
+        # not create a second semantic name for that same field and later fold
+        # it into the retained descriptor's aliases.
+        if target in used_targets:
+            return
         node = workflow_nodes.get(node_id)
         if node is None:
             return
@@ -194,6 +211,7 @@ def _infer_public_input_bindings(
         if field not in available or field in incoming:
             return
         used_names.update(candidate_names)
+        used_targets.add(target)
         bindings.append(
             _PublicInputBinding(
                 name=name,
@@ -211,20 +229,23 @@ def _infer_public_input_bindings(
     for node_id, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
         fields = _resolved_field_values(node)
         class_type = str(getattr(node, "class_type", ""))
-        title = _node_title(node).lower()
 
         if class_type in {"CLIPTextEncode", "CLIPTextEncodeFlux", "CLIPTextEncodeSD3", "CLIPTextEncodeSDXL", "TextEncodeQwenImageEdit"}:
             value = _resolve_graph_field_get_string(fields.get("text"), workflow_nodes)
             if isinstance(value, str):
-                if "negative" in title:
+                metadata = getattr(node, "metadata", {})
+                semantic = metadata.get("semantic", metadata.get("semantic_metadata", {})) if isinstance(metadata, Mapping) else {}
+                role = semantic.get("role", semantic.get("prompt_role")) if isinstance(semantic, Mapping) else None
+                target_available = (str(node_id), "text") not in used_targets
+                if isinstance(role, str) and "negative" in role.lower() and target_available:
                     negative_candidate = negative_candidate or (str(node_id), "text")
-                elif value.strip():
+                elif value.strip() and target_available:
                     prompt_candidate = prompt_candidate or (str(node_id), "text")
         primitive_value = _resolve_graph_field_get_string(fields.get("value"), workflow_nodes)
         if class_type in {"PrimitiveStringMultiline", "PrimitiveString"} and isinstance(
             primitive_value,
             str,
-        ) and primitive_value.strip():
+        ) and primitive_value.strip() and (str(node_id), "value") not in used_targets:
             prompt_candidate = prompt_candidate or (str(node_id), "value")
         if class_type == "LoadImage" and "image" in fields:
             add("image", str(node_id), "image", type="IMAGE", required=True, aliases=("input_image",), media_semantics="image")
@@ -265,6 +286,7 @@ def _public_input_specs(
 ) -> list[_PublicInputSpec]:
     specs: list[_PublicInputSpec] = []
     used_names: set[str] = set()
+    used_targets: set[tuple[str, str]] = set()
 
     def add(binding: _PublicInputBinding) -> None:
         if binding.name in used_names:
@@ -310,19 +332,26 @@ def _public_input_specs(
         )
         used_names.add(binding.name)
         used_names.update(binding.aliases)
+        used_targets.add((str(binding.node_id), str(binding.field)))
 
     for input_name, (old_id, field) in dict(registered_inputs or {}).items():
         resolved_field = field
         if field.startswith("widget_") and old_id in workflow_nodes:
             cls = workflow_nodes[old_id].class_type
             node = workflow_nodes[old_id]
-            aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+            metadata = getattr(node, "metadata", {})
+            aliases = metadata.get("input_aliases") if isinstance(metadata, Mapping) else None
             resolved = resolve_widget_key_with_provenance(cls, field, input_aliases=aliases)
             if resolved.name is not None:
                 resolved_field = resolved.name
         add(_PublicInputBinding(name=input_name, node_id=str(old_id), field=resolved_field))
 
-    inferred = _infer_public_input_bindings(workflow_nodes, edges_in, reserved_names=used_names)
+    inferred = _infer_public_input_bindings(
+        workflow_nodes,
+        edges_in,
+        reserved_names=used_names,
+        reserved_targets=used_targets,
+    )
     for binding in inferred:
         add(binding)
     return specs
@@ -531,6 +560,7 @@ def _format_ready_metadata_build(
     lines = [
         "READY_METADATA = ReadyMetadata.build(",
         f"    capability={capability!r},",
+        f"    template_id={template_id!r},",
     ]
     if has_public_inputs:
         lines.append("    inputs=PUBLIC_INPUT_METADATA,")
@@ -604,7 +634,12 @@ def emit_ready_template_python(
             diagnostics=diagnostics,
             raw_workflow=raw_workflow,
         )
-        _drain_lookup_warning_diagnostics(diagnostics)
+        lookup_warnings = _drain_lookup_warning_diagnostics(diagnostics)
+        if lookup_warnings:
+            raise ValueError(
+                "schema_reconciliation_required: canonical emission encountered "
+                "an unprovenanced or mismatched object-info lookup"
+            )
     return result_text
 
 
@@ -620,7 +655,10 @@ def _emit_ready_template_python_inner(
     raw_workflow: dict[str, Any] | None = None,
 ) -> str:
     from vibecomfy.porting.emit.emit_prepare import _prepare_workflow_for_emit  # noqa: PLC0415
+    _preflight_object_info_identity_resolution(workflow)
     metadata = dict(ready_metadata)
+    metadata["ready_template"] = str(workflow.id)
+    metadata["workflow_template"] = str(workflow.id).rsplit("/", 1)[-1]
     requirements = dict(ready_requirements)
     if apply_overrides:
         for key, value in (apply_overrides.get("metadata_overrides") or {}).items():
@@ -658,13 +696,36 @@ def _emit_ready_template_python_inner(
             else:
                 metadata["runtime_packages"] = [entry]
 
-    raw_workflow = raw_workflow or _raw_workflow_from_metadata(metadata)
-    subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=_source_workflow_path(metadata))
+    # Canonical executable source is derived exclusively from the authored
+    # VibeWorkflow IR. ``raw_workflow`` remains an accepted migration input,
+    # but never becomes a second semantic authority during emission.
+    subgraph_definitions: dict[str, _SubgraphDef] = {}
+    emission_workflow = workflow.copy()
+    # Retain ``_ui`` through preparation because its output-slot roster is
+    # required to reconcile emitted tuple arity for an already-loaded graph.
+    # ``_emit_function_body`` removes it from a detached semantic-node copy
+    # immediately before kwargs emission, so presentation data still cannot
+    # become call arguments or workflow semantics.
+    _validate_named_output_edges(workflow)
+    # Connections are emitted once, explicitly, from ``workflow.edges``.
+    # Imported IR may also retain a link-shaped value on the target input; do
+    # not let the wrapper call turn that redundant view into a second edge.
+    for edge in workflow.edges:
+        target = emission_workflow.nodes.get(str(edge.to_node))
+        if target is None:
+            continue
+        if str(edge.to_input) in target.inputs:
+            target.inputs[str(edge.to_input)] = None
+        if str(edge.to_input) in target.widgets:
+            target.widgets[str(edge.to_input)] = None
     prepared = _prepare_workflow_for_emit(
-        workflow,
+        emission_workflow,
         apply_overrides=apply_overrides,
         template_id=template_id,
         diagnostics=diagnostics,
+        project_execution_edges=False,
+        keep_virtual_wires=True,
+        prune_dead_branches=False,
     )
     prepared["subgraph_definitions"] = subgraph_definitions
     _apply_subgraph_names_to_prepared(prepared)
@@ -681,7 +742,15 @@ def _emit_ready_template_python_inner(
     )
     constant_lines, constant_map = _drop_output_prefix_constants(constant_lines, constant_map)
     section_groups = _build_section_groups(workflow_nodes, edges_in)
+    definition_lines, definitions_expr = _canonical_definition_helpers(
+        workflow.definitions,
+        interfaces=workflow.interfaces,
+        boundary_ports=workflow.boundary_ports,
+    )
     wrapper_imports = _wrapper_imports_for_nodes(_all_nodes_for_imports(workflow_nodes, subgraph_definitions))
+    wrapper_imports = _merge_definition_wrapper_imports(
+        wrapper_imports, workflow.definitions
+    )
     output_var_names = prepared["output_var_names"]
     public_inputs = _public_input_specs(
         workflow_nodes,
@@ -698,12 +767,14 @@ def _emit_ready_template_python_inner(
 
     out_lines: list[str] = []
     out_lines.append(GENERATED_HEADER.rstrip("\n"))
+    out_lines.append("# vibecomfy: surface=canonical")
     out_lines.append('"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""')
     out_lines.append("from __future__ import annotations")
     out_lines.append("")
     out_lines.append(
         "from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref"
     )
+    out_lines.append("from vibecomfy.workflow import VibeWorkflow")
     for module_name, names in sorted(wrapper_imports.items()):
         out_lines.append(f"from vibecomfy.nodes.{module_name} import {', '.join(names)}")
     if has_ltx_tail:
@@ -724,21 +795,6 @@ def _emit_ready_template_python_inner(
         workflow_nodes,
         subgraph_definitions,
     )
-    # Compute which subgraph node IDs are referenced by PUBLIC_INPUT_METADATA.
-    # Only those nodes need explicit _id= kwargs in emitted subgraph functions.
-    required_ids_by_subgraph: dict[str, set[str]] = {}
-    for spec in public_inputs_for_metadata:
-        try:
-            ref_str = ast.literal_eval(spec.metadata_node_ref)
-        except Exception:
-            continue
-        if ":" not in ref_str:
-            continue
-        prefix, inner_id = ref_str.split(":", 1)
-        for subgraph_id in subgraph_definitions:
-            if _short_subgraph_id_prefix(subgraph_id) == prefix:
-                required_ids_by_subgraph.setdefault(subgraph_id, set()).add(inner_id)
-                break
     public_input_metadata_lines = _format_public_inputs_block(public_inputs_for_metadata, metadata=True)
     if public_input_metadata_lines:
         out_lines.append("")
@@ -759,15 +815,46 @@ def _emit_ready_template_python_inner(
         )
     )
     out_lines.append("")
-    subgraph_lines = _emit_subgraph_functions(
-        prepared,
-        diagnostics=diagnostics,
-        constant_map=constant_map,
-        required_ids_by_subgraph=required_ids_by_subgraph,
-    )
-    if subgraph_lines:
-        out_lines.extend(subgraph_lines)
+    if definition_lines:
+        out_lines.extend(definition_lines)
         out_lines.append("")
+    tail_lines = _ready_template_tail_lines(
+        has_ltx_tail,
+        workflow_nodes,
+        edges_in,
+        var_names,
+        output_var_names,
+        metadata,
+    )
+    # Finalization releases the workflow context. Restore the exact authored
+    # semantic IR afterwards so inferred ready-template metadata never becomes
+    # a competing authority.
+    tail_lines = [
+        *(
+            f"    {line}"
+            for line in _canonical_connection_lines(
+                workflow,
+                retained_node_ids=set(workflow_nodes),
+            )
+        ),
+        *tail_lines[:-1],
+        tail_lines[-1].replace("return wf.finalize(", "wf = wf.finalize(", 1),
+        *(
+            f"    {line}"
+            for line in _canonical_semantic_lines(
+                workflow,
+                workflow_nodes,
+                registered_inputs=registered_inputs,
+                definitions_expr=definitions_expr,
+            )
+        ),
+        "    return wf",
+    ]
+    # Connections are emitted explicitly above. Keep the original edge view
+    # for ordering/liveness, but do not duplicate links in kwargs.
+    prepared["ordering_edges_in"] = edges_in
+    prepared["live_edges_in"] = edges_in
+    prepared["edges_in"] = {}
     out_lines.extend(
         _emit_build_function(
             prepared,
@@ -777,16 +864,10 @@ def _emit_ready_template_python_inner(
             source_provenance=None,
             registered_inputs=registered_inputs,
             public_inputs=public_inputs,
-            tail_lines=_ready_template_tail_lines(
-                has_ltx_tail,
-                workflow_nodes,
-                edges_in,
-                var_names,
-                output_var_names,
-                metadata,
-            ),
+            tail_lines=tail_lines,
             diagnostics=diagnostics,
             use_shared_helpers=True,
+            emit_all_ids=True,
             constant_map=constant_map,
             section_groups=section_groups,
         )
@@ -806,6 +887,669 @@ def _emit_ready_template_python_inner(
     except SyntaxError as exc:
         raise RuntimeError(f"Generated ready-template code failed syntax check: {exc}") from exc
     return combined
+
+
+def _canonical_semantic_lines(
+    workflow: Any,
+    workflow_nodes: Mapping[str, Any],
+    *,
+    registered_inputs: Mapping[str, tuple[str, str]] | None,
+    definitions_expr: str | None,
+) -> list[str]:
+    """Render authored semantic fields that wrappers cannot carry themselves.
+
+    Public node wrappers intentionally own node construction and output ABI;
+    recursive declarations, variant maps, and T04 native socket rosters belong
+    to the workflow IR and therefore are restored explicitly on the freshly
+    built workflow.  Values are detached before rendering so emission never
+    mutates the caller or turns UI evidence into a source authority.
+    """
+    def render(value: Any) -> str:
+        return _format_value(_plain_canonical_value(copy.deepcopy(value)))
+
+    lines: list[str] = []
+    for node_id in sorted(workflow.nodes, key=str):
+        node = workflow.nodes[node_id]
+        if str(node_id) not in workflow_nodes:
+            continue
+        node_expr = f"wf.nodes[{str(node_id)!r}]"
+        lines.append(f"{node_expr}.inputs = {render(node.inputs)}")
+        lines.append(f"{node_expr}.widgets = {render(node.widgets)}")
+        semantic_metadata = workflow._semantic_node_metadata(node)
+        runtime_metadata: dict[str, Any] = {}
+        if semantic_metadata:
+            runtime_metadata["semantic"] = semantic_metadata
+        source_metadata = node.metadata if isinstance(node.metadata, Mapping) else {}
+        for key in (
+            "schema_source", "unresolved", "reconciliation", "diagnostics",
+            "provenance", "input_names", "output_names", "input_types", "output_types",
+            "keep_defaults",
+        ):
+            if key in source_metadata:
+                runtime_metadata[key] = copy.deepcopy(source_metadata[key])
+        lines.append(f"{node_expr}.metadata = {render(runtime_metadata)}")
+        # Ready wrappers hydrate legacy schema carriers while they build.  The
+        # emitted workflow is the authority, including an explicit absence, so
+        # always overwrite every carrier rather than leaving wrapper evidence
+        # behind when the authored node has ``None``.
+        lines.append(f"{node_expr}.native_input_names = {render(node.native_input_names)}")
+        lines.append(f"{node_expr}.native_output_names = {render(node.native_output_names)}")
+        lines.append(f"{node_expr}.native_input_types = {render(node.native_input_types)}")
+        lines.append(f"{node_expr}.native_output_types = {render(node.native_output_types)}")
+        lines.append(f"{node_expr}.native_input_optional = {render(node.native_input_optional)}")
+        lines.append(f"{node_expr}.native_input_asset_kinds = {render(node.native_input_asset_kinds)}")
+        lines.append(f"{node_expr}.native_output_slots = {render(node.native_output_slots)}")
+    for field_name in ("definitions", "interfaces", "boundary_ports", "virtual_wires"):
+        value = copy.deepcopy(getattr(workflow, field_name, None))
+        if value:
+            value_expr = definitions_expr if field_name == "definitions" else None
+            lines.append(f"wf.{field_name} = {value_expr or render(value)}")
+    if workflow.variants:
+        lines.append(f"wf.variants = {render(workflow.variants)}")
+    if workflow.default_variant is not None:
+        lines.append(f"wf.default_variant = {render(workflow.default_variant)}")
+    # Public inputs are reconstructed through the IR's public registration
+    # method.  This preserves aliases/ranges/media semantics without importing
+    # workflow dataclasses that the restricted generated-source policy does
+    # not expose.
+    lines.append("wf.inputs.clear()")
+    authored_inputs = dict(workflow.inputs)
+    for name, target in sorted(dict(registered_inputs or {}).items()):
+        if name in authored_inputs:
+            continue
+        node_id, field = str(target[0]), str(target[1])
+        node = workflow.nodes.get(node_id)
+        if node is None or (field not in node.inputs and field not in node.widgets):
+            raise ValueError(
+                f"public input {name!r} targets missing field {node_id}.{field}"
+            )
+        value = copy.deepcopy(node.inputs.get(field, node.widgets.get(field)))
+        authored_inputs[name] = {
+            "name": name,
+            "node_id": node_id,
+            "field": field,
+            "value": value,
+            "type": None,
+            "default": value,
+            "required": False,
+            "range": None,
+            "aliases": (),
+            "media_semantics": None,
+            "allow_missing_target": False,
+        }
+    def read_input(item: Any, key: str) -> Any:
+        return item[key] if isinstance(item, Mapping) else getattr(item, key)
+
+    descriptor_fields = (
+        "node_id", "field", "value", "type", "default", "required", "range",
+        "media_semantics", "allow_missing_target",
+    )
+    from vibecomfy.testing.canonical import canonical_bytes
+
+    def descriptor_bytes(item: Any) -> bytes:
+        return canonical_bytes(
+            {field_name: read_input(item, field_name) for field_name in descriptor_fields}
+        )
+
+    materialized_alias_owners: dict[str, str] = {}
+    for owner_name, owner in authored_inputs.items():
+        for alias in tuple(read_input(owner, "aliases")):
+            candidate = authored_inputs.get(alias)
+            if candidate is None or tuple(read_input(candidate, "aliases")):
+                continue
+            if descriptor_bytes(candidate) == descriptor_bytes(owner):
+                previous = materialized_alias_owners.setdefault(str(alias), str(owner_name))
+                if previous != str(owner_name):
+                    materialized_alias_owners.pop(str(alias), None)
+
+    ordered_input_names = [
+        *sorted(
+            (name for name in authored_inputs if name not in materialized_alias_owners),
+            key=str,
+        ),
+        *sorted(materialized_alias_owners, key=str),
+    ]
+    for name in ordered_input_names:
+        item = authored_inputs[name]
+        read = (
+            (lambda key: item[key])
+            if isinstance(item, Mapping)
+            else (lambda key: getattr(item, key))
+        )
+        register_args = [
+            repr(str(read("name"))),
+            repr(str(read("node_id"))),
+            repr(str(read("field"))),
+            render(read("value")),
+            f"type={render(read('type'))}",
+            f"default={render(read('default'))}",
+            f"required={render(read('required'))}",
+            f"range={render(read('range'))}",
+            f"aliases={render(tuple(read('aliases')))}",
+            f"media_semantics={render(read('media_semantics'))}",
+            f"allow_missing_target={render(read('allow_missing_target'))}",
+        ]
+        if name in materialized_alias_owners:
+            register_args.append(
+                f"materialized_alias_of={materialized_alias_owners[name]!r}"
+            )
+        lines.append(f"wf.register_input({', '.join(register_args)})")
+        # ``register_input`` predates the distinction between an omitted
+        # default and an explicitly-authored ``None`` and therefore falls
+        # back to ``value`` whenever ``default is None``.  Canonical source
+        # must preserve the exact VibeInput descriptor, so restore the
+        # detached authored value after registration instead of broadening
+        # the public API with a second sentinel/overload.
+        if read("default") is None:
+            lines.append(
+                f"wf.inputs[{str(read('name'))!r}].default = {render(read('default'))}"
+            )
+
+    # finalize_metadata() already creates the public-output objects for every
+    # supported terminal node.  Reuse those objects, select the authored set,
+    # and restore the exact contract.  An output that cannot be bound through
+    # that public lifecycle is rejected instead of being smuggled in through a
+    # private dataclass constructor.
+    from vibecomfy.metadata import OUTPUT_NODE_NAMES
+    from vibecomfy.workflow import mode_to_litegraph
+
+    inferred_output_ids = sorted(
+        (
+            str(node_id)
+            for node_id, node in workflow.nodes.items()
+            if node.class_type in OUTPUT_NODE_NAMES
+            and mode_to_litegraph(node.mode) not in (2, 4)
+        ),
+        key=lambda item: (int(item) if item.isdigit() else 1 << 30, item),
+    )
+    authored_output_ids = [str(item.node_id) for item in workflow.outputs]
+    duplicate_output_ids = sorted(
+        node_id for node_id in set(authored_output_ids) if authored_output_ids.count(node_id) > 1
+    )
+    if duplicate_output_ids:
+        raise ValueError(
+            "duplicate public output binding(s) are not representable through the canonical "
+            f"public lifecycle: {', '.join(duplicate_output_ids)}"
+        )
+    unbound_output_ids = sorted(set(authored_output_ids) - set(inferred_output_ids))
+    if unbound_output_ids:
+        raise ValueError(
+            "public output binding(s) do not target supported terminal output nodes: "
+            f"{', '.join(unbound_output_ids)}"
+        )
+    for index, item in enumerate(workflow.outputs):
+        source_index = inferred_output_ids.index(str(item.node_id))
+        lines.append(f"public_output_{index} = wf.outputs[{source_index}]")
+    lines.append("wf.outputs.clear()")
+    for index, item in enumerate(workflow.outputs):
+        output_expr = f"public_output_{index}"
+        lines.append(f"{output_expr}.output_type = {render(item.output_type)}")
+        lines.append(f"{output_expr}.name = {render(item.name)}")
+        lines.append(f"{output_expr}.artifact_kind = {render(item.artifact_kind)}")
+        lines.append(f"{output_expr}.mime_type = {render(item.mime_type)}")
+        lines.append(f"{output_expr}.filename_prefix = {render(item.filename_prefix)}")
+        lines.append(
+            f"{output_expr}.expected_cardinality = {render(item.expected_cardinality)}"
+        )
+        lines.append(f"wf.outputs.append({output_expr})")
+
+    for field_name in (
+        "models", "custom_nodes", "missing_models", "missing_nodes", "unsupported",
+    ):
+        value = copy.deepcopy(getattr(workflow.requirements, field_name))
+        lines.append(f"wf.requirements.{field_name} = {render(value)}")
+    lines.append(f"wf.strict_types = {render(bool(workflow.strict_types))}")
+    return lines
+
+
+def _plain_canonical_value(value: Any) -> Any:
+    """Lower semantic values to deterministic Python literals."""
+    if isinstance(value, Enum):
+        return _plain_canonical_value(value.value)
+    if isinstance(value, Mapping):
+        return {
+            str(key): _plain_canonical_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_plain_canonical_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_plain_canonical_value(item) for item in value)
+    return value
+
+
+def _merge_definition_wrapper_imports(
+    imports: Mapping[str, list[str]], definitions: Any
+) -> dict[str, list[str]]:
+    """Add public wrapper imports required by IR-owned definition-local nodes."""
+    from types import SimpleNamespace
+
+    nodes: dict[str, Any] = {}
+
+    def walk(value: Any, prefix: str) -> None:
+        if not isinstance(value, Mapping):
+            return
+        entries = canonical_definition_nodes(value)
+        if isinstance(entries, (list, tuple)):
+            for index, raw in enumerate(entries):
+                if not isinstance(raw, Mapping):
+                    continue
+                class_type = raw.get("class_type", raw.get("type"))
+                if class_type:
+                    nodes[f"{prefix}:{index}"] = SimpleNamespace(class_type=str(class_type))
+        nested = value.get("definitions")
+        if isinstance(nested, Mapping):
+            children = nested.get("subgraphs", nested.values())
+        else:
+            children = nested
+        if isinstance(children, (list, tuple)):
+            for index, child in enumerate(children):
+                walk(child, f"{prefix}/{index}")
+
+    if isinstance(definitions, Mapping):
+        entries = definitions.get("subgraphs", definitions.values())
+    else:
+        entries = definitions
+    if isinstance(entries, (list, tuple)):
+        for index, definition in enumerate(entries):
+            walk(definition, str(index))
+    additions = _wrapper_imports_for_nodes(nodes)
+    merged = {module: sorted(names) for module, names in imports.items()}
+    for module, names in additions.items():
+        merged[module] = sorted({*merged.get(module, []), *names})
+    return merged
+
+
+def _canonical_definition_helpers(
+    definitions: Any,
+    *,
+    interfaces: Mapping[str, Any] | None = None,
+    boundary_ports: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+) -> tuple[list[str], str | None]:
+    """Render typed, readable recursive callables plus a literal IR expression.
+
+    The callables are an inspectable Python-owned authoring view.  ``build``
+    never calls them: its ``wf.definitions`` assignment is a detached literal,
+    and recursive expansion remains solely in ``VibeWorkflow``'s compiler.
+    """
+    if definitions in (None, {}, []):
+        return [], None
+
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+
+    lines: list[str] = []
+    used_names: set[str] = set()
+    active_definition_ids: set[int] = set()
+    interface_map = dict(interfaces or {}) if isinstance(interfaces, Mapping) else {}
+
+    def entries(source: Any) -> list[Any]:
+        if isinstance(source, Mapping):
+            if "subgraphs" in source:
+                values = source["subgraphs"]
+                if not isinstance(values, (list, tuple)):
+                    raise ValueError("recursive definitions 'subgraphs' must be a list")
+                return list(values)
+            return list(source.values())
+        if isinstance(source, (list, tuple)):
+            return list(source)
+        raise ValueError("recursive definitions must be a JSON-shaped mapping or sequence")
+
+    # Index structural identities before emitting source so malformed boundary
+    # records fail closed instead of becoming an ordinal/short-prefix fallback.
+    known_scopes: set[str] = set()
+    definitions_by_alias: dict[str, tuple[Mapping[str, Any], tuple[str, ...]]] = {}
+    indexing_definition_ids: set[int] = set()
+
+    def index_definition(definition: Any, parents: tuple[str, ...]) -> None:
+        if not isinstance(definition, Mapping):
+            raise ValueError("recursive definition entries must be mappings")
+        identity = id(definition)
+        if identity in indexing_definition_ids:
+            raise ValueError("recursive_definition_cycle: definition object graph contains a cycle")
+        indexing_definition_ids.add(identity)
+        try:
+            key = sg_key(definition)
+            supplied_key = definition.get("sg_key")
+            if supplied_key is not None and str(supplied_key) != key:
+                raise ValueError(
+                    f"definition sg_key {supplied_key!r} does not match structural identity {key!r}"
+                )
+            scope = compose_scope_path((*parents, key))
+            known_scopes.update((key, scope))
+            definitions_by_alias[key] = (definition, (*parents, key))
+            if definition.get("id") is not None:
+                definitions_by_alias.setdefault(str(definition["id"]), (definition, (*parents, key)))
+            nested = definition.get("definitions")
+            for child in entries(nested) if nested not in (None, {}, []) else ():
+                index_definition(child, (*parents, key))
+        finally:
+            indexing_definition_ids.remove(identity)
+
+    top_entries = entries(definitions)
+    for definition in top_entries:
+        index_definition(definition, ())
+
+    if boundary_ports is not None:
+        if not isinstance(boundary_ports, (list, tuple)):
+            raise ValueError("boundary_port_malformed: boundary_ports must be a sequence")
+        seen_boundaries: set[tuple[str, str, str]] = set()
+        for port in boundary_ports:
+            if not isinstance(port, Mapping):
+                raise ValueError("boundary_port_malformed: each boundary port must be a mapping")
+            scope = port.get("scope_path", port.get("scope"))
+            name = port.get("name", port.get("interface", port.get("port_name")))
+            direction = str(port.get("direction", "")).lower()
+            if not isinstance(scope, str) or not scope or scope not in known_scopes:
+                raise ValueError(f"boundary_port_malformed: unknown scope_path {scope!r}")
+            if not isinstance(name, str) or not name.strip() or direction not in {"input", "output"}:
+                raise ValueError(f"boundary_port_malformed: invalid boundary port {port!r}")
+            key = (scope, name, direction)
+            if key in seen_boundaries:
+                raise ValueError(f"boundary_port_malformed: duplicate boundary port {key!r}")
+            seen_boundaries.add(key)
+
+    def interface_members(key: str, scope: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        raw = interface_map.get(key, interface_map.get(scope))
+        if raw is None:
+            return [], []
+        if isinstance(raw, Mapping):
+            raw_inputs, raw_outputs = raw.get("inputs", ()), raw.get("outputs", ())
+            if not isinstance(raw_inputs, (list, tuple)) or not isinstance(raw_outputs, (list, tuple)):
+                raise ValueError(f"interface_malformed: interface {key!r} inputs/outputs must be sequences")
+            inputs = list(raw_inputs)
+            outputs = list(raw_outputs)
+        elif isinstance(raw, (list, tuple)):
+            inputs = [item for item in raw if isinstance(item, Mapping) and str(item.get("direction", "")).lower() == "input"]
+            outputs = [item for item in raw if isinstance(item, Mapping) and str(item.get("direction", "")).lower() == "output"]
+        else:
+            raise ValueError(f"interface_malformed: interface {key!r} must be a mapping or sequence")
+        for direction, members in (("input", inputs), ("output", outputs)):
+            names: set[str] = set()
+            for member in members:
+                if not isinstance(member, Mapping) or not isinstance(member.get("name"), str) or not member.get("name"):
+                    raise ValueError(f"interface_malformed: interface {key!r} {direction} member is invalid")
+                if member["name"] in names:
+                    raise ValueError(f"interface_duplicate: interface {key!r} {direction} member {member['name']!r}")
+                names.add(member["name"])
+        if boundary_ports is not None:
+            for member, direction in [(item, "input") for item in inputs] + [(item, "output") for item in outputs]:
+                matches = [
+                    port for port in boundary_ports
+                    if isinstance(port, Mapping)
+                    and str(port.get("scope_path", port.get("scope"))) in {key, scope}
+                    and str(port.get("name", port.get("interface", port.get("port_name")))) == member["name"]
+                    and str(port.get("direction", "")).lower() == direction
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"boundary_port_unbound: interface {key!r} {direction} {member['name']!r} must bind exactly once"
+                    )
+        return inputs, outputs
+
+    def render(value: Any) -> str:
+        return _format_value(_plain_canonical_value(copy.deepcopy(value)))
+
+    def identifier(scope_path: str) -> str:
+        slug = "".join(char if char.isalnum() else "_" for char in scope_path).strip("_")
+        name = f"_definition_{slug or 'anonymous'}"
+        if name in used_names:
+            raise ValueError(
+                f"duplicate recursive definition helper identity for {scope_path!r}"
+            )
+        used_names.add(name)
+        return name
+
+    def literal_container(source: Any) -> str:
+        return render(source)
+
+    def safe_name(value: Any, fallback: str) -> str:
+        candidate = "".join(char if char.isalnum() else "_" for char in str(value or ""))
+        candidate = candidate.strip("_") or fallback
+        if candidate[0].isdigit():
+            candidate = f"_{candidate}"
+        return candidate
+
+    def type_hint(member: Mapping[str, Any]) -> str:
+        return {"INT": "int", "FLOAT": "float", "STRING": "str", "BOOLEAN": "bool"}.get(
+            str(member.get("type") or "").upper(), "Any"
+        )
+
+    def node_records(definition: Mapping[str, Any]) -> list[dict[str, Any]]:
+        raw_nodes = canonical_definition_nodes(definition)
+        raw_entries = raw_nodes.values() if isinstance(raw_nodes, Mapping) else raw_nodes
+        if not isinstance(raw_entries, (list, tuple)):
+            raise ValueError("recursive_definition_nodes_malformed: nodes must be a sequence or mapping")
+        records: list[dict[str, Any]] = []
+        for index, raw in enumerate(raw_entries):
+            if not isinstance(raw, Mapping):
+                raise ValueError("recursive_definition_nodes_malformed: node must be a mapping")
+            node_id = str(raw.get("uid") or raw.get("id") or f"node_{index}")
+            class_type = str(raw.get("class_type", raw.get("type", "")))
+            if not class_type:
+                raise ValueError(f"recursive_definition_nodes_malformed: node {node_id!r} has no class type")
+            values: dict[str, Any] = {}
+            raw_inputs = raw.get("inputs", {})
+            if isinstance(raw_inputs, Mapping):
+                values.update({str(key): value for key, value in raw_inputs.items()})
+            elif isinstance(raw_inputs, (list, tuple)):
+                for item in raw_inputs:
+                    if not isinstance(item, Mapping) or not isinstance(item.get("name"), str):
+                        raise ValueError(f"recursive_definition_nodes_malformed: node {node_id!r} has invalid input row")
+                    if item.get("link") is None:
+                        values[str(item["name"])] = item.get("value")
+            else:
+                raise ValueError(f"recursive_definition_nodes_malformed: node {node_id!r} inputs are invalid")
+            if isinstance(raw.get("widgets"), Mapping):
+                for key, value in raw["widgets"].items():
+                    values.setdefault(str(key), value)
+            records.append({"id": node_id, "class_type": class_type, "uid": raw.get("uid"), "values": values})
+        return records
+
+    def link_records(definition: Mapping[str, Any], records: list[dict[str, Any]]) -> list[tuple[str, str, str, str]]:
+        links: list[tuple[str, str, str, str]] = []
+        raw_links = canonical_definition_links(definition)
+        if not isinstance(raw_links, (list, tuple)):
+            raise ValueError("recursive_definition_links_malformed: links must be a sequence")
+        for link in raw_links:
+            if isinstance(link, Mapping):
+                source = link.get("from_node", link.get("origin_id"))
+                slot = link.get("from_output", link.get("origin_slot", 0))
+                target = link.get("to_node", link.get("target_id"))
+                field = link.get("to_input", link.get("target_slot"))
+            elif isinstance(link, (list, tuple)) and len(link) >= 5:
+                source, slot, target, field = link[1], link[2], link[3], link[4]
+            else:
+                raise ValueError(f"recursive_definition_links_malformed: invalid link {link!r}")
+            if source is None or target is None or field is None:
+                raise ValueError(f"recursive_definition_links_malformed: incomplete link {link!r}")
+            links.append((str(source), str(slot), str(target), str(field)))
+        return links
+
+    def walk(definition: Any, parents: tuple[str, ...]) -> str:
+        if not isinstance(definition, Mapping):
+            raise ValueError("recursive definition entries must be mappings")
+        identity = id(definition)
+        if identity in active_definition_ids:
+            raise ValueError("recursive_definition_cycle: definition object graph contains a cycle")
+        active_definition_ids.add(identity)
+        key = sg_key(definition)
+        supplied_key = definition.get("sg_key")
+        if supplied_key is not None and str(supplied_key) != key:
+            raise ValueError(
+                f"definition sg_key {supplied_key!r} does not match structural identity {key!r}"
+            )
+        scope_path = compose_scope_path((*parents, key))
+        nested = definition.get("definitions")
+        nested_entries = entries(nested) if nested not in (None, {}, []) else []
+        try:
+            child_names = [walk(item, (*parents, key)) for item in nested_entries]
+            function_name = identifier(scope_path)
+            input_members, output_members = interface_members(key, scope_path)
+            parameter_names: dict[str, str] = {}
+            used_parameters = {"wf"}
+            signature_parts = ["wf: VibeWorkflow"]
+            for index, member in enumerate(input_members):
+                source_name = str(member["name"])
+                parameter = safe_name(source_name, f"input_{index}")
+                while parameter in used_parameters:
+                    parameter += "_"
+                used_parameters.add(parameter)
+                parameter_names[source_name] = parameter
+                signature_parts.append(f"{parameter}: {type_hint(member)}")
+            if len(output_members) == 0:
+                return_hint = "None"
+            elif len(output_members) == 1:
+                return_hint = type_hint(output_members[0])
+            else:
+                return_hint = "tuple[" + ", ".join(type_hint(item) for item in output_members) + "]"
+            lines.append(f"def {function_name}({', '.join(signature_parts)}) -> {return_hint}:")
+            lines.append(f"    \"\"\"Typed recursive definition {key}.\"\"\"")
+            records = node_records(definition)
+            local_vars: dict[str, str] = {}
+            child_by_alias = {
+                alias: (child, child_names[index])
+                for index, child in enumerate(nested_entries)
+                for alias in {str(child.get("id")), sg_key(child)}
+            }
+            boundary_inputs = {
+                (
+                    str(port.get("node_uid")),
+                    str(port.get("field")),
+                ): parameter_names.get(str(port.get("name")), "")
+                for port in (boundary_ports or ())
+                if isinstance(port, Mapping)
+                and str(port.get("scope_path", port.get("scope"))) in {key, scope_path}
+                and str(port.get("direction", "")).lower() == "input"
+            }
+            for index, record in enumerate(records):
+                node_id = record["id"]
+                var = safe_name(node_id, f"local_{index}")
+                while var in local_vars.values() or var == "wf":
+                    var += "_"
+                local_vars[node_id] = var
+                class_type = record["class_type"]
+                child = child_by_alias.get(class_type)
+                if child is not None:
+                    child_def, child_function = child
+                    child_inputs, _child_outputs = interface_members(sg_key(child_def), compose_scope_path((*parents, key, sg_key(child_def))))
+                    child_args = [parameter_names.get(str(item.get("name")), "None") for item in child_inputs]
+                    lines.append(f"    {var} = {child_function}(wf{', ' if child_args else ''}{', '.join(child_args)})")
+                    continue
+                wrapper = _wrapper_symbol_for_class(class_type) if _wrapper_module_for_class(class_type) else None
+                call_name = wrapper or "raw_call"
+                args = ["wf"] if wrapper else ["wf", repr(class_type)]
+                args.append(f"_id={node_id!r}")
+                if record.get("uid"):
+                    args.append(f"_uid={str(record['uid'])!r}")
+                if not wrapper:
+                    args.append("pass_raw=True")
+                for field, value in record["values"].items():
+                    parameter = boundary_inputs.get((node_id, field))
+                    if parameter:
+                        value_expr = parameter
+                    elif isinstance(value, (list, tuple)) and len(value) >= 2 and isinstance(value[0], (str, int)) and isinstance(value[1], int):
+                        continue
+                    else:
+                        value_expr = render(value)
+                    if _keyword.iskeyword(field) or not field.isidentifier():
+                        args.append(f"**{{{field!r}: {value_expr}}}")
+                    else:
+                        args.append(f"{field}={value_expr}")
+                lines.append(f"    {var} = {call_name}({', '.join(args)})")
+            for source, slot, target, field in link_records(definition, records):
+                lines.append(f"    wf.connect({source + '.' + slot!r}, {target + '.' + field!r})")
+            boundary_outputs = {
+                str(port.get("name")): (str(port.get("node_uid")), str(port.get("field", "0")))
+                for port in (boundary_ports or ())
+                if isinstance(port, Mapping)
+                and str(port.get("scope_path", port.get("scope"))) in {key, scope_path}
+                and str(port.get("direction", "")).lower() == "output"
+            }
+            output_exprs: list[str] = []
+            for member in output_members:
+                output_name = str(member["name"])
+                node_id, field = boundary_outputs.get(output_name, (None, None))
+                if node_id is None or node_id not in local_vars:
+                    raise ValueError(f"boundary_port_unbound: output {output_name!r} has no local node")
+                var = local_vars[node_id]
+                if node_id in {record["id"] for record in records if record["class_type"] in child_by_alias}:
+                    child_def = next(record for record in records if record["id"] == node_id)
+                    child_key = sg_key(next(item for item in nested_entries if str(item.get("id")) == child_def["class_type"] or sg_key(item) == child_def["class_type"]))
+                    child_inputs, child_outputs = interface_members(child_key, compose_scope_path((*parents, key, child_key)))
+                    slot = next((i for i, item in enumerate(child_outputs) if str(item.get("name")) == field), 0)
+                    output_exprs.append(f"{var}[{slot}]" if len(child_outputs) != 1 else var)
+                else:
+                    output_exprs.append(f"{var}.out({int(field) if str(field).isdigit() else field!r})")
+            if not output_exprs:
+                lines.append("    return None")
+            elif len(output_exprs) == 1:
+                lines.append(f"    return {output_exprs[0]}")
+            else:
+                lines.append("    return (" + ", ".join(output_exprs) + ",)")
+            lines.append("")
+            return function_name
+        finally:
+            active_definition_ids.remove(identity)
+
+    if not top_entries:
+        return [], None
+    [walk(item, ()) for item in top_entries]
+    if lines and lines[-1] == "":
+        lines.pop()
+    # Build owns this literal expression.  No callable is invoked from build.
+    return lines, literal_container(definitions)
+
+
+def _canonical_connection_lines(
+    workflow: Any,
+    *,
+    retained_node_ids: set[str],
+) -> list[str]:
+    """Render authored edges whose endpoints survive canonical preparation."""
+    return [
+        f"wf.connect({f'{edge.from_node}.{edge.from_output}'!r}, "
+        f"{f'{edge.to_node}.{edge.to_input}'!r})"
+        for edge in workflow.edges
+        if str(edge.from_node) in retained_node_ids
+        and str(edge.to_node) in retained_node_ids
+    ]
+
+
+def _preflight_object_info_identity_resolution(workflow: Any) -> None:
+    """Resolve bound object-info identities before default lookup can swallow errors."""
+    from vibecomfy.porting.emitter import _identity_for_node  # noqa: PLC0415
+    from vibecomfy.porting.object_info import resolve_class_entry  # noqa: PLC0415
+
+    for node_id in sorted(workflow.nodes, key=str):
+        node = workflow.nodes[node_id]
+        identity = _identity_for_node(node)
+        if identity is not None:
+            resolve_class_entry(
+                str(node.class_type), identity=identity, allow_class_fallback=True
+            )
+
+
+def _validate_named_output_edges(workflow: Any) -> None:
+    """Reject edge references that would otherwise downgrade named outputs."""
+    for edge in workflow.edges:
+        source = workflow.nodes.get(str(edge.from_node))
+        if source is None:
+            continue
+        names = source.metadata.get("output_names") if isinstance(source.metadata, Mapping) else None
+        if not isinstance(names, (list, tuple)) or not names:
+            continue
+        output_ref = str(edge.from_output)
+        if output_ref.isdigit():
+            slot = int(output_ref)
+            if slot >= len(names):
+                raise ValueError(
+                    f"malformed_named_output_schema: {source.class_type} has no named output for slot {slot}"
+                )
+            continue
+        if output_ref not in names:
+            raise ValueError(
+                f"malformed_named_output_schema: {source.class_type} has no named output {output_ref!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -885,35 +1629,6 @@ def _ltx_travel_template_omits_synthetic_audio(template_id: str | None) -> bool:
     return "first_last" in lowered or "first_middle_last" in lowered or "travel" in lowered
 
 
-# ---------------------------------------------------------------------------
-# Source-workflow path helpers
-# ---------------------------------------------------------------------------
-
-def _source_workflow_path(metadata: Mapping[str, Any]) -> str | None:
-    provenance = metadata.get("provenance")
-    if isinstance(provenance, Mapping):
-        source = provenance.get("source_workflow") or provenance.get("source_path")
-        if isinstance(source, str) and source:
-            return source
-    source = metadata.get("source_workflow")
-    return source if isinstance(source, str) and source else None
-
-
-def _raw_workflow_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any] | None:
-    source = _source_workflow_path(metadata)
-    if not source:
-        return None
-    path = Path(source)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
 def _all_nodes_for_imports(workflow_nodes: dict[str, Any], subgraphs: dict[str, _SubgraphDef]) -> dict[str, Any]:
     nodes = dict(workflow_nodes)
     for subgraph in subgraphs.values():
@@ -947,15 +1662,23 @@ def _emit_build_function(
     external_refs: dict[tuple[str, str], str] | None = None,
     node_id_prefix: str | None = None,
     required_ids: set[str] | None = None,
+    emit_all_ids: bool = False,
 ) -> list[str]:
     from vibecomfy.porting.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
         READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
     )
+    if not use_shared_helpers:
+        raise ValueError(
+            "private scratchpad emitter removed; use the canonical public-wrapper emitter"
+        )
     workflow_nodes = door_nodes(prepared)
     edges_in = prepared["edges_in"]
-    ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
+    ordering_source = prepared.get("ordering_edges_in", edges_in)
+    ordering_edges_in = _edges_in_with_subgraph_external_refs(
+        prepared, workflow_nodes, ordering_source
+    )
     var_names = prepared["var_names"]
     output_var_names = prepared.get("output_var_names", {}) if use_shared_helpers else {}
 
@@ -969,7 +1692,7 @@ def _emit_build_function(
             var_to_nid[str(output_var)] = str(output_nid)
     live_output_slots = _live_output_slots_for_function(
         workflow_nodes,
-        ordering_edges_in,
+        prepared.get("live_edges_in", ordering_edges_in),
         output_var_names,
         return_refs=return_refs,
         tail_lines=tail_lines,
@@ -1019,7 +1742,7 @@ def _emit_build_function(
     if is_subgraph_function:
         body_indent = "    "
         continuation_indent = "        "
-    elif use_shared_helpers:
+    else:
         # new_workflow() eagerly binds the ContextVar, so emit a plain assignment
         # rather than wrapping the body in `with new_workflow(...) as wf:`.
         # finalize() releases the binding.
@@ -1031,20 +1754,6 @@ def _emit_build_function(
             out_lines.append(
                 f"    wf = new_workflow({workflow_id_expr}, source_path={source_path_expr})"
             )
-        body_indent = "    "
-        continuation_indent = "        "
-    else:
-        out_lines.append(
-            "    wf = VibeWorkflow(\n"
-            f"        {workflow_id_expr},\n"
-            "        WorkflowSource(\n"
-            f"            id={workflow_id_expr},\n"
-            f"            path={source_path_expr},\n"
-            f"            source_type={source_type!r}"
-            f"{provenance_part},\n"
-            "        ),\n"
-            "    )"
-        )
         body_indent = "    "
         continuation_indent = "        "
     out_lines.append("")
@@ -1089,8 +1798,16 @@ def _emit_build_function(
             if old_id == nid
         }
         preserve_fields.update(public_preserve_fields.get(nid, set()))
+        # Raw ``_ui`` is presentation evidence.  The kwargs builder also has
+        # legacy compact-widget discovery, so give it a detached semantic copy
+        # with that evidence removed; authored nodes remain untouched.
+        semantic_node = node
+        node_metadata = getattr(node, "metadata", None)
+        if isinstance(node_metadata, Mapping) and "_ui" in node_metadata:
+            semantic_node = copy.deepcopy(node)
+            semantic_node.metadata.pop("_ui", None)
         kwargs = _node_kwargs(
-            node, edges_in, var_names,
+            semantic_node, edges_in, var_names,
             workflow_nodes=workflow_nodes,
             output_var_names=output_var_names,
             diagnostics=diagnostics,
@@ -1147,13 +1864,25 @@ def _emit_build_function(
             # ready-template emission paths (typed wrapper + raw_call), mirroring
             # the scratchpad _node() mechanism. node()/raw_call apply it verbatim.
             uid_arg = ("_uid", repr(node.uid)) if node.uid else None
+            native_ports_arg = (
+                "_native_ports",
+                repr({
+                    "native_input_names": copy.deepcopy(node.native_input_names),
+                    "native_output_names": copy.deepcopy(node.native_output_names),
+                    "native_input_types": copy.deepcopy(node.native_input_types),
+                    "native_output_types": copy.deepcopy(node.native_output_types),
+                    "native_input_optional": copy.deepcopy(node.native_input_optional),
+                    "native_input_asset_kinds": copy.deepcopy(node.native_input_asset_kinds),
+                    "native_output_slots": copy.deepcopy(node.native_output_slots),
+                }),
+            )
 
             if use_wrapper:
                 all_args = []
                 if is_subgraph_function and node_id_prefix is not None:
                     if _subgraph_node_id_required(node_id_prefix, nid, required_ids):
                         all_args.append(("_id", repr(_subgraph_emitted_node_id(node_id_prefix, nid))))
-                elif emit_top_level_ids:
+                elif emit_all_ids or emit_top_level_ids:
                     # Preserve source node ids only when emission order differs from
                     # the source id order; otherwise auto-assigned ids stay stable
                     # and the explicit _id noise is unnecessary.
@@ -1163,6 +1892,7 @@ def _emit_build_function(
                     all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
+                all_args.append(native_ports_arg)
                 # v2.6.4 Fix 3: drop _outputs= for schema-known typed wrappers.
                 # The wrapper class already knows its output names from the
                 # generated schema (vibecomfy/nodes/<pack>.py). Only
@@ -1184,6 +1914,7 @@ def _emit_build_function(
                     all_args.append(("_mode", node_mode_expr))
                 if uid_arg is not None:
                     all_args.append(uid_arg)
+                all_args.append(native_ports_arg)
                 if extras_expr is not None:
                     all_args.append(("_extras", extras_expr))
                 call_name = "node"
@@ -1207,18 +1938,37 @@ def _emit_build_function(
             )
 
             # -- readability diagnostic: long one-line node call ----------
-            if diagnostics is not None and len(single_line) > 120:
+            # `_native_ports` is an internal custody payload that deliberately
+            # makes every emitted call multiline.  Measure the authored call
+            # surface without that payload so ordinary short nodes do not gain
+            # spurious readability warnings, while genuinely long user values
+            # keep the existing diagnostic.
+            readable_kwarg_lines = [
+                f"**{expr}" if key == "**" else f"{key}={expr}"
+                for key, expr in all_args
+                if key != "_native_ports"
+            ]
+            if use_wrapper:
+                readable_expr = f"{call_name}({', '.join(readable_kwarg_lines)})"
+            else:
+                readable_expr = f"raw_call({', '.join([repr(node.class_type), repr(raw_node_id), *readable_kwarg_lines])})"
+            readable_single_line = (
+                f"{body_indent}{assignment_target} = {readable_expr}"
+                if assignment_target is not None
+                else f"{body_indent}{readable_expr}"
+            )
+            if diagnostics is not None and len(readable_single_line) > 120:
                 diagnostics.append(
                     EmissionDiagnostic(
                         code=READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
                         message=(
                             f"node call for {node.class_type!r} (node {nid}) would be a single "
-                            f"line of {len(single_line)} chars (>120); multi-line formatting preferred."
+                            f"line of {len(readable_single_line)} chars (>120); multi-line formatting preferred."
                         ),
                         severity="warning",
                         node_id=str(nid),
                         class_type=node.class_type,
-                        detail={"line_length": len(single_line)},
+                        detail={"line_length": len(readable_single_line)},
                     )
                 )
 
@@ -1256,18 +2006,6 @@ def _emit_build_function(
                 out_lines.append("")
             else:
                 out_lines.append(single_line)
-        else:
-            _uid_str = f", _uid={node.uid!r}" if node.uid else ""
-            mode_str = f", _mode={node_mode_expr}" if node_mode_expr is not None else ""
-            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}{mode_str}"
-            if not kwargs:
-                out_lines.append(f"{head})")
-            else:
-                out_lines.append(f"{head},")
-                for key, expr in kwargs:
-                    out_lines.append(f"        {key}={expr},")
-                out_lines.append("    )")
-
     if use_shared_helpers:
         if out_lines and out_lines[-1] != "":
             out_lines.append("")
@@ -1282,38 +2020,6 @@ def _emit_build_function(
             extra_indent = "    " if body_indent == "        " else ""
             out_lines.extend(extra_indent + line if line else line for line in tail_lines)
         return out_lines
-    out_lines.append("")
-    out_lines.extend(tail_lines)
-    if registered_inputs:
-        for input_name, (old_id, field) in registered_inputs.items():
-            resolved_field = field
-            if field.startswith("widget_") and old_id in workflow_nodes:
-                cls = workflow_nodes[old_id].class_type
-                node = workflow_nodes[old_id]
-                aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
-                resolved = resolve_widget_key_with_provenance(cls, field, input_aliases=aliases)
-                if resolved.name is not None:
-                    resolved_field = resolved.name
-            descriptor_kwargs: list[str] = []
-            if old_id in workflow_nodes:
-                node = workflow_nodes[old_id]
-                if resolved_field in node.inputs:
-                    descriptor_kwargs.append(f"default={_format_value(node.inputs[resolved_field])}")
-                elif resolved_field in node.widgets:
-                    descriptor_kwargs.append(f"default={_format_value(node.widgets[resolved_field])}")
-            if use_shared_helpers:
-                suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
-                out_lines.append(f"    bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names)}, {resolved_field!r}{suffix})")
-            else:
-                suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
-                out_lines.append(
-                    f"    wf.register_input({input_name!r}, {old_id!r}, {resolved_field!r}, "
-                    f"wf.nodes[{old_id!r}].inputs.get({resolved_field!r}, wf.nodes[{old_id!r}].widgets.get({resolved_field!r})){suffix})"
-                )
-    out_lines.append("    return wf")
-    return out_lines
-
-
 # ---------------------------------------------------------------------------
 # _with_id_map_tail_line
 # ---------------------------------------------------------------------------
@@ -1545,9 +2251,32 @@ def _apply_overrides(nodes: dict[str, Any], edges_in: dict[str, list[Any]], patc
 # Node-local identity-aware output helpers
 # ---------------------------------------------------------------------------
 
+def _retained_output_names(node: Any) -> list[str] | None:
+    """Return the output roster already bound to this retained IR node.
+
+    Native names are captured at ingest from the selected schema/UI witness;
+    metadata names are the older retained representation.  Either is stronger
+    than a process-global object-info catalog and must prevent a later ambient
+    class lookup from changing arity mid-session.
+    """
+    native_names = getattr(node, "native_output_names", None)
+    if isinstance(native_names, (list, tuple)):
+        return [str(name) if name is not None else "" for name in native_names]
+    metadata = getattr(node, "metadata", None)
+    metadata_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+    if isinstance(metadata_names, (list, tuple)):
+        return [str(name) if name is not None else "" for name in metadata_names]
+    return None
+
+
 def _node_local_output_names(node: Any) -> list[str]:
-    """Identity-aware schema output names for *node*; class-only fallback."""
+    """Retained output names for *node*, then identity/class fallback."""
+    retained_names = _retained_output_names(node)
+    if retained_names is not None:
+        return retained_names
+
     from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.errors import ObjectInfoIdentityError  # noqa: PLC0415
     from vibecomfy.porting.object_info import output_names as _class_output_names, resolve_class_entry  # noqa: PLC0415
     class_type = str(node.class_type)
     declared_exec_outputs = _declared_exec_outputs(node)
@@ -1557,6 +2286,8 @@ def _node_local_output_names(node: Any) -> list[str]:
     if identity is not None:
         try:
             result = resolve_class_entry(class_type, identity=identity, allow_class_fallback=True)
+        except ObjectInfoIdentityError:
+            raise
         except Exception:
             return list(_class_output_names(class_type))
         _record_lookup_warning(node, class_type, result.warning)
@@ -1569,58 +2300,61 @@ def _node_local_output_names(node: Any) -> list[str]:
     return list(_class_output_names(class_type))
 
 
-def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
-    """Identity-aware arity consensus check for *node*; class-only fallback.
+def _reconcile_emit_arity(
+    snapshot_count: int,
+    ui_output_count: int | None,
+) -> int:
+    """Pick an emit arity without aborting a loaded graph.
 
-    Mirrors :func:`check_output_arity_consensus` semantics, but counts outputs
-    from the identity-resolved cache entry when one is available so that
-    provenanced nodes are validated against their pinned schema rather than the
-    most recent class-only cache.
+    Agent-edit emit of an already-authored graph must not fail-closed because
+    object_info and UI metadata disagree. Prefer the UI count when present
+    (those are the slots the graph already uses); otherwise the snapshot.
     """
-    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
-    from vibecomfy.porting.object_info import resolve_class_entry, check_output_arity_consensus  # noqa: PLC0415
-    class_type = str(node.class_type)
+    if ui_output_count is None:
+        return snapshot_count
+    return ui_output_count
 
+
+def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
+    """Retained arity consensus check for *node*; identity/class fallback.
+
+    A node-local roster is the session's captured authority and is checked
+    without touching process-global object-info state.  Only nodes lacking
+    retained evidence use the historical identity/class lookup path.
+    Snapshot/UI disagreements are reconciled rather than raised: aborting
+    emit blocked representable live edits of existing graphs.
+    """
+    class_type = str(node.class_type)
+    retained_names = _retained_output_names(node)
+    if retained_names is not None:
+        retained_count = len(retained_names)
+        return _reconcile_emit_arity(retained_count, ui_output_count)
+
+    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.errors import ObjectInfoIdentityError  # noqa: PLC0415
+    from vibecomfy.porting.object_info import (  # noqa: PLC0415
+        class_is_known,
+        class_output_count,
+        resolve_class_entry,
+    )
     def _class_fallback_count() -> int:
-        try:
-            return check_output_arity_consensus(class_type, ui_output_count)
-        except Exception as exc:
-            if ui_output_count is None or "arity disagreement" not in str(exc).lower():
-                raise
-            warnings.warn(
-                (
-                    f"{exc}; continuing with the UI output count because live/UI "
-                    "object_info takes precedence over stale embedded metadata."
-                ),
-                stacklevel=2,
-            )
-            return ui_output_count
+        cached_count = class_output_count(class_type)
+        if ui_output_count is not None and class_is_known(class_type):
+            return _reconcile_emit_arity(cached_count, ui_output_count)
+        return cached_count
 
     declared_exec_outputs = _declared_exec_outputs(node)
     if declared_exec_outputs is not None:
         declared_count = len(declared_exec_outputs)
-        if ui_output_count is not None and declared_count != ui_output_count:
-            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
-            raise _AD(
-                (
-                    f"output arity disagreement for {class_type}: declared io.outputs "
-                    f"has {declared_count} outputs but UI declares {ui_output_count}. "
-                    "Refresh the node UI metadata."
-                ),
-                class_type=class_type,
-                snapshot_pack=None,
-                snapshot_version=None,
-                snapshot_output_count=declared_count,
-                ui_output_count=ui_output_count,
-                next_action="refresh the vibecomfy.exec node UI",
-            )
-        return declared_count
+        return _reconcile_emit_arity(declared_count, ui_output_count)
     identity = _identity_for_node(node)
     if identity is not None:
         try:
             result = resolve_class_entry(
                 class_type, identity=identity, allow_class_fallback=True
             )
+        except ObjectInfoIdentityError:
+            raise
         except Exception:
             return _class_fallback_count()
         _record_lookup_warning(node, class_type, result.warning)
@@ -1628,31 +2362,7 @@ def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
         if entry is None:
             return _class_fallback_count()
         cached_count = len(entry.get("outputs") or [])
-        if ui_output_count is None:
-            return cached_count
-        if cached_count < ui_output_count:
-            warnings.warn(
-                (
-                    f"output arity disagreement for {class_type}: cached snapshot "
-                    f"declares {cached_count} outputs but UI declares {ui_output_count}. "
-                    "continuing with the UI output count because live/UI object_info "
-                    "takes precedence over stale embedded metadata."
-                ),
-                stacklevel=2,
-            )
-            return ui_output_count
-        if cached_count > ui_output_count:
-            warnings.warn(
-                (
-                    f"output arity disagreement for {class_type}: cached snapshot "
-                    f"declares {cached_count} outputs but UI declares {ui_output_count}; "
-                    "continuing with the UI output count because live/UI object_info "
-                    "takes precedence over stale embedded metadata."
-                ),
-                stacklevel=2,
-            )
-            return ui_output_count
-        return cached_count
+        return _reconcile_emit_arity(cached_count, ui_output_count)
     return _class_fallback_count()
 
 
@@ -1699,53 +2409,3 @@ def _declared_exec_outputs(node: Any) -> list[tuple[str, str | None]] | None:
             return None
         outputs.append((name, output_type if isinstance(output_type, str) and output_type else None))
     return outputs
-
-
-# ---------------------------------------------------------------------------
-# _NODE_HELPER_SOURCE — injected into scratchpad output
-# ---------------------------------------------------------------------------
-
-_NODE_HELPER_SOURCE = '''
-def _node(
-    wf: VibeWorkflow,
-    class_type: str,
-    _id: str,
-    _extras: dict | None = None,
-    _outputs: tuple[str, ...] | None = None,
-    _uid: str | None = None,
-    _mode: int | str | None = None,
-    **kwargs,
-):
-    """Create a node, preserving the original node id from the source workflow.
-
-    `_extras` carries kwargs whose names are not valid Python identifiers
-    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
-    They are applied to the new node post-construction.
-    """
-    from vibecomfy.handles import Handle
-    builder = wf.node(class_type, **kwargs)
-    if _uid:
-        builder.node.uid = _uid
-    if _mode is not None:
-        from vibecomfy.workflow import litegraph_to_mode
-        builder.node.mode = litegraph_to_mode(_mode)
-    if _outputs is not None:
-        builder.node.metadata["output_names"] = list(_outputs)
-    if _extras:
-        for key, value in _extras.items():
-            if isinstance(value, Handle):
-                wf.connect(value, f"{builder.node.id}.{key}")
-            else:
-                builder.node.inputs[key] = value
-    if builder.node.id != _id:
-        old_id = builder.node.id
-        node = wf.nodes.pop(old_id)
-        node.id = _id
-        wf.nodes[_id] = node
-        for edge in wf.edges:
-            if edge.to_node == old_id:
-                edge.to_node = _id
-            if edge.from_node == old_id:
-                edge.from_node = _id
-    return builder
-'''

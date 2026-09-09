@@ -1,0 +1,1279 @@
+{
+  "edges": [
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "22"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "22"
+    },
+    {
+      "from_node": "24",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "25"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "25"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "26"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "20"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "11"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "23"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "7"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "7"
+    },
+    {
+      "from_node": "18",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "19"
+    },
+    {
+      "from_node": "1",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "19"
+    }
+  ],
+  "groups": [],
+  "id": "3616c1d7d286f085",
+  "inputs": {},
+  "metadata": {
+    "_ingest_snapshot": {
+      "1": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "22",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "25",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "7",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'cwf_portrait.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "11": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "7",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ESRGAN'"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "19",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "18",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "20": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "19",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'UltraSharp'"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'RealESRGAN_x4plus.pth'"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "23": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "22",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'RealESRGAN'"
+          ]
+        ]
+      },
+      "24": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x_foolhardy_Remacri.pth'"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "24",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "26",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "26": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'Remacri'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "7",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ESRGAN_4x.pth'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "1",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "3",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "11",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f0abffc2b525515c342cac19c1d789a39a94a5b2b5f9edd955f8fa2d1684d10b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "initial workflows",
+      "commit_sha": "36447fe8c858918174edefbb7654d5c492e20a1c",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/36447fe8c858918174edefbb7654d5c492e20a1c",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:upscale/experiments/compare_upscale_models.json:compare_upscale_models.json:3616c1d7d286f085",
+      "filename": "compare_upscale_models.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "ImageUpscaleWithModel": 4,
+        "LoadImage": 1,
+        "SaveImage": 4,
+        "UpscaleModelLoader": 4
+      },
+      "node_count": 13,
+      "origin_date": "2023-08-27T10:26:16Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "upscale/experiments/compare_upscale_models.json",
+      "source": "github",
+      "source_file_sha256": "3616c1d7d286f0852d8425955b9f742f0fcfca1db646885f61fb5a7246bfd268",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/upscale/experiments/compare_upscale_models.json",
+      "source_workflow_sha256": "5c23acc542a16e0cb7e391bba0438ced62d5a5bcd2a7743adb9a12dfec34bdbe",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "141d6bebb625f4fdba77120c6e0824d6740e678e97af0ff802a2552a5a3eefff",
+      "complexity": 2,
+      "description": "Loads an image and applies upscaling using four different upscale models, saving each upscaled result separately.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": false
+      },
+      "media_type": "image",
+      "tags": [
+        "image-upscaling",
+        "upscale-model",
+        "image-processing",
+        "batch-processing"
+      ],
+      "task_type": "upscaling",
+      "title": "Image Upscaling with Multiple Outputs"
+    }
+  },
+  "nodes": {
+    "1": {
+      "class_type": "LoadImage",
+      "id": "1",
+      "inputs": {
+        "image": "cwf_portrait.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 1,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                5,
+                21,
+                22,
+                23
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            40,
+            280
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 314
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "cwf_portrait.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cwf_portrait.jpg",
+          "image"
+        ]
+      },
+      "uid": "1",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "SaveImage",
+      "id": "11",
+      "inputs": {
+        "filename_prefix": "ESRGAN"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "pos": [
+            540,
+            160
+          ],
+          "properties": {},
+          "size": {
+            "0": 390,
+            "1": 440
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "ESRGAN"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ESRGAN"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "18": {
+      "class_type": "UpscaleModelLoader",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 18,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                15
+              ],
+              "name": "UPSCALE_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            380,
+            670
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "4x-UltraSharp.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth"
+        ]
+      },
+      "uid": "18",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth"
+      }
+    },
+    "19": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "19",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 15,
+              "name": "upscale_model",
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 21,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            700,
+            670
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel"
+          },
+          "size": {
+            "0": 230,
+            "1": 60
+          },
+          "type": "ImageUpscaleWithModel"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "19",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "SaveImage",
+      "id": "20",
+      "inputs": {
+        "filename_prefix": "UltraSharp"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [
+            {
+              "link": 16,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            540,
+            770
+          ],
+          "properties": {},
+          "size": {
+            "0": 390,
+            "1": 440
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "UltraSharp"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "UltraSharp"
+        ]
+      },
+      "uid": "20",
+      "widgets": {}
+    },
+    "21": {
+      "class_type": "UpscaleModelLoader",
+      "id": "21",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                17
+              ],
+              "name": "UPSCALE_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            1000,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "RealESRGAN_x4plus.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RealESRGAN_x4plus.pth"
+        ]
+      },
+      "uid": "21",
+      "widgets": {
+        "widget_0": "RealESRGAN_x4plus.pth"
+      }
+    },
+    "22": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "inputs": [
+            {
+              "link": 17,
+              "name": "upscale_model",
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 22,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                18
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1320,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel"
+          },
+          "size": {
+            "0": 230,
+            "1": 60
+          },
+          "type": "ImageUpscaleWithModel"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "22",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "SaveImage",
+      "id": "23",
+      "inputs": {
+        "filename_prefix": "RealESRGAN"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 18,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "pos": [
+            1160,
+            160
+          ],
+          "properties": {},
+          "size": {
+            "0": 390,
+            "1": 440
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "RealESRGAN"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "RealESRGAN"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "UpscaleModelLoader",
+      "id": "24",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 24,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                19
+              ],
+              "name": "UPSCALE_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            1000,
+            670
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "4x_foolhardy_Remacri.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x_foolhardy_Remacri.pth"
+        ]
+      },
+      "uid": "24",
+      "widgets": {
+        "widget_0": "4x_foolhardy_Remacri.pth"
+      }
+    },
+    "25": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "25",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 19,
+              "name": "upscale_model",
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 23,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                20
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1320,
+            670
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel"
+          },
+          "size": {
+            "0": 230,
+            "1": 60
+          },
+          "type": "ImageUpscaleWithModel"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "25",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "SaveImage",
+      "id": "26",
+      "inputs": {
+        "filename_prefix": "Remacri"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 20,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "pos": [
+            1160,
+            770
+          ],
+          "properties": {},
+          "size": {
+            "0": 390,
+            "1": 440
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "Remacri"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Remacri"
+        ]
+      },
+      "uid": "26",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "UpscaleModelLoader",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "UPSCALE_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            380,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader"
+          },
+          "size": {
+            "0": 300,
+            "1": 60
+          },
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "ESRGAN_4x.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ESRGAN_4x.pth"
+        ]
+      },
+      "uid": "3",
+      "widgets": {
+        "widget_0": "ESRGAN_4x.pth"
+      }
+    },
+    "7": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "7",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "upscale_model",
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 5,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                9
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            700,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel"
+          },
+          "size": {
+            "0": 230,
+            "1": 60
+          },
+          "type": "ImageUpscaleWithModel"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "7",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "11",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "20",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "23",
+      "output_type": "SaveImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "26",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "3616c1d7d286f085",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/3616c1d7d286f085-compare_upscale_models.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "f0abffc2b525515c342cac19c1d789a39a94a5b2b5f9edd955f8fa2d1684d10b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "initial workflows",
+      "commit_sha": "36447fe8c858918174edefbb7654d5c492e20a1c",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/36447fe8c858918174edefbb7654d5c492e20a1c",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:upscale/experiments/compare_upscale_models.json:compare_upscale_models.json:3616c1d7d286f085",
+      "filename": "compare_upscale_models.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "ImageUpscaleWithModel": 4,
+        "LoadImage": 1,
+        "SaveImage": 4,
+        "UpscaleModelLoader": 4
+      },
+      "node_count": 13,
+      "origin_date": "2023-08-27T10:26:16Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "upscale/experiments/compare_upscale_models.json",
+      "source": "github",
+      "source_file_sha256": "3616c1d7d286f0852d8425955b9f742f0fcfca1db646885f61fb5a7246bfd268",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/upscale/experiments/compare_upscale_models.json",
+      "source_workflow_sha256": "5c23acc542a16e0cb7e391bba0438ced62d5a5bcd2a7743adb9a12dfec34bdbe",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

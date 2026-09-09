@@ -18,6 +18,20 @@ from vibecomfy.porting.edit.types import FieldChange
 from ._frag_state import AgentEditState, DEFAULT_CHAT_DISPLAY_MESSAGES, LOGGER, PROMPT_MEMORY_MESSAGES, _ops_from_accepted_batch, _safe_session_id
 
 def _json_safe(value: Any) -> Any:
+    """Return a detached JSON-shaped projection of ``value``.
+
+    Batch/session results intentionally freeze nested evidence with immutable
+    mappings and tuples. ``json.dumps(..., default=str)`` would stringify
+    those containers instead of preserving their public object/list shape,
+    so recurse through JSON-ish containers before applying the scalar
+    fallback.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe(item) for item in sorted(value, key=repr)]
     return json.loads(json.dumps(value, default=str))
 
 

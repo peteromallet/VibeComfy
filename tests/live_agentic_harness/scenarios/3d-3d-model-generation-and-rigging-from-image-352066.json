@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-model-generation-and-rigging-from-image-352066",
   "query": "The generated model's rig has the knees bending backward. Correct the joint orientation so the legs bend forward naturally.",
-  "workflow_path": "external_workflows/corpus/352066ccef9dbe37.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/352066ccef9dbe37.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -26,11 +26,6 @@
         ]
       }
     ]
-  },
-  "desired": {
-    "outcome": "The agent inspects the rig chain (TripoImageToModelNode -> TripoRigNode -> TripoRetargetNode -> Preview3D), determines that no node or widget controls knee/joint orientation, and truthfully reports that no candidate change exists; the graph stays unchanged.",
-    "quality": "The refusal names the real rig-chain nodes and gives the grounded reason that joint orientation is not authorable in this cloud-rig workflow; no fabricated edit is submitted and existing nodes remain intact.",
-    "alternatives_ok": true
   },
   "_tags": {
     "modality": "3d",

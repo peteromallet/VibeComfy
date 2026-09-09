@@ -28,6 +28,7 @@ from vibecomfy.schema.validate import (
     validate_api_against_schema,
 )
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from tests._runtime_session_helpers import _approved
 
 
 def _metadata(properties: dict[str, object]) -> dict[str, object]:
@@ -187,12 +188,22 @@ def test_attempt_bundle_redacts_runtime_source_and_records_contract_metadata(
         "1",
         "vibecomfy.code",
         inputs={"value": 41},
+        uid="runtime-code",
         metadata=_metadata(properties),
     )
-    api = workflow.compile("api")
+    from vibecomfy.schema.provider import _builtin_schema
+
+    record, approved_bundle = _approved(
+        workflow,
+        schema_provider=type(
+            "IntentProvider",
+            (),
+            {"get_schema": lambda self, class_type: _builtin_schema(class_type)},
+        )(),
+    )
     monkeypatch.setattr(attempt_module, "_collect_drift_for_bundle", lambda workflow: {})
 
-    bundle = attempt_module.build_attempt_bundle(workflow, api, backend="api")
+    bundle = attempt_module.build_attempt_bundle(approved_bundle, record, backend="api")
 
     compiled_source = bundle["compiled_prompt"]["1"]["inputs"]["source"]
     runtime_entry = bundle["runtime_intent_nodes"][0]
@@ -977,8 +988,7 @@ def test_ui_json_intent_properties_survive_ingest_and_emit_round_trip() -> None:
         emitted_properties = emitted_by_id[node_id]["properties"]
         assert emitted_properties["vibecomfy_uid"] == original["vibecomfy_uid"]
         assert emitted_properties["vibecomfy"] == original["vibecomfy"]
-        assert emitted_properties["Node name for S&R"] == emitted_by_id[node_id]["type"]
-        assert emitted_properties["vibecomfy_id"].startswith(f"{emitted_by_id[node_id]['type']}_")
+        assert emitted_properties == original
 
 
 def test_programmatic_intent_node_properties_export_with_stable_uid_and_typed_io() -> None:

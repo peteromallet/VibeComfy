@@ -1,0 +1,7628 @@
+{
+  "edges": [
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "14"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "67"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "88"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "95"
+    },
+    {
+      "from_node": "112",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "113"
+    },
+    {
+      "from_node": "111",
+      "from_output": "0",
+      "to_input": "text",
+      "to_node": "113"
+    },
+    {
+      "from_node": "112",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "114"
+    },
+    {
+      "from_node": "111",
+      "from_output": "1",
+      "to_input": "text",
+      "to_node": "114"
+    },
+    {
+      "from_node": "117",
+      "from_output": "0",
+      "to_input": "width",
+      "to_node": "115"
+    },
+    {
+      "from_node": "117",
+      "from_output": "1",
+      "to_input": "height",
+      "to_node": "115"
+    },
+    {
+      "from_node": "112",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "116"
+    },
+    {
+      "from_node": "113",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "116"
+    },
+    {
+      "from_node": "114",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "116"
+    },
+    {
+      "from_node": "115",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "116"
+    },
+    {
+      "from_node": "112",
+      "from_output": "2",
+      "to_input": "optional_vae",
+      "to_node": "116"
+    },
+    {
+      "from_node": "120",
+      "from_output": "0",
+      "to_input": "steps",
+      "to_node": "116"
+    },
+    {
+      "from_node": "119",
+      "from_output": "0",
+      "to_input": "cfg",
+      "to_node": "116"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "images",
+      "to_node": "118"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "images",
+      "to_node": "121"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "12"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "init_image",
+      "to_node": "12"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "12"
+    },
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "motion_bucket_id",
+      "to_node": "12"
+    },
+    {
+      "from_node": "127",
+      "from_output": "0",
+      "to_input": "width",
+      "to_node": "12"
+    },
+    {
+      "from_node": "128",
+      "from_output": "0",
+      "to_input": "height",
+      "to_node": "12"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "3"
+    },
+    {
+      "from_node": "41",
+      "from_output": "0",
+      "to_input": "upscale_model",
+      "to_node": "39"
+    },
+    {
+      "from_node": "100",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "39"
+    },
+    {
+      "from_node": "39",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "40"
+    },
+    {
+      "from_node": "40",
+      "from_output": "0",
+      "to_input": "frames",
+      "to_node": "60"
+    },
+    {
+      "from_node": "67",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "64"
+    },
+    {
+      "from_node": "66",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "64"
+    },
+    {
+      "from_node": "66",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "64"
+    },
+    {
+      "from_node": "66",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "64"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "64"
+    },
+    {
+      "from_node": "64",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "65"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "65"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "66"
+    },
+    {
+      "from_node": "81",
+      "from_output": "2",
+      "to_input": "init_image",
+      "to_node": "66"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "66"
+    },
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "motion_bucket_id",
+      "to_node": "66"
+    },
+    {
+      "from_node": "127",
+      "from_output": "0",
+      "to_input": "width",
+      "to_node": "66"
+    },
+    {
+      "from_node": "128",
+      "from_output": "0",
+      "to_input": "height",
+      "to_node": "66"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "74"
+    },
+    {
+      "from_node": "107",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "74"
+    },
+    {
+      "from_node": "105",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "81"
+    },
+    {
+      "from_node": "81",
+      "from_output": "2",
+      "to_input": "images",
+      "to_node": "84"
+    },
+    {
+      "from_node": "88",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "85"
+    },
+    {
+      "from_node": "87",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "85"
+    },
+    {
+      "from_node": "87",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "85"
+    },
+    {
+      "from_node": "87",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "85"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "85"
+    },
+    {
+      "from_node": "85",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "86"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "86"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "87"
+    },
+    {
+      "from_node": "90",
+      "from_output": "2",
+      "to_input": "init_image",
+      "to_node": "87"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "87"
+    },
+    {
+      "from_node": "101",
+      "from_output": "0",
+      "to_input": "motion_bucket_id",
+      "to_node": "87"
+    },
+    {
+      "from_node": "127",
+      "from_output": "0",
+      "to_input": "width",
+      "to_node": "87"
+    },
+    {
+      "from_node": "128",
+      "from_output": "0",
+      "to_input": "height",
+      "to_node": "87"
+    },
+    {
+      "from_node": "107",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "90"
+    },
+    {
+      "from_node": "90",
+      "from_output": "2",
+      "to_input": "images",
+      "to_node": "91"
+    },
+    {
+      "from_node": "95",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "92"
+    },
+    {
+      "from_node": "94",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "92"
+    },
+    {
+      "from_node": "94",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "92"
+    },
+    {
+      "from_node": "94",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "92"
+    },
+    {
+      "from_node": "103",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "92"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "94"
+    },
+    {
+      "from_node": "97",
+      "from_output": "2",
+      "to_input": "init_image",
+      "to_node": "94"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "94"
+    },
+    {
+      "from_node": "128",
+      "from_output": "0",
+      "to_input": "motion_bucket_id",
+      "to_node": "94"
+    },
+    {
+      "from_node": "127",
+      "from_output": "0",
+      "to_input": "width",
+      "to_node": "94"
+    },
+    {
+      "from_node": "128",
+      "from_output": "0",
+      "to_input": "height",
+      "to_node": "94"
+    },
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "97"
+    },
+    {
+      "from_node": "97",
+      "from_output": "2",
+      "to_input": "images",
+      "to_node": "98"
+    },
+    {
+      "from_node": "108",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "99"
+    },
+    {
+      "from_node": "109",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "99"
+    },
+    {
+      "from_node": "74",
+      "from_output": "0",
+      "to_input": "image1",
+      "to_node": "100"
+    },
+    {
+      "from_node": "99",
+      "from_output": "0",
+      "to_input": "image2",
+      "to_node": "100"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "image_ref",
+      "to_node": "105"
+    },
+    {
+      "from_node": "137",
+      "from_output": "0",
+      "to_input": "image_target",
+      "to_node": "105"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "image_ref",
+      "to_node": "107"
+    },
+    {
+      "from_node": "136",
+      "from_output": "0",
+      "to_input": "image_target",
+      "to_node": "107"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "image_ref",
+      "to_node": "108"
+    },
+    {
+      "from_node": "138",
+      "from_output": "0",
+      "to_input": "image_target",
+      "to_node": "108"
+    },
+    {
+      "from_node": "116",
+      "from_output": "5",
+      "to_input": "image_ref",
+      "to_node": "109"
+    },
+    {
+      "from_node": "139",
+      "from_output": "0",
+      "to_input": "image_target",
+      "to_node": "109"
+    },
+    {
+      "from_node": "60",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "110"
+    },
+    {
+      "from_node": "65",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "136"
+    },
+    {
+      "from_node": "86",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "138"
+    },
+    {
+      "from_node": "92",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "93"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "93"
+    },
+    {
+      "from_node": "93",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "139"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "137"
+    }
+  ],
+  "groups": [],
+  "id": "dd4604e64eb954f7",
+  "inputs": {
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "100": {
+        "class_type": "ImageBatch",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "74",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "99",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "39",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "101": {
+        "class_type": "INTConstant",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "motion_bucket_id"
+            ]
+          ],
+          [
+            "0",
+            [
+              "66",
+              "motion_bucket_id"
+            ]
+          ],
+          [
+            "0",
+            [
+              "87",
+              "motion_bucket_id"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "value",
+            "20"
+          ]
+        ]
+      },
+      "103": {
+        "class_type": "Seed Everywhere",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "64",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "85",
+              "seed"
+            ]
+          ],
+          [
+            "0",
+            [
+              "92",
+              "seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "219776248364909"
+          ],
+          [
+            "widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "105": {
+        "class_type": "ColorMatch",
+        "incoming_edge_sig": [
+          [
+            "image_ref",
+            [
+              "116",
+              "5"
+            ]
+          ],
+          [
+            "image_target",
+            [
+              "137",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "74",
+              "image1"
+            ]
+          ],
+          [
+            "0",
+            [
+              "81",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mkl'"
+          ]
+        ]
+      },
+      "107": {
+        "class_type": "ColorMatch",
+        "incoming_edge_sig": [
+          [
+            "image_ref",
+            [
+              "116",
+              "5"
+            ]
+          ],
+          [
+            "image_target",
+            [
+              "136",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "74",
+              "image2"
+            ]
+          ],
+          [
+            "0",
+            [
+              "90",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mkl'"
+          ]
+        ]
+      },
+      "108": {
+        "class_type": "ColorMatch",
+        "incoming_edge_sig": [
+          [
+            "image_ref",
+            [
+              "116",
+              "5"
+            ]
+          ],
+          [
+            "image_target",
+            [
+              "138",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "97",
+              "images"
+            ]
+          ],
+          [
+            "0",
+            [
+              "99",
+              "image1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mkl'"
+          ]
+        ]
+      },
+      "109": {
+        "class_type": "ColorMatch",
+        "incoming_edge_sig": [
+          [
+            "image_ref",
+            [
+              "116",
+              "5"
+            ]
+          ],
+          [
+            "image_target",
+            [
+              "139",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "99",
+              "image2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'mkl'"
+          ]
+        ]
+      },
+      "110": {
+        "class_type": "SaveAnimatedWEBP",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "60",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'ComfyUI/multsvdvids'"
+          ],
+          [
+            "widget_1",
+            "24"
+          ],
+          [
+            "widget_2",
+            "False"
+          ],
+          [
+            "widget_3",
+            "100"
+          ],
+          [
+            "widget_4",
+            "'default'"
+          ],
+          [
+            "widget_5",
+            "None"
+          ]
+        ]
+      },
+      "111": {
+        "class_type": "SDXLPromptStyler",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "113",
+              "text"
+            ]
+          ],
+          [
+            "1",
+            [
+              "114",
+              "text"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'batman buying milk in a Christmas themed mall'"
+          ],
+          [
+            "widget_1",
+            "''"
+          ],
+          [
+            "widget_2",
+            "'misc-fairy tale'"
+          ],
+          [
+            "widget_3",
+            "False"
+          ]
+        ]
+      },
+      "112": {
+        "class_type": "CivitAI_Checkpoint_Loader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "113",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "114",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "116",
+              "optional_vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'112902@251662'"
+          ],
+          [
+            "widget_1",
+            "'dreamshaperXL_turboDpmppSDE.safetensors'"
+          ],
+          [
+            "widget_2",
+            "20"
+          ],
+          [
+            "widget_3",
+            "'models/checkpoints'"
+          ]
+        ]
+      },
+      "113": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "112",
+              "1"
+            ]
+          ],
+          [
+            "text",
+            [
+              "111",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "114": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "112",
+              "1"
+            ]
+          ],
+          [
+            "text",
+            [
+              "111",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "115": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [
+          [
+            "height",
+            [
+              "117",
+              "1"
+            ]
+          ],
+          [
+            "width",
+            [
+              "117",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "512"
+          ],
+          [
+            "widget_1",
+            "512"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "116": {
+        "class_type": "KSampler Adv. (Efficient)",
+        "incoming_edge_sig": [
+          [
+            "cfg",
+            [
+              "119",
+              "0"
+            ]
+          ],
+          [
+            "latent_image",
+            [
+              "115",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "112",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "114",
+              "0"
+            ]
+          ],
+          [
+            "optional_vae",
+            [
+              "112",
+              "2"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "113",
+              "0"
+            ]
+          ],
+          [
+            "steps",
+            [
+              "120",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "5",
+            [
+              "105",
+              "image_ref"
+            ]
+          ],
+          [
+            "5",
+            [
+              "107",
+              "image_ref"
+            ]
+          ],
+          [
+            "5",
+            [
+              "108",
+              "image_ref"
+            ]
+          ],
+          [
+            "5",
+            [
+              "109",
+              "image_ref"
+            ]
+          ],
+          [
+            "5",
+            [
+              "118",
+              "images"
+            ]
+          ],
+          [
+            "5",
+            [
+              "12",
+              "init_image"
+            ]
+          ],
+          [
+            "5",
+            [
+              "121",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'enable'"
+          ],
+          [
+            "widget_1",
+            "839793666358595"
+          ],
+          [
+            "widget_10",
+            "'auto'"
+          ],
+          [
+            "widget_11",
+            "'true'"
+          ],
+          [
+            "widget_2",
+            "None"
+          ],
+          [
+            "widget_3",
+            "20"
+          ],
+          [
+            "widget_4",
+            "2"
+          ],
+          [
+            "widget_5",
+            "'dpmpp_sde_gpu'"
+          ],
+          [
+            "widget_6",
+            "'karras'"
+          ],
+          [
+            "widget_7",
+            "0"
+          ],
+          [
+            "widget_8",
+            "10000"
+          ],
+          [
+            "widget_9",
+            "'disable'"
+          ]
+        ]
+      },
+      "117": {
+        "class_type": "Resolutions by Ratio (WLSH)",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "115",
+              "width"
+            ]
+          ],
+          [
+            "1",
+            [
+              "115",
+              "height"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'16:9'"
+          ],
+          [
+            "widget_1",
+            "'landscape'"
+          ],
+          [
+            "widget_2",
+            "1024"
+          ]
+        ]
+      },
+      "118": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "116",
+              "5"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "119": {
+        "class_type": "Float",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "cfg"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'3'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "height",
+            [
+              "128",
+              "0"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "116",
+              "5"
+            ]
+          ],
+          [
+            "motion_bucket_id",
+            [
+              "101",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ],
+          [
+            "width",
+            [
+              "127",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "25"
+          ],
+          [
+            "widget_3",
+            "16"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "120": {
+        "class_type": "Integer",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "116",
+              "steps"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "6"
+          ]
+        ]
+      },
+      "121": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "116",
+              "5"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'BarrenWardo'"
+          ]
+        ]
+      },
+      "122": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Hope you like it! Happy Diffusing!\\n\\n--\\nBarrenWardo'"
+          ]
+        ]
+      },
+      "127": {
+        "class_type": "Int",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "width"
+            ]
+          ],
+          [
+            "0",
+            [
+              "66",
+              "width"
+            ]
+          ],
+          [
+            "0",
+            [
+              "87",
+              "width"
+            ]
+          ],
+          [
+            "0",
+            [
+              "94",
+              "width"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'1024'"
+          ]
+        ]
+      },
+      "128": {
+        "class_type": "Int",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "height"
+            ]
+          ],
+          [
+            "0",
+            [
+              "66",
+              "height"
+            ]
+          ],
+          [
+            "0",
+            [
+              "87",
+              "height"
+            ]
+          ],
+          [
+            "0",
+            [
+              "94",
+              "height"
+            ]
+          ],
+          [
+            "0",
+            [
+              "94",
+              "motion_bucket_id"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'576'"
+          ]
+        ]
+      },
+      "136": {
+        "class_type": "CR Upscale Image",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "65",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "107",
+              "image_target"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ],
+          [
+            "widget_1",
+            "'rescale'"
+          ],
+          [
+            "widget_2",
+            "2"
+          ],
+          [
+            "widget_3",
+            "1024"
+          ],
+          [
+            "widget_4",
+            "'lanczos'"
+          ],
+          [
+            "widget_5",
+            "'true'"
+          ],
+          [
+            "widget_6",
+            "8"
+          ]
+        ]
+      },
+      "137": {
+        "class_type": "CR Upscale Image",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "105",
+              "image_target"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ],
+          [
+            "widget_1",
+            "'rescale'"
+          ],
+          [
+            "widget_2",
+            "2"
+          ],
+          [
+            "widget_3",
+            "1024"
+          ],
+          [
+            "widget_4",
+            "'lanczos'"
+          ],
+          [
+            "widget_5",
+            "'true'"
+          ],
+          [
+            "widget_6",
+            "8"
+          ]
+        ]
+      },
+      "138": {
+        "class_type": "CR Upscale Image",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "86",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "108",
+              "image_target"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ],
+          [
+            "widget_1",
+            "'rescale'"
+          ],
+          [
+            "widget_2",
+            "2"
+          ],
+          [
+            "widget_3",
+            "1024"
+          ],
+          [
+            "widget_4",
+            "'lanczos'"
+          ],
+          [
+            "widget_5",
+            "'true'"
+          ],
+          [
+            "widget_6",
+            "8"
+          ]
+        ]
+      },
+      "139": {
+        "class_type": "CR Upscale Image",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "93",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "109",
+              "image_target"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ],
+          [
+            "widget_1",
+            "'rescale'"
+          ],
+          [
+            "widget_2",
+            "2"
+          ],
+          [
+            "widget_3",
+            "1024"
+          ],
+          [
+            "widget_4",
+            "'lanczos'"
+          ],
+          [
+            "widget_5",
+            "'true'"
+          ],
+          [
+            "widget_6",
+            "8"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "ImageOnlyCheckpointLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "67",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "88",
+              "model"
+            ]
+          ],
+          [
+            "0",
+            [
+              "95",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "12",
+              "clip_vision"
+            ]
+          ],
+          [
+            "1",
+            [
+              "66",
+              "clip_vision"
+            ]
+          ],
+          [
+            "1",
+            [
+              "87",
+              "clip_vision"
+            ]
+          ],
+          [
+            "1",
+            [
+              "94",
+              "clip_vision"
+            ]
+          ],
+          [
+            "2",
+            [
+              "12",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "65",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "66",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "8",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "86",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "87",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "93",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "94",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'SVD\\\\svd_xt.safetensors'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'00209-893798977.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "12",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "12",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "12",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "103",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m_sde'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "39": {
+        "class_type": "ImageUpscaleWithModel",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "100",
+              "0"
+            ]
+          ],
+          [
+            "upscale_model",
+            [
+              "41",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "40",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "40": {
+        "class_type": "ImageScale",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "39",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "60",
+              "frames"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "crop",
+            "'disabled'"
+          ],
+          [
+            "height",
+            "1080"
+          ],
+          [
+            "upscale_method",
+            "'nearest-exact'"
+          ],
+          [
+            "width",
+            "1920"
+          ]
+        ]
+      },
+      "41": {
+        "class_type": "UpscaleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "39",
+              "upscale_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'4x-UltraSharp.pth'"
+          ]
+        ]
+      },
+      "60": {
+        "class_type": "FILM VFI",
+        "incoming_edge_sig": [
+          [
+            "frames",
+            [
+              "40",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "110",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'film_net_fp32.pt'"
+          ],
+          [
+            "widget_1",
+            "10"
+          ],
+          [
+            "widget_2",
+            "4"
+          ]
+        ]
+      },
+      "64": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "66",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "67",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "66",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "66",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "103",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "65",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m_sde'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "65": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "64",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "136",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "66": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "height",
+            [
+              "128",
+              "0"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "81",
+              "2"
+            ]
+          ],
+          [
+            "motion_bucket_id",
+            [
+              "101",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ],
+          [
+            "width",
+            [
+              "127",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "64",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "64",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "64",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "25"
+          ],
+          [
+            "widget_3",
+            "16"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "67": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "64",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "74": {
+        "class_type": "ImageBatch",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "105",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "107",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "100",
+              "image1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "137",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "81": {
+        "class_type": "VHS_SplitImages",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "105",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "2",
+            [
+              "66",
+              "init_image"
+            ]
+          ],
+          [
+            "2",
+            [
+              "84",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "split_index",
+            "24"
+          ]
+        ]
+      },
+      "84": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "81",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "85": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "87",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "88",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "87",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "87",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "103",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "86",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m_sde'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "86": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "85",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "138",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "87": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "height",
+            [
+              "128",
+              "0"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "90",
+              "2"
+            ]
+          ],
+          [
+            "motion_bucket_id",
+            [
+              "101",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ],
+          [
+            "width",
+            [
+              "127",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "85",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "85",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "85",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "25"
+          ],
+          [
+            "widget_3",
+            "16"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "88": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "85",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "90": {
+        "class_type": "VHS_SplitImages",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "107",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "2",
+            [
+              "87",
+              "init_image"
+            ]
+          ],
+          [
+            "2",
+            [
+              "91",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "split_index",
+            "24"
+          ]
+        ]
+      },
+      "91": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "90",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "92": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "94",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "95",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "94",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "94",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "103",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "93",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "1.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m_sde'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "93": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "92",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "139",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "94": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "height",
+            [
+              "128",
+              "0"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "97",
+              "2"
+            ]
+          ],
+          [
+            "motion_bucket_id",
+            [
+              "128",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ],
+          [
+            "width",
+            [
+              "127",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "92",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "92",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "92",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "25"
+          ],
+          [
+            "widget_3",
+            "16"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "95": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "92",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "97": {
+        "class_type": "VHS_SplitImages",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "108",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "2",
+            [
+              "94",
+              "init_image"
+            ]
+          ],
+          [
+            "2",
+            [
+              "98",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "split_index",
+            "24"
+          ]
+        ]
+      },
+      "98": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "97",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "99": {
+        "class_type": "ImageBatch",
+        "incoming_edge_sig": [
+          [
+            "image1",
+            [
+              "108",
+              "0"
+            ]
+          ],
+          [
+            "image2",
+            [
+              "109",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "100",
+              "image2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "3598486eb6eb45d11a45e4299627d19ce7734e39e8168e4a27c8a89ad8a5c6b9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "content_preview": "i made this insane workflow if anybody knows more about upscaling could look through it to see if I have any useless nodes in here xD",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1183999351815680026",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1183999351815680026:hiccupbiglongsvd.json:dd4604e64eb954f7",
+      "filename": "hiccupbiglongsvd.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1183999351815680026,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CR Upscale Image": 4,
+        "CivitAI_Checkpoint_Loader": 1,
+        "ColorMatch": 4,
+        "EmptyLatentImage": 1,
+        "FILM VFI": 1,
+        "Float": 1,
+        "INTConstant": 1,
+        "ImageBatch": 3,
+        "ImageOnlyCheckpointLoader": 1,
+        "ImageScale": 1,
+        "ImageUpscaleWithModel": 1,
+        "Int": 2,
+        "Integer": 1,
+        "KSampler": 4,
+        "KSampler Adv. (Efficient)": 1,
+        "LoadImage": 1,
+        "Note": 1,
+        "PreviewImage": 4,
+        "Resolutions by Ratio (WLSH)": 1,
+        "SDXLPromptStyler": 1,
+        "SVD_img2vid_Conditioning": 4,
+        "SaveAnimatedWEBP": 1,
+        "SaveImage": 1,
+        "Seed Everywhere": 1,
+        "UpscaleModelLoader": 1,
+        "VAEDecode": 4,
+        "VHS_SplitImages": 3,
+        "VideoLinearCFGGuidance": 4
+      },
+      "node_count": 56,
+      "origin_date": "2023-12-12T05:10:43.117000+00:00",
+      "originator_global_name": "Hiccup",
+      "originator_id": "414618161397104661",
+      "originator_type": "discord_message_author",
+      "originator_username": "shiccup",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "dd4604e64eb954f7a3fe2eb790b43b4021ba95853379ebef9339e2cdf668aea6",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1183999351517892658/hiccupbiglongsvd.json?ex=6834a093&is=68334f13&hm=1731e01a0ea1105a1bf0bd0c1477064c9dab68fb49fdcc4484e1b0e46faefff0&",
+      "source_workflow_sha256": "32fa6aef80f061f28e244e45729884d304631952029b5cd9a03138ae40e8c419",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "062c866b8cd591060ef8957a076ac1ebe6130fbc3af0023c1ce6f72ad0efc734",
+      "complexity": 5,
+      "description": "This workflow takes an input image, generates a video using SVD img2vid conditioning, applies color matching, upscales frames, and outputs both animated WEBP and static images.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "image-to-video",
+        "svd",
+        "upscaling",
+        "color-matching",
+        "animation",
+        "webp",
+        "film-interpolation"
+      ],
+      "task_type": "animation",
+      "title": "Image-to-Video with Upscaling and Color Matching"
+    }
+  },
+  "nodes": {
+    "100": {
+      "class_type": "ImageBatch",
+      "id": "100",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 100,
+          "inputs": [
+            {
+              "link": 164,
+              "name": "image1",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 165,
+              "name": "image2",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 51,
+          "outputs": [
+            {
+              "links": [
+                211
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2586,
+            1465
+          ],
+          "properties": {
+            "Node name for S&R": "ImageBatch"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "ImageBatch"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "100",
+      "widgets": {}
+    },
+    "101": {
+      "class_type": "INTConstant",
+      "id": "101",
+      "inputs": {
+        "value": 20
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#29699c",
+          "color": "#1b4669",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 101,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                169,
+                170,
+                171
+              ],
+              "name": "value",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            456,
+            742
+          ],
+          "properties": {
+            "Node name for S&R": "INTConstant"
+          },
+          "size": {
+            "0": 210,
+            "1": 58
+          },
+          "type": "INTConstant",
+          "widgets_values": [
+            20
+          ]
+        },
+        "bgcolor": "#29699c",
+        "color": "#1b4669",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          20
+        ]
+      },
+      "uid": "101",
+      "widgets": {}
+    },
+    "103": {
+      "class_type": "Seed Everywhere",
+      "id": "103",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 103,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                188,
+                189,
+                190,
+                191
+              ],
+              "name": "INT",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            416.4000122070313,
+            997.20009765625
+          ],
+          "properties": {
+            "Node name for S&R": "Seed Everywhere",
+            "color_restricted": false,
+            "group_restricted": false
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "Seed Everywhere",
+          "widgets_values": [
+            219776248364909,
+            "randomize"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          219776248364909,
+          "randomize"
+        ]
+      },
+      "uid": "103",
+      "widgets": {
+        "widget_0": 219776248364909,
+        "widget_1": "randomize"
+      }
+    },
+    "105": {
+      "class_type": "ColorMatch",
+      "id": "105",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 105,
+          "inputs": [
+            {
+              "link": 229,
+              "name": "image_ref",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 272,
+              "name": "image_target",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 27,
+          "outputs": [
+            {
+              "links": [
+                195,
+                198
+              ],
+              "name": "image",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2206,
+            703
+          ],
+          "properties": {
+            "Node name for S&R": "ColorMatch"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "ColorMatch",
+          "widgets_values": [
+            "mkl"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mkl"
+        ]
+      },
+      "uid": "105",
+      "widgets": {
+        "widget_0": "mkl"
+      }
+    },
+    "107": {
+      "class_type": "ColorMatch",
+      "id": "107",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 107,
+          "inputs": [
+            {
+              "link": 230,
+              "name": "image_ref",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 265,
+              "name": "image_target",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 34,
+          "outputs": [
+            {
+              "links": [
+                200,
+                201
+              ],
+              "name": "image",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2221,
+            1308
+          ],
+          "properties": {
+            "Node name for S&R": "ColorMatch"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "ColorMatch",
+          "widgets_values": [
+            "mkl"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mkl"
+        ]
+      },
+      "uid": "107",
+      "widgets": {
+        "widget_0": "mkl"
+      }
+    },
+    "108": {
+      "class_type": "ColorMatch",
+      "id": "108",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 108,
+          "inputs": [
+            {
+              "link": 232,
+              "name": "image_ref",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 267,
+              "name": "image_target",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 42,
+          "outputs": [
+            {
+              "links": [
+                204,
+                205
+              ],
+              "name": "image",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2208,
+            2150
+          ],
+          "properties": {
+            "Node name for S&R": "ColorMatch"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "ColorMatch",
+          "widgets_values": [
+            "mkl"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mkl"
+        ]
+      },
+      "uid": "108",
+      "widgets": {
+        "widget_0": "mkl"
+      }
+    },
+    "109": {
+      "class_type": "ColorMatch",
+      "id": "109",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 109,
+          "inputs": [
+            {
+              "link": 231,
+              "name": "image_ref",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 270,
+              "name": "image_target",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 49,
+          "outputs": [
+            {
+              "links": [
+                208
+              ],
+              "name": "image",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2183,
+            2929
+          ],
+          "properties": {
+            "Node name for S&R": "ColorMatch"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "ColorMatch",
+          "widgets_values": [
+            "mkl"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "mkl"
+        ]
+      },
+      "uid": "109",
+      "widgets": {
+        "widget_0": "mkl"
+      }
+    },
+    "110": {
+      "class_type": "SaveAnimatedWEBP",
+      "id": "110",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 110,
+          "inputs": [
+            {
+              "link": 212,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 55,
+          "pos": [
+            4159,
+            1241
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAnimatedWEBP"
+          },
+          "size": {
+            "0": 315,
+            "1": 366
+          },
+          "type": "SaveAnimatedWEBP",
+          "widgets_values": [
+            "ComfyUI/multsvdvids",
+            24,
+            false,
+            100,
+            "default",
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI/multsvdvids",
+          24,
+          false,
+          100,
+          "default",
+          null
+        ]
+      },
+      "uid": "110",
+      "widgets": {
+        "widget_0": "ComfyUI/multsvdvids",
+        "widget_1": 24,
+        "widget_2": false,
+        "widget_3": 100,
+        "widget_4": "default",
+        "widget_5": null
+      }
+    },
+    "111": {
+      "class_type": "SDXLPromptStyler",
+      "id": "111",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 111,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                214
+              ],
+              "name": "text_positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STRING"
+            },
+            {
+              "links": [
+                216
+              ],
+              "name": "text_negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            110,
+            -30
+          ],
+          "properties": {
+            "Node name for S&R": "SDXLPromptStyler"
+          },
+          "size": {
+            "0": 400,
+            "1": 200
+          },
+          "type": "SDXLPromptStyler",
+          "widgets_values": [
+            "batman buying milk in a Christmas themed mall",
+            "",
+            "misc-fairy tale",
+            false
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "batman buying milk in a Christmas themed mall",
+          "",
+          "misc-fairy tale",
+          false
+        ]
+      },
+      "uid": "111",
+      "widgets": {
+        "widget_0": "batman buying milk in a Christmas themed mall",
+        "widget_1": "",
+        "widget_2": "misc-fairy tale",
+        "widget_3": false
+      }
+    },
+    "112": {
+      "class_type": "CivitAI_Checkpoint_Loader",
+      "id": "112",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 112,
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                219
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                213,
+                215
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                223
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -570,
+            -10
+          ],
+          "properties": {
+            "Node name for S&R": "CivitAI_Checkpoint_Loader"
+          },
+          "size": {
+            "0": 315,
+            "1": 170
+          },
+          "type": "CivitAI_Checkpoint_Loader",
+          "widgets_values": [
+            "112902@251662",
+            "dreamshaperXL_turboDpmppSDE.safetensors",
+            20,
+            "models/checkpoints"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "112902@251662",
+          "dreamshaperXL_turboDpmppSDE.safetensors",
+          20,
+          "models/checkpoints"
+        ]
+      },
+      "uid": "112",
+      "widgets": {
+        "widget_0": "112902@251662",
+        "widget_1": "dreamshaperXL_turboDpmppSDE.safetensors",
+        "widget_2": 20,
+        "widget_3": "models/checkpoints"
+      }
+    },
+    "113": {
+      "class_type": "CLIPTextEncode",
+      "id": "113",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 113,
+          "inputs": [
+            {
+              "link": 213,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 214,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                220
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -530,
+            210
+          ],
+          "properties": {
+            "Node name for S&R": "Prompt"
+          },
+          "size": {
+            "0": 283.1335754394531,
+            "1": 120.34811401367188
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "113",
+      "widgets": {}
+    },
+    "114": {
+      "class_type": "CLIPTextEncode",
+      "id": "114",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 114,
+          "inputs": [
+            {
+              "link": 215,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 216,
+              "name": "text",
+              "type": "STRING",
+              "widget": {
+                "name": "text"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "outputs": [
+            {
+              "links": [
+                221
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            -530,
+            260
+          ],
+          "properties": {
+            "Node name for S&R": "Prompt"
+          },
+          "size": {
+            "0": 283.1335754394531,
+            "1": 120.34811401367188
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "114",
+      "widgets": {}
+    },
+    "115": {
+      "class_type": "EmptyLatentImage",
+      "id": "115",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 115,
+          "inputs": [
+            {
+              "link": 217,
+              "name": "width",
+              "slot_index": 0,
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 218,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 19,
+          "outputs": [
+            {
+              "links": [
+                222
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            -570,
+            320
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 315,
+            "1": 106
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            512,
+            512,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          512,
+          512,
+          1
+        ]
+      },
+      "uid": "115",
+      "widgets": {
+        "widget_0": 512,
+        "widget_1": 512,
+        "widget_2": 1
+      }
+    },
+    "116": {
+      "class_type": "KSampler Adv. (Efficient)",
+      "id": "116",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#553355",
+          "color": "#332233",
+          "flags": {},
+          "id": 116,
+          "inputs": [
+            {
+              "link": 219,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 220,
+              "name": "positive",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 221,
+              "name": "negative",
+              "slot_index": 2,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 222,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            },
+            {
+              "link": 223,
+              "name": "optional_vae",
+              "type": "VAE"
+            },
+            {
+              "link": null,
+              "name": "script",
+              "type": "SCRIPT"
+            },
+            {
+              "link": 224,
+              "name": "steps",
+              "slot_index": 6,
+              "type": "INT",
+              "widget": {
+                "name": "steps"
+              }
+            },
+            {
+              "link": 225,
+              "name": "cfg",
+              "slot_index": 7,
+              "type": "FLOAT",
+              "widget": {
+                "name": "cfg"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 20,
+          "outputs": [
+            {
+              "links": null,
+              "name": "MODEL",
+              "shape": 3,
+              "type": "MODEL"
+            },
+            {
+              "links": null,
+              "name": "CONDITIONING+",
+              "shape": 3,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "CONDITIONING-",
+              "shape": 3,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": null,
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            },
+            {
+              "links": null,
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            },
+            {
+              "links": [
+                226,
+                227,
+                228,
+                229,
+                230,
+                231,
+                232
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 5,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            -230,
+            -10
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler Adv. (Efficient)"
+          },
+          "shape": 1,
+          "size": [
+            324.5118103027344,
+            626
+          ],
+          "type": "KSampler Adv. (Efficient)",
+          "widgets_values": [
+            "enable",
+            839793666358595,
+            null,
+            20,
+            2,
+            "dpmpp_sde_gpu",
+            "karras",
+            0,
+            10000,
+            "disable",
+            "auto",
+            "true"
+          ]
+        },
+        "bgcolor": "#553355",
+        "color": "#332233",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 12,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "enable",
+          839793666358595,
+          null,
+          20,
+          2,
+          "dpmpp_sde_gpu",
+          "karras",
+          0,
+          10000,
+          "disable",
+          "auto",
+          "true"
+        ]
+      },
+      "uid": "116",
+      "widgets": {
+        "widget_0": "enable",
+        "widget_1": 839793666358595,
+        "widget_10": "auto",
+        "widget_11": "true",
+        "widget_2": null,
+        "widget_3": 20,
+        "widget_4": 2,
+        "widget_5": "dpmpp_sde_gpu",
+        "widget_6": "karras",
+        "widget_7": 0,
+        "widget_8": 10000,
+        "widget_9": "disable"
+      }
+    },
+    "117": {
+      "class_type": "Resolutions by Ratio (WLSH)",
+      "id": "117",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 117,
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                217
+              ],
+              "name": "width",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": [
+                218
+              ],
+              "name": "height",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            120,
+            460
+          ],
+          "properties": {
+            "Node name for S&R": "Resolutions by Ratio (WLSH)"
+          },
+          "size": {
+            "0": 386.48028564453125,
+            "1": 126
+          },
+          "type": "Resolutions by Ratio (WLSH)",
+          "widgets_values": [
+            "16:9",
+            "landscape",
+            1024
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "16:9",
+          "landscape",
+          1024
+        ]
+      },
+      "uid": "117",
+      "widgets": {
+        "widget_0": "16:9",
+        "widget_1": "landscape",
+        "widget_2": 1024
+      }
+    },
+    "118": {
+      "class_type": "PreviewImage",
+      "id": "118",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 118,
+          "inputs": [
+            {
+              "link": 226,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 21,
+          "pos": [
+            530,
+            -20
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 453.28594970703125,
+            "1": 329.4635314941406
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "118",
+      "widgets": {}
+    },
+    "119": {
+      "class_type": "Float",
+      "id": "119",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 119,
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                225
+              ],
+              "name": "FLOAT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "FLOAT"
+            }
+          ],
+          "pos": [
+            160,
+            230
+          ],
+          "properties": {
+            "Node name for S&R": "CFG Scale"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "title": "CFG Scale",
+          "type": "Float",
+          "widgets_values": [
+            "3"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "3"
+        ]
+      },
+      "uid": "119",
+      "widgets": {
+        "widget_0": "3"
+      }
+    },
+    "12": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 228,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 25,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 169,
+              "name": "motion_bucket_id",
+              "slot_index": 3,
+              "type": "INT",
+              "widget": {
+                "name": "motion_bucket_id"
+              }
+            },
+            {
+              "link": 233,
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 234,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 23,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                17
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                18
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1511,
+            449
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": [
+            315,
+            218
+          ],
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            25,
+            16,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          25,
+          16,
+          6,
+          0
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 25,
+        "widget_3": 16,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "120": {
+      "class_type": "Integer",
+      "id": "120",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 120,
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                224
+              ],
+              "name": "INT",
+              "shape": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            160,
+            340
+          ],
+          "properties": {
+            "Node name for S&R": "Steps"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "title": "Steps",
+          "type": "Integer",
+          "widgets_values": [
+            6
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          6
+        ]
+      },
+      "uid": "120",
+      "widgets": {
+        "widget_0": 6
+      }
+    },
+    "121": {
+      "class_type": "SaveImage",
+      "id": "121",
+      "inputs": {
+        "filename_prefix": "BarrenWardo"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 121,
+          "inputs": [
+            {
+              "link": 227,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 22,
+          "pos": [
+            541,
+            353
+          ],
+          "properties": {},
+          "size": {
+            "0": 451.6763916015625,
+            "1": 270
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "BarrenWardo"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "BarrenWardo"
+        ]
+      },
+      "uid": "121",
+      "widgets": {}
+    },
+    "122": {
+      "class_type": "Note",
+      "id": "122",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 122,
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            -560,
+            480
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": {
+            "0": 304.4867248535156,
+            "1": 130.736328125
+          },
+          "type": "Note",
+          "widgets_values": [
+            "Hope you like it! Happy Diffusing!\n\n--\nBarrenWardo"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Hope you like it! Happy Diffusing!\n\n--\nBarrenWardo"
+        ]
+      },
+      "uid": "122",
+      "widgets": {
+        "widget_0": "Hope you like it! Happy Diffusing!\n\n--\nBarrenWardo"
+      }
+    },
+    "127": {
+      "class_type": "Int",
+      "id": "127",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 127,
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                233,
+                235,
+                237,
+                239
+              ],
+              "name": "INT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            403.20000610351565,
+            1258.2598828125003
+          ],
+          "properties": {
+            "Node name for S&R": "Int"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "title": "Width",
+          "type": "Int",
+          "widgets_values": [
+            "1024"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "1024"
+        ]
+      },
+      "uid": "127",
+      "widgets": {
+        "widget_0": "1024"
+      }
+    },
+    "128": {
+      "class_type": "Int",
+      "id": "128",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 128,
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                234,
+                236,
+                238,
+                240,
+                241
+              ],
+              "name": "INT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            402.20000610351565,
+            1356.2598828125003
+          ],
+          "properties": {
+            "Node name for S&R": "Int"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "title": "Height",
+          "type": "Int",
+          "widgets_values": [
+            "576"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "576"
+        ]
+      },
+      "uid": "128",
+      "widgets": {
+        "widget_0": "576"
+      }
+    },
+    "136": {
+      "class_type": "CR Upscale Image",
+      "id": "136",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 136,
+          "inputs": [
+            {
+              "link": 264,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 33,
+          "outputs": [
+            {
+              "links": [
+                265
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "show_help",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2232,
+            1028
+          ],
+          "properties": {
+            "Node name for S&R": "CR Upscale Image"
+          },
+          "size": {
+            "0": 315,
+            "1": 222
+          },
+          "type": "CR Upscale Image",
+          "widgets_values": [
+            "4x-UltraSharp.pth",
+            "rescale",
+            2,
+            1024,
+            "lanczos",
+            "true",
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth",
+          "rescale",
+          2,
+          1024,
+          "lanczos",
+          "true",
+          8
+        ]
+      },
+      "uid": "136",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth",
+        "widget_1": "rescale",
+        "widget_2": 2,
+        "widget_3": 1024,
+        "widget_4": "lanczos",
+        "widget_5": "true",
+        "widget_6": 8
+      }
+    },
+    "137": {
+      "class_type": "CR Upscale Image",
+      "id": "137",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 137,
+          "inputs": [
+            {
+              "link": 271,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 26,
+          "outputs": [
+            {
+              "links": [
+                272
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "show_help",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2241,
+            409
+          ],
+          "properties": {
+            "Node name for S&R": "CR Upscale Image"
+          },
+          "size": {
+            "0": 315,
+            "1": 222
+          },
+          "type": "CR Upscale Image",
+          "widgets_values": [
+            "4x-UltraSharp.pth",
+            "rescale",
+            2,
+            1024,
+            "lanczos",
+            "true",
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth",
+          "rescale",
+          2,
+          1024,
+          "lanczos",
+          "true",
+          8
+        ]
+      },
+      "uid": "137",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth",
+        "widget_1": "rescale",
+        "widget_2": 2,
+        "widget_3": 1024,
+        "widget_4": "lanczos",
+        "widget_5": "true",
+        "widget_6": 8
+      }
+    },
+    "138": {
+      "class_type": "CR Upscale Image",
+      "id": "138",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 138,
+          "inputs": [
+            {
+              "link": 266,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 41,
+          "outputs": [
+            {
+              "links": [
+                267
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "show_help",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2229,
+            1849
+          ],
+          "properties": {
+            "Node name for S&R": "CR Upscale Image"
+          },
+          "size": {
+            "0": 315,
+            "1": 222
+          },
+          "type": "CR Upscale Image",
+          "widgets_values": [
+            "4x-UltraSharp.pth",
+            "rescale",
+            2,
+            1024,
+            "lanczos",
+            "true",
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth",
+          "rescale",
+          2,
+          1024,
+          "lanczos",
+          "true",
+          8
+        ]
+      },
+      "uid": "138",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth",
+        "widget_1": "rescale",
+        "widget_2": 2,
+        "widget_3": 1024,
+        "widget_4": "lanczos",
+        "widget_5": "true",
+        "widget_6": 8
+      }
+    },
+    "139": {
+      "class_type": "CR Upscale Image",
+      "id": "139",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 139,
+          "inputs": [
+            {
+              "link": 269,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 48,
+          "outputs": [
+            {
+              "links": [
+                270
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "show_help",
+              "shape": 3,
+              "type": "STRING"
+            }
+          ],
+          "pos": [
+            2207,
+            2604
+          ],
+          "properties": {
+            "Node name for S&R": "CR Upscale Image"
+          },
+          "size": {
+            "0": 315,
+            "1": 222
+          },
+          "type": "CR Upscale Image",
+          "widgets_values": [
+            "4x-UltraSharp.pth",
+            "rescale",
+            2,
+            1024,
+            "lanczos",
+            "true",
+            8
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth",
+          "rescale",
+          2,
+          1024,
+          "lanczos",
+          "true",
+          8
+        ]
+      },
+      "uid": "139",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth",
+        "widget_1": "rescale",
+        "widget_2": 2,
+        "widget_3": 1024,
+        "widget_4": "lanczos",
+        "widget_5": "true",
+        "widget_6": 8
+      }
+    },
+    "14": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 14,
+          "inputs": [
+            {
+              "link": 23,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                39
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1522.8019279765626,
+            317.47781158398413
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "15": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 15,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                23,
+                176,
+                180,
+                186
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                24,
+                177,
+                183,
+                187
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP_VISION"
+            },
+            {
+              "links": [
+                25,
+                26,
+                178,
+                179,
+                181,
+                182,
+                184,
+                185
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            1082.9656789531246,
+            319.1601294453123
+          ],
+          "properties": {
+            "Node name for S&R": "ImageOnlyCheckpointLoader"
+          },
+          "size": {
+            "0": 369.6000061035156,
+            "1": 98
+          },
+          "type": "ImageOnlyCheckpointLoader",
+          "widgets_values": [
+            "SVD\\svd_xt.safetensors"
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "SVD\\svd_xt.safetensors"
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "SVD\\svd_xt.safetensors"
+      }
+    },
+    "23": {
+      "class_type": "LoadImage",
+      "id": "23",
+      "inputs": {
+        "image": "00209-893798977.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            -214,
+            759
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            315,
+            314.00000381469727
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "00209-893798977.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "00209-893798977.png",
+          "image"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 1.5,
+        "denoise": 1,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras",
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 39,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 40,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 17,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 18,
+              "name": "latent_image",
+              "type": "LATENT"
+            },
+            {
+              "link": 188,
+              "name": "seed",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 24,
+          "outputs": [
+            {
+              "links": [
+                259
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1852.8019279765626,
+            427.47781158398413
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            177452082597555,
+            "randomize",
+            20,
+            1.5,
+            "dpmpp_2m_sde",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          177452082597555,
+          "randomize",
+          20,
+          1.5,
+          "dpmpp_2m_sde",
+          "karras",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "39": {
+      "class_type": "ImageUpscaleWithModel",
+      "id": "39",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 39,
+          "inputs": [
+            {
+              "link": 83,
+              "name": "upscale_model",
+              "slot_index": 0,
+              "type": "UPSCALE_MODEL"
+            },
+            {
+              "link": 211,
+              "name": "image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 52,
+          "outputs": [
+            {
+              "links": [
+                85
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2861.4006618755184,
+            1445.7975528788536
+          ],
+          "properties": {
+            "Node name for S&R": "ImageUpscaleWithModel"
+          },
+          "size": {
+            "0": 241.79998779296875,
+            "1": 46
+          },
+          "type": "ImageUpscaleWithModel"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "39",
+      "widgets": {}
+    },
+    "40": {
+      "class_type": "ImageScale",
+      "id": "40",
+      "inputs": {
+        "crop": "disabled",
+        "height": 1080,
+        "upscale_method": "nearest-exact",
+        "width": 1920
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 40,
+          "inputs": [
+            {
+              "link": 85,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 53,
+          "outputs": [
+            {
+              "links": [
+                167
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3186.464883989853,
+            1373.797430808541
+          ],
+          "properties": {
+            "Node name for S&R": "ImageScale"
+          },
+          "size": {
+            "0": 315,
+            "1": 130
+          },
+          "type": "ImageScale",
+          "widgets_values": [
+            "nearest-exact",
+            1920,
+            1080,
+            "disabled"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 4,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "nearest-exact",
+          1920,
+          1080,
+          "disabled"
+        ]
+      },
+      "uid": "40",
+      "widgets": {}
+    },
+    "41": {
+      "class_type": "UpscaleModelLoader",
+      "id": "41",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 41,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                83
+              ],
+              "name": "UPSCALE_MODEL",
+              "shape": 3,
+              "type": "UPSCALE_MODEL"
+            }
+          ],
+          "pos": [
+            2829.4006618755184,
+            1317.7975528788536
+          ],
+          "properties": {
+            "Node name for S&R": "UpscaleModelLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "UpscaleModelLoader",
+          "widgets_values": [
+            "4x-UltraSharp.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "4x-UltraSharp.pth"
+        ]
+      },
+      "uid": "41",
+      "widgets": {
+        "widget_0": "4x-UltraSharp.pth"
+      }
+    },
+    "60": {
+      "class_type": "FILM VFI",
+      "id": "60",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 60,
+          "inputs": [
+            {
+              "link": 167,
+              "name": "frames",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "optional_interpolation_states",
+              "type": "INTERPOLATION_STATES"
+            }
+          ],
+          "mode": 0,
+          "order": 54,
+          "outputs": [
+            {
+              "links": [
+                212
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            3627,
+            1327
+          ],
+          "properties": {
+            "Node name for S&R": "FILM VFI"
+          },
+          "size": {
+            "0": 443.4000244140625,
+            "1": 126
+          },
+          "type": "FILM VFI",
+          "widgets_values": [
+            "film_net_fp32.pt",
+            10,
+            4
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "film_net_fp32.pt",
+          10,
+          4
+        ]
+      },
+      "uid": "60",
+      "widgets": {
+        "widget_0": "film_net_fp32.pt",
+        "widget_1": 10,
+        "widget_2": 4
+      }
+    },
+    "64": {
+      "class_type": "KSampler",
+      "id": "64",
+      "inputs": {
+        "cfg": 1.5,
+        "denoise": 1,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras",
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 64,
+          "inputs": [
+            {
+              "link": 121,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 122,
+              "name": "positive",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 123,
+              "name": "negative",
+              "slot_index": 2,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 124,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            },
+            {
+              "link": 189,
+              "name": "seed",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 31,
+          "outputs": [
+            {
+              "links": [
+                260
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1881.5431674453125,
+            1108.482539972656
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            237920677907406,
+            "randomize",
+            20,
+            1.5,
+            "dpmpp_2m_sde",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          237920677907406,
+          "randomize",
+          20,
+          1.5,
+          "dpmpp_2m_sde",
+          "karras",
+          1
+        ]
+      },
+      "uid": "64",
+      "widgets": {}
+    },
+    "65": {
+      "class_type": "VAEDecode",
+      "id": "65",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 65,
+          "inputs": [
+            {
+              "link": 260,
+              "name": "samples",
+              "slot_index": 0,
+              "type": "LATENT"
+            },
+            {
+              "link": 179,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 32,
+          "outputs": [
+            {
+              "links": [
+                264
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2211,
+            933
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "65",
+      "widgets": {}
+    },
+    "66": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "66",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 66,
+          "inputs": [
+            {
+              "link": 177,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 137,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 178,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 170,
+              "name": "motion_bucket_id",
+              "slot_index": 3,
+              "type": "INT",
+              "widget": {
+                "name": "motion_bucket_id"
+              }
+            },
+            {
+              "link": 235,
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 236,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 30,
+          "outputs": [
+            {
+              "links": [
+                122
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                123
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                124
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1532,
+            1128
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": [
+            315,
+            218
+          ],
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            25,
+            16,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          25,
+          16,
+          6,
+          0
+        ]
+      },
+      "uid": "66",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 25,
+        "widget_3": 16,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "67": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "67",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 67,
+          "inputs": [
+            {
+              "link": 176,
+              "name": "model",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                121
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1531.5431674453125,
+            998.482539972656
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "67",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "74": {
+      "class_type": "ImageBatch",
+      "id": "74",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 74,
+          "inputs": [
+            {
+              "link": 195,
+              "name": "image1",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 200,
+              "name": "image2",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 35,
+          "outputs": [
+            {
+              "links": [
+                164
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2565,
+            698
+          ],
+          "properties": {
+            "Node name for S&R": "ImageBatch"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "ImageBatch"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "74",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 259,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 26,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 25,
+          "outputs": [
+            {
+              "links": [
+                271
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2223,
+            280
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    },
+    "81": {
+      "class_type": "VHS_SplitImages",
+      "id": "81",
+      "inputs": {
+        "split_index": 24
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 81,
+          "inputs": [
+            {
+              "link": 198,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 28,
+          "outputs": [
+            {
+              "links": [],
+              "name": "IMAGE_A",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "A_count",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": [
+                134,
+                137
+              ],
+              "name": "IMAGE_B",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "B_count",
+              "shape": 3,
+              "slot_index": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            1075,
+            1136
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_SplitImages"
+          },
+          "size": {
+            "0": 315,
+            "1": 118
+          },
+          "type": "VHS_SplitImages",
+          "widgets_values": {
+            "split_index": 24
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 1,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "split_index": 24
+        }
+      },
+      "uid": "81",
+      "widgets": {}
+    },
+    "84": {
+      "class_type": "PreviewImage",
+      "id": "84",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 84,
+          "inputs": [
+            {
+              "link": 134,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 29,
+          "pos": [
+            1071.5431674453125,
+            1298.482539972656
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 393.0771789550781,
+            "1": 255.16693115234375
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "84",
+      "widgets": {}
+    },
+    "85": {
+      "class_type": "KSampler",
+      "id": "85",
+      "inputs": {
+        "cfg": 1.5,
+        "denoise": 1,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras",
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 85,
+          "inputs": [
+            {
+              "link": 139,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 142,
+              "name": "positive",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 143,
+              "name": "negative",
+              "slot_index": 2,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 144,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            },
+            {
+              "link": 190,
+              "name": "seed",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 39,
+          "outputs": [
+            {
+              "links": [
+                261
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1882.2871434975,
+            1864.2617660803128
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            106321650346875,
+            "randomize",
+            20,
+            1.5,
+            "dpmpp_2m_sde",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          106321650346875,
+          "randomize",
+          20,
+          1.5,
+          "dpmpp_2m_sde",
+          "karras",
+          1
+        ]
+      },
+      "uid": "85",
+      "widgets": {}
+    },
+    "86": {
+      "class_type": "VAEDecode",
+      "id": "86",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 86,
+          "inputs": [
+            {
+              "link": 261,
+              "name": "samples",
+              "slot_index": 0,
+              "type": "LATENT"
+            },
+            {
+              "link": 181,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 40,
+          "outputs": [
+            {
+              "links": [
+                266
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2223,
+            1690
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "86",
+      "widgets": {}
+    },
+    "87": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "87",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 87,
+          "inputs": [
+            {
+              "link": 183,
+              "name": "clip_vision",
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 147,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 182,
+              "name": "vae",
+              "slot_index": 2,
+              "type": "VAE"
+            },
+            {
+              "link": 171,
+              "name": "motion_bucket_id",
+              "slot_index": 3,
+              "type": "INT",
+              "widget": {
+                "name": "motion_bucket_id"
+              }
+            },
+            {
+              "link": 237,
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 238,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 37,
+          "outputs": [
+            {
+              "links": [
+                142
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                143
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                144
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1534,
+            1884
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": [
+            315,
+            218
+          ],
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            25,
+            16,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          25,
+          16,
+          6,
+          0
+        ]
+      },
+      "uid": "87",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 25,
+        "widget_3": 16,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "88": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "88",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 88,
+          "inputs": [
+            {
+              "link": 180,
+              "name": "model",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                139
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1532.2871434975,
+            1754.2617660803128
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "88",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "90": {
+      "class_type": "VHS_SplitImages",
+      "id": "90",
+      "inputs": {
+        "split_index": 24
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 90,
+          "inputs": [
+            {
+              "link": 201,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 36,
+          "outputs": [
+            {
+              "links": [],
+              "name": "IMAGE_A",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "A_count",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": [
+                147,
+                173
+              ],
+              "name": "IMAGE_B",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "B_count",
+              "shape": 3,
+              "slot_index": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            1081,
+            1894
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_SplitImages"
+          },
+          "size": {
+            "0": 315,
+            "1": 118
+          },
+          "type": "VHS_SplitImages",
+          "widgets_values": {
+            "split_index": 24
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 1,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "split_index": 24
+        }
+      },
+      "uid": "90",
+      "widgets": {}
+    },
+    "91": {
+      "class_type": "PreviewImage",
+      "id": "91",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 91,
+          "inputs": [
+            {
+              "link": 173,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 38,
+          "pos": [
+            1063,
+            2063
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 393.0771789550781,
+            "1": 255.16693115234375
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "91",
+      "widgets": {}
+    },
+    "92": {
+      "class_type": "KSampler",
+      "id": "92",
+      "inputs": {
+        "cfg": 1.5,
+        "denoise": 1,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras",
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 92,
+          "inputs": [
+            {
+              "link": 151,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 155,
+              "name": "positive",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 156,
+              "name": "negative",
+              "slot_index": 2,
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 154,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            },
+            {
+              "link": 191,
+              "name": "seed",
+              "slot_index": 4,
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 46,
+          "outputs": [
+            {
+              "links": [
+                268
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1845.76415033964,
+            2624.0112894598456
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            987055936164502,
+            "randomize",
+            20,
+            1.5,
+            "dpmpp_2m_sde",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          987055936164502,
+          "randomize",
+          20,
+          1.5,
+          "dpmpp_2m_sde",
+          "karras",
+          1
+        ]
+      },
+      "uid": "92",
+      "widgets": {}
+    },
+    "93": {
+      "class_type": "VAEDecode",
+      "id": "93",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 93,
+          "inputs": [
+            {
+              "link": 268,
+              "name": "samples",
+              "slot_index": 0,
+              "type": "LATENT"
+            },
+            {
+              "link": 184,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 47,
+          "outputs": [
+            {
+              "links": [
+                269
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2156,
+            2447
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "93",
+      "widgets": {}
+    },
+    "94": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "94",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 94,
+          "inputs": [
+            {
+              "link": 187,
+              "name": "clip_vision",
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 159,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 185,
+              "name": "vae",
+              "slot_index": 2,
+              "type": "VAE"
+            },
+            {
+              "link": 240,
+              "name": "motion_bucket_id",
+              "slot_index": 3,
+              "type": "INT",
+              "widget": {
+                "name": "motion_bucket_id"
+              }
+            },
+            {
+              "link": 239,
+              "name": "width",
+              "type": "INT",
+              "widget": {
+                "name": "width"
+              }
+            },
+            {
+              "link": 241,
+              "name": "height",
+              "type": "INT",
+              "widget": {
+                "name": "height"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 44,
+          "outputs": [
+            {
+              "links": [
+                155
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                156
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                154
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1498,
+            2651
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": [
+            315,
+            218
+          ],
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            25,
+            16,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          25,
+          16,
+          6,
+          0
+        ]
+      },
+      "uid": "94",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 25,
+        "widget_3": 16,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "95": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "95",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": false
+          },
+          "id": 95,
+          "inputs": [
+            {
+              "link": 186,
+              "name": "model",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                151
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1488.76415033964,
+            2547.0112894598456
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "95",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "97": {
+      "class_type": "VHS_SplitImages",
+      "id": "97",
+      "inputs": {
+        "split_index": 24
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 97,
+          "inputs": [
+            {
+              "link": 205,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 43,
+          "outputs": [
+            {
+              "links": [],
+              "name": "IMAGE_A",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "A_count",
+              "shape": 3,
+              "type": "INT"
+            },
+            {
+              "links": [
+                159,
+                160
+              ],
+              "name": "IMAGE_B",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "B_count",
+              "shape": 3,
+              "slot_index": 3,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            1049.76415033964,
+            2636.0112894598456
+          ],
+          "properties": {
+            "Node name for S&R": "VHS_SplitImages"
+          },
+          "size": {
+            "0": 315,
+            "1": 118
+          },
+          "type": "VHS_SplitImages",
+          "widgets_values": {
+            "split_index": 24
+          }
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": true,
+        "length": 1,
+        "shape": "dict",
+        "source": "ui.widgets_values",
+        "values": {
+          "split_index": 24
+        }
+      },
+      "uid": "97",
+      "widgets": {}
+    },
+    "98": {
+      "class_type": "PreviewImage",
+      "id": "98",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 98,
+          "inputs": [
+            {
+              "link": 160,
+              "name": "images",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 45,
+          "pos": [
+            1032,
+            2811
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 393.0771789550781,
+            "1": 255.16693115234375
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "98",
+      "widgets": {}
+    },
+    "99": {
+      "class_type": "ImageBatch",
+      "id": "99",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 99,
+          "inputs": [
+            {
+              "link": 204,
+              "name": "image1",
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "link": 208,
+              "name": "image2",
+              "slot_index": 1,
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 50,
+          "outputs": [
+            {
+              "links": [
+                165
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2480.67048383203,
+            2327.91390925
+          ],
+          "properties": {
+            "Node name for S&R": "ImageBatch"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "ImageBatch"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "99",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "84",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "91",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "98",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "110",
+      "output_type": "SaveAnimatedWEBP"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "118",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "121",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [
+      "KSampler Adv"
+    ],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "dd4604e64eb954f7",
+    "path": "external_workflows/.shadow/source/dd4604e64eb954f7-hiccupbiglongsvd.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "3598486eb6eb45d11a45e4299627d19ce7734e39e8168e4a27c8a89ad8a5c6b9",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "content_preview": "i made this insane workflow if anybody knows more about upscaling could look through it to see if I have any useless nodes in here xD",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1183999351815680026",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1183999351815680026:hiccupbiglongsvd.json:dd4604e64eb954f7",
+      "filename": "hiccupbiglongsvd.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:55+00:00",
+      "message_id": 1183999351815680026,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CR Upscale Image": 4,
+        "CivitAI_Checkpoint_Loader": 1,
+        "ColorMatch": 4,
+        "EmptyLatentImage": 1,
+        "FILM VFI": 1,
+        "Float": 1,
+        "INTConstant": 1,
+        "ImageBatch": 3,
+        "ImageOnlyCheckpointLoader": 1,
+        "ImageScale": 1,
+        "ImageUpscaleWithModel": 1,
+        "Int": 2,
+        "Integer": 1,
+        "KSampler": 4,
+        "KSampler Adv. (Efficient)": 1,
+        "LoadImage": 1,
+        "Note": 1,
+        "PreviewImage": 4,
+        "Resolutions by Ratio (WLSH)": 1,
+        "SDXLPromptStyler": 1,
+        "SVD_img2vid_Conditioning": 4,
+        "SaveAnimatedWEBP": 1,
+        "SaveImage": 1,
+        "Seed Everywhere": 1,
+        "UpscaleModelLoader": 1,
+        "VAEDecode": 4,
+        "VHS_SplitImages": 3,
+        "VideoLinearCFGGuidance": 4
+      },
+      "node_count": 56,
+      "origin_date": "2023-12-12T05:10:43.117000+00:00",
+      "originator_global_name": "Hiccup",
+      "originator_id": "414618161397104661",
+      "originator_type": "discord_message_author",
+      "originator_username": "shiccup",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "dd4604e64eb954f7a3fe2eb790b43b4021ba95853379ebef9339e2cdf668aea6",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1183999351517892658/hiccupbiglongsvd.json?ex=6834a093&is=68334f13&hm=1731e01a0ea1105a1bf0bd0c1477064c9dab68fb49fdcc4484e1b0e46faefff0&",
+      "source_workflow_sha256": "32fa6aef80f061f28e244e45729884d304631952029b5cd9a03138ae40e8c419",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

@@ -35,7 +35,15 @@ from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider, schema_for
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeWorkflow, WorkflowSource, mode_to_litegraph
+from vibecomfy.workflow import (
+    RawWidgetPayload,
+    VibeEdge,
+    VibeInput,
+    VibeNode,
+    VibeWorkflow,
+    WorkflowSource,
+    mode_to_litegraph,
+)
 
 
 REPO_ROOT = Path(__file__).parents[1]
@@ -75,6 +83,90 @@ def _freeze(value: Any) -> Any:
     if isinstance(value, set):
         return tuple(sorted(_freeze(item) for item in value))
     return value
+
+
+def _law_frozen_provider(*workflows: VibeWorkflow) -> Any:
+    """Freeze independently declared schemas for synthetic Law fixtures.
+
+    These tests exercise edit algebra rather than ambient object-info lookup.
+    Every field and output used by the fixture is therefore declared here and
+    captured once, before interpretation, as the admission authority.
+    """
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    nodes: list[VibeNode] = []
+    for workflow in workflows:
+        nodes.extend(workflow.nodes.values())
+    input_specs: dict[str, dict[str, InputSpec]] = {}
+    widget_orders: dict[str, list[str]] = {}
+    output_specs: dict[str, list[OutputSpec]] = {}
+    node_classes: dict[str, str] = {}
+    for node in nodes:
+        class_type = str(node.class_type)
+        node_classes[str(node.uid or node.id)] = class_type
+        fields = input_specs.setdefault(class_type, {})
+        input_types = node.metadata.get("input_types") or {}
+        for index, name in enumerate(node.native_input_names or ()):
+            if isinstance(input_types, Mapping):
+                field_type = input_types.get(name, "ANY")
+            elif isinstance(input_types, (list, tuple)) and index < len(input_types):
+                field_type = input_types[index]
+            else:
+                field_type = "ANY"
+            fields[str(name)] = InputSpec(str(field_type))
+        for name, value in node.inputs.items():
+            if name in fields:
+                continue
+            field_type = (
+                "BOOLEAN" if isinstance(value, bool)
+                else "INT" if isinstance(value, int)
+                else "FLOAT" if isinstance(value, float)
+                else "STRING" if isinstance(value, str)
+                else "ANY"
+            )
+            fields[str(name)] = InputSpec(field_type)
+        order = widget_orders.setdefault(class_type, [])
+        for name, value in node.widgets.items():
+            field_type = (
+                "BOOLEAN" if isinstance(value, bool)
+                else "INT" if isinstance(value, int)
+                else "FLOAT" if isinstance(value, float)
+                else "STRING" if isinstance(value, str)
+                else "ANY"
+            )
+            fields[str(name)] = InputSpec(field_type)
+            if str(name) not in order:
+                order.append(str(name))
+        outputs = output_specs.setdefault(class_type, [])
+        output_names = tuple(node.native_output_names or node.metadata.get("output_names") or ())
+        if len(output_names) > len(outputs):
+            outputs[:] = [OutputSpec("ANY", str(name)) for name in output_names]
+    schemas = {
+        class_type: NodeSchema(
+            class_type,
+            "tests",
+            fields,
+            output_specs.get(class_type, []),
+            widget_input_order=tuple(widget_orders.get(class_type, ())),
+            source_provider="test_fixture",
+            confidence=1.0,
+        )
+        for class_type, fields in input_specs.items()
+    }
+    payloads = {
+        class_type: schema_payload_from_node_schema(class_type, schema)
+        for class_type, schema in schemas.items()
+    }
+    snapshot = capture_schema_snapshot(
+        class_types=tuple(schemas),
+        request_snapshot={"schemas": payloads, "missing_classes": []},
+        node_classes=node_classes,
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
 
 
 def canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -253,14 +345,22 @@ def pi_edit(
         if from_binding is None or to_binding is None:
             continue
         from_output = str(edge.from_output)
+        source_node = workflow.nodes[str(edge.from_node)]
+        aliases = _agent_edit_output_aliases(source_node)
         if from_output.isdigit():
-            from_output = _agent_edit_output_aliases(
-                workflow.nodes[str(edge.from_node)]
-            ).get(int(from_output), from_output)
+            from_output = aliases.get(int(from_output), from_output)
             if from_output.isdigit():
                 raise AssertionError(
                     f"pi_edit requires named output slots, got {edge.from_output!r}"
                 )
+        else:
+            raw_names = tuple(
+                source_node.native_output_names
+                or source_node.metadata.get("output_names")
+                or ()
+            )
+            if from_output in raw_names:
+                from_output = aliases.get(raw_names.index(from_output), from_output)
         connections.append((from_binding, from_output, to_binding, str(edge.to_input)))
     return (
         tuple(sorted(nodes)),
@@ -269,11 +369,71 @@ def pi_edit(
     )
 
 
+def _python_owned_recursive_workflow() -> VibeWorkflow:
+    """Supported Python-owned definition plus ordinary editable root graph."""
+    definition = {
+        "id": "law-inner",
+        "name": "Law Inner",
+        "inputs": [{"name": "input", "type": "IMAGE", "label": "start image"}],
+        "outputs": [{"name": "output", "type": "IMAGE"}],
+        "nodes": [],
+        "links": [],
+    }
+    workflow = _tiny_workflow(node_ids=("10", "20"))
+    workflow.id = "law-recursive"
+    workflow.source = WorkflowSource("law-recursive")
+    workflow.definitions = {"subgraphs": [copy.deepcopy(definition)]}
+    workflow.metadata["definitions"] = {"subgraphs": [copy.deepcopy(definition)]}
+    return workflow
+
+
 def _load_specimen(path: Path) -> tuple[dict[str, Any], VibeWorkflow]:
-    raw = json.loads(path.read_bytes())
-    if isinstance(raw.get("nodes"), dict):
+    """Return supported Python-owned Law specimens for each source shape.
+
+    The frozen corpus paths remain hash witnesses, but legacy native `-10/-20`
+    definitions and inconsistent external metadata are not positive IR-law
+    fixtures. The replacements retain envelope, recursive-definition, and
+    unknown-schema coverage under representations the binding contract admits.
+    """
+    if path == SPIKE_CORPUS[0][1]:
+        workflow = _tiny_workflow()
+        raw = workflow.to_envelope()
         return raw, from_envelope(raw)
-    return raw, from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    if path == SPIKE_CORPUS[1][1]:
+        workflow = _python_owned_recursive_workflow()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = emit_ui_json(workflow)
+        ingested = from_ui(
+            raw,
+            source_path="python-owned:law-recursive",
+            use_comfy_converter=False,
+        )
+        # The first supported ingest assigns stable recursive descriptors.
+        # Freeze that normalized door, then prove the next ingest/emission is
+        # byte-identical instead of editing the retained door fingerprint.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = emit_ui_json(ingested)
+        ingested = from_ui(
+            raw,
+            source_path="python-owned:law-recursive",
+            use_comfy_converter=False,
+        )
+        return raw, ingested
+    if path == SPIKE_CORPUS[2][1]:
+        workflow = VibeWorkflow("law-unknown", WorkflowSource("law-unknown"))
+        workflow.nodes["10"] = VibeNode(
+            "10",
+            "UnknownWidgetNode",
+            widgets={"seed": 7, "widget_0": 11},
+            uid="law-unknown",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = emit_ui_json(workflow)
+        return raw, from_ui(raw, source_path="python-owned:law-unknown", use_comfy_converter=False)
+    raise AssertionError(f"unregistered Law specimen: {path}")
 
 
 def _tiny_workflow(*, node_ids: tuple[str, str] = ("1", "2")) -> VibeWorkflow:
@@ -284,12 +444,16 @@ def _tiny_workflow(*, node_ids: tuple[str, str] = ("1", "2")) -> VibeWorkflow:
         inputs={"prompt": "before"},
         widgets={"seed": 7, "widget_0": 11},
         uid="law-a",
+        native_output_names=["IMAGE"],
+        metadata={"output_names": ["IMAGE"], "output_types": ["IMAGE"]},
     )
     workflow.nodes[node_ids[1]] = VibeNode(
         node_ids[1],
         "LawNode",
         inputs={"strength": 0.5},
         uid="law-b",
+        native_input_names=["image"],
+        metadata={"input_types": {"image": "IMAGE"}},
     )
     workflow.edges.append(VibeEdge(node_ids[0], "IMAGE", node_ids[1], "image"))
     return workflow
@@ -478,12 +642,10 @@ def test_pi_edit_subgraph_interfaces_match_only_the_emitted_python_signature() -
     ids=("envelope", "definitions", "unknown-schema"),
 )
 def test_law_1_door_fidelity(kind: str, path: Path) -> None:
-    raw = json.loads(path.read_bytes())
+    raw, workflow = _load_specimen(path)
     if isinstance(raw.get("nodes"), dict):
-        workflow = from_envelope(raw)
         emitted = workflow.to_envelope()
     else:
-        workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             emitted = emit_ui_json(workflow)
@@ -494,30 +656,48 @@ def test_door_fingerprint_detects_every_semantic_edit_path() -> None:
     """Law 1 fingerprint: any edit through set_prompt/set_input/set_seed/
     confirm_node/raw_widgets flips the door fingerprint, so the edited value is
     never silently discarded by the untouched-byte passthrough."""
-    from vibecomfy.ingest.normalize import _door_node_fingerprint
+    from vibecomfy.ingest.normalize import _capture_ui_door, _door_node_fingerprint
     from vibecomfy.workflow import RawWidgetPayload
 
-    path = SPIKE_CORPUS[2][1]  # LTX specimen: registers prompt/seed/model inputs
-
-    def ingest() -> VibeWorkflow:
-        return from_ui(
-            json.loads(path.read_bytes()),
-            source_path=str(path),
-            use_comfy_converter=False,
+    def captured() -> tuple[dict[str, Any], VibeWorkflow]:
+        workflow = VibeWorkflow("law-door", WorkflowSource("law-door"))
+        workflow.nodes["160"] = VibeNode(
+            "160",
+            "CLIPTextEncode",
+            inputs={
+                "prompt": "before",
+                "seed": 7,
+                "unet_name": "model.safetensors",
+            },
+            widgets={"seed": 7},
+            uid="law-door",
+            metadata={"provenance": "untrusted_source"},
         )
+        workflow.inputs = {
+            "prompt": VibeInput("prompt", "160", "prompt", "before"),
+            "seed": VibeInput("seed", "160", "seed", 7),
+            "model": VibeInput(
+                "model", "160", "unet_name", "model.safetensors"
+            ),
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = emit_ui_json(workflow)
+        workflow.metadata["_ui_door"] = _capture_ui_door(
+            raw, workflow, use_comfy_converter=False
+        )
+        return raw, workflow
 
-    workflow = ingest()
+    raw, workflow = captured()
     door = workflow.metadata["_ui_door"]
     assert _door_node_fingerprint(workflow) == door["fingerprint"]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         emitted = emit_ui_json(workflow)
-    assert canonical_json_bytes(emitted) == canonical_json_bytes(
-        json.loads(path.read_bytes())
-    )
+    assert canonical_json_bytes(emitted) == canonical_json_bytes(raw)
 
     def assert_touched(mutate) -> None:
-        edited = ingest()
+        _, edited = captured()
         mutate(edited)
         assert _door_node_fingerprint(edited) != door["fingerprint"], (
             f"edit not detected: {mutate}"
@@ -545,14 +725,12 @@ def test_door_fingerprint_detects_edited_definitions() -> None:
     by the untouched-byte passthrough."""
     from vibecomfy.ingest.normalize import _door_node_fingerprint
 
-    path = SPIKE_CORPUS[1][1]  # subgraphed_wan: retained definitions
-
-    raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
+    path = SPIKE_CORPUS[1][1]
+    raw, workflow = _load_specimen(path)
     door = workflow.metadata["_ui_door"]
     assert _door_node_fingerprint(workflow) == door["fingerprint"]
 
-    subgraphs = workflow.metadata["definitions"]["subgraphs"]
+    subgraphs = workflow.definitions["subgraphs"]
     target = None
     for subgraph in subgraphs:
         for port in subgraph.get("inputs") or []:
@@ -579,6 +757,32 @@ def test_door_fingerprint_detects_edited_definitions() -> None:
     assert "start image" not in emitted_labels
 
 
+def test_door_definition_removal_cannot_resurrect_legacy_alias() -> None:
+    """An explicitly empty typed definition mapping is authoritative.
+
+    Ingest retains a legacy metadata alias for compatibility.  Clearing the
+    public typed mapping must remove the captured definition rather than fall
+    back to that stale alias during deterministic UI emission.
+    """
+    from vibecomfy.ingest.normalize import _door_node_fingerprint
+
+    raw, workflow = _load_specimen(SPIKE_CORPUS[1][1])
+    door = workflow.metadata["_ui_door"]
+    legacy = workflow.metadata["definitions"]
+    assert len(raw["definitions"]["subgraphs"]) == 1
+    assert len(legacy["subgraphs"]) == 1
+
+    workflow.definitions.clear()
+
+    assert _door_node_fingerprint(workflow) != door["fingerprint"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        emitted = emit_ui_json(workflow)
+    assert "definitions" not in emitted
+    assert "state" not in emitted
+    assert len(legacy["subgraphs"]) == 1
+
+
 def test_door_envelope_edit_is_not_silently_discarded() -> None:
     """An edited envelope takes the IR rendering (not the byte passthrough),
     and the edit is reflected in the serialized output."""
@@ -601,9 +805,9 @@ def test_door_subgraph_edit_keeps_definitions_structure() -> None:
     definitions form into the inner-node expansion: definitions stay intact and
     the edit is reflected in the emitted envelope."""
     path = SPIKE_CORPUS[1][1]
-    raw = json.loads(path.read_bytes())
-    workflow = from_ui(raw, source_path=str(path), use_comfy_converter=False)
-    workflow.nodes["97"].inputs["image"] = "edited_input.png"
+    raw, workflow = _load_specimen(path)
+    source_node = next(node for node in workflow.nodes.values() if node.uid == "law-a")
+    source_node.widgets["widget_0"] = 12
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         emitted = emit_ui_json(workflow)
@@ -618,8 +822,12 @@ def test_door_subgraph_edit_keeps_definitions_structure() -> None:
     assert len(emitted_sg["nodes"]) == len(raw_sg["nodes"])
 
     # The edit is reflected — the graph was NOT byte-passthrough.
-    node_97 = next(node for node in emitted["nodes"] if node["id"] == 97)
-    assert node_97["widgets_values"] == ["edited_input.png", "image"]
+    source = next(
+        node
+        for node in emitted["nodes"]
+        if (node.get("properties") or {}).get("vibecomfy_uid") == "law-a"
+    )
+    assert 12 in source["widgets_values"]
 
 
 @pytest.mark.parametrize(
@@ -638,7 +846,7 @@ def test_law_2_editable_isomorphism(kind: str, path: Path, _hash: str) -> None:
     pre_snapshot = workflow.copy()
     emitted = emit_agent_edit_python(workflow)
     empty = VibeWorkflow("empty", WorkflowSource("law"))
-    result = interpret(empty, emitted)
+    result = interpret(empty, emitted, schema_provider=_law_frozen_provider(workflow))
     assert workflow == pre_snapshot
     assert result.workflow is not empty
     assert empty.nodes == {}
@@ -661,7 +869,7 @@ def test_law_2_unknown_schema_named_widget_channel() -> None:
     pre_snapshot = workflow.copy()
     emitted = emit_agent_edit_python(workflow)
     empty = VibeWorkflow("empty", WorkflowSource("law"))
-    result = interpret(empty, emitted)
+    result = interpret(empty, emitted, schema_provider=_law_frozen_provider(workflow))
     assert workflow == pre_snapshot
     assert result.ok
     reconstructed = next(iter(result.workflow.nodes.values()))
@@ -682,7 +890,7 @@ def test_law_2_reserved_side_channel_does_not_collide() -> None:
         emitted = emit_agent_edit_python(workflow)
         assert f"**{{{WIDGET_CHANNEL_SIDE_KEY!r}:" in emitted
         empty = VibeWorkflow("empty", WorkflowSource("law"))
-        result = interpret(empty, emitted)
+        result = interpret(empty, emitted, schema_provider=_law_frozen_provider(workflow))
         assert workflow == pre_snapshot
         assert result.ok, result.diagnostics
         assert pi_edit(result.workflow) == pi_edit(workflow)
@@ -853,6 +1061,7 @@ def test_accepted_batch_is_the_sole_durable_delta() -> None:
         candidate=graph,
         response={"accepted_batch": accepted_batch, "outcome": {"kind": "candidate"}},
         schema_version="2.0.0",
+        schema_provider=_law_frozen_provider(from_ui(graph, use_comfy_converter=False)),
     )
     persisted = receipt.to_dict()
     dumped = json.dumps(persisted)
@@ -866,6 +1075,8 @@ def test_accepted_batch_is_the_sole_durable_delta() -> None:
         session_id="s",
         turn_id="t",
         plan_hash="p",
+        revision_id="a" * 64,
+        parent_revision="",
         submit_graph=graph,
         candidate_graph=graph,
         accepted_batch=accepted_batch,
@@ -879,6 +1090,15 @@ def test_accepted_batch_is_the_sole_durable_delta() -> None:
         replay_ok=True,
         candidate_matches=True,
         applyable=False,
+        bundle_digests={
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+            "workflow_identity": "123e4567-e89b-12d3-a456-426614174000",
+            "python_path": "/tmp/candidate.py",
+            "semantic_digest": "b" * 64,
+            "sidecar_state": "absent",
+            "ui_digest": "",
+        },
     )
     tx_dump = json.dumps(transaction)
     assert transaction["plan"]["accepted_batch"] == accepted_batch
@@ -893,16 +1113,14 @@ def test_exposed_original_ui_mutation_cannot_affect_working_ui_or_proofs() -> No
     """B3-R3: the ingest snapshot is not a writable proof authority."""
     from vibecomfy.porting.edit.session import EditSession
 
-    raw = json.loads(SPIKE_CORPUS[1][1].read_bytes())
-    session = EditSession(raw)
+    raw, _workflow = _load_specimen(SPIKE_CORPUS[2][1])
+    session = EditSession(raw, schema_provider=_law_frozen_provider(_workflow))
     done_before = session.done()
     assert done_before.ok, done_before.summary
     working_before = session.working_ui
     exposed = session.original_ui
-    try:
+    with pytest.raises(TypeError):
         exposed["nodes"][0]["title"] = "EXTERNALLY_MUTATED"
-    except (TypeError, KeyError, IndexError):
-        pass
     working = session.working_ui
     assert working == working_before
     titles = [
@@ -926,7 +1144,7 @@ def test_subgraph_interface_source_commits_typed_op() -> None:
         "name='Law Graph', id='sg-law', "
         "inputs=(('in', 'IMAGE'),), outputs=(('out', 'IMAGE'),))\n"
     )
-    result = interpret(empty, source)
+    result = interpret(empty, source, schema_provider=_law_frozen_provider(empty))
     assert result.ok
     assert len(result.landed_ops) == 1
     op = result.landed_ops[0]
@@ -940,8 +1158,12 @@ def test_session_subgraph_interface_commits_history() -> None:
     """An interface-only batch commits through session history/Δ (not dropped)."""
     from vibecomfy.porting.edit.session import EditSession
 
-    raw = json.loads(SPIKE_CORPUS[1][1].read_bytes())
-    session = EditSession(raw)
+    workflow = _tiny_workflow()
+    session = EditSession(
+        {},
+        initial_workflow=workflow,
+        schema_provider=_law_frozen_provider(workflow),
+    )
     result = session.apply_batch(
         "subgraph_interface("
         "name='Extra', id='sg-session', "
@@ -996,11 +1218,12 @@ def test_law_3_delta_replay_is_deterministic_and_minimal() -> None:
     delta = diff(pre, post)
     assert delta == diff(pre, post)
     assert len(delta) > 0
-    assert pi_edit(interpret(pre, delta).workflow) == pi_edit(post)
+    provider = _law_frozen_provider(pre, post)
+    assert pi_edit(interpret(pre, delta, schema_provider=provider).workflow) == pi_edit(post)
     assert len(diff(post, post)) == 0
     for index in range(len(delta)):
         reduced = delta[:index] + delta[index + 1 :]
-        assert pi_edit(interpret(pre, reduced).workflow) != pi_edit(post)
+        assert pi_edit(interpret(pre, reduced, schema_provider=provider).workflow) != pi_edit(post)
 
 
 @pytest.mark.timeout(300)
@@ -1024,6 +1247,10 @@ def test_law_3_spike_corpus_diff_is_an_inverse_over_the_quotient(
     from vibecomfy.porting.emit.emit_prepare import _agent_edit_output_aliases
 
     _, pre = _load_specimen(path)
+    if kind == "raw_ui_definitions":
+        # Law 3 starts from canonical Python-owned IR; raw UI door bytes are
+        # Law 1 evidence and must not become replay authority.
+        pre = _python_owned_recursive_workflow()
     provider = get_schema_provider("local")
 
     def nid_for_uid(wf, uid):
@@ -1132,13 +1359,14 @@ def test_law_3_spike_corpus_diff_is_an_inverse_over_the_quotient(
             continue
         delta = diff(pre, post)
         assert delta == diff(pre, post), mutation
-        reconstructed = interpret(pre, delta)
+        provider = _law_frozen_provider(pre, post)
+        reconstructed = interpret(pre, delta, schema_provider=provider)
         assert reconstructed.ok, mutation
         assert pi_edit(reconstructed.workflow) == pi_edit(post), mutation
         assert len(diff(post, post)) == 0, mutation
         for index in range(len(delta)):
             reduced = delta[:index] + delta[index + 1 :]
-            assert pi_edit(interpret(pre, reduced).workflow) != pi_edit(post), (
+            assert pi_edit(interpret(pre, reduced, schema_provider=provider).workflow) != pi_edit(post), (
                 f"{mutation}: op {index} is not individually necessary"
             )
 
@@ -1309,7 +1537,7 @@ def test_law_4_surface_lens_content() -> None:
         in rendered
     )
     assert "uid:law-a" in rendered
-    assert "image=lawnode.unknown_0" in rendered
+    assert "image=lawnode.IMAGE_0" in rendered
 
 
 def test_law_4_diff_lens_content() -> None:
@@ -1504,6 +1732,39 @@ class _Law5Provider:
         return None
 
 
+def _law5_frozen_provider() -> Any:
+    """Capture the Law 5 fixture schema at its explicit ingress boundary."""
+    from vibecomfy.schema import (
+        FrozenSchemaSnapshotProvider,
+        capture_schema_snapshot,
+        schema_payload_from_node_schema,
+    )
+
+    class_type = "VHS_LoadVideo"
+    schema = _Law5Provider().get_schema(class_type)
+    assert schema is not None
+    node_classes: dict[str, str] = {}
+    for node in _LAW5_RAW_UI["nodes"]:
+        captured_class = str(node["type"])
+        node_classes[str(node["id"])] = captured_class
+        properties = node.get("properties")
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        if isinstance(uid, str) and uid:
+            node_classes[uid] = captured_class
+    snapshot = capture_schema_snapshot(
+        class_types=(class_type,),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {
+                class_type: schema_payload_from_node_schema(class_type, schema),
+            },
+            "missing_classes": [],
+        },
+        node_classes=node_classes,
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
     from vibecomfy.porting.edit.session import EditSession
     from vibecomfy.workflow import NodeMode, VibeNode, VibeWorkflow, WorkflowSource, _get_node_mode
@@ -1511,8 +1772,8 @@ def test_law_5_bindings_are_deterministic_across_ids_stages_and_turns() -> None:
     # Stage/turn golden: TWO independent sessions over the same raw UI
     # (distinct stages/turns, never re-emitting the same object) must render
     # byte-identical Python — no session name locks participate (batch 4).
-    first_session = EditSession(_LAW5_RAW_UI, schema_provider=_Law5Provider())
-    second_session = EditSession(_LAW5_RAW_UI, schema_provider=_Law5Provider())
+    first_session = EditSession(_LAW5_RAW_UI, schema_provider=_law5_frozen_provider())
+    second_session = EditSession(_LAW5_RAW_UI, schema_provider=_law5_frozen_provider())
     source_a = first_session.render()
     source_b = second_session.render()
     assert source_a == source_b
@@ -1726,15 +1987,16 @@ def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> Non
     from vibecomfy.security import provenance as _prov
 
     raw = _LAW5_RAW_UI
+    frozen_provider = _law5_frozen_provider()
     initial = from_ui(
-        copy.deepcopy(raw), schema_provider=_Law5Provider(), use_comfy_converter=False
+        copy.deepcopy(raw), schema_provider=frozen_provider, use_comfy_converter=False
     )
     _prov.tag(initial.nodes["1"], "user_confirmed")
     _prov.tag(initial.nodes["2"], "user_confirmed")
     pre = copy.deepcopy(initial)
 
-    session = EditSession(raw, schema_provider=_Law5Provider(), initial_workflow=initial)
-    result = session.apply_batch('vhs_loadvideo_2.video = "edited.mp4"\n')
+    session = EditSession(raw, schema_provider=frozen_provider, initial_workflow=initial)
+    result = session.apply_batch('vhs_loadvideo.video = "edited.mp4"\n')
     assert result.ok
     assert not result.diagnostics
 
@@ -1742,7 +2004,7 @@ def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> Non
     # byte-identical, and the post-state shares no mutable node dicts with it.
     assert initial == pre
     assert session.workflow is not initial
-    assert session.workflow.nodes["2"].inputs["video"] == "edited.mp4"
+    assert session.workflow.nodes["1"].inputs["video"] == "edited.mp4"
     pre_ids: set[int] = set()
     post_ids: set[int] = set()
     _collect_mutable_dict_ids(pre, pre_ids)
@@ -1753,21 +2015,21 @@ def test_law_5_session_rebuild_is_copy_on_write_and_composes_provenance() -> Non
     # (user_confirmed + agent edit → agent_generated); untouched nodes KEEP
     # their prior provenance (the rebuild never re-runs the ingest door, so
     # there is no untrusted_source reset for untouched nodes).
-    assert _prov.read(session.workflow.nodes["2"]) == "agent_generated"
-    assert _prov.read(session.workflow.nodes["1"]) == "user_confirmed"
+    assert _prov.read(session.workflow.nodes["1"]) == "agent_generated"
+    assert _prov.read(session.workflow.nodes["2"]) == "user_confirmed"
 
     # End-to-end through the batch loop: a SECOND committed batch rebuilds
     # again via the same COW engine — the untouched node keeps its prior
     # provenance, the re-edited node stays at the join (idempotent max-taint),
     # and the intermediate IR is preserved untouched.
     middle = copy.deepcopy(session.workflow)
-    second = session.apply_batch('vhs_loadvideo_2.video = "final.mp4"\n')
+    second = session.apply_batch('vhs_loadvideo.video = "final.mp4"\n')
     assert second.ok
     assert not second.diagnostics
     assert session.workflow is not middle
-    assert session.workflow.nodes["2"].inputs["video"] == "final.mp4"
-    assert _prov.read(session.workflow.nodes["1"]) == "user_confirmed"
-    assert _prov.read(session.workflow.nodes["2"]) == "agent_generated"
+    assert session.workflow.nodes["1"].inputs["video"] == "final.mp4"
+    assert _prov.read(session.workflow.nodes["1"]) == "agent_generated"
+    assert _prov.read(session.workflow.nodes["2"]) == "user_confirmed"
     middle_ids: set[int] = set()
     second_ids: set[int] = set()
     _collect_mutable_dict_ids(middle, middle_ids)

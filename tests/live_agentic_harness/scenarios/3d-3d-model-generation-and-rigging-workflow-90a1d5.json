@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-model-generation-and-rigging-workflow-90a1d5",
   "query": "Set the text-to-3D generation node's geometry quality to 'detailed' so the model captures more surface features like wrinkles and folds, and leave its face-limit and quad settings exactly as they are so the polygon count does not grow.",
-  "workflow_path": "external_workflows/corpus/90a1d5ff9044902e.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/90a1d5ff9044902e.json",
   "network": true,
   "timeout": 360,
   "apply": true,

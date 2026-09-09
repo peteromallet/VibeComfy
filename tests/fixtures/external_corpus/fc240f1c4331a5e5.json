@@ -1,0 +1,1236 @@
+{
+  "edges": [
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "14"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "12"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "init_image",
+      "to_node": "12"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "12"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "video",
+      "to_node": "26"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "25"
+    }
+  ],
+  "groups": [],
+  "id": "2856625e4990a7f6",
+  "inputs": {
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 237514639057514
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "12": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "23",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "14"
+          ],
+          [
+            "widget_3",
+            "127"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "ImageOnlyCheckpointLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "12",
+              "clip_vision"
+            ]
+          ],
+          [
+            "2",
+            [
+              "12",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'svd.safetensors'"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "init_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'image_to_video_input_image.png'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "24": {
+        "class_type": "MarkdownNote",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "unused_widget_0",
+            "'\ud83d\udec8 [Learn more about this workflow](https://comfyanonymous.github.io/ComfyUI_examples/video/#image-to-video)\\n\\n\\n## Model link\\n\\n**checkpoints**\\n\\n- [svd.safetensors](https://huggingface.co/stabilityai/stable-video-diffusion-img2vid/resolve/main/svd.safetensors?download=true)\\n\\n\\nModel Storage Location\\n\\n```\\n\ud83d\udcc2 ComfyUI/\\n\u251c\u2500\u2500 \ud83d\udcc2 models/\\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\\n\u2502          \u2514\u2500\u2500 svd.safetensors\\n```\\n'"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "CreateVideo",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "26",
+              "video"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "fps",
+            "10"
+          ]
+        ]
+      },
+      "26": {
+        "class_type": "SaveVideo",
+        "incoming_edge_sig": [
+          [
+            "video",
+            [
+              "25",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "codec",
+            "'auto'"
+          ],
+          [
+            "filename_prefix",
+            "'video/ComfyUI'"
+          ],
+          [
+            "format",
+            "'auto'"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "12",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "12",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "2.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "237514639057514"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "25",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "fc240f1c4331a5e528398789abb9fc63a531f83e43416ef450b3c0f3893ed8d6",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "More creative templates (#424)\n\nCo-authored-by: GitHub Action <action@github.com>\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+      "commit_sha": "ea8d2af7ff18c8e42fbb9b60ecfec58a755d68b2",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/ea8d2af7ff18c8e42fbb9b60ecfec58a755d68b2",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/image_to_video.json:image_to_video.json:2856625e4990a7f6",
+      "filename": "image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "CreateVideo": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "MarkdownNote": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveVideo": 1,
+        "VAEDecode": 1,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 9,
+      "origin_date": "2025-12-15T15:07:22Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "2856625e4990a7f6f0eb3f4fe0397e735fd3674604457a1985c35a293054e789",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/image_to_video.json",
+      "source_workflow_sha256": "ac45b815a8bc380795abcd48f510cb13621fdb46cc09b33bb7a3319ee59c52e5",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "cbe2baefc7cfdc2d972a486ba5de37f033a9f9e005f7e82d17bf114076df1c78",
+      "complexity": 2,
+      "description": "Loads an image and uses SVD img2vid conditioning to generate a video with linear CFG guidance, then decodes and saves the video.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "video",
+      "tags": [
+        "image-to-video",
+        "svd",
+        "video-generation",
+        "stable-video-diffusion",
+        "video-linear-cfg"
+      ],
+      "task_type": "image_to_image",
+      "title": "SVD Image-to-Video Generation"
+    }
+  },
+  "nodes": {
+    "12": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 41,
+              "name": "init_image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 25,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "positive",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                17
+              ],
+              "name": "negative",
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                18
+              ],
+              "name": "latent",
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            450,
+            190
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": [
+            315,
+            218
+          ],
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            14,
+            127,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          14,
+          127,
+          6,
+          0
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 14,
+        "widget_3": 127,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "14": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 23,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                39
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            450,
+            760
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": [
+            315,
+            58
+          ],
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": 1
+      }
+    },
+    "15": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "inputs": [],
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                24
+              ],
+              "name": "CLIP_VISION",
+              "slot_index": 1,
+              "type": "CLIP_VISION"
+            },
+            {
+              "links": [
+                25,
+                26
+              ],
+              "name": "VAE",
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            50,
+            230
+          ],
+          "properties": {
+            "Node name for S&R": "ImageOnlyCheckpointLoader",
+            "models": [
+              {
+                "directory": "checkpoints",
+                "name": "svd.safetensors",
+                "url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid/resolve/main/svd.safetensors?download=true"
+              }
+            ]
+          },
+          "size": [
+            369.6000061035156,
+            98
+          ],
+          "type": "ImageOnlyCheckpointLoader",
+          "widgets_values": [
+            "svd.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "svd.safetensors"
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "svd.safetensors"
+      }
+    },
+    "23": {
+      "class_type": "LoadImage",
+      "id": "23",
+      "inputs": {
+        "image": "image_to_video_input_image.png",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [],
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                41
+              ],
+              "name": "IMAGE",
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            80,
+            430
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": [
+            315,
+            314
+          ],
+          "type": "LoadImage",
+          "widgets_values": [
+            "image_to_video_input_image.png",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "image_to_video_input_image.png",
+          "image"
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "24": {
+      "class_type": "MarkdownNote",
+      "id": "24",
+      "inputs": {
+        "unused_widget_0": "\ud83d\udec8 [Learn more about this workflow](https://comfyanonymous.github.io/ComfyUI_examples/video/#image-to-video)\n\n\n## Model link\n\n**checkpoints**\n\n- [svd.safetensors](https://huggingface.co/stabilityai/stable-video-diffusion-img2vid/resolve/main/svd.safetensors?download=true)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502          \u2514\u2500\u2500 svd.safetensors\n```\n"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 24,
+          "inputs": [],
+          "mode": 0,
+          "order": 2,
+          "outputs": [],
+          "pos": [
+            -350,
+            190
+          ],
+          "properties": {},
+          "size": [
+            370,
+            220
+          ],
+          "type": "MarkdownNote",
+          "widgets_values": [
+            "\ud83d\udec8 [Learn more about this workflow](https://comfyanonymous.github.io/ComfyUI_examples/video/#image-to-video)\n\n\n## Model link\n\n**checkpoints**\n\n- [svd.safetensors](https://huggingface.co/stabilityai/stable-video-diffusion-img2vid/resolve/main/svd.safetensors?download=true)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502          \u2514\u2500\u2500 svd.safetensors\n```\n"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "\ud83d\udec8 [Learn more about this workflow](https://comfyanonymous.github.io/ComfyUI_examples/video/#image-to-video)\n\n\n## Model link\n\n**checkpoints**\n\n- [svd.safetensors](https://huggingface.co/stabilityai/stable-video-diffusion-img2vid/resolve/main/svd.safetensors?download=true)\n\n\nModel Storage Location\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u2514\u2500\u2500 \ud83d\udcc2 checkpoints/\n\u2502          \u2514\u2500\u2500 svd.safetensors\n```\n"
+        ]
+      },
+      "uid": "24",
+      "widgets": {}
+    },
+    "25": {
+      "class_type": "CreateVideo",
+      "id": "25",
+      "inputs": {
+        "fps": 10
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "inputs": [
+            {
+              "link": 42,
+              "name": "images",
+              "type": "IMAGE"
+            },
+            {
+              "link": null,
+              "name": "audio",
+              "shape": 7,
+              "type": "AUDIO"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                43
+              ],
+              "name": "VIDEO",
+              "type": "VIDEO"
+            }
+          ],
+          "pos": [
+            1110,
+            190
+          ],
+          "properties": {
+            "Node name for S&R": "CreateVideo"
+          },
+          "size": [
+            270,
+            78
+          ],
+          "type": "CreateVideo",
+          "widgets_values": [
+            10
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          10
+        ]
+      },
+      "uid": "25",
+      "widgets": {}
+    },
+    "26": {
+      "class_type": "SaveVideo",
+      "id": "26",
+      "inputs": {
+        "codec": "auto",
+        "filename_prefix": "video/ComfyUI",
+        "format": "auto"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 26,
+          "inputs": [
+            {
+              "link": 43,
+              "name": "video",
+              "type": "VIDEO"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [],
+          "pos": [
+            790,
+            310
+          ],
+          "properties": {
+            "Node name for S&R": "SaveVideo"
+          },
+          "size": [
+            590,
+            530
+          ],
+          "type": "SaveVideo",
+          "widgets_values": [
+            "video/ComfyUI",
+            "auto",
+            "auto"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "video/ComfyUI",
+          "auto",
+          "auto"
+        ]
+      },
+      "uid": "26",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 2.5,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "karras",
+        "seed": 237514639057514,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 39,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 40,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 17,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 18,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            450,
+            450
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": [
+            315,
+            262
+          ],
+          "type": "KSampler",
+          "widgets_values": [
+            237514639057514,
+            "randomize",
+            20,
+            2.5,
+            "euler",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          237514639057514,
+          "randomize",
+          20,
+          2.5,
+          "euler",
+          "karras",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 26,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                42
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            790,
+            190
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": [
+            210,
+            46
+          ],
+          "type": "VAEDecode",
+          "widgets_values": []
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 0,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": []
+      },
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "26",
+      "output_type": "SaveVideo"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [],
+    "unsupported": []
+  },
+  "source": {
+    "id": "2856625e4990a7f6",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/2856625e4990a7f6-image_to_video.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "fc240f1c4331a5e528398789abb9fc63a531f83e43416ef450b3c0f3893ed8d6",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "More creative templates (#424)\n\nCo-authored-by: GitHub Action <action@github.com>\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+      "commit_sha": "ea8d2af7ff18c8e42fbb9b60ecfec58a755d68b2",
+      "commit_url": "https://github.com/Comfy-Org/workflow_templates/commit/ea8d2af7ff18c8e42fbb9b60ecfec58a755d68b2",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:archived/image_to_video.json:image_to_video.json:2856625e4990a7f6",
+      "filename": "image_to_video.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:11+00:00",
+      "node_class_multiset": {
+        "CreateVideo": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "MarkdownNote": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveVideo": 1,
+        "VAEDecode": 1,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 9,
+      "origin_date": "2025-12-15T15:07:22Z",
+      "originator_email": "contact@comfyui-wiki.com",
+      "originator_login": "comfyui-wiki",
+      "originator_type": "github_commit_author",
+      "repo": "workflow_templates",
+      "repo_branch": "main",
+      "repo_path": "archived/image_to_video.json",
+      "source": "github",
+      "source_file_sha256": "2856625e4990a7f6f0eb3f4fe0397e735fd3674604457a1985c35a293054e789",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/archived/image_to_video.json",
+      "source_workflow_sha256": "ac45b815a8bc380795abcd48f510cb13621fdb46cc09b33bb7a3319ee59c52e5",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

@@ -32,7 +32,7 @@ READY_METADATA = ReadyMetadata.build(
     capability='video',
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_t2v_1.3B_fp16.safetensors', 'wan_2.1_vae.safetensors']},
-    provenance={'source_path': 'ready_templates/sources/official/video/wan_t2v.json', 'source_id': 'wan_t2v', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/video/wan_t2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_t2v'},
+    provenance={'source_path': 'ready_templates/sources/official/video/wan_t2v.json', 'source_id': 'video/wan_t2v', 'upstream_source_id': 'wan_t2v', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/video/wan_t2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_t2v'},
 )
 
 def build() -> VibeWorkflow:
@@ -40,15 +40,17 @@ def build() -> VibeWorkflow:
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Loaders
-    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME)
-    cliploader = CLIPLoader(_id='38', clip_name=CLIP_NAME, type_='wan')
+    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME, weight_dtype='default')
+    cliploader = CLIPLoader(_id='38', clip_name=CLIP_NAME, type='wan')
     vaeloader = VAELoader(_id='39', vae_name=VAE_NAME)
 
     # Sampling
     emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
         _id='40',
         width=832,
+        height=480,
         length=DEFAULT_FRAMES,
+        batch_size=1,
     )
 
     # Conditioning
@@ -62,6 +64,7 @@ def build() -> VibeWorkflow:
         steps=30,
         cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
+        scheduler='simple',
         latent_image=emptyhunyuanlatentvideo,
         model=modelsamplingsd3,
         negative=negative,

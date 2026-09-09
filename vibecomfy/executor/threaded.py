@@ -431,9 +431,9 @@ def _durable_projection_fallback(
     the one closed-checkpoint projection (row 6 keeps ``applied``).
     """
     if projection is not None:
-        projected = getattr(projection, "reply", None)
-        if isinstance(projected, str) and projected:
-            return projected
+        # The projection may carry the original model narration; after the
+        # grounding check itself fails, that narration is untrusted. Derive
+        # the fallback from terminal state and accepted operations only.
         landed = getattr(projection, "terminal_state", None) == "applied"
         reason = getattr(projection, "reason", reason)
         accepted = getattr(projection, "accepted_delta", ()) or ()

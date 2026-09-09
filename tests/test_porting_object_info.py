@@ -1103,6 +1103,306 @@ def test_resolve_class_entry_keeps_class_only_helper_apis_unchanged(
     assert check_output_arity_consensus("MissingClass", ui_output_count=5) == 0
 
 
+def test_cache_file_witness_detects_same_size_same_mtime_replacement(tmp_path: Path) -> None:
+    import os
+
+    from vibecomfy.porting.object_info.generation import cache_file_witness
+
+    artifact = tmp_path / "pack.json"
+    artifact.write_text('{"a": 1}', encoding="utf-8")
+    original_mtime_ns = artifact.stat().st_mtime_ns
+    first = cache_file_witness(artifact)
+    artifact.write_text('{"b": 2}', encoding="utf-8")
+    assert artifact.stat().st_size == 8
+    os.utime(artifact, ns=(original_mtime_ns, original_mtime_ns))
+    second = cache_file_witness(artifact)
+
+    assert first is not None and second is not None
+    assert first[:5] == second[:5]
+    assert first[5] != second[5]
+
+
+def test_committed_reader_observes_same_size_same_mtime_current_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    first_source = tmp_path / "first.json"
+    first_source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    second_source = tmp_path / "second.json"
+    second_source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["LATENT"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "committed"
+    build_cache(str(first_source), version="first", cache_dir=str(cache_root), full_pack_refresh=True)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+    marker = cache_root / "CURRENT"
+    first_marker_size = marker.stat().st_size
+    original_mtime_ns = marker.stat().st_mtime_ns
+
+    build_cache(str(second_source), version="second", cache_dir=str(cache_root), full_pack_refresh=True)
+    assert marker.stat().st_size == first_marker_size
+    os.utime(marker, ns=(original_mtime_ns, original_mtime_ns))
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "LATENT"
+
+
+def test_batch_reader_observes_same_size_same_mtime_pack_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+    active_root = consume._reader_state["active"]
+    pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+    pack = active_root / pack_name
+    original_mtime_ns = pack.stat().st_mtime_ns
+    updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+    assert len(updated.encode()) == pack.stat().st_size
+    pack.write_text(updated, encoding="utf-8")
+    os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "VIDEO"
+
+
+def test_batch_reader_retries_when_pack_changes_during_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+    original_read = consume._read_pack_at_root
+    changed = False
+
+    def mutate_after_first_read(root: Path, filename: str):
+        nonlocal changed
+        result = original_read(root, filename)
+        if not changed:
+            changed = True
+            pack = root / filename
+            original_mtime_ns = pack.stat().st_mtime_ns
+            updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+            assert len(updated.encode()) == pack.stat().st_size
+            pack.write_text(updated, encoding="utf-8")
+            os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+        return result
+
+    monkeypatch.setattr(consume, "_read_pack_at_root", mutate_after_first_read)
+
+    resolved = consume.get_classes(["ReaderClass"])
+
+    assert changed is True
+    assert resolved["ReaderClass"]["outputs"][0]["name"] == "VIDEO"
+
+
+def test_batch_reader_rejects_modified_committed_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({"ReaderClass": _object_info_entry(
+            python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+        )}),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="committed", cache_dir=str(cache_root), full_pack_refresh=True)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+
+    active_root = consume._reader_state["active"]
+    pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+    pack = active_root / pack_name
+    original_mtime_ns = pack.stat().st_mtime_ns
+    updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+    assert len(updated.encode()) == pack.stat().st_size
+    pack.write_text(updated, encoding="utf-8")
+    os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+    with pytest.raises(ObjectInfoCacheCorruptError, match="failed its hash check"):
+        consume.get_classes(["ReaderClass"])
+
+
+def test_class_entry_snapshot_is_coherent_nested_concurrent_and_resets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps({
+            "ReaderClass": _object_info_entry(
+                python_module="reader", name="ReaderClass", output_names=["IMAGE"]
+            ),
+            "LateClass": _object_info_entry(
+                python_module="reader", name="LateClass", output_names=["IMAGE"]
+            ),
+        }),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    (cache_root / "CURRENT").unlink()
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    with consume.class_entry_snapshot(["ReaderClass", "MissingClass"]):
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+        assert consume.get_class("MissingClass") is None
+        with pytest.raises(
+            ObjectInfoCacheCorruptError,
+            match="identity-specific object_info lookup.*captured",
+        ):
+            consume.resolve_class_entry(
+                "ReaderClass",
+                identity=consume.ObjectInfoIdentity(
+                    pack_slug="reader", evidence_identity="late-identity"
+                ),
+            )
+        with pytest.raises(
+            ObjectInfoCacheCorruptError,
+            match="identity-specific object_info lookup.*captured",
+        ):
+            consume.get_class_by_identity(
+                "ReaderClass",
+                pack_slug="reader",
+                evidence_identity="late-identity",
+            )
+
+        active_root = consume._reader_state["active"]
+        pack_name = json.loads((active_root / "index.json").read_text(encoding="utf-8"))["ReaderClass"]
+        pack = active_root / pack_name
+        original_mtime_ns = pack.stat().st_mtime_ns
+        updated = pack.read_text(encoding="utf-8").replace('"IMAGE"', '"VIDEO"')
+        assert len(updated.encode()) == pack.stat().st_size
+        pack.write_text(updated, encoding="utf-8")
+        os.utime(pack, ns=(original_mtime_ns, original_mtime_ns))
+
+        # A nested conversion over the captured set inherits the same view.
+        with consume.class_entry_snapshot(["ReaderClass"]):
+            assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+            assert consume.get_classes(["ReaderClass"])["ReaderClass"]["outputs"][0]["name"] == "IMAGE"
+
+        # A late class from the same changed pack cannot be mixed into the
+        # already-captured operation generation.
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_class("LateClass")
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_classes(["LateClass"])
+        with consume.class_entry_snapshot(["LateClass"]):
+            assert consume.get_class("LateClass")["outputs"][0]["name"] == "VIDEO"
+        with pytest.raises(ObjectInfoCacheCorruptError, match="LateClass.*not captured"):
+            consume.get_class("LateClass")
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        returned = consume.get_class("ReaderClass")
+        returned["outputs"][0]["name"] = "POISONED"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        async def inherited_child() -> str:
+            child_value = consume.get_class("ReaderClass")
+            child_value["outputs"][0]["name"] = "CHILD-POISON"
+            await asyncio.sleep(0)
+            return consume.get_class("ReaderClass")["outputs"][0]["name"]
+
+        async def run_child() -> str:
+            return await asyncio.create_task(inherited_child())
+
+        assert asyncio.run(run_child()) == "IMAGE"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+        # ContextVar state does not leak to a concurrent operation, which sees
+        # the newly witnessed bytes while this operation retains its snapshot.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            concurrent_name = pool.submit(
+                lambda: consume.get_class("ReaderClass")["outputs"][0]["name"]
+            ).result()
+        assert concurrent_name == "VIDEO"
+        assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "IMAGE"
+
+    assert consume.get_class("ReaderClass")["outputs"][0]["name"] == "VIDEO"
+
+    with pytest.raises(RuntimeError, match="snapshot abort"):
+        with consume.class_entry_snapshot(["ReaderClass"]):
+            raise RuntimeError("snapshot abort")
+    assert consume._CLASS_ENTRY_SNAPSHOT.get() is None
+
+
+def test_widget_order_snapshot_preserves_generation_and_scalar_freshness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import consume
+
+    cache_root = _build_temp_cache(tmp_path)
+    _patch_consume_paths(monkeypatch, cache_root)
+    assert consume.object_info_widget_order("PrimitiveString") == ["value"]
+    with consume.class_entry_snapshot(["PrimitiveString"]):
+        active_root = consume._reader_state["active"]
+        index = json.loads((active_root / "index.json").read_text())
+        pack = active_root / index["PrimitiveString"]
+        before = pack.stat()
+        original = pack.read_text()
+        updated = original.replace('"value"', '"other"')
+        assert original != updated
+        assert len(updated.encode()) == before.st_size
+        pack.write_text(updated)
+        os.utime(pack, ns=(before.st_atime_ns, before.st_mtime_ns))
+        assert consume.object_info_widget_order("PrimitiveString") == ["value"]
+        with pytest.raises(ObjectInfoCacheCorruptError, match="not captured"):
+            consume.object_info_widget_order("SomeUnknownClass")
+    # A changed committed generation must fail its content witness after
+    # the operation ends; it cannot reuse the old snapshot or trust mtime.
+    with pytest.raises(ObjectInfoCacheCorruptError, match="hash check"):
+        consume.object_info_widget_order("PrimitiveString")
+
+
 # ---------------------------------------------------------------------------
 # effective_widget_names_for_class (widget_schema tiered lookup)
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ from vibecomfy.porting.object_info.serialize import build_cache
 
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "node_resolution"
 IDEOGRAM = FIXTURES / "ideogram4_t2i.json"
+IDEOGRAM_TYPED = FIXTURES / "ideogram4_t2i.typed_boundary.json"
 EXPECTED_EMIT = FIXTURES / "ideogram4_t2i.expected_emit.py"
 
 
@@ -231,6 +232,7 @@ def _write_authoritative_object_info_cache(root: Path) -> None:
 def test_fixtures_present():
     assert IDEOGRAM.exists(), "headline failing workflow fixture is missing"
     assert EXPECTED_EMIT.exists(), "golden compiling-emit reference is missing"
+    assert IDEOGRAM_TYPED.exists(), "typed Ideogram boundary transcription is missing"
     wf = json.loads(IDEOGRAM.read_text())
     counts = _comfymath_output_counts(wf)
     # The whole bug: this workflow declares ComfyMathExpression with 3 outputs,
@@ -250,16 +252,20 @@ def test_a1_ideogram_no_silent_miscompile():
     from vibecomfy.porting.convert import port_convert_workflow
     from vibecomfy.porting.workbench import load_port_source
 
-    src = load_port_source(str(IDEOGRAM), use_comfy_converter=False)
-    raw = json.loads(IDEOGRAM.read_text())
-    try:
-        res = port_convert_workflow(
-            src.workflow, raw_workflow=raw, source_path=src.source_path,
-            source_hash=src.source_hash, ready_id="image/ideogram4_t2i",
-        )
-    except ArityDisagreementError:
-        return  # fail-closed is an acceptable outcome
+    with pytest.raises(ValueError, match="unsupported_boundary_encoding"):
+        load_port_source(str(IDEOGRAM), use_comfy_converter=False)
+
+    src = load_port_source(str(IDEOGRAM_TYPED), use_comfy_converter=False)
+    raw = json.loads(IDEOGRAM_TYPED.read_text())
+    res = port_convert_workflow(
+        src.workflow, raw_workflow=raw, source_path=src.source_path,
+        source_hash=src.source_hash, ready_id="image/ideogram4_t2i",
+    )
     assert res.validation.compile_ok, res.validation.error
+    assert len(src.workflow.definitions["subgraphs"]) == 2
+    assert len(src.workflow.interfaces) == 2
+    assert len(src.workflow.boundary_ports) == 14
+    assert len(src.workflow.compile("api")) == 35
     assert "not enough values to unpack" not in (res.validation.error or "")
 
 
@@ -545,6 +551,8 @@ def test_b7_install_robustness(tmp_path: Path):
                 return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
             if call[:4] == ["git", "-C", call[2], "status"]:
                 return subprocess.CompletedProcess(call, 0, stdout=" M file.py\n" if self.dirty else "", stderr="")
+            if call[:5] == ["git", "-C", call[2], "config", "--get"] and call[5:] == ["remote.origin.url"]:
+                return subprocess.CompletedProcess(call, 0, stdout="https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git\n", stderr="")
             if call[:4] == ["git", "-C", call[2], "rev-parse"]:
                 return subprocess.CompletedProcess(call, 0, stdout="forcehead\n", stderr="")
             raise AssertionError(f"unexpected subprocess call: {call!r}")
@@ -636,16 +644,22 @@ def test_b8_provenance_determines_pack_set():
 
 
 @pytest.mark.sprint_b
-def test_b12_ideogram_ports_to_compiling_strict_ready_template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from vibecomfy.porting.parity import class_type_counter, topology_counter
+def test_b12_ideogram_compiling_typed_template_reports_strict_gaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from vibecomfy.porting.parity import (
+        class_type_counter,
+        compile_equivalent,
+        topology_counter,
+    )
     from vibecomfy.porting.convert import port_convert_workflow
     from vibecomfy.porting.workbench import load_port_source
     import vibecomfy.node_packs as node_packs_install
     import vibecomfy.runtime.ensure_env as ensure_env_module
     from vibecomfy.runtime.ensure_env import ensure_env
 
-    src = load_port_source(str(IDEOGRAM), use_comfy_converter=False)
-    raw = json.loads(IDEOGRAM.read_text())
+    src = load_port_source(str(IDEOGRAM_TYPED), use_comfy_converter=False)
+    raw = json.loads(IDEOGRAM_TYPED.read_text())
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
     fake_core_classes = set(node_packs_install.CORE_COMFY_CLASSES)
 
@@ -700,18 +714,21 @@ def test_b12_ideogram_ports_to_compiling_strict_ready_template(tmp_path: Path, m
         return {"cache_root": str(cache_root)}
 
     ensure_result = ensure_env(
-        IDEOGRAM,
+        IDEOGRAM_TYPED,
         installer=lambda packs: pytest.fail(f"ideogram fixture should not require custom pack install: {packs!r}"),
         introspector=introspector,
         cache_writer=cache_writer,
     )
-    assert ensure_result.ok is True
-    assert ensure_result.noop is False
+    # The source honestly declares several incompatible comfy-core versions;
+    # environment realization must fail closed instead of pretending one
+    # installed core can satisfy them all.  Conversion remains supported from
+    # the retained typed socket/boundary evidence below.
+    assert ensure_result.ok is False
+    assert [failure.code for failure in ensure_result.failures] == [
+        "conflicting_authored_versions"
+    ]
     assert ensure_result.install_batch is None
-    assert [outcome.slug for outcome in ensure_result.pack_outcomes] == ["comfy-core"]
-    assert ensure_result.pack_outcomes[0].introspected is True
-    assert ensure_result.pack_outcomes[0].cache_written is True
-    assert cache_events == [("introspect", tuple()), ("cache", ("comfy-core",))]
+    assert cache_events == []
 
     res = port_convert_workflow(
         src.workflow, raw_workflow=raw, source_path=src.source_path,
@@ -719,13 +736,29 @@ def test_b12_ideogram_ports_to_compiling_strict_ready_template(tmp_path: Path, m
     )
     assert res.validation is not None
     assert res.validation.compile_ok is True, res.validation.error
-    assert res.validation.strict_ready_ok is True, res.validation.error
-    expected_text = EXPECTED_EMIT.read_text(encoding="utf-8")
+    # Typed boundary expansion is executable, but this source is not a strict
+    # ready template: it still contains opaque component shells and has no
+    # authored public-input/output contract.  Keep that independent policy
+    # refusal visible instead of conflating it with boundary compilation.
+    assert res.validation.strict_ready_ok is False
+    strict_codes = {item.code for item in res.validation.strict_ready_diagnostics}
+    assert {
+        "opaque_component_node_class",
+        "strict_ready_missing_public_input",
+        "strict_ready_unnamed_output_contract",
+    } <= strict_codes
     assert _normalize_emitted_source(res.text) != ""
-    assert _normalize_emitted_source(expected_text) != ""
-    expected_api = _compile_ready_template_api(expected_text, module_name="expected_ideogram4_t2i")
     actual_api = _compile_ready_template_api(res.text, module_name="actual_ideogram4_t2i")
-    assert len(actual_api) == len(expected_api)
+    expected_api = src.workflow.compile("api")
+    equal, diffs = compile_equivalent(actual_api, expected_api)
+    assert equal, diffs[:5]
+    # The typed source has 35 API nodes including terminal PreviewAny 111.
+    # Canonical source intentionally omits that UI-only terminal and its edge,
+    # leaving 34 executable nodes while the independent parity projection is
+    # class/topology equivalent.
+    assert len(expected_api) == 35
+    assert expected_api["111"]["class_type"] == "PreviewAny"
+    assert len(actual_api) == 34
     assert class_type_counter(actual_api) == class_type_counter(expected_api)
     assert topology_counter(actual_api) == topology_counter(expected_api)
 

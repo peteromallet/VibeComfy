@@ -1,8 +1,20 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Auto-generated thin wrappers for ComfyUI node classes.
+# vibecomfy:generated
+# pack: ltxvideo
+# source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
+# source_sha256: 8475ebea62cce5427f24e35b59aa1574b2b4c78eebfad0842fbedc88f26bc320
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 75
+#
+# DO NOT EDIT — regenerate with:
+#   vibecomfy nodes generate-wrappers ltxvideo
 
-Regenerate via: python -m tools.generate_node_shims
+"""Auto-generated public wrappers for the ltxvideo custom-node pack.
+
+Each function wraps one ComfyUI node class and delegates through the
+public ``vibecomfy.templates.node`` ABI.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -19,23 +31,26 @@ def APGGuider(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     cfg_scale: float | _Omitted = _UNSET,
     eta: float | _Omitted = _UNSET,
-    norm_threshold: float | _Omitted = _UNSET,
     momentum_coefficient: float | _Omitted = _UNSET,
+    norm_threshold: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    The APG Guider implements Adaptive Projected Guidance (APG).
-        Reference: https://arxiv.org/abs/2410.02416.
+) -> Any:
+    """Public wrapper for the ComfyUI node ``APGGuider``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 APG Guider
+
+    Category: lightricks/LTXV
+
+    The APG Guider implements Adaptive Projected Guidance (APG).
+
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"APGGuider() takes at most 1 positional argument, got {len(args)}")
@@ -43,18 +58,18 @@ def APGGuider(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if cfg_scale is not _UNSET:
         _kwargs['cfg_scale'] = cfg_scale
     if eta is not _UNSET:
         _kwargs['eta'] = eta
-    if norm_threshold is not _UNSET:
-        _kwargs['norm_threshold'] = norm_threshold
     if momentum_coefficient is not _UNSET:
         _kwargs['momentum_coefficient'] = momentum_coefficient
+    if norm_threshold is not _UNSET:
+        _kwargs['norm_threshold'] = norm_threshold
     _kwargs.update(_extras)
     return node(wf, 'APGGuider', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -62,18 +77,20 @@ def DynamicConditioning(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    power: float | _Omitted = _UNSET,
     only_first_frame: bool | _Omitted = _UNSET,
+    power: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Dynamic Conditioning
+) -> Any:
+    """Public wrapper for the ComfyUI node ``DynamicConditioning``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Dynamic Conditioning
+
+    Category: lightricks/LTXV
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"DynamicConditioning() takes at most 1 positional argument, got {len(args)}")
@@ -81,10 +98,10 @@ def DynamicConditioning(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if power is not _UNSET:
-        _kwargs['power'] = power
     if only_first_frame is not _UNSET:
         _kwargs['only_first_frame'] = only_first_frame
+    if power is not _UNSET:
+        _kwargs['power'] = power
     _kwargs.update(_extras)
     return node(wf, 'DynamicConditioning', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -92,19 +109,21 @@ def GemmaAPITextEncode(
     *args: VibeWorkflow,
     _id: str | None = None,
     api_key: str | _Omitted = _UNSET,
-    prompt: str | _Omitted = _UNSET,
-    enhance_prompt: bool | _Omitted = _UNSET,
     ckpt_name: Literal['ltx-2.3-22b-dev.safetensors', 'ltx-2.3-22b-distilled.safetensors', 'ltx-2.3-22b-distilled-fp8.safetensors', 'ltx-2.3-22b-dev-fp8.safetensors', 'LTX23_audio_vae_bf16.safetensors'] | _Omitted = _UNSET,
+    enhance_prompt: bool | _Omitted = _UNSET,
+    prompt: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Gemma API Text Encode
+) -> Any:
+    """Public wrapper for the ComfyUI node ``GemmaAPITextEncode``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Gemma API Text Encode
+
+    Category: api node/text/Lightricks
+
     Returns: conditioning
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"GemmaAPITextEncode() takes at most 1 positional argument, got {len(args)}")
@@ -112,58 +131,60 @@ def GemmaAPITextEncode(
     _kwargs: dict[str, Any] = {}
     if api_key is not _UNSET:
         _kwargs['api_key'] = api_key
-    if prompt is not _UNSET:
-        _kwargs['prompt'] = prompt
-    if enhance_prompt is not _UNSET:
-        _kwargs['enhance_prompt'] = enhance_prompt
     if ckpt_name is not _UNSET:
         _kwargs['ckpt_name'] = ckpt_name
+    if enhance_prompt is not _UNSET:
+        _kwargs['enhance_prompt'] = enhance_prompt
+    if prompt is not _UNSET:
+        _kwargs['prompt'] = prompt
     _kwargs.update(_extras)
     return node(wf, 'GemmaAPITextEncode', _id, pass_raw=pass_raw, **_kwargs)
 
 def GuiderParameters(
     *args: VibeWorkflow,
     _id: str | None = None,
-    modality: Literal['VIDEO', 'AUDIO'] | _Omitted = _UNSET,
     cfg: float | _Omitted = _UNSET,
-    stg: float | _Omitted = _UNSET,
+    cross_attn: bool | _Omitted = _UNSET,
+    modality: Literal['VIDEO', 'AUDIO'] | _Omitted = _UNSET,
+    modality_scale: float | _Omitted = _UNSET,
     perturb_attn: bool | _Omitted = _UNSET,
     rescale: float | _Omitted = _UNSET,
-    modality_scale: float | _Omitted = _UNSET,
     skip_step: int | _Omitted = _UNSET,
-    cross_attn: bool | _Omitted = _UNSET,
+    stg: float | _Omitted = _UNSET,
     parameters: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Guider Parameters
+) -> Any:
+    """Public wrapper for the ComfyUI node ``GuiderParameters``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Guider Parameters
+
+    Category: lightricks/LTXV
+
     Returns: GUIDER_PARAMETERS
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"GuiderParameters() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if modality is not _UNSET:
-        _kwargs['modality'] = modality
     if cfg is not _UNSET:
         _kwargs['cfg'] = cfg
-    if stg is not _UNSET:
-        _kwargs['stg'] = stg
+    if cross_attn is not _UNSET:
+        _kwargs['cross_attn'] = cross_attn
+    if modality is not _UNSET:
+        _kwargs['modality'] = modality
+    if modality_scale is not _UNSET:
+        _kwargs['modality_scale'] = modality_scale
     if perturb_attn is not _UNSET:
         _kwargs['perturb_attn'] = perturb_attn
     if rescale is not _UNSET:
         _kwargs['rescale'] = rescale
-    if modality_scale is not _UNSET:
-        _kwargs['modality_scale'] = modality_scale
     if skip_step is not _UNSET:
         _kwargs['skip_step'] = skip_step
-    if cross_attn is not _UNSET:
-        _kwargs['cross_attn'] = cross_attn
+    if stg is not _UNSET:
+        _kwargs['stg'] = stg
     if parameters is not _UNSET:
         _kwargs['parameters'] = parameters
     _kwargs.update(_extras)
@@ -175,14 +196,16 @@ def ImageToCPU(
     image: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Image to CPU
+) -> Any:
+    """Public wrapper for the ComfyUI node ``ImageToCPU``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Image to CPU
+
+    Category: utility
+
     Returns: IMAGE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"ImageToCPU() takes at most 1 positional argument, got {len(args)}")
@@ -196,118 +219,126 @@ def ImageToCPU(
 def LTXAddVideoICLoRAGuide(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    latent: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
-    frame_idx: int | _Omitted = _UNSET,
-    strength: float | _Omitted = _UNSET,
-    latent_downscale_factor: float | _Omitted = _UNSET,
+    latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     crop: Any | _Omitted = _UNSET,
-    use_tiled_encode: bool | _Omitted = _UNSET,
-    tile_size: int | _Omitted = _UNSET,
+    frame_idx: int | _Omitted = _UNSET,
+    latent_downscale_factor: float | _Omitted = _UNSET,
+    strength: float | _Omitted = _UNSET,
     tile_overlap: int | _Omitted = _UNSET,
+    tile_size: int | _Omitted = _UNSET,
+    use_tiled_encode: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXAddVideoICLoRAGuide``.
+
+    Display name: 🅛🅣🅧 Add Video IC-LoRA Guide
+
+    Category: Lightricks/IC-LoRA
+
     Adds one or more conditioning frames starting at the specified frame index. Supports both single images and multi-frame videos. The latent_downscale_factor resizes input to a fraction of the target size (1 = original, 2 = half, 3 = third, etc.) for IC-LoRA on small grids.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXAddVideoICLoRAGuide() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if latent is not _UNSET:
-        _kwargs['latent'] = latent
     if image is not _UNSET:
         _kwargs['image'] = image
-    if frame_idx is not _UNSET:
-        _kwargs['frame_idx'] = frame_idx
-    if strength is not _UNSET:
-        _kwargs['strength'] = strength
-    if latent_downscale_factor is not _UNSET:
-        _kwargs['latent_downscale_factor'] = latent_downscale_factor
+    if latent is not _UNSET:
+        _kwargs['latent'] = latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if crop is not _UNSET:
         _kwargs['crop'] = crop
-    if use_tiled_encode is not _UNSET:
-        _kwargs['use_tiled_encode'] = use_tiled_encode
-    if tile_size is not _UNSET:
-        _kwargs['tile_size'] = tile_size
+    if frame_idx is not _UNSET:
+        _kwargs['frame_idx'] = frame_idx
+    if latent_downscale_factor is not _UNSET:
+        _kwargs['latent_downscale_factor'] = latent_downscale_factor
+    if strength is not _UNSET:
+        _kwargs['strength'] = strength
     if tile_overlap is not _UNSET:
         _kwargs['tile_overlap'] = tile_overlap
+    if tile_size is not _UNSET:
+        _kwargs['tile_size'] = tile_size
+    if use_tiled_encode is not _UNSET:
+        _kwargs['use_tiled_encode'] = use_tiled_encode
     _kwargs.update(_extras)
     return node(wf, 'LTXAddVideoICLoRAGuide', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXAddVideoICLoRAGuideAdvanced(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    latent: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
-    frame_idx: int | _Omitted = _UNSET,
-    strength: float | _Omitted = _UNSET,
-    latent_downscale_factor: float | _Omitted = _UNSET,
-    crop: Any | _Omitted = _UNSET,
-    use_tiled_encode: bool | _Omitted = _UNSET,
-    tile_size: int | _Omitted = _UNSET,
-    tile_overlap: int | _Omitted = _UNSET,
+    latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     attention_strength: float | _Omitted = _UNSET,
+    crop: Any | _Omitted = _UNSET,
+    frame_idx: int | _Omitted = _UNSET,
+    latent_downscale_factor: float | _Omitted = _UNSET,
+    strength: float | _Omitted = _UNSET,
+    tile_overlap: int | _Omitted = _UNSET,
+    tile_size: int | _Omitted = _UNSET,
+    use_tiled_encode: bool | _Omitted = _UNSET,
     attention_mask: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXAddVideoICLoRAGuideAdvanced``.
+
+    Display name: 🅛🅣🅧 Add Video IC-LoRA Guide Advanced
+
+    Category: Lightricks/IC-LoRA
+
     Adds IC-LoRA guide conditioning with per-guide attention strength control. Same as LTXAddVideoICLoRAGuide, but allows controlling how strongly this guide influences generation via self-attention, optionally with a spatial mask.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXAddVideoICLoRAGuideAdvanced() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if latent is not _UNSET:
-        _kwargs['latent'] = latent
     if image is not _UNSET:
         _kwargs['image'] = image
-    if frame_idx is not _UNSET:
-        _kwargs['frame_idx'] = frame_idx
-    if strength is not _UNSET:
-        _kwargs['strength'] = strength
-    if latent_downscale_factor is not _UNSET:
-        _kwargs['latent_downscale_factor'] = latent_downscale_factor
-    if crop is not _UNSET:
-        _kwargs['crop'] = crop
-    if use_tiled_encode is not _UNSET:
-        _kwargs['use_tiled_encode'] = use_tiled_encode
-    if tile_size is not _UNSET:
-        _kwargs['tile_size'] = tile_size
-    if tile_overlap is not _UNSET:
-        _kwargs['tile_overlap'] = tile_overlap
+    if latent is not _UNSET:
+        _kwargs['latent'] = latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if attention_strength is not _UNSET:
         _kwargs['attention_strength'] = attention_strength
+    if crop is not _UNSET:
+        _kwargs['crop'] = crop
+    if frame_idx is not _UNSET:
+        _kwargs['frame_idx'] = frame_idx
+    if latent_downscale_factor is not _UNSET:
+        _kwargs['latent_downscale_factor'] = latent_downscale_factor
+    if strength is not _UNSET:
+        _kwargs['strength'] = strength
+    if tile_overlap is not _UNSET:
+        _kwargs['tile_overlap'] = tile_overlap
+    if tile_size is not _UNSET:
+        _kwargs['tile_size'] = tile_size
+    if use_tiled_encode is not _UNSET:
+        _kwargs['use_tiled_encode'] = use_tiled_encode
     if attention_mask is not _UNSET:
         _kwargs['attention_mask'] = attention_mask
     _kwargs.update(_extras)
@@ -319,14 +350,16 @@ def LTXAttentioOverride(
     blocks: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Attn Block Override
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXAttentioOverride``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Attn Block Override
+
+    Category: ltxtricks
+
     Returns: LTX_BLOCKS
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXAttentioOverride() takes at most 1 positional argument, got {len(args)}")
@@ -340,27 +373,29 @@ def LTXAttentioOverride(
 def LTXAttentionBank(
     *args: VibeWorkflow,
     _id: str | None = None,
-    save_steps: int | _Omitted = _UNSET,
     blocks: str | _Omitted = _UNSET,
+    save_steps: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Attention Bank
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXAttentionBank``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Attention Bank
+
+    Category: ltxtricks
+
     Returns: ATTN_BANK
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXAttentionBank() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if save_steps is not _UNSET:
-        _kwargs['save_steps'] = save_steps
     if blocks is not _UNSET:
         _kwargs['blocks'] = blocks
+    if save_steps is not _UNSET:
+        _kwargs['save_steps'] = save_steps
     _kwargs.update(_extras)
     return node(wf, 'LTXAttentionBank', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -370,14 +405,16 @@ def LTXAttnOverride(
     layers: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Attention Override
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXAttnOverride``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Attention Override
+
+    Category: ltxtricks/attn
+
     Returns: ATTN_OVERRIDE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXAttnOverride() takes at most 1 positional argument, got {len(args)}")
@@ -396,14 +433,16 @@ def LTXFetaEnhance(
     attn_override: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Feta Enhance
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXFetaEnhance``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Feta Enhance
+
+    Category: ltxtricks
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXFetaEnhance() takes at most 1 positional argument, got {len(args)}")
@@ -424,14 +463,16 @@ def LTXFloatToInt(
     a: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Float To Int
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXFloatToInt``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Float To Int
+
+    Category: math/conversion
+
     Returns: INT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXFloatToInt() takes at most 1 positional argument, got {len(args)}")
@@ -446,22 +487,24 @@ def LTXFlowEditCFGGuider(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    source_pos: Any | _Omitted = _UNSET,
     source_neg: Any | _Omitted = _UNSET,
-    target_pos: Any | _Omitted = _UNSET,
+    source_pos: Any | _Omitted = _UNSET,
     target_neg: Any | _Omitted = _UNSET,
+    target_pos: Any | _Omitted = _UNSET,
     source_cfg: float | _Omitted = _UNSET,
     target_cfg: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Flow Edit CFG Guider
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXFlowEditCFGGuider``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Flow Edit CFG Guider
+
+    Category: ltxtricks
+
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXFlowEditCFGGuider() takes at most 1 positional argument, got {len(args)}")
@@ -469,14 +512,14 @@ def LTXFlowEditCFGGuider(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if source_pos is not _UNSET:
-        _kwargs['source_pos'] = source_pos
     if source_neg is not _UNSET:
         _kwargs['source_neg'] = source_neg
-    if target_pos is not _UNSET:
-        _kwargs['target_pos'] = target_pos
+    if source_pos is not _UNSET:
+        _kwargs['source_pos'] = source_pos
     if target_neg is not _UNSET:
         _kwargs['target_neg'] = target_neg
+    if target_pos is not _UNSET:
+        _kwargs['target_pos'] = target_pos
     if source_cfg is not _UNSET:
         _kwargs['source_cfg'] = source_cfg
     if target_cfg is not _UNSET:
@@ -487,30 +530,32 @@ def LTXFlowEditCFGGuider(
 def LTXFlowEditSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    skip_steps: int | _Omitted = _UNSET,
     refine_steps: int | _Omitted = _UNSET,
     seed: int | _Omitted = _UNSET,
+    skip_steps: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Flow Edit Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXFlowEditSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Flow Edit Sampler
+
+    Category: ltxtricks
+
     Returns: SAMPLER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXFlowEditSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if skip_steps is not _UNSET:
-        _kwargs['skip_steps'] = skip_steps
     if refine_steps is not _UNSET:
         _kwargs['refine_steps'] = refine_steps
     if seed is not _UNSET:
         _kwargs['seed'] = seed
+    if skip_steps is not _UNSET:
+        _kwargs['skip_steps'] = skip_steps
     _kwargs.update(_extras)
     return node(wf, 'LTXFlowEditSampler', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -520,14 +565,16 @@ def LTXForwardModelSamplingPred(
     model: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Forward Model Pred
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXForwardModelSamplingPred``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Forward Model Pred
+
+    Category: ltxtricks
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXForwardModelSamplingPred() takes at most 1 positional argument, got {len(args)}")
@@ -546,14 +593,18 @@ def LTXICLoRALoaderModelOnly(
     strength_model: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXICLoRALoaderModelOnly``.
+
+    Display name: 🅛🅣🅧 IC-LoRA Loader Model Only
+
+    Category: Lightricks/IC-LoRA
+
     Loads a LoRA model and extracts the latent_downscale_factor from the safetensors metadata.
 
-    Pack: ComfyUI-LTXVideo
     Returns: model, latent_downscale_factor
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXICLoRALoaderModelOnly() takes at most 1 positional argument, got {len(args)}")
@@ -572,20 +623,22 @@ def LTXPerturbedAttention(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    scale: float | _Omitted = _UNSET,
-    rescale: float | _Omitted = _UNSET,
     cfg: float | _Omitted = _UNSET,
+    rescale: float | _Omitted = _UNSET,
+    scale: float | _Omitted = _UNSET,
     attn_override: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Apply Perturbed Attention
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXPerturbedAttention``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Apply Perturbed Attention
+
+    Category: ltxtricks/attn
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXPerturbedAttention() takes at most 1 positional argument, got {len(args)}")
@@ -593,12 +646,12 @@ def LTXPerturbedAttention(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if scale is not _UNSET:
-        _kwargs['scale'] = scale
-    if rescale is not _UNSET:
-        _kwargs['rescale'] = rescale
     if cfg is not _UNSET:
         _kwargs['cfg'] = cfg
+    if rescale is not _UNSET:
+        _kwargs['rescale'] = rescale
+    if scale is not _UNSET:
+        _kwargs['scale'] = scale
     if attn_override is not _UNSET:
         _kwargs['attn_override'] = attn_override
     _kwargs.update(_extras)
@@ -609,21 +662,23 @@ def LTXPrepareAttnInjections(
     _id: str | None = None,
     latent: Any | _Omitted = _UNSET,
     attn_bank: Any | _Omitted = _UNSET,
-    query: bool | _Omitted = _UNSET,
-    key: bool | _Omitted = _UNSET,
-    value: bool | _Omitted = _UNSET,
     inject_steps: int | _Omitted = _UNSET,
+    key: bool | _Omitted = _UNSET,
+    query: bool | _Omitted = _UNSET,
+    value: bool | _Omitted = _UNSET,
     blocks: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Prepare Attn Injection
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXPrepareAttnInjections``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Prepare Attn Injection
+
+    Category: fluxtapoz
+
     Returns: LATENT, ATTN_INJ
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXPrepareAttnInjections() takes at most 1 positional argument, got {len(args)}")
@@ -633,14 +688,14 @@ def LTXPrepareAttnInjections(
         _kwargs['latent'] = latent
     if attn_bank is not _UNSET:
         _kwargs['attn_bank'] = attn_bank
-    if query is not _UNSET:
-        _kwargs['query'] = query
-    if key is not _UNSET:
-        _kwargs['key'] = key
-    if value is not _UNSET:
-        _kwargs['value'] = value
     if inject_steps is not _UNSET:
         _kwargs['inject_steps'] = inject_steps
+    if key is not _UNSET:
+        _kwargs['key'] = key
+    if query is not _UNSET:
+        _kwargs['query'] = query
+    if value is not _UNSET:
+        _kwargs['value'] = value
     if blocks is not _UNSET:
         _kwargs['blocks'] = blocks
     _kwargs.update(_extras)
@@ -650,21 +705,23 @@ def LTXQ8Patch(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    use_fp8_attention: bool | _Omitted = _UNSET,
     quantization_preset: Literal['0.9.8', 'ltxv2', 'full_bf16', 'custom'] | _Omitted = _UNSET,
-    quantize_self_attn: bool | _Omitted = _UNSET,
     quantize_cross_attn: bool | _Omitted = _UNSET,
     quantize_ffn: bool | _Omitted = _UNSET,
+    quantize_self_attn: bool | _Omitted = _UNSET,
+    use_fp8_attention: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXQ8Patch
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXQ8Patch``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXQ8Patch
+
+    Category: lightricks/LTXV
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXQ8Patch() takes at most 1 positional argument, got {len(args)}")
@@ -672,101 +729,105 @@ def LTXQ8Patch(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if use_fp8_attention is not _UNSET:
-        _kwargs['use_fp8_attention'] = use_fp8_attention
     if quantization_preset is not _UNSET:
         _kwargs['quantization_preset'] = quantization_preset
-    if quantize_self_attn is not _UNSET:
-        _kwargs['quantize_self_attn'] = quantize_self_attn
     if quantize_cross_attn is not _UNSET:
         _kwargs['quantize_cross_attn'] = quantize_cross_attn
     if quantize_ffn is not _UNSET:
         _kwargs['quantize_ffn'] = quantize_ffn
+    if quantize_self_attn is not _UNSET:
+        _kwargs['quantize_self_attn'] = quantize_self_attn
+    if use_fp8_attention is not _UNSET:
+        _kwargs['use_fp8_attention'] = use_fp8_attention
     _kwargs.update(_extras)
     return node(wf, 'LTXQ8Patch', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXRFForwardODESampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    gamma: float | _Omitted = _UNSET,
-    start_step: int | _Omitted = _UNSET,
     end_step: int | _Omitted = _UNSET,
+    gamma: float | _Omitted = _UNSET,
     gamma_trend: Literal['linear_decrease', 'linear_increase', 'constant'] | _Omitted = _UNSET,
-    seed: int | _Omitted = _UNSET,
+    start_step: int | _Omitted = _UNSET,
     attn_bank: Any | _Omitted = _UNSET,
     order: Literal['first', 'second'] | _Omitted = _UNSET,
+    seed: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Rf-Inv Forward Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXRFForwardODESampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Rf-Inv Forward Sampler
+
+    Category: ltxtricks
+
     Returns: SAMPLER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXRFForwardODESampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if gamma is not _UNSET:
-        _kwargs['gamma'] = gamma
-    if start_step is not _UNSET:
-        _kwargs['start_step'] = start_step
     if end_step is not _UNSET:
         _kwargs['end_step'] = end_step
+    if gamma is not _UNSET:
+        _kwargs['gamma'] = gamma
     if gamma_trend is not _UNSET:
         _kwargs['gamma_trend'] = gamma_trend
-    if seed is not _UNSET:
-        _kwargs['seed'] = seed
+    if start_step is not _UNSET:
+        _kwargs['start_step'] = start_step
     if attn_bank is not _UNSET:
         _kwargs['attn_bank'] = attn_bank
     if order is not _UNSET:
         _kwargs['order'] = order
+    if seed is not _UNSET:
+        _kwargs['seed'] = seed
     _kwargs.update(_extras)
     return node(wf, 'LTXRFForwardODESampler', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXRFReverseODESampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    model: Any | _Omitted = _UNSET,
     latent_image: Any | _Omitted = _UNSET,
+    model: Any | _Omitted = _UNSET,
+    end_step: int | _Omitted = _UNSET,
     eta: float | _Omitted = _UNSET,
     start_step: int | _Omitted = _UNSET,
-    end_step: int | _Omitted = _UNSET,
-    eta_trend: Literal['linear_decrease', 'linear_increase', 'constant'] | _Omitted = _UNSET,
     attn_inj: Any | _Omitted = _UNSET,
+    eta_trend: Literal['linear_decrease', 'linear_increase', 'constant'] | _Omitted = _UNSET,
     order: Literal['first', 'second'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Rf-Inv Reverse Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXRFReverseODESampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Rf-Inv Reverse Sampler
+
+    Category: ltxtricks
+
     Returns: SAMPLER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXRFReverseODESampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if model is not _UNSET:
-        _kwargs['model'] = model
     if latent_image is not _UNSET:
         _kwargs['latent_image'] = latent_image
+    if model is not _UNSET:
+        _kwargs['model'] = model
+    if end_step is not _UNSET:
+        _kwargs['end_step'] = end_step
     if eta is not _UNSET:
         _kwargs['eta'] = eta
     if start_step is not _UNSET:
         _kwargs['start_step'] = start_step
-    if end_step is not _UNSET:
-        _kwargs['end_step'] = end_step
-    if eta_trend is not _UNSET:
-        _kwargs['eta_trend'] = eta_trend
     if attn_inj is not _UNSET:
         _kwargs['attn_inj'] = attn_inj
+    if eta_trend is not _UNSET:
+        _kwargs['eta_trend'] = eta_trend
     if order is not _UNSET:
         _kwargs['order'] = order
     _kwargs.update(_extras)
@@ -778,14 +839,16 @@ def LTXReverseModelSamplingPred(
     model: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    LTX Reverse Model Pred
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXReverseModelSamplingPred``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: LTX Reverse Model Pred
+
+    Category: ltxtricks
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXReverseModelSamplingPred() takes at most 1 positional argument, got {len(args)}")
@@ -805,14 +868,16 @@ def LTXVAdainLatent(
     per_frame: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Adain Latent
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVAdainLatent``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Adain Latent
+
+    Category: Lightricks/latents
+
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVAdainLatent() takes at most 1 positional argument, got {len(args)}")
@@ -832,112 +897,120 @@ def LTXVAdainLatent(
 def LTXVAddGuideAdvanced(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    latent: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
-    frame_idx: int | _Omitted = _UNSET,
-    strength: float | _Omitted = _UNSET,
-    crf: int | _Omitted = _UNSET,
+    latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     blur_radius: int | _Omitted = _UNSET,
-    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
+    crf: int | _Omitted = _UNSET,
     crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
+    frame_idx: int | _Omitted = _UNSET,
+    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
+    strength: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVAddGuideAdvanced``.
+
+    Display name: 🅛🅣🅧 LTXV Add Guide Advanced
+
+    Category: conditioning/video_models
+
     Adds a conditioning frame or a video at a specific frame index. This node is used to add a keyframe or a video segment which should appear in the generated video at a specified index. It resizes the image to the correct size and applies preprocessing to it.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVAddGuideAdvanced() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if latent is not _UNSET:
-        _kwargs['latent'] = latent
     if image is not _UNSET:
         _kwargs['image'] = image
-    if frame_idx is not _UNSET:
-        _kwargs['frame_idx'] = frame_idx
-    if strength is not _UNSET:
-        _kwargs['strength'] = strength
-    if crf is not _UNSET:
-        _kwargs['crf'] = crf
+    if latent is not _UNSET:
+        _kwargs['latent'] = latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if blur_radius is not _UNSET:
         _kwargs['blur_radius'] = blur_radius
-    if interpolation is not _UNSET:
-        _kwargs['interpolation'] = interpolation
+    if crf is not _UNSET:
+        _kwargs['crf'] = crf
     if crop is not _UNSET:
         _kwargs['crop'] = crop
+    if frame_idx is not _UNSET:
+        _kwargs['frame_idx'] = frame_idx
+    if interpolation is not _UNSET:
+        _kwargs['interpolation'] = interpolation
+    if strength is not _UNSET:
+        _kwargs['strength'] = strength
     _kwargs.update(_extras)
     return node(wf, 'LTXVAddGuideAdvanced', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVAddGuideAdvancedAttention(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    latent: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
-    frame_idx: int | _Omitted = _UNSET,
-    strength: float | _Omitted = _UNSET,
-    crf: int | _Omitted = _UNSET,
-    blur_radius: int | _Omitted = _UNSET,
-    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
-    crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
+    latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     attention_strength: float | _Omitted = _UNSET,
+    blur_radius: int | _Omitted = _UNSET,
+    crf: int | _Omitted = _UNSET,
+    crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
+    frame_idx: int | _Omitted = _UNSET,
+    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
+    strength: float | _Omitted = _UNSET,
     attention_mask: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVAddGuideAdvancedAttention``.
+
+    Display name: 🅛🅣🅧 LTXV Add Guide Advanced Attention
+
+    Category: conditioning/video_models
+
     Adds a conditioning frame/video at a specific frame index with per-guide attention strength control. Same preprocessing as LTXVAddGuideAdvanced, plus attention_strength and optional spatial attention_mask.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVAddGuideAdvancedAttention() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if latent is not _UNSET:
-        _kwargs['latent'] = latent
     if image is not _UNSET:
         _kwargs['image'] = image
-    if frame_idx is not _UNSET:
-        _kwargs['frame_idx'] = frame_idx
-    if strength is not _UNSET:
-        _kwargs['strength'] = strength
-    if crf is not _UNSET:
-        _kwargs['crf'] = crf
-    if blur_radius is not _UNSET:
-        _kwargs['blur_radius'] = blur_radius
-    if interpolation is not _UNSET:
-        _kwargs['interpolation'] = interpolation
-    if crop is not _UNSET:
-        _kwargs['crop'] = crop
+    if latent is not _UNSET:
+        _kwargs['latent'] = latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if attention_strength is not _UNSET:
         _kwargs['attention_strength'] = attention_strength
+    if blur_radius is not _UNSET:
+        _kwargs['blur_radius'] = blur_radius
+    if crf is not _UNSET:
+        _kwargs['crf'] = crf
+    if crop is not _UNSET:
+        _kwargs['crop'] = crop
+    if frame_idx is not _UNSET:
+        _kwargs['frame_idx'] = frame_idx
+    if interpolation is not _UNSET:
+        _kwargs['interpolation'] = interpolation
+    if strength is not _UNSET:
+        _kwargs['strength'] = strength
     if attention_mask is not _UNSET:
         _kwargs['attention_mask'] = attention_mask
     _kwargs.update(_extras)
@@ -946,38 +1019,42 @@ def LTXVAddGuideAdvancedAttention(
 def LTXVAddLatentGuide(
     *args: VibeWorkflow,
     _id: str | None = None,
-    vae: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    latent: Any | _Omitted = _UNSET,
     guiding_latent: Any | _Omitted = _UNSET,
+    latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     latent_idx: int | _Omitted = _UNSET,
     strength: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVAddLatentGuide``.
+
+    Display name: 🅛🅣🅧 LTXV Add Latent Guide
+
+    Category: ltxtricks
+
     Adds a keyframe or a video segment at a specific frame index.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVAddLatentGuide() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if latent is not _UNSET:
-        _kwargs['latent'] = latent
     if guiding_latent is not _UNSET:
         _kwargs['guiding_latent'] = guiding_latent
+    if latent is not _UNSET:
+        _kwargs['latent'] = latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if latent_idx is not _UNSET:
         _kwargs['latent_idx'] = latent_idx
     if strength is not _UNSET:
@@ -992,14 +1069,18 @@ def LTXVAddLatents(
     latents2: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVAddLatents``.
+
+    Display name: 🅛🅣🅧 LTXV Add Latents
+
+    Category: latent/video
+
     Concatenates two video latents along the frames dimension. latents1 and latents2 must have the same dimensions except for the frames dimension.
 
-    Pack: ComfyUI-LTXVideo
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVAddLatents() takes at most 1 positional argument, got {len(args)}")
@@ -1019,14 +1100,18 @@ def LTXVApplySTG(
     block_indices: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVApplySTG``.
+
+    Display name: 🅛🅣🅧 LTXV Apply STG
+
+    Category: lightricks/LTXV
+
     Defines the blocks to apply the STG to.
 
-    Pack: ComfyUI-LTXVideo
     Returns: model
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVApplySTG() takes at most 1 positional argument, got {len(args)}")
@@ -1042,66 +1127,68 @@ def LTXVApplySTG(
 def LTXVBaseSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    model: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    width: int | _Omitted = _UNSET,
-    height: int | _Omitted = _UNSET,
-    num_frames: int | _Omitted = _UNSET,
     guider: Any | _Omitted = _UNSET,
+    model: Any | _Omitted = _UNSET,
+    noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    noise: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
+    height: int | _Omitted = _UNSET,
+    num_frames: int | _Omitted = _UNSET,
+    width: int | _Omitted = _UNSET,
+    blur: int | _Omitted = _UNSET,
+    crf: int | _Omitted = _UNSET,
+    crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
     optional_cond_images: Any | _Omitted = _UNSET,
     optional_cond_indices: str | _Omitted = _UNSET,
     strength: float | _Omitted = _UNSET,
-    crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
-    crf: int | _Omitted = _UNSET,
-    blur: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Base Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVBaseSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Base Sampler
+
+    Category: sampling
+
     Returns: denoised, positive, negative
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVBaseSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if model is not _UNSET:
-        _kwargs['model'] = model
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if width is not _UNSET:
-        _kwargs['width'] = width
-    if height is not _UNSET:
-        _kwargs['height'] = height
-    if num_frames is not _UNSET:
-        _kwargs['num_frames'] = num_frames
     if guider is not _UNSET:
         _kwargs['guider'] = guider
+    if model is not _UNSET:
+        _kwargs['model'] = model
+    if noise is not _UNSET:
+        _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if noise is not _UNSET:
-        _kwargs['noise'] = noise
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
+    if height is not _UNSET:
+        _kwargs['height'] = height
+    if num_frames is not _UNSET:
+        _kwargs['num_frames'] = num_frames
+    if width is not _UNSET:
+        _kwargs['width'] = width
+    if blur is not _UNSET:
+        _kwargs['blur'] = blur
+    if crf is not _UNSET:
+        _kwargs['crf'] = crf
+    if crop is not _UNSET:
+        _kwargs['crop'] = crop
     if optional_cond_images is not _UNSET:
         _kwargs['optional_cond_images'] = optional_cond_images
     if optional_cond_indices is not _UNSET:
         _kwargs['optional_cond_indices'] = optional_cond_indices
     if strength is not _UNSET:
         _kwargs['strength'] = strength
-    if crop is not _UNSET:
-        _kwargs['crop'] = crop
-    if crf is not _UNSET:
-        _kwargs['crf'] = crf
-    if blur is not _UNSET:
-        _kwargs['blur'] = blur
     _kwargs.update(_extras)
     return node(wf, 'LTXVBaseSampler', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1113,14 +1200,18 @@ def LTXVDilateLatent(
     vertical_scale: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVDilateLatent``.
+
+    Display name: 🅛🅣🅧 LTXV Dilate Latent
+
+    Category: latent/video
+
     Dilates a latent by a grid size.
 
-    Pack: ComfyUI-LTXVideo
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVDilateLatent() takes at most 1 positional argument, got {len(args)}")
@@ -1140,18 +1231,22 @@ def LTXVDilateVideoMask(
     _id: str | None = None,
     spatial_radius: int | _Omitted = _UNSET,
     temporal_radius: int | _Omitted = _UNSET,
-    mask: Any | _Omitted = _UNSET,
     image_as_mask: Any | _Omitted = _UNSET,
+    mask: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVDilateVideoMask``.
+
+    Display name: 🅛🅣🅧 LTXV Dilate Video Mask
+
+    Category: Lightricks/mask_operations
+
     Dilates a video mask spatially and/or temporally using separable max-pooling and thresholds the result.
 
-    Pack: ComfyUI-LTXVideo
     Returns: mask
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVDilateVideoMask() takes at most 1 positional argument, got {len(args)}")
@@ -1161,103 +1256,109 @@ def LTXVDilateVideoMask(
         _kwargs['spatial_radius'] = spatial_radius
     if temporal_radius is not _UNSET:
         _kwargs['temporal_radius'] = temporal_radius
-    if mask is not _UNSET:
-        _kwargs['mask'] = mask
     if image_as_mask is not _UNSET:
         _kwargs['image_as_mask'] = image_as_mask
+    if mask is not _UNSET:
+        _kwargs['mask'] = mask
     _kwargs.update(_extras)
     return node(wf, 'LTXVDilateVideoMask', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVDrawTracks(
     *args: VibeWorkflow,
     _id: str | None = None,
+    height: int | _Omitted = _UNSET,
     tracks: str | _Omitted = _UNSET,
     width: int | _Omitted = _UNSET,
-    height: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVDrawTracks``.
+
+    Display name: 🅛🅣🅧 LTX Draw Sparse Tracks
+
+    Category: Lightricks/motion_tracking
+
     GPU-accelerated sparse track renderer. Rasterises circles at high resolution and downscales with bilinear interpolation.
 
-    Pack: ComfyUI-LTXVideo
     Returns: IMAGE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVDrawTracks() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
+    if height is not _UNSET:
+        _kwargs['height'] = height
     if tracks is not _UNSET:
         _kwargs['tracks'] = tracks
     if width is not _UNSET:
         _kwargs['width'] = width
-    if height is not _UNSET:
-        _kwargs['height'] = height
     _kwargs.update(_extras)
     return node(wf, 'LTXVDrawTracks', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVExtendSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    model: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
-    latents: Any | _Omitted = _UNSET,
-    num_new_frames: int | _Omitted = _UNSET,
-    frame_overlap: int | _Omitted = _UNSET,
     guider: Any | _Omitted = _UNSET,
+    latents: Any | _Omitted = _UNSET,
+    model: Any | _Omitted = _UNSET,
+    noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    noise: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
+    frame_overlap: int | _Omitted = _UNSET,
+    num_new_frames: int | _Omitted = _UNSET,
     strength: float | _Omitted = _UNSET,
-    optional_guiding_latents: Any | _Omitted = _UNSET,
+    cond_image_strength: float | _Omitted = _UNSET,
     optional_cond_images: Any | _Omitted = _UNSET,
     optional_cond_indices: str | _Omitted = _UNSET,
-    cond_image_strength: float | _Omitted = _UNSET,
+    optional_guiding_latents: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Extend Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVExtendSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Extend Sampler
+
+    Category: sampling
+
     Returns: denoised_video, positive, negative
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVExtendSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if model is not _UNSET:
-        _kwargs['model'] = model
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
-    if latents is not _UNSET:
-        _kwargs['latents'] = latents
-    if num_new_frames is not _UNSET:
-        _kwargs['num_new_frames'] = num_new_frames
-    if frame_overlap is not _UNSET:
-        _kwargs['frame_overlap'] = frame_overlap
     if guider is not _UNSET:
         _kwargs['guider'] = guider
+    if latents is not _UNSET:
+        _kwargs['latents'] = latents
+    if model is not _UNSET:
+        _kwargs['model'] = model
+    if noise is not _UNSET:
+        _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if noise is not _UNSET:
-        _kwargs['noise'] = noise
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
+    if frame_overlap is not _UNSET:
+        _kwargs['frame_overlap'] = frame_overlap
+    if num_new_frames is not _UNSET:
+        _kwargs['num_new_frames'] = num_new_frames
     if strength is not _UNSET:
         _kwargs['strength'] = strength
-    if optional_guiding_latents is not _UNSET:
-        _kwargs['optional_guiding_latents'] = optional_guiding_latents
+    if cond_image_strength is not _UNSET:
+        _kwargs['cond_image_strength'] = cond_image_strength
     if optional_cond_images is not _UNSET:
         _kwargs['optional_cond_images'] = optional_cond_images
     if optional_cond_indices is not _UNSET:
         _kwargs['optional_cond_indices'] = optional_cond_indices
-    if cond_image_strength is not _UNSET:
-        _kwargs['cond_image_strength'] = cond_image_strength
+    if optional_guiding_latents is not _UNSET:
+        _kwargs['optional_guiding_latents'] = optional_guiding_latents
     _kwargs.update(_extras)
     return node(wf, 'LTXVExtendSampler', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1269,14 +1370,16 @@ def LTXVGemmaCLIPModelLoader(
     max_length: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Gemma 3 Model Loader
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVGemmaCLIPModelLoader``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Gemma 3 Model Loader
+
+    Category: lightricks/LTXV
+
     Returns: clip
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVGemmaCLIPModelLoader() takes at most 1 positional argument, got {len(args)}")
@@ -1295,22 +1398,26 @@ def LTXVGemmaEnhancePrompt(
     *args: VibeWorkflow,
     _id: str | None = None,
     clip: Any | _Omitted = _UNSET,
+    bypass_i2v: bool | _Omitted = _UNSET,
+    max_tokens: int | _Omitted = _UNSET,
     prompt: str | _Omitted = _UNSET,
     system_prompt: str | _Omitted = _UNSET,
-    max_tokens: int | _Omitted = _UNSET,
-    bypass_i2v: bool | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
     seed: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVGemmaEnhancePrompt``.
+
+    Display name: 🅛🅣🅧 Gemma 3 Prompt Enhancer
+
+    Category: lightricks/LTXV
+
     Enhance text prompts using Gemma 3 VLLM for improved video generation.
 
-    Pack: ComfyUI-LTXVideo
     Returns: enhanced_prompt
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVGemmaEnhancePrompt() takes at most 1 positional argument, got {len(args)}")
@@ -1318,14 +1425,14 @@ def LTXVGemmaEnhancePrompt(
     _kwargs: dict[str, Any] = {}
     if clip is not _UNSET:
         _kwargs['clip'] = clip
+    if bypass_i2v is not _UNSET:
+        _kwargs['bypass_i2v'] = bypass_i2v
+    if max_tokens is not _UNSET:
+        _kwargs['max_tokens'] = max_tokens
     if prompt is not _UNSET:
         _kwargs['prompt'] = prompt
     if system_prompt is not _UNSET:
         _kwargs['system_prompt'] = system_prompt
-    if max_tokens is not _UNSET:
-        _kwargs['max_tokens'] = max_tokens
-    if bypass_i2v is not _UNSET:
-        _kwargs['bypass_i2v'] = bypass_i2v
     if image is not _UNSET:
         _kwargs['image'] = image
     if seed is not _UNSET:
@@ -1338,20 +1445,24 @@ def LTXVHDRDecodePostprocess(
     _id: str | None = None,
     image: Any | _Omitted = _UNSET,
     exposure: float | _Omitted = _UNSET,
-    save_exr: bool | _Omitted = _UNSET,
-    output_dir: str | _Omitted = _UNSET,
     filename_prefix: str | _Omitted = _UNSET,
     half_precision: bool | _Omitted = _UNSET,
+    output_dir: str | _Omitted = _UNSET,
+    save_exr: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVHDRDecodePostprocess``.
+
+    Display name: 🅛🅣🅧 LTXVHDR Decode Postprocess
+
+    Category: Lightricks/HDR
+
     Decompresses VAE-decoded output from HDR IC-LoRA (LogC3) and applies Reinhard tonemapping. Place after VAE Decode. 'tonemapped' is the SDR preview; 'hdr_linear' is raw linear HDR for downstream use. Enable 'save_exr' to write an EXR image sequence.if save_exr is enabled, make sure to set OPENCV_IO_ENABLE_OPENEXR=1 environment in the command line
 
-    Pack: ComfyUI-LTXVideo
     Returns: tonemapped, hdr_linear
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVHDRDecodePostprocess() takes at most 1 positional argument, got {len(args)}")
@@ -1361,106 +1472,114 @@ def LTXVHDRDecodePostprocess(
         _kwargs['image'] = image
     if exposure is not _UNSET:
         _kwargs['exposure'] = exposure
-    if save_exr is not _UNSET:
-        _kwargs['save_exr'] = save_exr
-    if output_dir is not _UNSET:
-        _kwargs['output_dir'] = output_dir
     if filename_prefix is not _UNSET:
         _kwargs['filename_prefix'] = filename_prefix
     if half_precision is not _UNSET:
         _kwargs['half_precision'] = half_precision
+    if output_dir is not _UNSET:
+        _kwargs['output_dir'] = output_dir
+    if save_exr is not _UNSET:
+        _kwargs['save_exr'] = save_exr
     _kwargs.update(_extras)
     return node(wf, 'LTXVHDRDecodePostprocess', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVImgToVideoAdvanced(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
-    width: int | _Omitted = _UNSET,
-    height: int | _Omitted = _UNSET,
-    length: int | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     batch_size: int | _Omitted = _UNSET,
-    crf: int | _Omitted = _UNSET,
     blur_radius: int | _Omitted = _UNSET,
-    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
+    crf: int | _Omitted = _UNSET,
     crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
+    height: int | _Omitted = _UNSET,
+    interpolation: Literal['lanczos', 'bislerp', 'nearest', 'bilinear', 'bicubic', 'area', 'nearest-exact'] | _Omitted = _UNSET,
+    length: int | _Omitted = _UNSET,
     strength: float | _Omitted = _UNSET,
+    width: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVImgToVideoAdvanced``.
+
+    Display name: 🅛🅣🅧 LTXV Img To Video Advanced
+
+    Category: conditioning/video_models
+
     Adds a conditioning frame or a video at index 0. This node is used to add a keyframe or a video segment which should appear in the generated video at index 0. It resizes the image to the correct size and applies preprocessing to it.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVImgToVideoAdvanced() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if image is not _UNSET:
         _kwargs['image'] = image
-    if width is not _UNSET:
-        _kwargs['width'] = width
-    if height is not _UNSET:
-        _kwargs['height'] = height
-    if length is not _UNSET:
-        _kwargs['length'] = length
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if batch_size is not _UNSET:
         _kwargs['batch_size'] = batch_size
-    if crf is not _UNSET:
-        _kwargs['crf'] = crf
     if blur_radius is not _UNSET:
         _kwargs['blur_radius'] = blur_radius
-    if interpolation is not _UNSET:
-        _kwargs['interpolation'] = interpolation
+    if crf is not _UNSET:
+        _kwargs['crf'] = crf
     if crop is not _UNSET:
         _kwargs['crop'] = crop
+    if height is not _UNSET:
+        _kwargs['height'] = height
+    if interpolation is not _UNSET:
+        _kwargs['interpolation'] = interpolation
+    if length is not _UNSET:
+        _kwargs['length'] = length
     if strength is not _UNSET:
         _kwargs['strength'] = strength
+    if width is not _UNSET:
+        _kwargs['width'] = width
     _kwargs.update(_extras)
     return node(wf, 'LTXVImgToVideoAdvanced', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVImgToVideoConditionOnly(
     *args: VibeWorkflow,
     _id: str | None = None,
-    vae: Any | _Omitted = _UNSET,
     image: Any | _Omitted = _UNSET,
     latent: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     strength: float | _Omitted = _UNSET,
     bypass: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVImgToVideoConditionOnly``.
+
+    Display name: 🅛🅣🅧 LTXV Img To Video Condition Only
+
+    Category: conditioning/video_models
+
     Applies image conditioning to the first frames of an existing latent. Creates a noise mask to control conditioning strength.
 
-    Pack: ComfyUI-LTXVideo
     Returns: latent
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVImgToVideoConditionOnly() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if image is not _UNSET:
         _kwargs['image'] = image
     if latent is not _UNSET:
         _kwargs['latent'] = latent
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if strength is not _UNSET:
         _kwargs['strength'] = strength
     if bypass is not _UNSET:
@@ -1471,45 +1590,47 @@ def LTXVImgToVideoConditionOnly(
 def LTXVInContextSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    vae: Any | _Omitted = _UNSET,
     guider: Any | _Omitted = _UNSET,
+    guiding_latents: Any | _Omitted = _UNSET,
+    noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    noise: Any | _Omitted = _UNSET,
-    guiding_latents: Any | _Omitted = _UNSET,
-    optional_cond_images: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     num_frames: int | _Omitted = _UNSET,
+    optional_cond_images: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV In Context Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVInContextSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV In Context Sampler
+
+    Category: sampling
+
     Returns: denoised_video, positive, negative
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVInContextSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if guider is not _UNSET:
         _kwargs['guider'] = guider
+    if guiding_latents is not _UNSET:
+        _kwargs['guiding_latents'] = guiding_latents
+    if noise is not _UNSET:
+        _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if noise is not _UNSET:
-        _kwargs['noise'] = noise
-    if guiding_latents is not _UNSET:
-        _kwargs['guiding_latents'] = guiding_latents
-    if optional_cond_images is not _UNSET:
-        _kwargs['optional_cond_images'] = optional_cond_images
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if num_frames is not _UNSET:
         _kwargs['num_frames'] = num_frames
+    if optional_cond_images is not _UNSET:
+        _kwargs['optional_cond_images'] = optional_cond_images
     _kwargs.update(_extras)
     return node(wf, 'LTXVInContextSampler', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1520,14 +1641,18 @@ def LTXVInpaintPreprocess(
     mask: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVInpaintPreprocess``.
+
+    Display name: 🅛🅣🅧 LTXV Inpaint Preprocess
+
+    Category: Lightricks/image_processing
+
     Composites images with a green background where mask is active, for inpainting conditioning.
 
-    Pack: ComfyUI-LTXVideo
     Returns: image
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVInpaintPreprocess() takes at most 1 positional argument, got {len(args)}")
@@ -1546,18 +1671,22 @@ def LTXVLaplacianPyramidBlend(
     image_a: Any | _Omitted = _UNSET,
     image_b: Any | _Omitted = _UNSET,
     mask: Any | _Omitted = _UNSET,
-    trim_to_shortest: bool | _Omitted = _UNSET,
     mask_low_res_dilation: int | _Omitted = _UNSET,
+    trim_to_shortest: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVLaplacianPyramidBlend``.
+
+    Display name: 🅛🅣🅧 LTX Laplacian Pyramid Blend
+
+    Category: Lightricks/utility
+
     Blend two images seamlessly using Laplacian pyramid blending.
 
-    Pack: ComfyUI-LTXVideo
     Returns: image
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVLaplacianPyramidBlend() takes at most 1 positional argument, got {len(args)}")
@@ -1569,10 +1698,10 @@ def LTXVLaplacianPyramidBlend(
         _kwargs['image_b'] = image_b
     if mask is not _UNSET:
         _kwargs['mask'] = mask
-    if trim_to_shortest is not _UNSET:
-        _kwargs['trim_to_shortest'] = trim_to_shortest
     if mask_low_res_dilation is not _UNSET:
         _kwargs['mask_low_res_dilation'] = mask_low_res_dilation
+    if trim_to_shortest is not _UNSET:
+        _kwargs['trim_to_shortest'] = trim_to_shortest
     _kwargs.update(_extras)
     return node(wf, 'LTXVLaplacianPyramidBlend', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1585,14 +1714,16 @@ def LTXVLinearOverlapLatentTransition(
     axis: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Linear Overlap Latent Transition
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVLinearOverlapLatentTransition``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Linear Overlap Latent Transition
+
+    Category: Lightricks/latent
+
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVLinearOverlapLatentTransition() takes at most 1 positional argument, got {len(args)}")
@@ -1612,189 +1743,197 @@ def LTXVLinearOverlapLatentTransition(
 def LTXVLoadConditioning(
     *args: VibeWorkflow,
     _id: str | None = None,
-    file_name: Any | _Omitted = _UNSET,
     device: Any | _Omitted = _UNSET,
+    file_name: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Load Conditioning
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVLoadConditioning``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Load Conditioning
+
+    Category: lightricks/LTXV
+
     Returns: CONDITIONING
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVLoadConditioning() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if file_name is not _UNSET:
-        _kwargs['file_name'] = file_name
     if device is not _UNSET:
         _kwargs['device'] = device
+    if file_name is not _UNSET:
+        _kwargs['file_name'] = file_name
     _kwargs.update(_extras)
     return node(wf, 'LTXVLoadConditioning', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVLoopingSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
+    guider: Any | _Omitted = _UNSET,
+    latents: Any | _Omitted = _UNSET,
     model: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
     noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    guider: Any | _Omitted = _UNSET,
-    latents: Any | _Omitted = _UNSET,
-    temporal_tile_size: int | _Omitted = _UNSET,
-    temporal_overlap: int | _Omitted = _UNSET,
-    guiding_strength: float | _Omitted = _UNSET,
-    temporal_overlap_cond_strength: float | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     cond_image_strength: float | _Omitted = _UNSET,
+    guiding_strength: float | _Omitted = _UNSET,
     horizontal_tiles: int | _Omitted = _UNSET,
-    vertical_tiles: int | _Omitted = _UNSET,
     spatial_overlap: int | _Omitted = _UNSET,
+    temporal_overlap: int | _Omitted = _UNSET,
+    temporal_overlap_cond_strength: float | _Omitted = _UNSET,
+    temporal_tile_size: int | _Omitted = _UNSET,
+    vertical_tiles: int | _Omitted = _UNSET,
+    adain_factor: float | _Omitted = _UNSET,
+    guiding_end_step: int | _Omitted = _UNSET,
+    guiding_start_step: int | _Omitted = _UNSET,
+    optional_cond_image_indices: str | _Omitted = _UNSET,
     optional_cond_images: Any | _Omitted = _UNSET,
     optional_guiding_latents: Any | _Omitted = _UNSET,
-    adain_factor: float | _Omitted = _UNSET,
-    optional_positive_conditionings: Any | _Omitted = _UNSET,
     optional_negative_index_latents: Any | _Omitted = _UNSET,
-    guiding_start_step: int | _Omitted = _UNSET,
-    guiding_end_step: int | _Omitted = _UNSET,
-    optional_cond_image_indices: str | _Omitted = _UNSET,
     optional_normalizing_latents: Any | _Omitted = _UNSET,
+    optional_positive_conditionings: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Looping Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVLoopingSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Looping Sampler
+
+    Category: sampling
+
     Returns: denoised_output
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVLoopingSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
+    if guider is not _UNSET:
+        _kwargs['guider'] = guider
+    if latents is not _UNSET:
+        _kwargs['latents'] = latents
     if model is not _UNSET:
         _kwargs['model'] = model
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if noise is not _UNSET:
         _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if guider is not _UNSET:
-        _kwargs['guider'] = guider
-    if latents is not _UNSET:
-        _kwargs['latents'] = latents
-    if temporal_tile_size is not _UNSET:
-        _kwargs['temporal_tile_size'] = temporal_tile_size
-    if temporal_overlap is not _UNSET:
-        _kwargs['temporal_overlap'] = temporal_overlap
-    if guiding_strength is not _UNSET:
-        _kwargs['guiding_strength'] = guiding_strength
-    if temporal_overlap_cond_strength is not _UNSET:
-        _kwargs['temporal_overlap_cond_strength'] = temporal_overlap_cond_strength
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if cond_image_strength is not _UNSET:
         _kwargs['cond_image_strength'] = cond_image_strength
+    if guiding_strength is not _UNSET:
+        _kwargs['guiding_strength'] = guiding_strength
     if horizontal_tiles is not _UNSET:
         _kwargs['horizontal_tiles'] = horizontal_tiles
-    if vertical_tiles is not _UNSET:
-        _kwargs['vertical_tiles'] = vertical_tiles
     if spatial_overlap is not _UNSET:
         _kwargs['spatial_overlap'] = spatial_overlap
+    if temporal_overlap is not _UNSET:
+        _kwargs['temporal_overlap'] = temporal_overlap
+    if temporal_overlap_cond_strength is not _UNSET:
+        _kwargs['temporal_overlap_cond_strength'] = temporal_overlap_cond_strength
+    if temporal_tile_size is not _UNSET:
+        _kwargs['temporal_tile_size'] = temporal_tile_size
+    if vertical_tiles is not _UNSET:
+        _kwargs['vertical_tiles'] = vertical_tiles
+    if adain_factor is not _UNSET:
+        _kwargs['adain_factor'] = adain_factor
+    if guiding_end_step is not _UNSET:
+        _kwargs['guiding_end_step'] = guiding_end_step
+    if guiding_start_step is not _UNSET:
+        _kwargs['guiding_start_step'] = guiding_start_step
+    if optional_cond_image_indices is not _UNSET:
+        _kwargs['optional_cond_image_indices'] = optional_cond_image_indices
     if optional_cond_images is not _UNSET:
         _kwargs['optional_cond_images'] = optional_cond_images
     if optional_guiding_latents is not _UNSET:
         _kwargs['optional_guiding_latents'] = optional_guiding_latents
-    if adain_factor is not _UNSET:
-        _kwargs['adain_factor'] = adain_factor
-    if optional_positive_conditionings is not _UNSET:
-        _kwargs['optional_positive_conditionings'] = optional_positive_conditionings
     if optional_negative_index_latents is not _UNSET:
         _kwargs['optional_negative_index_latents'] = optional_negative_index_latents
-    if guiding_start_step is not _UNSET:
-        _kwargs['guiding_start_step'] = guiding_start_step
-    if guiding_end_step is not _UNSET:
-        _kwargs['guiding_end_step'] = guiding_end_step
-    if optional_cond_image_indices is not _UNSET:
-        _kwargs['optional_cond_image_indices'] = optional_cond_image_indices
     if optional_normalizing_latents is not _UNSET:
         _kwargs['optional_normalizing_latents'] = optional_normalizing_latents
+    if optional_positive_conditionings is not _UNSET:
+        _kwargs['optional_positive_conditionings'] = optional_positive_conditionings
     _kwargs.update(_extras)
     return node(wf, 'LTXVLoopingSampler', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVMultiPromptProvider(
     *args: VibeWorkflow,
     _id: str | None = None,
-    prompts: str | _Omitted = _UNSET,
     clip: Any | _Omitted = _UNSET,
+    prompts: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Multi Prompt Provider
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVMultiPromptProvider``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Multi Prompt Provider
+
+    Category: prompt
+
     Returns: conditionings
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVMultiPromptProvider() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if prompts is not _UNSET:
-        _kwargs['prompts'] = prompts
     if clip is not _UNSET:
         _kwargs['clip'] = clip
+    if prompts is not _UNSET:
+        _kwargs['prompts'] = prompts
     _kwargs.update(_extras)
     return node(wf, 'LTXVMultiPromptProvider', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVNormalizingSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
-    noise: Any | _Omitted = _UNSET,
     guider: Any | _Omitted = _UNSET,
+    latent_image: Any | _Omitted = _UNSET,
+    noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    latent_image: Any | _Omitted = _UNSET,
-    video_normalization_factors: str | _Omitted = _UNSET,
     audio_normalization_factors: str | _Omitted = _UNSET,
+    video_normalization_factors: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Normalizing Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVNormalizingSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Normalizing Sampler
+
+    Category: utility
+
     Returns: denoised_output
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVNormalizingSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if noise is not _UNSET:
-        _kwargs['noise'] = noise
     if guider is not _UNSET:
         _kwargs['guider'] = guider
+    if latent_image is not _UNSET:
+        _kwargs['latent_image'] = latent_image
+    if noise is not _UNSET:
+        _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if latent_image is not _UNSET:
-        _kwargs['latent_image'] = latent_image
-    if video_normalization_factors is not _UNSET:
-        _kwargs['video_normalization_factors'] = video_normalization_factors
     if audio_normalization_factors is not _UNSET:
         _kwargs['audio_normalization_factors'] = audio_normalization_factors
+    if video_normalization_factors is not _UNSET:
+        _kwargs['video_normalization_factors'] = video_normalization_factors
     _kwargs.update(_extras)
     return node(wf, 'LTXVNormalizingSampler', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1804,14 +1943,16 @@ def LTXVPatcherVAE(
     vae: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Patcher VAE
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPatcherVAE``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Patcher VAE
+
+    Category: lightricks/LTXV
+
     Returns: VAE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPatcherVAE() takes at most 1 positional argument, got {len(args)}")
@@ -1826,19 +1967,21 @@ def LTXVPerStepAdainPatcher(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    factors: str | _Omitted = _UNSET,
     reference: Any | _Omitted = _UNSET,
+    factors: str | _Omitted = _UNSET,
     per_frame: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Per Step Adain Patcher
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPerStepAdainPatcher``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Per Step Adain Patcher
+
+    Category: Lightricks/latents
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPerStepAdainPatcher() takes at most 1 positional argument, got {len(args)}")
@@ -1846,10 +1989,10 @@ def LTXVPerStepAdainPatcher(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if factors is not _UNSET:
-        _kwargs['factors'] = factors
     if reference is not _UNSET:
         _kwargs['reference'] = reference
+    if factors is not _UNSET:
+        _kwargs['factors'] = factors
     if per_frame is not _UNSET:
         _kwargs['per_frame'] = per_frame
     _kwargs.update(_extras)
@@ -1859,21 +2002,23 @@ def LTXVPerStepStatNormPatcher(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
+    clip_outliers: bool | _Omitted = _UNSET,
     factors: str | _Omitted = _UNSET,
+    percentile: float | _Omitted = _UNSET,
     target_mean: float | _Omitted = _UNSET,
     target_std: float | _Omitted = _UNSET,
-    percentile: float | _Omitted = _UNSET,
-    clip_outliers: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Per Step Stat Norm Patcher
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPerStepStatNormPatcher``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Per Step Stat Norm Patcher
+
+    Category: Lightricks/latents
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPerStepStatNormPatcher() takes at most 1 positional argument, got {len(args)}")
@@ -1881,16 +2026,16 @@ def LTXVPerStepStatNormPatcher(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
+    if clip_outliers is not _UNSET:
+        _kwargs['clip_outliers'] = clip_outliers
     if factors is not _UNSET:
         _kwargs['factors'] = factors
+    if percentile is not _UNSET:
+        _kwargs['percentile'] = percentile
     if target_mean is not _UNSET:
         _kwargs['target_mean'] = target_mean
     if target_std is not _UNSET:
         _kwargs['target_std'] = target_std
-    if percentile is not _UNSET:
-        _kwargs['percentile'] = percentile
-    if clip_outliers is not _UNSET:
-        _kwargs['clip_outliers'] = clip_outliers
     _kwargs.update(_extras)
     return node(wf, 'LTXVPerStepStatNormPatcher', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -1899,23 +2044,27 @@ def LTXVPreprocessMasks(
     _id: str | None = None,
     masks: Any | _Omitted = _UNSET,
     vae: Any | _Omitted = _UNSET,
-    invert_input_masks: bool | _Omitted = _UNSET,
-    ignore_first_mask: bool | _Omitted = _UNSET,
-    pooling_method: Literal['max', 'mean', 'min'] | _Omitted = _UNSET,
-    grow_mask: int | _Omitted = _UNSET,
-    tapered_corners: bool | _Omitted = _UNSET,
-    clamp_min: float | _Omitted = _UNSET,
     clamp_max: float | _Omitted = _UNSET,
+    clamp_min: float | _Omitted = _UNSET,
+    grow_mask: int | _Omitted = _UNSET,
+    ignore_first_mask: bool | _Omitted = _UNSET,
+    invert_input_masks: bool | _Omitted = _UNSET,
+    pooling_method: Literal['max', 'mean', 'min'] | _Omitted = _UNSET,
+    tapered_corners: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPreprocessMasks``.
+
+    Display name: 🅛🅣🅧 LTXV Preprocess Masks
+
+    Category: Lightricks/mask_operations
+
     Preprocess masks to be used for masking latents in the LTXVideo model.
 
-    Pack: ComfyUI-LTXVideo
     Returns: MASK
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPreprocessMasks() takes at most 1 positional argument, got {len(args)}")
@@ -1925,51 +2074,55 @@ def LTXVPreprocessMasks(
         _kwargs['masks'] = masks
     if vae is not _UNSET:
         _kwargs['vae'] = vae
-    if invert_input_masks is not _UNSET:
-        _kwargs['invert_input_masks'] = invert_input_masks
-    if ignore_first_mask is not _UNSET:
-        _kwargs['ignore_first_mask'] = ignore_first_mask
-    if pooling_method is not _UNSET:
-        _kwargs['pooling_method'] = pooling_method
-    if grow_mask is not _UNSET:
-        _kwargs['grow_mask'] = grow_mask
-    if tapered_corners is not _UNSET:
-        _kwargs['tapered_corners'] = tapered_corners
-    if clamp_min is not _UNSET:
-        _kwargs['clamp_min'] = clamp_min
     if clamp_max is not _UNSET:
         _kwargs['clamp_max'] = clamp_max
+    if clamp_min is not _UNSET:
+        _kwargs['clamp_min'] = clamp_min
+    if grow_mask is not _UNSET:
+        _kwargs['grow_mask'] = grow_mask
+    if ignore_first_mask is not _UNSET:
+        _kwargs['ignore_first_mask'] = ignore_first_mask
+    if invert_input_masks is not _UNSET:
+        _kwargs['invert_input_masks'] = invert_input_masks
+    if pooling_method is not _UNSET:
+        _kwargs['pooling_method'] = pooling_method
+    if tapered_corners is not _UNSET:
+        _kwargs['tapered_corners'] = tapered_corners
     _kwargs.update(_extras)
     return node(wf, 'LTXVPreprocessMasks', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVPromptEnhancer(
     *args: VibeWorkflow,
     _id: str | None = None,
+    max_resulting_tokens: int | _Omitted = _UNSET,
     prompt: str | _Omitted = _UNSET,
     prompt_enhancer: Any | _Omitted = _UNSET,
-    max_resulting_tokens: int | _Omitted = _UNSET,
     image_prompt: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPromptEnhancer``.
+
+    Display name: 🅛🅣🅧 LTXV Prompt Enhancer
+
+    Category: lightricks/LTXV
+
     Enhances text prompts for image generation using LLMs. Optionally incorporates reference images to create more contextually relevant descriptions.
 
-    Pack: ComfyUI-LTXVideo
     Returns: str
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPromptEnhancer() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
+    if max_resulting_tokens is not _UNSET:
+        _kwargs['max_resulting_tokens'] = max_resulting_tokens
     if prompt is not _UNSET:
         _kwargs['prompt'] = prompt
     if prompt_enhancer is not _UNSET:
         _kwargs['prompt_enhancer'] = prompt_enhancer
-    if max_resulting_tokens is not _UNSET:
-        _kwargs['max_resulting_tokens'] = max_resulting_tokens
     if image_prompt is not _UNSET:
         _kwargs['image_prompt'] = image_prompt
     _kwargs.update(_extras)
@@ -1978,27 +2131,31 @@ def LTXVPromptEnhancer(
 def LTXVPromptEnhancerLoader(
     *args: VibeWorkflow,
     _id: str | None = None,
-    llm_name: str | _Omitted = _UNSET,
     image_captioner_name: str | _Omitted = _UNSET,
+    llm_name: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVPromptEnhancerLoader``.
+
+    Display name: 🅛🅣🅧 LTXV Prompt Enhancer Loader
+
+    Category: lightricks/LTXV
+
     Downloads and initializes LLM and image captioning models from Hugging Face to enhance text prompts for image generation.
 
-    Pack: ComfyUI-LTXVideo
     Returns: prompt_enhancer
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVPromptEnhancerLoader() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if llm_name is not _UNSET:
-        _kwargs['llm_name'] = llm_name
     if image_captioner_name is not _UNSET:
         _kwargs['image_captioner_name'] = image_captioner_name
+    if llm_name is not _UNSET:
+        _kwargs['llm_name'] = llm_name
     _kwargs.update(_extras)
     return node(wf, 'LTXVPromptEnhancerLoader', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2010,14 +2167,16 @@ def LTXVQ8LoraModelLoader(
     strength_model: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXVQ8Lora Model Loader
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVQ8LoraModelLoader``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXVQ8Lora Model Loader
+
+    Category: lightricks/LTXV
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVQ8LoraModelLoader() takes at most 1 positional argument, got {len(args)}")
@@ -2036,18 +2195,20 @@ def LTXVSaveConditioning(
     *args: VibeWorkflow,
     _id: str | None = None,
     conditioning: Any | _Omitted = _UNSET,
-    filename: str | _Omitted = _UNSET,
     dtype: Any | _Omitted = _UNSET,
+    filename: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Save Conditioning
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSaveConditioning``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Save Conditioning
+
+    Category: lightricks/LTXV
+
     Returns: None
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSaveConditioning() takes at most 1 positional argument, got {len(args)}")
@@ -2055,10 +2216,10 @@ def LTXVSaveConditioning(
     _kwargs: dict[str, Any] = {}
     if conditioning is not _UNSET:
         _kwargs['conditioning'] = conditioning
-    if filename is not _UNSET:
-        _kwargs['filename'] = filename
     if dtype is not _UNSET:
         _kwargs['dtype'] = dtype
+    if filename is not _UNSET:
+        _kwargs['filename'] = filename
     _kwargs.update(_extras)
     return node(wf, 'LTXVSaveConditioning', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2066,18 +2227,22 @@ def LTXVSelectLatents(
     *args: VibeWorkflow,
     _id: str | None = None,
     samples: Any | _Omitted = _UNSET,
-    start_index: int | _Omitted = _UNSET,
     end_index: int | _Omitted = _UNSET,
+    start_index: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSelectLatents``.
+
+    Display name: 🅛🅣🅧 LTXV Select Latents
+
+    Category: latent/video
+
     Selects a range of frames from the video latent. start_index and end_index define a closed interval (inclusive of both endpoints).
 
-    Pack: ComfyUI-LTXVideo
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSelectLatents() takes at most 1 positional argument, got {len(args)}")
@@ -2085,104 +2250,112 @@ def LTXVSelectLatents(
     _kwargs: dict[str, Any] = {}
     if samples is not _UNSET:
         _kwargs['samples'] = samples
-    if start_index is not _UNSET:
-        _kwargs['start_index'] = start_index
     if end_index is not _UNSET:
         _kwargs['end_index'] = end_index
+    if start_index is not _UNSET:
+        _kwargs['start_index'] = start_index
     _kwargs.update(_extras)
     return node(wf, 'LTXVSelectLatents', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVSetAudioRefTokens(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
     audio_latent: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSetAudioRefTokens``.
+
+    Display name: 🅛🅣🅧 Set Audio Ref Tokens
+
+    Category: Lightricks/IC-LoRA
+
     Provides speaker identity context for audio generation by attaching reference audio tokens to the conditioning. The tokens are prepended with negative temporal positions so the model treats them as context rather than generation targets.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, frozen_audio
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSetAudioRefTokens() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
     if audio_latent is not _UNSET:
         _kwargs['audio_latent'] = audio_latent
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     _kwargs.update(_extras)
     return node(wf, 'LTXVSetAudioRefTokens', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVSetAudioVideoMaskByTime(
     *args: VibeWorkflow,
     _id: str | None = None,
-    av_latent: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
-    negative: Any | _Omitted = _UNSET,
-    model: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
     audio_vae: Any | _Omitted = _UNSET,
-    start_time: float | _Omitted = _UNSET,
+    av_latent: Any | _Omitted = _UNSET,
+    model: Any | _Omitted = _UNSET,
+    negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     end_time: float | _Omitted = _UNSET,
-    video_fps: float | _Omitted = _UNSET,
-    mask_video: bool | _Omitted = _UNSET,
     mask_audio: bool | _Omitted = _UNSET,
-    mask_init_value_video: float | _Omitted = _UNSET,
     mask_init_value_audio: float | _Omitted = _UNSET,
+    mask_init_value_video: float | _Omitted = _UNSET,
+    mask_video: bool | _Omitted = _UNSET,
     slope_len: int | _Omitted = _UNSET,
+    start_time: float | _Omitted = _UNSET,
+    video_fps: float | _Omitted = _UNSET,
     spatial_mask: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSetAudioVideoMaskByTime``.
+
+    Display name: 🅛🅣🅧 LTXV Set Audio Video Mask By Time
+
+    Category: utility
+
     Sets the audio and video mask by time.
 
-    Pack: ComfyUI-LTXVideo
     Returns: positive, negative, av_latent, video_latent_blend_coefficients, video_pixel_blend_coefficients
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSetAudioVideoMaskByTime() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if av_latent is not _UNSET:
-        _kwargs['av_latent'] = av_latent
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
-    if negative is not _UNSET:
-        _kwargs['negative'] = negative
-    if model is not _UNSET:
-        _kwargs['model'] = model
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if audio_vae is not _UNSET:
         _kwargs['audio_vae'] = audio_vae
-    if start_time is not _UNSET:
-        _kwargs['start_time'] = start_time
+    if av_latent is not _UNSET:
+        _kwargs['av_latent'] = av_latent
+    if model is not _UNSET:
+        _kwargs['model'] = model
+    if negative is not _UNSET:
+        _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if end_time is not _UNSET:
         _kwargs['end_time'] = end_time
-    if video_fps is not _UNSET:
-        _kwargs['video_fps'] = video_fps
-    if mask_video is not _UNSET:
-        _kwargs['mask_video'] = mask_video
     if mask_audio is not _UNSET:
         _kwargs['mask_audio'] = mask_audio
-    if mask_init_value_video is not _UNSET:
-        _kwargs['mask_init_value_video'] = mask_init_value_video
     if mask_init_value_audio is not _UNSET:
         _kwargs['mask_init_value_audio'] = mask_init_value_audio
+    if mask_init_value_video is not _UNSET:
+        _kwargs['mask_init_value_video'] = mask_init_value_video
+    if mask_video is not _UNSET:
+        _kwargs['mask_video'] = mask_video
     if slope_len is not _UNSET:
         _kwargs['slope_len'] = slope_len
+    if start_time is not _UNSET:
+        _kwargs['start_time'] = start_time
+    if video_fps is not _UNSET:
+        _kwargs['video_fps'] = video_fps
     if spatial_mask is not _UNSET:
         _kwargs['spatial_mask'] = spatial_mask
     _kwargs.update(_extras)
@@ -2191,27 +2364,31 @@ def LTXVSetAudioVideoMaskByTime(
 def LTXVSetVideoLatentNoiseMasks(
     *args: VibeWorkflow,
     _id: str | None = None,
-    samples: Any | _Omitted = _UNSET,
     masks: Any | _Omitted = _UNSET,
+    samples: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSetVideoLatentNoiseMasks``.
+
+    Display name: 🅛🅣🅧 LTXV Set Video Latent Noise Masks
+
+    Category: latent/video
+
     Applies multiple masks to a video latent. masks can be 2D, 3D, or 4D tensors. If there are fewer masks than frames, the last mask will be reused.
 
-    Pack: ComfyUI-LTXVideo
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSetVideoLatentNoiseMasks() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if samples is not _UNSET:
-        _kwargs['samples'] = samples
     if masks is not _UNSET:
         _kwargs['masks'] = masks
+    if samples is not _UNSET:
+        _kwargs['samples'] = samples
     _kwargs.update(_extras)
     return node(wf, 'LTXVSetVideoLatentNoiseMasks', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2219,19 +2396,23 @@ def LTXVSparseTrackEditor(
     *args: VibeWorkflow,
     _id: str | None = None,
     image: Any | _Omitted = _UNSET,
-    points_store: str | _Omitted = _UNSET,
     coordinates: str | _Omitted = _UNSET,
+    points_store: str | _Omitted = _UNSET,
     points_to_sample: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSparseTrackEditor``.
+
+    Display name: 🅛🅣🅧 LTX Sparse Track Editor
+
+    Category: Lightricks/motion_tracking
+
     Interactive spline editor for drawing sparse motion tracks on a reference image.
 
-    Pack: ComfyUI-LTXVideo
     Returns: tracks
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSparseTrackEditor() takes at most 1 positional argument, got {len(args)}")
@@ -2239,10 +2420,10 @@ def LTXVSparseTrackEditor(
     _kwargs: dict[str, Any] = {}
     if image is not _UNSET:
         _kwargs['image'] = image
-    if points_store is not _UNSET:
-        _kwargs['points_store'] = points_store
     if coordinates is not _UNSET:
         _kwargs['coordinates'] = coordinates
+    if points_store is not _UNSET:
+        _kwargs['points_store'] = points_store
     if points_to_sample is not _UNSET:
         _kwargs['points_to_sample'] = points_to_sample
     _kwargs.update(_extras)
@@ -2251,44 +2432,46 @@ def LTXVSparseTrackEditor(
 def LTXVSpatioTemporalTiledVAEDecode(
     *args: VibeWorkflow,
     _id: str | None = None,
-    vae: Any | _Omitted = _UNSET,
     latents: Any | _Omitted = _UNSET,
-    spatial_tiles: int | _Omitted = _UNSET,
-    spatial_overlap: int | _Omitted = _UNSET,
-    temporal_tile_length: int | _Omitted = _UNSET,
-    temporal_overlap: int | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     last_frame_fix: bool | _Omitted = _UNSET,
+    spatial_overlap: int | _Omitted = _UNSET,
+    spatial_tiles: int | _Omitted = _UNSET,
+    temporal_overlap: int | _Omitted = _UNSET,
+    temporal_tile_length: int | _Omitted = _UNSET,
     working_device: Literal['cpu', 'auto'] | _Omitted = _UNSET,
     working_dtype: Literal['float16', 'float32', 'auto'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Spatio Temporal Tiled VAE Decode
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVSpatioTemporalTiledVAEDecode``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Spatio Temporal Tiled VAE Decode
+
+    Category: latent
+
     Returns: image
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVSpatioTemporalTiledVAEDecode() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if latents is not _UNSET:
         _kwargs['latents'] = latents
-    if spatial_tiles is not _UNSET:
-        _kwargs['spatial_tiles'] = spatial_tiles
-    if spatial_overlap is not _UNSET:
-        _kwargs['spatial_overlap'] = spatial_overlap
-    if temporal_tile_length is not _UNSET:
-        _kwargs['temporal_tile_length'] = temporal_tile_length
-    if temporal_overlap is not _UNSET:
-        _kwargs['temporal_overlap'] = temporal_overlap
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if last_frame_fix is not _UNSET:
         _kwargs['last_frame_fix'] = last_frame_fix
+    if spatial_overlap is not _UNSET:
+        _kwargs['spatial_overlap'] = spatial_overlap
+    if spatial_tiles is not _UNSET:
+        _kwargs['spatial_tiles'] = spatial_tiles
+    if temporal_overlap is not _UNSET:
+        _kwargs['temporal_overlap'] = temporal_overlap
+    if temporal_tile_length is not _UNSET:
+        _kwargs['temporal_tile_length'] = temporal_tile_length
     if working_device is not _UNSET:
         _kwargs['working_device'] = working_device
     if working_dtype is not _UNSET:
@@ -2300,21 +2483,23 @@ def LTXVStatNormLatent(
     *args: VibeWorkflow,
     _id: str | None = None,
     latents: Any | _Omitted = _UNSET,
+    clip_outliers: bool | _Omitted = _UNSET,
+    factor: float | _Omitted = _UNSET,
+    percentile: float | _Omitted = _UNSET,
     target_mean: float | _Omitted = _UNSET,
     target_std: float | _Omitted = _UNSET,
-    percentile: float | _Omitted = _UNSET,
-    factor: float | _Omitted = _UNSET,
-    clip_outliers: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Stat Norm Latent
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVStatNormLatent``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Stat Norm Latent
+
+    Category: Lightricks/latents
+
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVStatNormLatent() takes at most 1 positional argument, got {len(args)}")
@@ -2322,126 +2507,130 @@ def LTXVStatNormLatent(
     _kwargs: dict[str, Any] = {}
     if latents is not _UNSET:
         _kwargs['latents'] = latents
+    if clip_outliers is not _UNSET:
+        _kwargs['clip_outliers'] = clip_outliers
+    if factor is not _UNSET:
+        _kwargs['factor'] = factor
+    if percentile is not _UNSET:
+        _kwargs['percentile'] = percentile
     if target_mean is not _UNSET:
         _kwargs['target_mean'] = target_mean
     if target_std is not _UNSET:
         _kwargs['target_std'] = target_std
-    if percentile is not _UNSET:
-        _kwargs['percentile'] = percentile
-    if factor is not _UNSET:
-        _kwargs['factor'] = factor
-    if clip_outliers is not _UNSET:
-        _kwargs['clip_outliers'] = clip_outliers
     _kwargs.update(_extras)
     return node(wf, 'LTXVStatNormLatent', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVTiledSampler(
     *args: VibeWorkflow,
     _id: str | None = None,
+    guider: Any | _Omitted = _UNSET,
+    latents: Any | _Omitted = _UNSET,
     model: Any | _Omitted = _UNSET,
-    vae: Any | _Omitted = _UNSET,
     noise: Any | _Omitted = _UNSET,
     sampler: Any | _Omitted = _UNSET,
     sigmas: Any | _Omitted = _UNSET,
-    guider: Any | _Omitted = _UNSET,
-    latents: Any | _Omitted = _UNSET,
-    horizontal_tiles: int | _Omitted = _UNSET,
-    vertical_tiles: int | _Omitted = _UNSET,
-    overlap: int | _Omitted = _UNSET,
-    latents_cond_strength: float | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     boost_latent_similarity: bool | _Omitted = _UNSET,
     crop: Literal['center', 'disabled'] | _Omitted = _UNSET,
+    horizontal_tiles: int | _Omitted = _UNSET,
+    latents_cond_strength: float | _Omitted = _UNSET,
+    overlap: int | _Omitted = _UNSET,
+    vertical_tiles: int | _Omitted = _UNSET,
+    images_cond_strengths: str | _Omitted = _UNSET,
     optional_cond_images: Any | _Omitted = _UNSET,
     optional_cond_indices: str | _Omitted = _UNSET,
-    images_cond_strengths: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Tiled Sampler
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVTiledSampler``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Tiled Sampler
+
+    Category: sampling
+
     Returns: output, denoised_output
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVTiledSampler() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
+    if guider is not _UNSET:
+        _kwargs['guider'] = guider
+    if latents is not _UNSET:
+        _kwargs['latents'] = latents
     if model is not _UNSET:
         _kwargs['model'] = model
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if noise is not _UNSET:
         _kwargs['noise'] = noise
     if sampler is not _UNSET:
         _kwargs['sampler'] = sampler
     if sigmas is not _UNSET:
         _kwargs['sigmas'] = sigmas
-    if guider is not _UNSET:
-        _kwargs['guider'] = guider
-    if latents is not _UNSET:
-        _kwargs['latents'] = latents
-    if horizontal_tiles is not _UNSET:
-        _kwargs['horizontal_tiles'] = horizontal_tiles
-    if vertical_tiles is not _UNSET:
-        _kwargs['vertical_tiles'] = vertical_tiles
-    if overlap is not _UNSET:
-        _kwargs['overlap'] = overlap
-    if latents_cond_strength is not _UNSET:
-        _kwargs['latents_cond_strength'] = latents_cond_strength
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if boost_latent_similarity is not _UNSET:
         _kwargs['boost_latent_similarity'] = boost_latent_similarity
     if crop is not _UNSET:
         _kwargs['crop'] = crop
+    if horizontal_tiles is not _UNSET:
+        _kwargs['horizontal_tiles'] = horizontal_tiles
+    if latents_cond_strength is not _UNSET:
+        _kwargs['latents_cond_strength'] = latents_cond_strength
+    if overlap is not _UNSET:
+        _kwargs['overlap'] = overlap
+    if vertical_tiles is not _UNSET:
+        _kwargs['vertical_tiles'] = vertical_tiles
+    if images_cond_strengths is not _UNSET:
+        _kwargs['images_cond_strengths'] = images_cond_strengths
     if optional_cond_images is not _UNSET:
         _kwargs['optional_cond_images'] = optional_cond_images
     if optional_cond_indices is not _UNSET:
         _kwargs['optional_cond_indices'] = optional_cond_indices
-    if images_cond_strengths is not _UNSET:
-        _kwargs['images_cond_strengths'] = images_cond_strengths
     _kwargs.update(_extras)
     return node(wf, 'LTXVTiledSampler', _id, pass_raw=pass_raw, **_kwargs)
 
 def LTXVTiledVAEDecode(
     *args: VibeWorkflow,
     _id: str | None = None,
-    vae: Any | _Omitted = _UNSET,
     latents: Any | _Omitted = _UNSET,
+    vae: Any | _Omitted = _UNSET,
     horizontal_tiles: int | _Omitted = _UNSET,
-    vertical_tiles: int | _Omitted = _UNSET,
-    overlap: int | _Omitted = _UNSET,
     last_frame_fix: bool | _Omitted = _UNSET,
+    overlap: int | _Omitted = _UNSET,
+    vertical_tiles: int | _Omitted = _UNSET,
     working_device: Literal['cpu', 'auto'] | _Omitted = _UNSET,
     working_dtype: Literal['float16', 'float32', 'auto'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 LTXV Tiled VAE Decode
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LTXVTiledVAEDecode``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 LTXV Tiled VAE Decode
+
+    Category: latent
+
     Returns: image
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LTXVTiledVAEDecode() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if vae is not _UNSET:
-        _kwargs['vae'] = vae
     if latents is not _UNSET:
         _kwargs['latents'] = latents
+    if vae is not _UNSET:
+        _kwargs['vae'] = vae
     if horizontal_tiles is not _UNSET:
         _kwargs['horizontal_tiles'] = horizontal_tiles
-    if vertical_tiles is not _UNSET:
-        _kwargs['vertical_tiles'] = vertical_tiles
-    if overlap is not _UNSET:
-        _kwargs['overlap'] = overlap
     if last_frame_fix is not _UNSET:
         _kwargs['last_frame_fix'] = last_frame_fix
+    if overlap is not _UNSET:
+        _kwargs['overlap'] = overlap
+    if vertical_tiles is not _UNSET:
+        _kwargs['vertical_tiles'] = vertical_tiles
     if working_device is not _UNSET:
         _kwargs['working_device'] = working_device
     if working_dtype is not _UNSET:
@@ -2458,14 +2647,16 @@ def LinearOverlapLatentTransition(
     axis: int | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Linear transition with overlap
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LinearOverlapLatentTransition``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Linear transition with overlap
+
+    Category: Lightricks/latent
+
     Returns: LATENT
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LinearOverlapLatentTransition() takes at most 1 positional argument, got {len(args)}")
@@ -2489,14 +2680,18 @@ def LowVRAMAudioVAELoader(
     dependencies: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LowVRAMAudioVAELoader``.
+
+    Display name: 🅛🅣🅧 Low VRAM Audio VAE Loader
+
+    Category: LTXV/loaders
+
     Loads an LTXV Audio VAE checkpoint with dependency support. Connect 'dependencies' to a previous loader's output to ensure sequential loading and reduce peak VRAM usage.
 
-    Pack: ComfyUI-LTXVideo
     Returns: audio_vae
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LowVRAMAudioVAELoader() takes at most 1 positional argument, got {len(args)}")
@@ -2516,14 +2711,18 @@ def LowVRAMCheckpointLoader(
     dependencies: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LowVRAMCheckpointLoader``.
+
+    Display name: 🅛🅣🅧 Low VRAM Checkpoint Loader
+
+    Category: LTXV/loaders
+
     Loads a diffusion model checkpoint with dependency support. Connect 'dependencies' to a previous loader's output to ensure sequential loading and reduce peak VRAM usage.
 
-    Pack: ComfyUI-LTXVideo
     Returns: MODEL, CLIP, VAE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LowVRAMCheckpointLoader() takes at most 1 positional argument, got {len(args)}")
@@ -2542,14 +2741,16 @@ def LowVRAMLatentUpscaleModelLoader(
     model_name: Literal['hunyuanvideo15_latent_upsampler_1080p.safetensors', 'ltx-2-spatial-upscaler-x2-1.0.safetensors', 'ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors', 'ltx-2.3-spatial-upscaler-x2-1.0.safetensors', 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors', 'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Low VRAM Latent Upscale Model Loader
+) -> Any:
+    """Public wrapper for the ComfyUI node ``LowVRAMLatentUpscaleModelLoader``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Low VRAM Latent Upscale Model Loader
+
+    Category: loaders
+
     Returns: LATENT_UPSCALE_MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"LowVRAMLatentUpscaleModelLoader() takes at most 1 positional argument, got {len(args)}")
@@ -2566,14 +2767,16 @@ def ModifyLTXModel(
     model: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    Modify LTX Model
+) -> Any:
+    """Public wrapper for the ComfyUI node ``ModifyLTXModel``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: Modify LTX Model
+
+    Category: ltxtricks
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"ModifyLTXModel() takes at most 1 positional argument, got {len(args)}")
@@ -2587,27 +2790,29 @@ def ModifyLTXModel(
 def MultiPromptProvider(
     *args: VibeWorkflow,
     _id: str | None = None,
-    prompts: str | _Omitted = _UNSET,
     clip: Any | _Omitted = _UNSET,
+    prompts: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Multi Prompt Provider
+) -> Any:
+    """Public wrapper for the ComfyUI node ``MultiPromptProvider``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Multi Prompt Provider
+
+    Category: prompt
+
     Returns: conditionings
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"MultiPromptProvider() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if prompts is not _UNSET:
-        _kwargs['prompts'] = prompts
     if clip is not _UNSET:
         _kwargs['clip'] = clip
+    if prompts is not _UNSET:
+        _kwargs['prompts'] = prompts
     _kwargs.update(_extras)
     return node(wf, 'MultiPromptProvider', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2615,20 +2820,22 @@ def MultimodalGuider(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     parameters: Any | _Omitted = _UNSET,
     skip_blocks: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Multimodal Guider
+) -> Any:
+    """Public wrapper for the ComfyUI node ``MultimodalGuider``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Multimodal Guider
+
+    Category: lightricks/LTXV
+
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"MultimodalGuider() takes at most 1 positional argument, got {len(args)}")
@@ -2636,10 +2843,10 @@ def MultimodalGuider(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if parameters is not _UNSET:
         _kwargs['parameters'] = parameters
     if skip_blocks is not _UNSET:
@@ -2653,14 +2860,16 @@ def STGAdvancedPresets(
     preset: Literal['Custom', '13b Dynamic', '13b Balanced', '13b Upscale', '13b Distilled', '2b'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 STG Advanced Presets
+) -> Any:
+    """Public wrapper for the ComfyUI node ``STGAdvancedPresets``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 STG Advanced Presets
+
+    Category: lightricks/LTXV
+
     Returns: STG_ADVANCED_PRESET
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"STGAdvancedPresets() takes at most 1 positional argument, got {len(args)}")
@@ -2675,21 +2884,25 @@ def STGGuider(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     cfg: float | _Omitted = _UNSET,
-    stg: float | _Omitted = _UNSET,
     rescale: float | _Omitted = _UNSET,
+    stg: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``STGGuider``.
+
+    Display name: 🅛🅣🅧 STG Guider
+
+    Category: lightricks/LTXV
+
     Implements Spatiotemporal Skip Guidance (STG), a training-free method enhancing transformer-based video diffusion models by selectively skipping layers during sampling. This approach improves video quality without sacrificing diversity or motion fidelity.Reference: https://arxiv.org/abs/2411.18664.
 
-    Pack: ComfyUI-LTXVideo
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"STGGuider() takes at most 1 positional argument, got {len(args)}")
@@ -2697,16 +2910,16 @@ def STGGuider(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if cfg is not _UNSET:
         _kwargs['cfg'] = cfg
-    if stg is not _UNSET:
-        _kwargs['stg'] = stg
     if rescale is not _UNSET:
         _kwargs['rescale'] = rescale
+    if stg is not _UNSET:
+        _kwargs['stg'] = stg
     _kwargs.update(_extras)
     return node(wf, 'STGGuider', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2714,53 +2927,34 @@ def STGGuiderAdvanced(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
-    skip_steps_sigma_threshold: float | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     cfg_star_rescale: bool | _Omitted = _UNSET,
-    sigmas: str | _Omitted = _UNSET,
     cfg_values: str | _Omitted = _UNSET,
-    stg_scale_values: str | _Omitted = _UNSET,
-    stg_rescale_values: str | _Omitted = _UNSET,
+    sigmas: str | _Omitted = _UNSET,
+    skip_steps_sigma_threshold: float | _Omitted = _UNSET,
     stg_layers_indices: str | _Omitted = _UNSET,
-    preset: Any | _Omitted = _UNSET,
-    apply_apg: bool | _Omitted = _UNSET,
+    stg_rescale_values: str | _Omitted = _UNSET,
+    stg_scale_values: str | _Omitted = _UNSET,
     apg_cfg_scale: float | _Omitted = _UNSET,
+    apply_apg: bool | _Omitted = _UNSET,
     eta: float | _Omitted = _UNSET,
     norm_threshold: float | _Omitted = _UNSET,
+    preset: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``STGGuiderAdvanced``.
+
+    Display name: 🅛🅣🅧 STG Guider Advanced
+
+    Category: lightricks/LTXV
+
     The Advanced STG Guider implements sophisticated techniques for controlling the denoising process:
 
-        It creates a dynamic mapping from scheduler-defined sigma values to CFG and STG (Spatio-Temporal Skip Guidance [1]) parameters.
-        This approach establishes distinct sigma value ranges that operate independently of step numbers, allowing precise control over:
-        • CFG scale
-        • STG scale and rescale factors
-        • STG attention layer skipping patterns
-
-        The guider also supports:
-        • CFG-Zero* [2] rescaling, which dynamically adjusts negative predictions based on the dot product between positive and negative signals
-        • Threshold-based noise prediction zeroing for steps with sigma values exceeding a specified threshold
-
-        For example if the sigma ranges are defined as [1.0, 0.9, 0.85, 0.6] and the CFG values are defined as [4, 3, 2, 1] and STG scale values
-        are defined as [2, 2, 2, 1] and STG rescale values are defined as [1, 1, 1, 1] and STG layers indices are defined as [[14, 17], [14, 16], [14], [14]], then the guider will:
-        - use CFG=4, STG scale=2, STG rescale=1 and STG layers indices = [14, 17] for sigma in the range (0.9, 1.0]
-        - use CFG=3, STG scale=2, STG rescale=1 and STG layers indices = [14, 16] for sigma in the range (0.85, 0.9]
-        - use CFG=2, STG scale=2, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.8, 0.85]
-        - use CFG=1, STG scale=1, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.6, 0.8]
-
-        The guider will use the same parameters for the same sigma values, regardless of the step number.
-
-        References:
-        [1] https://arxiv.org/abs/2411.18664
-        [2] https://arxiv.org/abs/2503.18886
-
-    Pack: ComfyUI-LTXVideo
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"STGGuiderAdvanced() takes at most 1 positional argument, got {len(args)}")
@@ -2768,34 +2962,34 @@ def STGGuiderAdvanced(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
-    if skip_steps_sigma_threshold is not _UNSET:
-        _kwargs['skip_steps_sigma_threshold'] = skip_steps_sigma_threshold
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if cfg_star_rescale is not _UNSET:
         _kwargs['cfg_star_rescale'] = cfg_star_rescale
-    if sigmas is not _UNSET:
-        _kwargs['sigmas'] = sigmas
     if cfg_values is not _UNSET:
         _kwargs['cfg_values'] = cfg_values
-    if stg_scale_values is not _UNSET:
-        _kwargs['stg_scale_values'] = stg_scale_values
-    if stg_rescale_values is not _UNSET:
-        _kwargs['stg_rescale_values'] = stg_rescale_values
+    if sigmas is not _UNSET:
+        _kwargs['sigmas'] = sigmas
+    if skip_steps_sigma_threshold is not _UNSET:
+        _kwargs['skip_steps_sigma_threshold'] = skip_steps_sigma_threshold
     if stg_layers_indices is not _UNSET:
         _kwargs['stg_layers_indices'] = stg_layers_indices
-    if preset is not _UNSET:
-        _kwargs['preset'] = preset
-    if apply_apg is not _UNSET:
-        _kwargs['apply_apg'] = apply_apg
+    if stg_rescale_values is not _UNSET:
+        _kwargs['stg_rescale_values'] = stg_rescale_values
+    if stg_scale_values is not _UNSET:
+        _kwargs['stg_scale_values'] = stg_scale_values
     if apg_cfg_scale is not _UNSET:
         _kwargs['apg_cfg_scale'] = apg_cfg_scale
+    if apply_apg is not _UNSET:
+        _kwargs['apply_apg'] = apply_apg
     if eta is not _UNSET:
         _kwargs['eta'] = eta
     if norm_threshold is not _UNSET:
         _kwargs['norm_threshold'] = norm_threshold
+    if preset is not _UNSET:
+        _kwargs['preset'] = preset
     _kwargs.update(_extras)
     return node(wf, 'STGGuiderAdvanced', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2803,21 +2997,25 @@ def STGGuiderNode(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Any | _Omitted = _UNSET,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     cfg: float | _Omitted = _UNSET,
-    stg: float | _Omitted = _UNSET,
     rescale: float | _Omitted = _UNSET,
+    stg: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``STGGuiderNode``.
+
+    Display name: 🅛🅣🅧 STG Guider Node
+
+    Category: lightricks/LTXV
+
     Implements Spatiotemporal Skip Guidance (STG), a training-free method enhancing transformer-based video diffusion models by selectively skipping layers during sampling. This approach improves video quality without sacrificing diversity or motion fidelity.Reference: https://arxiv.org/abs/2411.18664.
 
-    Pack: ComfyUI-LTXVideo
     Returns: GUIDER
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"STGGuiderNode() takes at most 1 positional argument, got {len(args)}")
@@ -2825,16 +3023,16 @@ def STGGuiderNode(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if cfg is not _UNSET:
         _kwargs['cfg'] = cfg
-    if stg is not _UNSET:
-        _kwargs['stg'] = stg
     if rescale is not _UNSET:
         _kwargs['rescale'] = rescale
+    if stg is not _UNSET:
+        _kwargs['stg'] = stg
     _kwargs.update(_extras)
     return node(wf, 'STGGuiderNode', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -2842,19 +3040,21 @@ def Set_VAE_Decoder_Noise(
     *args: VibeWorkflow,
     _id: str | None = None,
     vae: Any | _Omitted = _UNSET,
-    timestep: float | _Omitted = _UNSET,
     scale: float | _Omitted = _UNSET,
     seed: int | _Omitted = _UNSET,
+    timestep: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    🅛🅣🅧 Set VAE Decoder Noise
+) -> Any:
+    """Public wrapper for the ComfyUI node ``Set VAE Decoder Noise``.
 
-    Pack: ComfyUI-LTXVideo
+    Display name: 🅛🅣🅧 Set VAE Decoder Noise
+
+    Category: lightricks/LTXV
+
     Returns: VAE
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json sha256:ae02bd88cfb9
     """
     if len(args) > 1:
         raise TypeError(f"Set_VAE_Decoder_Noise() takes at most 1 positional argument, got {len(args)}")
@@ -2862,12 +3062,12 @@ def Set_VAE_Decoder_Noise(
     _kwargs: dict[str, Any] = {}
     if vae is not _UNSET:
         _kwargs['vae'] = vae
-    if timestep is not _UNSET:
-        _kwargs['timestep'] = timestep
     if scale is not _UNSET:
         _kwargs['scale'] = scale
     if seed is not _UNSET:
         _kwargs['seed'] = seed
+    if timestep is not _UNSET:
+        _kwargs['timestep'] = timestep
     _kwargs.update(_extras)
     return node(wf, 'Set VAE Decoder Noise', _id, pass_raw=pass_raw, **_kwargs)
 

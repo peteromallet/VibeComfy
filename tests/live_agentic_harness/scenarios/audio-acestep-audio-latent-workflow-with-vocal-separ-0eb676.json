@@ -1,7 +1,7 @@
 {
   "id": "audio-acestep-audio-latent-workflow-with-vocal-separ-0eb676",
   "query": "Restructure the workflow to combine the separated vocals and background after separate decoding stages instead of before decoding, then save each as separate files.",
-  "workflow_path": "external_workflows/corpus/0eb67659bfc4dc63.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/0eb67659bfc4dc63.json",
   "network": true,
   "timeout": 380,
   "apply": true,

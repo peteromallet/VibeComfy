@@ -1,7 +1,7 @@
 {
   "id": "multi-flux2-image-and-video-generation-with-outpaint-435de2",
   "query": "The outpainted borders look noticeably brighter than the original image, even after color matching is applied. Why is the color matching node not aligning the luminance, and which specific node or setting is likely causing this mismatch?",
-  "workflow_path": "external_workflows/corpus/435de2f6bb5d3eda.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/435de2f6bb5d3eda.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/435de2f6bb5d3eda.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/435de2f6bb5d3eda.json",
     "required_node_evidence": [
       "ImagePadForOutpaint",
       "DrawMaskOnImage",

@@ -14,7 +14,7 @@ def test_model_value_present_in_source_tracked() -> None:
     """Model-like values (safetensors, ckpt) in inputs should not be lost."""
     wf = VibeWorkflow(
         "model-assets-test",
-        WorkflowSource("source/model_assets", source_type="api"),
+        WorkflowSource("model-assets-test", source_type="api"),
     )
     wf.nodes["1"] = VibeNode(
         "1",
@@ -45,7 +45,7 @@ def test_no_false_model_value_detection() -> None:
     """Scalar values that are not model-like should not be flagged."""
     wf = VibeWorkflow(
         "no-model-assets",
-        WorkflowSource("source/no_models", source_type="api"),
+        WorkflowSource("no-model-assets", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "hello.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/test"})

@@ -54,7 +54,7 @@ def test_atomic_rejection_leaves_original_revision_for_one_replacement() -> None
     assert rejected.reason == "unknown_field"
     assert rejected.landed_ops == ()
     assert session.revision == 0
-    assert session.history == []
+    assert session.history == ()
     assert session.working_ui == before_graph
     assert session.render() == before_source
 

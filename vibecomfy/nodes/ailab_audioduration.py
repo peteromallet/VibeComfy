@@ -1,8 +1,20 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Auto-generated thin wrappers for ComfyUI node classes.
+# vibecomfy:generated
+# pack: ailab_audioduration
+# source: object_info cache AILab_AudioDuration@runpod-snapshot.json sha256:3f5206f99c88
+# source_sha256: ce6f858d1b23e36bb5b5f6ffa10e5443fdf061756afabc128a17f8bedfe38162
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 1
+#
+# DO NOT EDIT — regenerate with:
+#   vibecomfy nodes generate-wrappers ailab_audioduration
 
-Regenerate via: python -m tools.generate_node_shims
+"""Auto-generated public wrappers for the ailab_audioduration custom-node pack.
+
+Each function wraps one ComfyUI node class and delegates through the
+public ``vibecomfy.templates.node`` ABI.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -18,28 +30,30 @@ _UNSET = _Omitted()
 def Audio_Duration(
     *args: VibeWorkflow,
     _id: str | None = None,
-    audio_path: str | _Omitted = _UNSET,
     audio: Any | _Omitted = _UNSET,
+    audio_path: str | _Omitted = _UNSET,
     fps: float | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    Audio Duration & Frames
+) -> Any:
+    """Public wrapper for the ComfyUI node ``Audio Duration``.
 
-    Pack: AILab_AudioDuration
+    Display name: Audio Duration & Frames
+
+    Category: 🧪AILab/🔊Audio
+
     Returns: duration_int, duration_float, frames, audio_path
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache AILab_AudioDuration@runpod-snapshot.json sha256:3f5206f99c88
     """
     if len(args) > 1:
         raise TypeError(f"Audio_Duration() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if audio_path is not _UNSET:
-        _kwargs['audio_path'] = audio_path
     if audio is not _UNSET:
         _kwargs['audio'] = audio
+    if audio_path is not _UNSET:
+        _kwargs['audio_path'] = audio_path
     if fps is not _UNSET:
         _kwargs['fps'] = fps
     _kwargs.update(_extras)

@@ -60,15 +60,17 @@ def test_python_fence_does_not_override_real_batch_fence() -> None:
     assert "done()" in prose
 
 
-def test_two_python_fences_fail_closed() -> None:
-    """Canonicalization is lone-fence only; two Python fences stay missing."""
+def test_two_python_fences_merge_in_order() -> None:
+    """Two Python fences merge in order under the current canonicalization contract."""
     text = (
         "```python\nx = 1\ndone()\n```\n"
         "```python\ny = 2\ndone()\n```\n"
     )
-    with pytest.raises(agent_provider.MalformedModelJSON) as raised:
-        agent_provider.extract_batch_fence(text)
-    assert raised.value.parse_reason == "missing_batch_fence"
+    provenance: dict = {}
+    batch_code, prose = agent_provider.extract_batch_fence(text, parse_provenance=provenance)
+    assert batch_code == "x = 1\ndone()\ny = 2\ndone()"
+    assert prose == ""
+    assert provenance == {"parse_reason": "python_yaml_batch_fences", "fence_count": 2}
 
 
 def test_normalize_batch_response_records_python_fence_provenance() -> None:

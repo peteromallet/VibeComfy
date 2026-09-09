@@ -1,7 +1,7 @@
 {
   "id": "image-sd3-image-generation-with-controlnet-19d221",
   "query": "Lower the ControlNet strength to 0.5 so the text prompt has more influence over the final image than the control image edges.",
-  "workflow_path": "external_workflows/corpus/19d221f074b42462.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/19d221f074b42462.json",
   "network": true,
   "timeout": 160,
   "apply": true,

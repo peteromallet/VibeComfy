@@ -1,7 +1,7 @@
 {
   "id": "multi-audio-to-image-mel-band-roformer-workflow-b22937",
   "query": "Can you explain step-by-step what this audio-to-image workflow does, how the MelBandRoFormer model fits in, and why it both saves an MP3 and outputs a preview image?",
-  "workflow_path": "external_workflows/corpus/b22937d66f82f884.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b22937d66f82f884.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/b22937d66f82f884.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/b22937d66f82f884.json",
     "required_node_evidence": [
       "LoadAudio",
       "MelBandRoFormerModelLoader",

@@ -1,7 +1,7 @@
 {
   "id": "multi-image-to-video-with-upscaling-and-color-matchi-359848",
   "query": "Replace the SVD img2vid conditioning with AnimateDiff motion module to enable longer, more controllable video generation while preserving the existing upscaling and color matching stages.",
-  "workflow_path": "external_workflows/corpus/3598486eb6eb45d1.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/3598486eb6eb45d1.json",
   "network": true,
   "timeout": 420,
   "apply": true,

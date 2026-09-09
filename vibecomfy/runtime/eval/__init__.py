@@ -1,4 +1,4 @@
-from .core import compile_eval_subgraph
+from .core import approve_eval_subgraph, select_eval_workflow
 from .plan import EvalNodePlan, plan_eval_node
 from .preview_types import (
     PREVIEW_MAP,
@@ -8,7 +8,7 @@ from .preview_types import (
     PreviewPlan,
     preview_plan_for_type,
 )
-from .prompt import EvalNodeResult, eval_node, eval_node_sync, queue_api_for_plan
+from .prompt import EvalNodeResult, eval_node, eval_node_sync
 
 __all__ = [
     "EvalNodePlan",
@@ -18,10 +18,10 @@ __all__ = [
     "PreviewPlan",
     "VAE_EMITTER_CLASSES",
     "VIDEO_FALLBACK",
-    "compile_eval_subgraph",
+    "approve_eval_subgraph",
     "eval_node",
     "eval_node_sync",
     "plan_eval_node",
     "preview_plan_for_type",
-    "queue_api_for_plan",
+    "select_eval_workflow",
 ]

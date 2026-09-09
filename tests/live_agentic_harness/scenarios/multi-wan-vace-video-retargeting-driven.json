@@ -1,7 +1,7 @@
 {
   "id": "multi-wan-vace-video-retargeting-driven",
   "query": "The generated video shows a completely different person from the reference \u2014 the identity is lost.",
-  "workflow_path": "tests/fixtures/live_agentic_corpus/498ca31ad99591da.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/498ca31ad99591da.json",
   "apply": true,
   "network": true,
   "timeout": 300,

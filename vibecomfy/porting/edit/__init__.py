@@ -43,8 +43,6 @@ _EXPORT_MODULES = {
     "admit_operations": "vibecomfy.porting.edit.admit",
     "admission_snapshot_for": "vibecomfy.porting.edit.admit",
     "FieldChange": "vibecomfy.porting.edit.types",
-    "apply_edit_cow": "vibecomfy.porting.edit._ir_utils",
-    "apply_edits_cow": "vibecomfy.porting.edit._ir_utils",
     "interpret": "vibecomfy.porting.edit._interpret",
     "InterpretationResult": "vibecomfy.porting.edit._interpret",
     "StatementOutcome": "vibecomfy.porting.edit._interpret",

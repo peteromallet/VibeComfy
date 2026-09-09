@@ -6,12 +6,16 @@ All public functions are deterministic and do not require ComfyUI or network.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping
 
 from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
 from vibecomfy.errors import ObjectInfoCacheCorruptError
@@ -145,6 +149,17 @@ _index: dict[str, str] | None = None
 _pack_cache: dict[str, dict[str, dict[str, Any]]] = {}
 _reader_lock = threading.RLock()
 _reader_state: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class _ClassEntrySnapshot:
+    entries: Mapping[str, dict[str, Any]]
+    misses: frozenset[str]
+
+
+_CLASS_ENTRY_SNAPSHOT: ContextVar[_ClassEntrySnapshot | None] = ContextVar(
+    "_CLASS_ENTRY_SNAPSHOT", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -359,6 +374,20 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     ``display_name``, ``description``, ``inputs``, ``input_order``,
     ``input_order_all``, ``object_info_widget_order``, ``outputs``, ``function``.
     """
+    class_type = str(class_type)
+    snapshot = _CLASS_ENTRY_SNAPSHOT.get()
+    if snapshot is not None:
+        if class_type in snapshot.entries:
+            # Preserve get_class()'s historical caller-owned mutable result
+            # without allowing one consumer (or inherited async context) to
+            # mutate the operation snapshot seen by another.
+            return copy.deepcopy(snapshot.entries[class_type])
+        if class_type in snapshot.misses:
+            return None
+        raise ObjectInfoCacheCorruptError(
+            f"object_info class {class_type!r} was not captured for this operation"
+        )
+
     entry = _resolve_class_type(class_type)
     if entry is not None:
         return entry
@@ -366,6 +395,137 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     if curated_outputs is None:
         return None
     return {"outputs": curated_outputs}
+
+
+@contextmanager
+def class_entry_snapshot(class_types: Iterable[str]):
+    """Bind one content-witnessed object-info view for a bounded operation.
+
+    Scalar lookups intentionally recheck loaded pack bytes on every call. A
+    conversion performs many related lookups against one logical input, so it
+    first captures all known classes with :func:`get_classes` and reuses that
+    coherent view. An unrequested late lookup fails closed rather than mixing
+    entries from two cache generations. Outside this context scalar freshness
+    is unchanged.
+    """
+    requested = tuple(sorted({str(item) for item in class_types if str(item)}))
+    current = _CLASS_ENTRY_SNAPSHOT.get()
+    if current is not None and all(
+        item in current.entries or item in current.misses
+        for item in requested
+    ):
+        # A nested operation over a subset inherits the outer operation's
+        # coherent view. ContextVar isolation still gives concurrent callers
+        # independent snapshots, and an unrelated nested class set captures a
+        # fresh view which is reset back to this one on exit.
+        yield
+        return
+    # An unrelated nested operation gets its own coherent capture and then
+    # restores the outer snapshot. It must not ask the outer scope to resolve
+    # classes which were absent from that operation's declared set.
+    outer_token = _CLASS_ENTRY_SNAPSHOT.set(None) if current is not None else None
+    try:
+        resolved = get_classes(requested)
+    finally:
+        if outer_token is not None:
+            _CLASS_ENTRY_SNAPSHOT.reset(outer_token)
+    state = _ClassEntrySnapshot(
+        entries=MappingProxyType(copy.deepcopy(resolved)),
+        misses=frozenset(set(requested) - set(resolved)),
+    )
+    token = _CLASS_ENTRY_SNAPSHOT.set(state)
+    try:
+        yield
+    finally:
+        _CLASS_ENTRY_SNAPSHOT.reset(token)
+
+
+def get_classes(class_types: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Resolve a class set against one content-witnessed reader snapshot.
+
+    Bulk static consumers must not call :func:`get_class` once per AST node:
+    every scalar lookup intentionally rechecks the content witness for every
+    pack already read.  This variant performs the same before/after reader
+    checks once for the requested set, reads each required pack at most once,
+    and retries if publication or any retained pack changes during the batch.
+    """
+    global _index
+
+    requested = tuple(sorted({str(item) for item in class_types if str(item)}))
+    if not requested:
+        return {}
+    snapshot = _CLASS_ENTRY_SNAPSHOT.get()
+    if snapshot is not None:
+        late = [
+            item for item in requested
+            if item not in snapshot.entries and item not in snapshot.misses
+        ]
+        if late:
+            raise ObjectInfoCacheCorruptError(
+                f"object_info classes {late!r} were not captured for this operation"
+            )
+        return {
+            item: copy.deepcopy(snapshot.entries[item])
+            for item in requested
+            if item in snapshot.entries
+        }
+    with _reader_lock:
+        for attempt in range(2):
+            _sync_reader()
+            assert _reader_state is not None
+            root = _reader_state["active"]
+            if _index is None:
+                _index = _read_index_at_root(root)
+            by_filename: dict[str, list[str]] = {}
+            for class_type in requested:
+                filename = _index.get(class_type)
+                if filename is not None:
+                    by_filename.setdefault(filename, []).append(class_type)
+            resolved: dict[str, dict[str, Any]] = {}
+            changed_during_read = False
+            for filename, names in sorted(by_filename.items()):
+                if filename not in _pack_cache:
+                    path = root / filename
+                    witness_before = cache_file_witness(path)
+                    _reader_state["pack_sigs"][filename] = witness_before
+                    pack = _read_pack_at_root(root, filename)
+                    witness_after = cache_file_witness(path)
+                    if witness_before != witness_after:
+                        changed_during_read = True
+                        break
+                    _pack_cache[filename] = pack
+                    _reader_state["pack_sigs"][filename] = witness_after
+                pack = _pack_cache[filename]
+                for class_type in names:
+                    entry = pack.get(class_type)
+                    if isinstance(entry, dict):
+                        resolved[class_type] = entry
+            if changed_during_read:
+                _index = None
+                _pack_cache.clear()
+                # Reconcile the before-read witness through the normal reader
+                # boundary.  A mutable legacy root retries; a modified
+                # committed generation fails its manifest check instead of
+                # admitting bytes from a tampered generation.
+                _sync_reader()
+                if attempt:
+                    raise ObjectInfoCacheCorruptError(
+                        "object_info cache changed during batch class load"
+                    )
+                continue
+            if not _sync_reader():
+                for class_type in requested:
+                    if class_type in resolved:
+                        continue
+                    curated_outputs = _CURATED_OUTPUTS.get(class_type)
+                    if curated_outputs is not None:
+                        resolved[class_type] = {"outputs": curated_outputs}
+                return resolved
+            if attempt:
+                raise ObjectInfoCacheCorruptError(
+                    "object_info cache changed during batch class load"
+                )
+    raise AssertionError("unreachable")
 
 
 def resolve_class_entry(
@@ -387,6 +547,12 @@ def resolve_class_entry(
             entry=entry,
             source="class" if entry is not None else "miss",
             low_confidence=False,
+        )
+
+    if _CLASS_ENTRY_SNAPSHOT.get() is not None:
+        raise ObjectInfoCacheCorruptError(
+            "identity-specific object_info lookup is not part of the captured "
+            "class-only operation snapshot"
         )
 
     try:
@@ -458,6 +624,11 @@ def get_class_by_identity(
     evidence_identity: str | None = None,
 ) -> dict[str, Any] | None:
     """Return the cache entry for *class_type* keyed by explicit pack identity."""
+    if _CLASS_ENTRY_SNAPSHOT.get() is not None:
+        raise ObjectInfoCacheCorruptError(
+            "identity-specific object_info lookup is not part of the captured "
+            "class-only operation snapshot"
+        )
     matches = _identity_lookup_matches(
         class_type,
         pack_slug=pack_slug,
@@ -550,7 +721,11 @@ def object_info_widget_order(class_type: str) -> list[str | None]:
     This is a raw object_info fallback — callers should prefer the curated
     ``WIDGET_SCHEMA`` table and only use this when no curated entry exists.
     """
-    entry = _resolve_class_type(class_type)
+    entry = (
+        get_class(class_type)
+        if _CLASS_ENTRY_SNAPSHOT.get() is not None
+        else _resolve_class_type(class_type)
+    )
     if entry is None:
         return []
     return reconciled_object_info_widget_order(entry)

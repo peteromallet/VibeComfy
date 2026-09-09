@@ -30,7 +30,7 @@ READY_METADATA = ReadyMetadata.build(
     capability='video',
     inputs=PUBLIC_INPUT_METADATA,
     requirements={'models': ['clip_vision_h.safetensors', 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_i2v_480p_14B_fp16.safetensors', 'wan_2.1_vae.safetensors']},
-    provenance={'source_path': 'ready_templates/sources/official/video/wan_i2v.json', 'source_id': 'wan_i2v', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/video/wan_i2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_i2v'},
+    provenance={'source_path': 'ready_templates/sources/official/video/wan_i2v.json', 'source_id': 'video/wan_i2v', 'upstream_source_id': 'wan_i2v', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/video/wan_i2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_i2v'},
 )
 
 def build() -> VibeWorkflow:
@@ -38,8 +38,8 @@ def build() -> VibeWorkflow:
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Loaders
-    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME)
-    cliploader = CLIPLoader(_id='38', clip_name=CLIP_NAME, type_='wan')
+    unetloader = UNETLoader(_id='37', unet_name=UNET_NAME, weight_dtype='default')
+    cliploader = CLIPLoader(_id='38', clip_name=CLIP_NAME, type='wan', device='default')
     vaeloader = VAELoader(_id='39', vae_name=VAE_NAME)
     clipvisionloader = CLIPVisionLoader(_id='49', clip_name=CLIP_NAME_2)
 
@@ -61,10 +61,10 @@ def build() -> VibeWorkflow:
 
     positive, negative, latent = WanImageToVideo(
         _id='50',
-        widget_0=512,
-        widget_1=512,
-        widget_2=33,
-        widget_3=1,
+        width=512,
+        height=512,
+        length=33,
+        batch_size=1,
         clip_vision_output=clipvisionencode,
         negative=cliptextencode_2,
         positive=cliptextencode,
@@ -76,8 +76,11 @@ def build() -> VibeWorkflow:
     ksampler = KSampler(
         _id='3',
         seed=DEFAULT_SEED,
+        steps=20,
         cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
+        scheduler='simple',
+        denoise=1,
         latent_image=latent,
         model=modelsamplingsd3,
         negative=negative,
@@ -89,7 +92,12 @@ def build() -> VibeWorkflow:
     createvideo = CreateVideo(_id='55', fps=DEFAULT_FPS, images=vaedecode)
 
     # Outputs
-    savevideo = SaveVideo(_id='56', video=createvideo)
+    savevideo = SaveVideo(
+        _id='56',
+        filename_prefix='video/ComfyUI',
+        format='auto',
+        codec='auto',
+        video=createvideo,
+    )
 
     return wf.finalize(PUBLIC_INPUT_METADATA, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video/ComfyUI')
-

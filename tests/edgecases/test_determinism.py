@@ -16,7 +16,7 @@ def _make_deterministic_workflow() -> VibeWorkflow:
     """Create a deterministic workflow for repeated testing."""
     wf = VibeWorkflow(
         "det-test",
-        WorkflowSource("source/det_test", source_type="api"),
+        WorkflowSource("det-test", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "dog.png"})
     wf.nodes["2"] = VibeNode(

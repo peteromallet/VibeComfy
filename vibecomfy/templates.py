@@ -4,7 +4,9 @@ import warnings
 import json
 import re
 import tomllib
+from copy import deepcopy
 from dataclasses import dataclass
+from functools import lru_cache
 import inspect
 from pathlib import Path
 from typing import Any, Mapping
@@ -165,17 +167,43 @@ def node(
         raise TypeError(f"node() got too many positional args: {len(rest)}")
 
     explicit_outputs = kwargs.pop("_outputs", None)
+    explicit_native_ports = kwargs.pop("_native_ports", None)
     explicit_mode = kwargs.pop("_mode", None)
     # Durable node identity (M2): a carried _uid is applied verbatim to the
     # created node so the ready-template round-trip preserves uids. Popped before
     # coercion so it never reaches the graph as an input/widget.
     _uid = kwargs.pop("_uid", None)
     pass_raw = bool(kwargs.pop("pass_raw", False))
-    outputs = tuple(explicit_outputs) if explicit_outputs is not None else _normalized_output_names(class_type)
+    # The generated Python call is retained source evidence for every input it
+    # actually supplies, including dynamic custom-node keys missing from an
+    # older offline object_info snapshot.  Capture those names before value
+    # coercion and before the internal pass_raw control is reinserted.
+    authored_input_names = tuple(str(name) for name in kwargs)
+    if explicit_outputs is not None:
+        outputs = tuple(explicit_outputs)
+    elif explicit_native_ports is not None:
+        outputs = _output_names_from_native_port_payload(explicit_native_ports)
+    else:
+        outputs = _normalized_output_names(class_type)
     kwargs = coerce_node_kwargs(wf, class_type, kwargs, pass_raw=pass_raw)
     if pass_raw:
         kwargs["pass_raw"] = True
+    if explicit_native_ports is not None:
+        kwargs["_native_ports"] = explicit_native_ports
     builder = ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
+    if authored_input_names:
+        # Preserve the exact fields explicitly present in Python source across
+        # subsequent canonical emission, even when their value equals a
+        # provider default.  This authoring provenance is deliberately outside
+        # the execution semantic digest; the compiled inputs carry the value.
+        builder.node.metadata["keep_defaults"] = sorted(set(authored_input_names))
+    if explicit_native_ports is None:
+        _hydrate_native_schema_carriers(
+            builder.node,
+            class_type,
+            outputs,
+            authored_input_names=authored_input_names,
+        )
     if _uid:
         builder.node.uid = str(_uid)
     if explicit_mode is not None:
@@ -183,6 +211,138 @@ def node(
 
         builder.node.mode = litegraph_to_mode(explicit_mode)
     return builder
+
+
+_NATIVE_PORT_CARRIER_KEYS = frozenset({
+    "native_input_names", "native_output_names", "native_input_types",
+    "native_output_types", "native_input_optional", "native_input_asset_kinds",
+    "native_output_slots",
+})
+
+
+def _output_names_from_native_port_payload(payload: Any) -> tuple[str, ...]:
+    if not isinstance(payload, Mapping):
+        raise TypeError("_native_ports must be a mapping")
+    unknown = set(payload) - _NATIVE_PORT_CARRIER_KEYS
+    if unknown:
+        raise ValueError(f"_native_ports contains unknown field {sorted(unknown)[0]!r}")
+    names = payload.get("native_output_names")
+    if not isinstance(names, (list, tuple)):
+        return ()
+    return tuple(
+        name.strip().replace(" ", "_").upper()
+        for name in names
+        if isinstance(name, str) and name.strip()
+    )
+
+
+def _apply_explicit_native_port_carriers(node: Any, payload: Any) -> None:
+    """Apply emitted, source-owned carriers without consulting any provider."""
+    _output_names_from_native_port_payload(payload)  # closed-key/type check
+    for field_name in _NATIVE_PORT_CARRIER_KEYS:
+        setattr(node, field_name, deepcopy(payload.get(field_name)))
+    # Reuse VibeNode's single carrier validator, including aligned lengths.
+    node.__post_init__()
+
+
+def _hydrate_native_schema_carriers(
+    node: Any,
+    class_type: str,
+    outputs: tuple[str, ...],
+    *,
+    authored_input_names: tuple[str, ...],
+) -> None:
+    """Attach retained wrapper and offline-schema port authority.
+
+    Legacy generated ready sources predate explicit emitted roster assignments.
+    The public wrapper's declared outputs and inputs actually present in its
+    generated Python call are source witnesses for names.  The offline schema
+    supplies types, optionality, and asset kinds only for exact known ports.
+    Missing schema fields therefore remain untyped and make no optionality
+    claim instead of being discarded or guessed.
+    """
+    carrier = _ready_native_schema_carrier(class_type)
+    if carrier is None:
+        if authored_input_names:
+            node.native_input_names = list(authored_input_names)
+            node.native_input_types = [None] * len(authored_input_names)
+        if outputs:
+            node.native_output_names = list(outputs)
+            node.native_output_types = [None] * len(outputs)
+        node.__post_init__()
+        return
+    (
+        input_names, input_types, input_optional, input_assets,
+        output_names, output_types, _output_is_list,
+    ) = carrier
+    merged_input_names = list(input_names)
+    dynamic_names = [name for name in authored_input_names if name not in merged_input_names]
+    merged_input_names.extend(dynamic_names)
+    node.native_input_names = merged_input_names
+    node.native_input_types = list(input_types) + [None] * len(dynamic_names)
+    # A stale schema cannot establish whether newly observed source ports are
+    # optional.  Withhold the whole aligned claim so projection remains closed.
+    node.native_input_optional = None if dynamic_names else list(input_optional)
+    merged_assets = list(input_assets) + [None] * len(dynamic_names)
+    node.native_input_asset_kinds = merged_assets if any(merged_assets) else None
+
+    authoritative_output_names = list(outputs) if outputs else list(output_names)
+    if authoritative_output_names:
+        schema_output_types = {
+            str(name).strip().replace(" ", "_").upper(): output_type
+            for name, output_type in zip(output_names, output_types)
+            if isinstance(name, str) and name.strip()
+        }
+        node.native_output_names = authoritative_output_names
+        node.native_output_types = [
+            schema_output_types.get(str(name).strip().replace(" ", "_").upper())
+            for name in authoritative_output_names
+        ]
+    node.__post_init__()
+
+
+@lru_cache(maxsize=None)
+def _ready_native_schema_carrier(class_type: str) -> tuple[Any, ...] | None:
+    """Freeze one class's offline ready-wrapper carrier for this process."""
+    schema = _ready_schema_provider().get_schema(class_type)
+    if schema is None:
+        return None
+    inputs = getattr(schema, "inputs", None)
+    if not isinstance(inputs, Mapping):
+        inputs = {}
+    input_names = tuple(str(name) for name in inputs)
+    input_types = tuple(
+        str(getattr(inputs[name], "type")) if getattr(inputs[name], "type", None) is not None else None
+        for name in inputs
+    )
+    input_optional = tuple(
+        not bool(getattr(inputs[name], "required", False)) for name in inputs
+    )
+    input_assets = tuple(
+        str(getattr(inputs[name], "asset_kind")) if getattr(inputs[name], "asset_kind", None) is not None else None
+        for name in inputs
+    )
+    schema_outputs = tuple(getattr(schema, "outputs", None) or ())
+    output_names = tuple(
+        str(getattr(spec, "name")) if getattr(spec, "name", None) is not None else None
+        for spec in schema_outputs
+    )
+    output_types = tuple(
+        str(getattr(spec, "type")) if getattr(spec, "type", None) is not None else None
+        for spec in schema_outputs
+    )
+    output_is_list = tuple(getattr(schema, "output_is_list", ()) or ())
+    return (
+        input_names, input_types, input_optional, input_assets,
+        output_names, output_types, output_is_list,
+    )
+
+
+@lru_cache(maxsize=1)
+def _ready_schema_provider() -> Any:
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    return get_authoring_schema_provider(on_demand_schemas=False)
 
 
 def coerce_node_kwargs(
@@ -225,20 +385,19 @@ def _is_node_builder(value: Any) -> bool:
 def _auto_resolve_node_builder(value: Any) -> Handle:
     node = value.node
     class_type = str(node.class_type)
-    try:
-        from vibecomfy.porting.object_info import class_has_list_output, class_output_count, output_names
-    except ImportError as exc:
-        raise ValueError(
-            f"{class_type} node {node.id!r} requires explicit .out(...) because object_info schema is unavailable"
-        ) from exc
-
-    names = [str(name).strip().replace(" ", "_").upper() for name in output_names(class_type)]
-    count = class_output_count(class_type)
-    if class_has_list_output(class_type):
+    names = [
+        str(name).strip().replace(" ", "_").upper()
+        for name in (node.native_output_names or ())
+        if isinstance(name, str) and name.strip()
+    ]
+    count = len(node.native_output_names or ())
+    carrier = _ready_native_schema_carrier(class_type)
+    list_flags = carrier[6] if carrier is not None else ()
+    if any(list_flags):
         raise ValueError(
             f"{class_type} node {node.id!r} has list outputs; specify .out('NAME') explicitly"
         )
-    if count == 1 and not class_has_list_output(class_type):
+    if count == 1:
         return value.out(0)
     if count > 1:
         detail = ", ".join(names) if names else f"{count} outputs"
@@ -274,11 +433,27 @@ def _at(
 
 
 def _normalized_output_names(class_type: str) -> tuple[str, ...]:
+    # Public-wrapper authoring already freezes one offline schema carrier for
+    # the node.  Reuse that same evidence instead of consulting the separate
+    # object-info consumer, whose per-call cache witness scan can turn a
+    # provider-free ready inventory into repeated ambient filesystem work.
+    carrier = _ready_native_schema_carrier(class_type)
+    if carrier is not None:
+        output_names = carrier[4]
+        return tuple(
+            name.strip().replace(" ", "_").upper()
+            for name in output_names
+            if isinstance(name, str) and name.strip()
+        )
     try:
         from vibecomfy.porting.object_info.consume import output_names
     except ImportError:
         return ()
-    return tuple(name.strip().replace(" ", "_").upper() for name in output_names(class_type) if name)
+    return tuple(
+        name.strip().replace(" ", "_").upper()
+        for name in output_names(class_type)
+        if isinstance(name, str) and name.strip()
+    )
 
 
 @dataclass(frozen=True)

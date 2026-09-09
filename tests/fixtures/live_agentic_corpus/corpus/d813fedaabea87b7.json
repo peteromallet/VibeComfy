@@ -1,0 +1,2408 @@
+{
+  "edges": [
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "bbox_detector",
+      "to_node": "22"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image_frames",
+      "to_node": "22"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "sam_model_opt",
+      "to_node": "22"
+    },
+    {
+      "from_node": "25",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "18"
+    },
+    {
+      "from_node": "25",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "18"
+    },
+    {
+      "from_node": "25",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "18"
+    },
+    {
+      "from_node": "30",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "18"
+    },
+    {
+      "from_node": "31",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "18"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image_frames",
+      "to_node": "21"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "segs",
+      "to_node": "21"
+    },
+    {
+      "from_node": "18",
+      "from_output": "0",
+      "to_input": "basic_pipe",
+      "to_node": "21"
+    },
+    {
+      "from_node": "33",
+      "from_output": "0",
+      "to_input": "seed",
+      "to_node": "21"
+    },
+    {
+      "from_node": "25",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "30"
+    },
+    {
+      "from_node": "25",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "31"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "29"
+    },
+    {
+      "from_node": "21",
+      "from_output": "0",
+      "to_input": "segs",
+      "to_node": "29"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "10"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "10"
+    },
+    {
+      "from_node": "10",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "3"
+    },
+    {
+      "from_node": "29",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "32"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "kolors_model",
+      "to_node": "14"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "kolors_embeds",
+      "to_node": "14"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "chatglm3_model",
+      "to_node": "12"
+    }
+  ],
+  "groups": [],
+  "id": "ee7a588872ecfbe2",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "25",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "epicrealism_naturalSinRC1VAE.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "30",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "a photorealistic beautiful female face, light makeup."
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "image_frames"
+            ]
+          ],
+          [
+            "0",
+            [
+              "22",
+              "image_frames"
+            ]
+          ],
+          [
+            "0",
+            [
+              "29",
+              "image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "3",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "11": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'taesdxl'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "KolorsTextEncode",
+        "incoming_edge_sig": [
+          [
+            "chatglm3_model",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "kolors_embeds"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'A high-definition portrait of a woman with long, flowing lavender hair, adorned with small, sparkling crystals. She is dressed in a flowing, emerald green gown that blends seamlessly with the lush, mystical garden surrounding her. She faces the camera with a serene expression, highlighting her ethereal beauty. The mood is enchanting and serene, with a soft twilight setting.'"
+          ],
+          [
+            "widget_1",
+            "'blurry, ugly, '"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "13": {
+        "class_type": "DownloadAndLoadChatGLM3",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "chatglm3_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'quant8'"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "KolorsSampler",
+        "incoming_edge_sig": [
+          [
+            "kolors_embeds",
+            [
+              "12",
+              "0"
+            ]
+          ],
+          [
+            "kolors_model",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "768"
+          ],
+          [
+            "widget_2",
+            "526046061047411"
+          ],
+          [
+            "widget_3",
+            "'randomize'"
+          ],
+          [
+            "widget_4",
+            "30"
+          ],
+          [
+            "widget_5",
+            "5"
+          ],
+          [
+            "widget_6",
+            "'EulerDiscreteScheduler'"
+          ],
+          [
+            "widget_7",
+            "1"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "Note",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Text encoding takes the most VRAM, quantization can reduce that a lot.\\n\\nApproximate values I have observed:\\nfp16 - 12 GB\\nquant8 - 8-9 GB\\nquant4 - 4-5 GB\\n\\nquant4 reduces the quality quite a bit, 8 seems fine'"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "ToBasicPipe",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "25",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "25",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "31",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "30",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "25",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "basic_pipe"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "19": {
+        "class_type": "UltralyticsDetectorProvider",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "bbox_detector"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'bbox/face_yolov8m.pt'"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "SAMLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "sam_model_opt"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'sam_vit_b_01ec64.pth'"
+          ],
+          [
+            "widget_1",
+            "'Prefer GPU'"
+          ]
+        ]
+      },
+      "21": {
+        "class_type": "SEGSDetailerForAnimateDiff",
+        "incoming_edge_sig": [
+          [
+            "basic_pipe",
+            [
+              "18",
+              "0"
+            ]
+          ],
+          [
+            "image_frames",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "seed",
+            [
+              "33",
+              "0"
+            ]
+          ],
+          [
+            "segs",
+            [
+              "22",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "29",
+              "segs"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "500"
+          ],
+          [
+            "widget_1",
+            "True"
+          ],
+          [
+            "widget_10",
+            "0.5"
+          ],
+          [
+            "widget_11",
+            "20"
+          ],
+          [
+            "widget_2",
+            "768"
+          ],
+          [
+            "widget_3",
+            "396598711074030"
+          ],
+          [
+            "widget_4",
+            "'randomize'"
+          ],
+          [
+            "widget_5",
+            "15"
+          ],
+          [
+            "widget_6",
+            "3"
+          ],
+          [
+            "widget_7",
+            "'euler'"
+          ],
+          [
+            "widget_8",
+            "'karras'"
+          ],
+          [
+            "widget_9",
+            "0.5"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "ImpactSimpleDetectorSEGS_for_AD",
+        "incoming_edge_sig": [
+          [
+            "bbox_detector",
+            [
+              "19",
+              "0"
+            ]
+          ],
+          [
+            "image_frames",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "sam_model_opt",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "segs"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "0.5"
+          ],
+          [
+            "widget_1",
+            "0"
+          ],
+          [
+            "widget_2",
+            "3"
+          ],
+          [
+            "widget_3",
+            "10"
+          ],
+          [
+            "widget_4",
+            "0.5"
+          ],
+          [
+            "widget_5",
+            "0"
+          ],
+          [
+            "widget_6",
+            "0"
+          ],
+          [
+            "widget_7",
+            "0.7"
+          ],
+          [
+            "widget_8",
+            "'Pivot SEGS'"
+          ],
+          [
+            "widget_9",
+            "'Combined mask'"
+          ]
+        ]
+      },
+      "25": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "18",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "30",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "31",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "18",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'epicrealism_naturalSinRC1VAE.safetensors'"
+          ]
+        ]
+      },
+      "29": {
+        "class_type": "SEGSPaste",
+        "incoming_edge_sig": [
+          [
+            "image",
+            [
+              "10",
+              "0"
+            ]
+          ],
+          [
+            "segs",
+            [
+              "21",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "32",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "5"
+          ],
+          [
+            "widget_1",
+            "255"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "10",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "30": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "25",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'a photorealistic beautiful female face, light makeup.'"
+          ]
+        ]
+      },
+      "31": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "25",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "18",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'blurry, freckle, pimple, blemish, mole'"
+          ]
+        ]
+      },
+      "32": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "29",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'ComfyUI'"
+          ]
+        ]
+      },
+      "33": {
+        "class_type": "Seed Everywhere",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "21",
+              "seed"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "489062055292433"
+          ],
+          [
+            "widget_1",
+            "'randomize'"
+          ],
+          [
+            "widget_2",
+            "'867121125930029'"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "DownloadAndLoadKolorsModel",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "kolors_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Kwai-Kolors/Kolors'"
+          ],
+          [
+            "widget_1",
+            "'fp16'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d813fedaabea87b79c2520f202b29cf9ca457e6cb771cb231a2e43a83123d34b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1265089871534624838",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1265089871534624838:KolorsWithFaceDetail.json:ee7a588872ecfbe2",
+      "filename": "KolorsWithFaceDetail.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:01+00:00",
+      "message_id": 1265089871534624838,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DownloadAndLoadChatGLM3": 1,
+        "DownloadAndLoadKolorsModel": 1,
+        "ImpactSimpleDetectorSEGS_for_AD": 1,
+        "KolorsSampler": 1,
+        "KolorsTextEncode": 1,
+        "Note": 1,
+        "PreviewImage": 1,
+        "SAMLoader": 1,
+        "SEGSDetailerForAnimateDiff": 1,
+        "SEGSPaste": 1,
+        "SaveImage": 1,
+        "Seed Everywhere": 1,
+        "ToBasicPipe": 1,
+        "UltralyticsDetectorProvider": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 19,
+      "origin_date": "2024-07-22T23:35:29.607000+00:00",
+      "originator_global_name": "VRGameDevGirl84(RTX 5090)",
+      "originator_id": "330829305477333022",
+      "originator_type": "discord_message_author",
+      "originator_username": "vrgamedevgirl",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ee7a588872ecfbe246b26442aa396d3b413b83bf44d3fd67c9d9e20ba4eaeef0",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1265089871236825088/KolorsWithFaceDetail.json?ex=69794bc1&is=6977fa41&hm=88cc2794bcfad247266c1f564ecbdcf2e51e01da324ba98180579e993dbfb853&",
+      "source_workflow_sha256": "4aedf174d4f37e101a7570891e1b3aa4e5a1ac327a4beaac5b58876cb799b48c",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "a4f3f8ed9bf3c6e9d8c48909dbae65b64b74f70eafd4cb10af4f27f468f75e69",
+      "complexity": 4,
+      "description": "This workflow generates images using the Kolors model with ChatGLM3 text encoding, then applies SEGS-based detail enhancement and inpainting using Ultralytics detector and SAM segmentation.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "kolors",
+        "image-generation",
+        "segs-detailer",
+        "inpainting",
+        "sam",
+        "ultralytics",
+        "chatglm3",
+        "text-to-image"
+      ],
+      "task_type": "image_to_video",
+      "title": "Kolors Image Generation with SEGS Detailer and Inpainting"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "VAEDecode",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 18,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 55,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                13,
+                42,
+                43,
+                44
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            246,
+            810
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "10",
+      "widgets": {}
+    },
+    "11": {
+      "class_type": "VAELoader",
+      "id": "11",
+      "inputs": {
+        "vae_name": "taesdxl"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                55
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            585,
+            353
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VAELoader",
+          "widgets_values": [
+            "taesdxl"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "taesdxl"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "KolorsTextEncode",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 14,
+              "name": "chatglm3_model",
+              "slot_index": 0,
+              "type": "CHATGLM3MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                17
+              ],
+              "name": "kolors_embeds",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "KOLORS_EMBEDS"
+            }
+          ],
+          "pos": [
+            524,
+            473
+          ],
+          "properties": {
+            "Node name for S&R": "KolorsTextEncode"
+          },
+          "size": {
+            "0": 457.28936767578125,
+            "1": 225.28656005859375
+          },
+          "type": "KolorsTextEncode",
+          "widgets_values": [
+            "A high-definition portrait of a woman with long, flowing lavender hair, adorned with small, sparkling crystals. She is dressed in a flowing, emerald green gown that blends seamlessly with the lush, mystical garden surrounding her. She faces the camera with a serene expression, highlighting her ethereal beauty. The mood is enchanting and serene, with a soft twilight setting.",
+            "blurry, ugly, ",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "A high-definition portrait of a woman with long, flowing lavender hair, adorned with small, sparkling crystals. She is dressed in a flowing, emerald green gown that blends seamlessly with the lush, mystical garden surrounding her. She faces the camera with a serene expression, highlighting her ethereal beauty. The mood is enchanting and serene, with a soft twilight setting.",
+          "blurry, ugly, ",
+          1
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": "A high-definition portrait of a woman with long, flowing lavender hair, adorned with small, sparkling crystals. She is dressed in a flowing, emerald green gown that blends seamlessly with the lush, mystical garden surrounding her. She faces the camera with a serene expression, highlighting her ethereal beauty. The mood is enchanting and serene, with a soft twilight setting.",
+        "widget_1": "blurry, ugly, ",
+        "widget_2": 1
+      }
+    },
+    "13": {
+      "class_type": "DownloadAndLoadChatGLM3",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "chatglm3_model",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CHATGLM3MODEL"
+            }
+          ],
+          "pos": [
+            215,
+            498
+          ],
+          "properties": {
+            "Node name for S&R": "DownloadAndLoadChatGLM3"
+          },
+          "size": {
+            "0": 274.5334167480469,
+            "1": 58
+          },
+          "type": "DownloadAndLoadChatGLM3",
+          "widgets_values": [
+            "quant8"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "quant8"
+        ]
+      },
+      "uid": "13",
+      "widgets": {
+        "widget_0": "quant8"
+      }
+    },
+    "14": {
+      "class_type": "KolorsSampler",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 16,
+              "name": "kolors_model",
+              "type": "KOLORSMODEL"
+            },
+            {
+              "link": 17,
+              "name": "kolors_embeds",
+              "type": "KOLORS_EMBEDS"
+            },
+            {
+              "link": null,
+              "name": "latent",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                18
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            995,
+            455
+          ],
+          "properties": {
+            "Node name for S&R": "KolorsSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 266
+          },
+          "type": "KolorsSampler",
+          "widgets_values": [
+            1024,
+            768,
+            526046061047411,
+            "randomize",
+            30,
+            5,
+            "EulerDiscreteScheduler",
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 8,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          768,
+          526046061047411,
+          "randomize",
+          30,
+          5,
+          "EulerDiscreteScheduler",
+          1
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 768,
+        "widget_2": 526046061047411,
+        "widget_3": "randomize",
+        "widget_4": 30,
+        "widget_5": 5,
+        "widget_6": "EulerDiscreteScheduler",
+        "widget_7": 1
+      }
+    },
+    "15": {
+      "class_type": "Note",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#653",
+          "color": "#432",
+          "flags": {},
+          "id": 15,
+          "mode": 0,
+          "order": 0,
+          "pos": [
+            221,
+            607
+          ],
+          "properties": {
+            "text": ""
+          },
+          "size": {
+            "0": 273.5273742675781,
+            "1": 149.5546417236328
+          },
+          "type": "Note",
+          "widgets_values": [
+            "Text encoding takes the most VRAM, quantization can reduce that a lot.\n\nApproximate values I have observed:\nfp16 - 12 GB\nquant8 - 8-9 GB\nquant4 - 4-5 GB\n\nquant4 reduces the quality quite a bit, 8 seems fine"
+          ]
+        },
+        "bgcolor": "#653",
+        "color": "#432",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Text encoding takes the most VRAM, quantization can reduce that a lot.\n\nApproximate values I have observed:\nfp16 - 12 GB\nquant8 - 8-9 GB\nquant4 - 4-5 GB\n\nquant4 reduces the quality quite a bit, 8 seems fine"
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "Text encoding takes the most VRAM, quantization can reduce that a lot.\n\nApproximate values I have observed:\nfp16 - 12 GB\nquant8 - 8-9 GB\nquant4 - 4-5 GB\n\nquant4 reduces the quality quite a bit, 8 seems fine"
+      }
+    },
+    "18": {
+      "class_type": "ToBasicPipe",
+      "id": "18",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 18,
+          "inputs": [
+            {
+              "link": 27,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 56,
+              "name": "clip",
+              "type": "CLIP"
+            },
+            {
+              "link": 58,
+              "name": "vae",
+              "type": "VAE"
+            },
+            {
+              "link": 37,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 38,
+              "name": "negative",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "basic_pipe",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "BASIC_PIPE"
+            }
+          ],
+          "pos": [
+            1899.667019197252,
+            295.3859688763801
+          ],
+          "properties": {
+            "Node name for S&R": "ToBasicPipe"
+          },
+          "size": {
+            "0": 241.79998779296875,
+            "1": 106
+          },
+          "type": "ToBasicPipe"
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "18",
+      "widgets": {}
+    },
+    "19": {
+      "class_type": "UltralyticsDetectorProvider",
+      "id": "19",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {
+            "collapsed": true
+          },
+          "id": 19,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                24
+              ],
+              "name": "BBOX_DETECTOR",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "BBOX_DETECTOR"
+            },
+            {
+              "links": [],
+              "name": "SEGM_DETECTOR",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "SEGM_DETECTOR"
+            }
+          ],
+          "pos": [
+            1702.667019197252,
+            342.38596887638005
+          ],
+          "properties": {
+            "Node name for S&R": "UltralyticsDetectorProvider"
+          },
+          "size": {
+            "0": 315,
+            "1": 78
+          },
+          "type": "UltralyticsDetectorProvider",
+          "widgets_values": [
+            "bbox/face_yolov8m.pt"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "bbox/face_yolov8m.pt"
+        ]
+      },
+      "uid": "19",
+      "widgets": {
+        "widget_0": "bbox/face_yolov8m.pt"
+      }
+    },
+    "20": {
+      "class_type": "SAMLoader",
+      "id": "20",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#535",
+          "color": "#323",
+          "flags": {
+            "collapsed": true
+          },
+          "id": 20,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                26
+              ],
+              "name": "SAM_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "SAM_MODEL"
+            }
+          ],
+          "pos": [
+            1694.667019197252,
+            295.3859688763801
+          ],
+          "properties": {
+            "Node name for S&R": "SAMLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "SAMLoader",
+          "widgets_values": [
+            "sam_vit_b_01ec64.pth",
+            "Prefer GPU"
+          ]
+        },
+        "bgcolor": "#535",
+        "color": "#323",
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sam_vit_b_01ec64.pth",
+          "Prefer GPU"
+        ]
+      },
+      "uid": "20",
+      "widgets": {
+        "widget_0": "sam_vit_b_01ec64.pth",
+        "widget_1": "Prefer GPU"
+      }
+    },
+    "21": {
+      "class_type": "SEGSDetailerForAnimateDiff",
+      "id": "21",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 21,
+          "inputs": [
+            {
+              "link": 44,
+              "name": "image_frames",
+              "type": "IMAGE"
+            },
+            {
+              "link": 22,
+              "name": "segs",
+              "type": "SEGS"
+            },
+            {
+              "link": 23,
+              "name": "basic_pipe",
+              "type": "BASIC_PIPE"
+            },
+            {
+              "link": null,
+              "name": "refiner_basic_pipe_opt",
+              "type": "BASIC_PIPE"
+            },
+            {
+              "link": null,
+              "name": "scheduler_func_opt",
+              "type": "SCHEDULER_FUNC"
+            },
+            {
+              "link": 41,
+              "name": "seed",
+              "slot_index": 5,
+              "type": "INT",
+              "widget": {
+                "name": "seed"
+              }
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                33
+              ],
+              "name": "segs",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "SEGS"
+            },
+            {
+              "links": null,
+              "name": "cnet_images",
+              "shape": 6,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2074.086561522133,
+            294.7514445896564
+          ],
+          "properties": {
+            "Node name for S&R": "SEGSDetailerForAnimateDiff"
+          },
+          "size": {
+            "0": 342.5999755859375,
+            "1": 402
+          },
+          "type": "SEGSDetailerForAnimateDiff",
+          "widgets_values": [
+            500,
+            true,
+            768,
+            396598711074030,
+            "randomize",
+            15,
+            3,
+            "euler",
+            "karras",
+            0.5,
+            0.5,
+            20
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 12,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          500,
+          true,
+          768,
+          396598711074030,
+          "randomize",
+          15,
+          3,
+          "euler",
+          "karras",
+          0.5,
+          0.5,
+          20
+        ]
+      },
+      "uid": "21",
+      "widgets": {
+        "widget_0": 500,
+        "widget_1": true,
+        "widget_10": 0.5,
+        "widget_11": 20,
+        "widget_2": 768,
+        "widget_3": 396598711074030,
+        "widget_4": "randomize",
+        "widget_5": 15,
+        "widget_6": 3,
+        "widget_7": "euler",
+        "widget_8": "karras",
+        "widget_9": 0.5
+      }
+    },
+    "22": {
+      "class_type": "ImpactSimpleDetectorSEGS_for_AD",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 22,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "bbox_detector",
+              "type": "BBOX_DETECTOR"
+            },
+            {
+              "link": 42,
+              "name": "image_frames",
+              "type": "IMAGE"
+            },
+            {
+              "link": 26,
+              "name": "sam_model_opt",
+              "type": "SAM_MODEL"
+            },
+            {
+              "link": null,
+              "name": "segm_detector_opt",
+              "slot_index": 3,
+              "type": "SEGM_DETECTOR"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                22
+              ],
+              "name": "SEGS",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "SEGS"
+            }
+          ],
+          "pos": [
+            1702.667019197252,
+            393.38596887637976
+          ],
+          "properties": {
+            "Node name for S&R": "ImpactSimpleDetectorSEGS_for_AD"
+          },
+          "size": {
+            "0": 319.20001220703125,
+            "1": 334
+          },
+          "type": "ImpactSimpleDetectorSEGS_for_AD",
+          "widgets_values": [
+            0.5,
+            0,
+            3,
+            10,
+            0.5,
+            0,
+            0,
+            0.7,
+            "Pivot SEGS",
+            "Combined mask"
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 10,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.5,
+          0,
+          3,
+          10,
+          0.5,
+          0,
+          0,
+          0.7,
+          "Pivot SEGS",
+          "Combined mask"
+        ]
+      },
+      "uid": "22",
+      "widgets": {
+        "widget_0": 0.5,
+        "widget_1": 0,
+        "widget_2": 3,
+        "widget_3": 10,
+        "widget_4": 0.5,
+        "widget_5": 0,
+        "widget_6": 0,
+        "widget_7": 0.7,
+        "widget_8": "Pivot SEGS",
+        "widget_9": "Combined mask"
+      }
+    },
+    "25": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "25",
+      "inputs": {
+        "ckpt_name": "epicrealism_naturalSinRC1VAE.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 25,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                27
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                35,
+                36,
+                56
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                58
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            1695.667019197252,
+            448.3859688763796
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "epicrealism_naturalSinRC1VAE.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "epicrealism_naturalSinRC1VAE.safetensors"
+        ]
+      },
+      "uid": "25",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "SEGSPaste",
+      "id": "29",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {
+            "collapsed": true
+          },
+          "id": 29,
+          "inputs": [
+            {
+              "link": 43,
+              "name": "image",
+              "type": "IMAGE"
+            },
+            {
+              "link": 33,
+              "name": "segs",
+              "type": "SEGS"
+            },
+            {
+              "link": null,
+              "name": "ref_image_opt",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2411.086561522132,
+            292.7514445896564
+          ],
+          "properties": {
+            "Node name for S&R": "SEGSPaste"
+          },
+          "size": {
+            "0": 315,
+            "1": 122
+          },
+          "type": "SEGSPaste",
+          "widgets_values": [
+            5,
+            255
+          ]
+        },
+        "flags": {
+          "collapsed": true
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          5,
+          255
+        ]
+      },
+      "uid": "29",
+      "widgets": {
+        "widget_0": 5,
+        "widget_1": 255
+      }
+    },
+    "3": {
+      "class_type": "PreviewImage",
+      "id": "3",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 13,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "pos": [
+            1338,
+            396
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": [
+            279.6397179059875,
+            443.0978054584042
+          ],
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "3",
+      "widgets": {}
+    },
+    "30": {
+      "class_type": "CLIPTextEncode",
+      "id": "30",
+      "inputs": {
+        "text": "a photorealistic beautiful female face, light makeup."
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {
+            "collapsed": false
+          },
+          "id": 30,
+          "inputs": [
+            {
+              "link": 35,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                37
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1690.0865615221392,
+            594.7514445896562
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 422.84503173828125,
+            "1": 164.31304931640625
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "a photorealistic beautiful female face, light makeup."
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {
+          "collapsed": false
+        },
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "a photorealistic beautiful female face, light makeup."
+        ]
+      },
+      "uid": "30",
+      "widgets": {}
+    },
+    "31": {
+      "class_type": "CLIPTextEncode",
+      "id": "31",
+      "inputs": {
+        "text": "blurry, freckle, pimple, blemish, mole"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 31,
+          "inputs": [
+            {
+              "link": 36,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                38
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1699.0865615221396,
+            813.7514445896564
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 410.70306396484375,
+            "1": 147.8914794921875
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "blurry, freckle, pimple, blemish, mole"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "blurry, freckle, pimple, blemish, mole"
+        ]
+      },
+      "uid": "31",
+      "widgets": {}
+    },
+    "32": {
+      "class_type": "SaveImage",
+      "id": "32",
+      "inputs": {
+        "filename_prefix": "ComfyUI"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 32,
+          "inputs": [
+            {
+              "link": 40,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 18,
+          "pos": [
+            2400,
+            446
+          ],
+          "properties": {},
+          "size": [
+            559.2146756605698,
+            587.632517180509
+          ],
+          "type": "SaveImage",
+          "widgets_values": [
+            "ComfyUI"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "ComfyUI"
+        ]
+      },
+      "uid": "32",
+      "widgets": {}
+    },
+    "33": {
+      "class_type": "Seed Everywhere",
+      "id": "33",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 33,
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                41
+              ],
+              "name": "INT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "INT"
+            }
+          ],
+          "pos": [
+            2069.086561522133,
+            340.75144458965593
+          ],
+          "properties": {
+            "Node name for S&R": "Seed Everywhere",
+            "color_restricted": 0,
+            "group_restricted": 0
+          },
+          "size": {
+            "0": 315,
+            "1": 124
+          },
+          "type": "Seed Everywhere",
+          "widgets_values": [
+            489062055292433,
+            "randomize",
+            "867121125930029"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          489062055292433,
+          "randomize",
+          "867121125930029"
+        ]
+      },
+      "uid": "33",
+      "widgets": {
+        "widget_0": 489062055292433,
+        "widget_1": "randomize",
+        "widget_2": "867121125930029"
+      }
+    },
+    "6": {
+      "class_type": "DownloadAndLoadKolorsModel",
+      "id": "6",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 6,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "name": "kolors_model",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "KOLORSMODEL"
+            }
+          ],
+          "pos": [
+            210,
+            345
+          ],
+          "properties": {
+            "Node name for S&R": "DownloadAndLoadKolorsModel"
+          },
+          "size": {
+            "0": 315,
+            "1": 82
+          },
+          "type": "DownloadAndLoadKolorsModel",
+          "widgets_values": [
+            "Kwai-Kolors/Kolors",
+            "fp16"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Kwai-Kolors/Kolors",
+          "fp16"
+        ]
+      },
+      "uid": "6",
+      "widgets": {
+        "widget_0": "Kwai-Kolors/Kolors",
+        "widget_1": "fp16"
+      }
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "3",
+      "output_type": "PreviewImage"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "32",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "epicrealism_naturalSinRC1VAE.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "ee7a588872ecfbe2",
+    "path": "external_workflows/.shadow/source/ee7a588872ecfbe2-KolorsWithFaceDetail.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "d813fedaabea87b79c2520f202b29cf9ca457e6cb771cb231a2e43a83123d34b",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1138859346487410828,
+      "channel_name": "chatter",
+      "discord_message_url": "https://discord.com/channels/@me/1138859346487410828/1265089871534624838",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1265089871534624838:KolorsWithFaceDetail.json:ee7a588872ecfbe2",
+      "filename": "KolorsWithFaceDetail.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:47:01+00:00",
+      "message_id": 1265089871534624838,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "DownloadAndLoadChatGLM3": 1,
+        "DownloadAndLoadKolorsModel": 1,
+        "ImpactSimpleDetectorSEGS_for_AD": 1,
+        "KolorsSampler": 1,
+        "KolorsTextEncode": 1,
+        "Note": 1,
+        "PreviewImage": 1,
+        "SAMLoader": 1,
+        "SEGSDetailerForAnimateDiff": 1,
+        "SEGSPaste": 1,
+        "SaveImage": 1,
+        "Seed Everywhere": 1,
+        "ToBasicPipe": 1,
+        "UltralyticsDetectorProvider": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 19,
+      "origin_date": "2024-07-22T23:35:29.607000+00:00",
+      "originator_global_name": "VRGameDevGirl84(RTX 5090)",
+      "originator_id": "330829305477333022",
+      "originator_type": "discord_message_author",
+      "originator_username": "vrgamedevgirl",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "ee7a588872ecfbe246b26442aa396d3b413b83bf44d3fd67c9d9e20ba4eaeef0",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1138859346487410828/1265089871236825088/KolorsWithFaceDetail.json?ex=69794bc1&is=6977fa41&hm=88cc2794bcfad247266c1f564ecbdcf2e51e01da324ba98180579e993dbfb853&",
+      "source_workflow_sha256": "4aedf174d4f37e101a7570891e1b3aa4e5a1ac327a4beaac5b58876cb799b48c",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

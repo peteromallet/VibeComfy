@@ -1,0 +1,179 @@
+{
+  "10": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "custom_height": 512,
+      "custom_width": 512,
+      "force_rate": 0,
+      "force_size": "Disabled",
+      "frame_load_cap": 500,
+      "select_every_nth": 1,
+      "skip_first_frames": 0,
+      "vae": [
+        "11",
+        0
+      ],
+      "video": "input/bigbuckbunny.mp4"
+    }
+  },
+  "11": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "taesd"
+    }
+  },
+  "12": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 8,
+      "denoise": 1,
+      "latent_image": [
+        "10",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "seed": 0,
+      "steps": 20
+    }
+  },
+  "13": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "20",
+        0
+      ],
+      "images": [
+        "12",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": false,
+      "vae": [
+        "11",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "frame_rate": [
+        "21",
+        0
+      ],
+      "images": [
+        "18",
+        0
+      ],
+      "loop_count": 0,
+      "meta_batch": [
+        "19",
+        0
+      ],
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": false
+    }
+  },
+  "16": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "custom_height": 512,
+      "custom_width": 512,
+      "force_rate": 0,
+      "force_size": "Disabled",
+      "frame_load_cap": 500,
+      "meta_batch": [
+        "19",
+        0
+      ],
+      "select_every_nth": 1,
+      "skip_first_frames": 0,
+      "video": "input/bigbuckbunny.mp4"
+    }
+  },
+  "17": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "16",
+        0
+      ]
+    }
+  },
+  "18": {
+    "class_type": "VAEDecode",
+    "inputs": {}
+  },
+  "19": {
+    "class_type": "VHS_BatchManager",
+    "inputs": {
+      "count": 0,
+      "frames_per_batch": 16
+    }
+  },
+  "20": {
+    "class_type": "VHS_VideoInfoLoaded",
+    "inputs": {
+      "video_info": [
+        "10",
+        3
+      ]
+    }
+  },
+  "21": {
+    "class_type": "VHS_VideoInfoLoaded",
+    "inputs": {
+      "video_info": [
+        "16",
+        3
+      ]
+    }
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "cardosAnime_v20.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "beautiful scenery nature glass bottle landscape, , purple galaxy bottle,"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4",
+        1
+      ],
+      "text": "text, watermark"
+    }
+  }
+}

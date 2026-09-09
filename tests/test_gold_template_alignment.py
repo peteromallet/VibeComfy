@@ -62,32 +62,37 @@ def gen_wf(gen_mod):
 
 # ── Public inputs parity ─────────────────────────────────────────────────────
 
-def test_public_input_keys_match(gold_mod, gen_mod) -> None:
-    """Both templates must expose the same set of public input keys."""
-    gold_inputs = gold_mod.PUBLIC_INPUTS
-    gen_inputs = gen_mod.PUBLIC_INPUTS
+def test_gold_template_extends_retained_ready_public_inputs(gold_wf, gen_wf) -> None:
+    """The manual example retains the ready contract and eight explicit controls."""
+    gold_inputs = gold_wf.inputs
+    gen_inputs = gen_wf.inputs
 
     gold_keys = set(gold_inputs.keys())
     gen_keys = set(gen_inputs.keys())
 
-    assert gold_keys == gen_keys, (
-        f"Public input keys differ:\n"
-        f"  Gold only:   {gold_keys - gen_keys}\n"
-        f"  Generated only: {gen_keys - gold_keys}"
-    )
+    # The hand-authored gold example has always exposed additional controls.
+    # Canonical migration retains the ready template's seven public inputs.
+    assert gen_keys <= gold_keys
+    extensions = {"cfg", "frames", "height", "width", "start_image", "length", "sampler_name", "output_fps"}
+    assert gold_keys - gen_keys == extensions
+    for key in extensions:
+        binding = gold_inputs[key]
+        node = gold_wf.nodes[binding.node_id]
+        assert binding.field in node.inputs or binding.field in node.widgets
+        assert node.inputs.get(binding.field, node.widgets.get(binding.field)) == binding.value
 
 
-def test_public_input_default_types_match(gold_mod, gen_mod) -> None:
+def test_public_input_default_types_match(gold_wf, gen_wf) -> None:
     """For each shared key, the default values must be semantically equal."""
-    gold_inputs = gold_mod.PUBLIC_INPUTS
-    gen_inputs = gen_mod.PUBLIC_INPUTS
+    gold_inputs = gold_wf.inputs
+    gen_inputs = gen_wf.inputs
 
-    for key in gold_inputs:
+    for key in gen_inputs:
         gold_spec = gold_inputs[key]
         gen_spec = gen_inputs[key]
 
-        gold_default = gold_spec.default
-        gen_default = gen_spec.default
+        gold_default = gold_spec.value
+        gen_default = gen_spec.value
 
         # For numeric types, check semantic equality (6.0 == 6)
         if isinstance(gold_default, (int, float)) and isinstance(gen_default, (int, float)):
@@ -211,8 +216,8 @@ def test_gold_template_is_build_only(gold_mod) -> None:
     assert hasattr(gold_mod, "MODELS"), "Gold template missing MODELS"
 
 
-def test_generated_template_is_build_only(gen_mod) -> None:
+def test_generated_template_is_build_only(gen_mod, gen_wf) -> None:
     """Importing the generated template must not trigger GPU work."""
     assert hasattr(gen_mod, "build"), "Generated template missing build()"
-    assert hasattr(gen_mod, "PUBLIC_INPUTS"), "Generated template missing PUBLIC_INPUTS"
-    assert hasattr(gen_mod, "MODELS"), "Generated template missing MODELS"
+    assert gen_wf.inputs, "Built template missing public inputs"
+    assert gen_wf.requirements.models, "Built template missing model requirements"

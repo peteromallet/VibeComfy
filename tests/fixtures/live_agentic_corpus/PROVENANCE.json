@@ -1,0 +1,1048 @@
+{
+  "count": 111,
+  "bytes": 8172894,
+  "note": "90 exact local corpus copies and21 exact existing tracked fixture copies. No transformation; original trial source-root attribution was incorrect. Verified independently before integration.",
+  "files": [
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/001cd1f527f7f288.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "8c192dc28f4ccf8c4475fac0ad76d2b179a979bf"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/001cd1f527f7f288.json",
+      "size": 4245,
+      "sha256": "c3a41c3b5599276a4c8670a00454fda9772f9e48480461a2e6668cfeb3332912"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/0043c6cb3d3d011f.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "5d49a4a8d300ef0e67acc604b6898632af895d9b"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0043c6cb3d3d011f.json",
+      "size": 4913,
+      "sha256": "7e21e6095614576595e0fead1353f7768d96f69044822a47677728422ac494c7"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/00444a9409f56c07.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/00444a9409f56c07.json",
+      "size": 196680,
+      "sha256": "cb4f9f41299923e421770c92a3b82e4d2bdd7092fd0848ee7e6c4ac59bec40cf"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/0070184c5f1c8ca2.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0070184c5f1c8ca2.json",
+      "size": 128249,
+      "sha256": "11e3fb489c3cc8aee26f3d86e9d34cd6c59ad6affe650eb68a5389015104b2d4"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/0099685f34b68456.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "90c85721598a2b05348ead6530c72c6224b219af"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0099685f34b68456.json",
+      "size": 12619,
+      "sha256": "287ee5ba6b895449763a1f6589d6d5b66fa225844ace8892e957c62d07504d22"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/02d7ea587fb70e40.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/02d7ea587fb70e40.json",
+      "size": 66865,
+      "sha256": "e02fcfc8e2ccd8a1ca1e12dcfae2e70c21eb6e1510674080a4831c70e7fee00a"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/03fcedf997c13003.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/03fcedf997c13003.json",
+      "size": 66104,
+      "sha256": "59dd2c79a049f5cc7c822e01265c9874f7215565f71e7eda403426c23bac774a"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/052e59d2d54625ac.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/052e59d2d54625ac.json",
+      "size": 46381,
+      "sha256": "ffa4b51b3a241cf0b1a5902b2edfa494c342034f827affe0ec0e63aa8dc648bd"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/09fc64f94ce5ed26.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/09fc64f94ce5ed26.json",
+      "size": 71673,
+      "sha256": "7698209b423a2ffd4dfbfd3f167fb680546c111474c69b8aff3e31a4912e185e"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/0b47c66d3fc67c4e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0b47c66d3fc67c4e.json",
+      "size": 26737,
+      "sha256": "e4b5daec7eb59d940bf887d5f914420b3bb7999da385012e86b0749459cecaf3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/0c27166fc31b7ead.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0c27166fc31b7ead.json",
+      "size": 407094,
+      "sha256": "b2a1d82c6e8dc46725591797da6c683afb3e7a77dea44bec2d9a38ff44eab6c7"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/0d470a47b5d7c601.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "4ace4e1f408a7326c4ffd2cd8ce523763e28949e"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0d470a47b5d7c601.json",
+      "size": 10494,
+      "sha256": "c77073490f3892e5b847588c734ae3ba2565b3e1de9326f927170496f28b7727"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/0eb67659bfc4dc63.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/0eb67659bfc4dc63.json",
+      "size": 269902,
+      "sha256": "bda4c6f02ff8c802b82a2e3abe79b631a5f4beccf2905bfb71a3824152cb319f"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/17dc9bc3ed806c24.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/17dc9bc3ed806c24.json",
+      "size": 45229,
+      "sha256": "3e00229733baeaeeec5239e71beeeda731bb154a3b1289512fa6778898efed31"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1882aa21429372a8.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1882aa21429372a8.json",
+      "size": 24567,
+      "sha256": "41597117a2186ca9c6dc92be42dd774a00fca05238789db69c366dd15ab022dd"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1999a9d36cb0a7f4.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1999a9d36cb0a7f4.json",
+      "size": 43415,
+      "sha256": "ca001814c33a186bc189891e96aa2dda45182b6c1405e02a0d803c0fbd5c1d63"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/19d221f074b42462.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/19d221f074b42462.json",
+      "size": 40325,
+      "sha256": "9acadc5405b97c0998e99a66dea4c064ab271e5feb34953fad3e6205d64ba83d"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1a7f84de80346770.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1a7f84de80346770.json",
+      "size": 23513,
+      "sha256": "1e07cc5e064f3791b4614dbfb1d6470972298103eab42d65dfa8a4abf8e60f30"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1b136036c776018a.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1b136036c776018a.json",
+      "size": 151818,
+      "sha256": "e5846011433a2fe294236d76ed89c90f3d5e14fdd2046720d2d3db8eaba23fa9"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1c7ad8a2a8c0224b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1c7ad8a2a8c0224b.json",
+      "size": 50936,
+      "sha256": "5106b5b32b6866c2c45e61f1c9f9b99ac09763d2a907fc480ad47fb43763a8c3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1cc45704dcffe34a.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1cc45704dcffe34a.json",
+      "size": 193573,
+      "sha256": "83c1e1b78631c8978c2be6cd55f659adf5c9f173146285378515e360aca522d3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/1d414c3424d15ae2.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/1d414c3424d15ae2.json",
+      "size": 34607,
+      "sha256": "77200b0a1ecbad29f6951bd9dc07f189236925e8539e174bde1e174d0ad7f911"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/26584720cc4075d1.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/26584720cc4075d1.json",
+      "size": 44092,
+      "sha256": "7d6fb4684f63805fb198b89180d19cd0711747352528d32ec5fa8b16827cb358"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/2a31ec45fd22a623.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/2a31ec45fd22a623.json",
+      "size": 32623,
+      "sha256": "3902cecc195ce146f556f168b80847d57b4b87b81e9055cda2edafb2411e5f62"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/2bdbaf79a96182c4.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "9b0482976d626f38080abf11246929c46f9be556"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/2bdbaf79a96182c4.json",
+      "size": 1830,
+      "sha256": "a44f0b8c613d8b7355c2969b284e1daa2ad0b105fa6c7479ad60f784714e47d3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/2e93a5af34d6d96c.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/2e93a5af34d6d96c.json",
+      "size": 105989,
+      "sha256": "b59827f443e61a6d0080a6bbe0060dd241749ee88d7f24024a14650466dc342f"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/352066ccef9dbe37.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/352066ccef9dbe37.json",
+      "size": 37085,
+      "sha256": "cb759b44eeef9b28df2ed3f0d0e835ce3d2d35770930a7d0a95cbaccb80b68f3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/3598486eb6eb45d1.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/3598486eb6eb45d1.json",
+      "size": 159999,
+      "sha256": "984d00ffe8cd14b1a90b3b2698cbd73aab811e71a184d229f2d08ffdcde9f08a"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/374aa988d0a133be.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/374aa988d0a133be.json",
+      "size": 87938,
+      "sha256": "9c5506586ffe421d7036c393ece06f5d54136505115187a259bc9d64f1c6f49c"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/38375c38c1d2e6de.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "674cd3df1427a8dabcb40bdfabf05362cb219975"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/38375c38c1d2e6de.json",
+      "size": 2462,
+      "sha256": "8ae30394a10fe55697444b44a5aea6a922bba634ce161ba2c34a2c31d9f947d4"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/389d9080e42e36dd.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/389d9080e42e36dd.json",
+      "size": 40082,
+      "sha256": "b3356f4640f638998d1eae50dd2ac775342c649d6d3a77940b93d6c72b762189"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/3c978e6c11a8a768.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/3c978e6c11a8a768.json",
+      "size": 75144,
+      "sha256": "ca8d60a2764fd409f80e7abe72b537618ee86e51921e1038f201ae5fb162d262"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/430a3f936f6235f5.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/430a3f936f6235f5.json",
+      "size": 193166,
+      "sha256": "1eb939fab64a7cf5055a70fa4139d792c78ab3b42d73c0e1500cb6af54fdc9bc"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/432652b04ff0738b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/432652b04ff0738b.json",
+      "size": 39988,
+      "sha256": "2e0605381ff0570cb18ebf0cba85cb7199fd45a46e8b5fb9c87a1e98866226d1"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/435de2f6bb5d3eda.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/435de2f6bb5d3eda.json",
+      "size": 117203,
+      "sha256": "6ea334bb5afad8dea98ebc565a8a7993d1b32c9cfaebac39410a4e46eaf30d4c"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/465726d60a145b19.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "bab4c7b405219964f44277abdd07fe244977a700"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/465726d60a145b19.json",
+      "size": 2900,
+      "sha256": "e639739cd84018810243c609441cb8e8f56f7735be2682578d14fdda7c49fff2"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/485ff2fa6dcc1917.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/485ff2fa6dcc1917.json",
+      "size": 161558,
+      "sha256": "7a12d7bfb8fbef41e0ae847a755545c25fbbc4f9d6f57103829542403abfaa8f"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/498ca31ad99591da.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "af8b98469e5a1533d677b3cd935c7244e4cf2299"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/498ca31ad99591da.json",
+      "size": 18940,
+      "sha256": "13c890a1184ac5e7782deec1889f95dd053c1d549a8f57977759afac376adc95"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/49d0579ed9932457.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/49d0579ed9932457.json",
+      "size": 42241,
+      "sha256": "08cee15268021cccedfae4b5cf7c9c689a135fb20cf83861a72d433471250b1d"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/4ed6d962d58657c4.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/4ed6d962d58657c4.json",
+      "size": 43573,
+      "sha256": "c148b3b74fb11eb408e6cfb2150189075d1b122b64eb6a341775267404c62af9"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/4eebf3dc07942c52.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/4eebf3dc07942c52.json",
+      "size": 128683,
+      "sha256": "1b6b276f31d6959bad780bba577b9570e1addd72429be1432a9e2d25d5764afa"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/506ebdde037e22d8.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/506ebdde037e22d8.json",
+      "size": 344532,
+      "sha256": "90cc22c6fc702255a32df98b0388a886bab8747061452ca79e5f928c1d4ed274"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/54a681138bec8a37.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/54a681138bec8a37.json",
+      "size": 42440,
+      "sha256": "3b207e76498cf7c34deec6479600832ecee7432143484bf7584db02c8daeb6ee"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/59502aed6ad75d87.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "6a6eebb39a54b2dfeded05050e154027063780b6"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/59502aed6ad75d87.json",
+      "size": 892,
+      "sha256": "28927117ba2b3a403337d39d012c375bba13b8aeed772fb1c846760056012175"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/5b31ce48557b8ac2.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/5b31ce48557b8ac2.json",
+      "size": 18683,
+      "sha256": "9a8cd6b494aaea6a0fb3f1eb25289c5485885807c42cdc7552267ac9ce3cda49"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/5b54bf476f4234aa.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/5b54bf476f4234aa.json",
+      "size": 29278,
+      "sha256": "741b45266de55b4fe10018b525c6d667e0826864e3c7722544f0d20b07c67930"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/5f41ffe9e1194aed.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "ebcd13ec13feed11b16f5abb287a1ca1b88758eb"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/5f41ffe9e1194aed.json",
+      "size": 5119,
+      "sha256": "f344d3cb450634d608fb63fb8296e1b6cb49f84481e2adc534be7d198d7fac72"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/62682a77ae33b43a.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/62682a77ae33b43a.json",
+      "size": 59508,
+      "sha256": "a518f843af614e923733dbee9e3cd7d346fb1d220bc1404abb9c5cc640545969"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/673197a9269d00f8.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/673197a9269d00f8.json",
+      "size": 96115,
+      "sha256": "d15ba9e1d9385ec8ebcbe3ba82d1e9a85af103821b369af3f45170ac8c037f1b"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/6a9e200909ff7692.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/6a9e200909ff7692.json",
+      "size": 47856,
+      "sha256": "e85189db459d4c16dcf4244fdf4f96f278d8be179aba2eee83df0613be444118"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/6c1e9f2b110470fa.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "3a7cd3eb465f1ce28c64be7ec302df2bcbd801d7"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/6c1e9f2b110470fa.json",
+      "size": 4641,
+      "sha256": "3eabc55f313419534e77269a79b036c8db8f44d0946b5400e5dc2c8aba553cfc"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/703c14838d75fc16.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/703c14838d75fc16.json",
+      "size": 77563,
+      "sha256": "ad33e9fc8b7bab56a1878c013729b2e5d92e772a048d9433d9cb9dfac8981ca5"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/71f825e4550c95b7.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/71f825e4550c95b7.json",
+      "size": 40075,
+      "sha256": "87bcefccfcba650f83aa8568f6572b623151ccd4e296a44d442048f2f737bef3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/7567d20f91a2d6b5.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/7567d20f91a2d6b5.json",
+      "size": 37779,
+      "sha256": "31b93e5309af71bb8aeff20c266aa0d2de10876a832ab064ec6f6c6079e8444e"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/78afac42baf0a381.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/78afac42baf0a381.json",
+      "size": 88709,
+      "sha256": "dbe418999e35aff0c233c78a887fc152f978dc4e5a4edd36aa04043ae878d52f"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/7952d606da990a99.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/7952d606da990a99.json",
+      "size": 63502,
+      "sha256": "1b22f4ee37a2b609426b5fc67b0f5e5e79211386e55d41455094608162b183e3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/7c8bb3b65e8084ae.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/7c8bb3b65e8084ae.json",
+      "size": 48485,
+      "sha256": "93eb79de70cc379a83d40bcb131b6e9d8c9b1133de89e961b325ab5c7078ee83"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/7cf357a55e5fab05.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/7cf357a55e5fab05.json",
+      "size": 45029,
+      "sha256": "58656b3b803e74088981f8de8ee6aca777c04a52771090b19c8dcd624e74161a"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/8009c7ed72fd98a9.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/8009c7ed72fd98a9.json",
+      "size": 48789,
+      "sha256": "c8f35750e61260a1c6f72819c6e206cf5d497714a5097fad4f42fb899ae27e09"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/82ffb9156459a82e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/82ffb9156459a82e.json",
+      "size": 113484,
+      "sha256": "b1234ae980088293b2e8cfa294548b7fcae8e13f286e4cd5f1f87833d976c1a4"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/8800a945cff8d090.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/8800a945cff8d090.json",
+      "size": 25601,
+      "sha256": "134ec19b6bd7158373e968face34c9bd2390c8e1011d40c92fc077e6a08f7658"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/89b02a141d7451bb.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/89b02a141d7451bb.json",
+      "size": 230795,
+      "sha256": "fbda3fe9b492ccbaee3ee46ce7cf788c4957a7f667e03c5401f5eb6fe2a9bd74"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/8ac746c940b127b4.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "70ea523c0e9bc42cd4e0ae895a7300a866da2a37"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/8ac746c940b127b4.json",
+      "size": 7700,
+      "sha256": "f8c0e7b8e9247725c51b6e804a579be8c0a24ead7912c32863e45cc12986d8cc"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/8d606b5c56f1243a.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "c4165c9a26859261f36a238e4c97b76f2c5ce784"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/8d606b5c56f1243a.json",
+      "size": 12026,
+      "sha256": "a9d8ce67507977b3ceaeef81373cee4d77eb1f74693c1a1f15ee24a0e8591797"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/8e5619299bafee56.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "e17bb5d55906e1be9cf64db9bfaa7d753f2d6f54"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/8e5619299bafee56.json",
+      "size": 13335,
+      "sha256": "4b91ba865e85eec812ff4e57248460d6d71ac9a588e96603a66305d2b93e4c27"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/90a1d5ff9044902e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/90a1d5ff9044902e.json",
+      "size": 49170,
+      "sha256": "3f7fe8c665328f4ffa8db8f851da2081f288c9e2d107fd697c89de8655cf5f63"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/949658825bc5999a.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/949658825bc5999a.json",
+      "size": 88953,
+      "sha256": "040a264e5eccfb3dd142f3e4af327cd3bcf7ae09c5e67e72534c83ff7efccab7"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/99e2a967a579197f.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/99e2a967a579197f.json",
+      "size": 55382,
+      "sha256": "f149b2397b765bcf5f0b82c91d63e0a806afe8aac0558352f626708ea8ac4263"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/9a3109dc72a4bd11.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/9a3109dc72a4bd11.json",
+      "size": 39060,
+      "sha256": "cf137b2940166dcd203390bd727f739d5944a025d323d7cf660c30423d192f54"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/9a7ef22a9d947e9f.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "67e38d699187993a501e2524a31633ee8f17b208"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/9a7ef22a9d947e9f.json",
+      "size": 2895,
+      "sha256": "bb636c1f03add5825296d4177008d96493454bff45a0d933c7da2778fc875e5b"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/9aa0f1cd11147fe4.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/9aa0f1cd11147fe4.json",
+      "size": 41556,
+      "sha256": "ba72e64d75fd46065df102d48766d5d43ed3f16fb9f7da314ca8d565ee809821"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/9d28c679b594d9c4.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/9d28c679b594d9c4.json",
+      "size": 119202,
+      "sha256": "2a6a77f6a780324ca8f06c8a25d964f038bc782d44cf257b3a906c13d31333a6"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/a7e2af6f0472627b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/a7e2af6f0472627b.json",
+      "size": 48101,
+      "sha256": "5d64cc12202fb36e3ca3b25b013712b78c1c08f077b18e450b8d31e6d670ec13"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/a7ecc54027245cb7.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/a7ecc54027245cb7.json",
+      "size": 75721,
+      "sha256": "358bf188ef9d1452d9ccc30f226ac9062d98adccbc1415fb3343ddd98a171c81"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/b11a56667cbc389b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b11a56667cbc389b.json",
+      "size": 517141,
+      "sha256": "b47c2b1f9b73a8c33e9e6fbd34857fea2359da47a3ee8542250e1bfeeaa51155"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/b22937d66f82f884.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b22937d66f82f884.json",
+      "size": 31126,
+      "sha256": "077292868e97a8d989ebd160f63586ff25d4007fa0b2a6a40bdc3dc4b4af6cf8"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/b3530ba884ac4625.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "c2395bcb57e2471c6f628bd8bee1d365477e1381"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b3530ba884ac4625.json",
+      "size": 470,
+      "sha256": "d587fb6ac78718887c0a77b00a778ba43e662ccf69d024e54dcb1b12ca4c0aa0"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/b3ba8a025a649a3b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b3ba8a025a649a3b.json",
+      "size": 215533,
+      "sha256": "e5212e916469564f8e8ec57a52b5196f79eee9ac745013284377cc79cf9fc4b6"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/b55994d9cb6aea42.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b55994d9cb6aea42.json",
+      "size": 23475,
+      "sha256": "cf18d35e10586b45a798da007c09965f0abd89a5339a1d15507605c651fcdc22"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/b6ae778fc2b1cd3d.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "ea349c9a4ffc3619a2b2cfc2039a2501a35059fe"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b6ae778fc2b1cd3d.json",
+      "size": 3154,
+      "sha256": "0777c7617c560f47c5ff458ceb4d8a6523e2ce68e63b7ed8fcc85378edb97a70"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/b808486c05ad607c.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/b808486c05ad607c.json",
+      "size": 25942,
+      "sha256": "b9d457b89bb7353cd60e0687d9f30edbc60c640001f10a99983915de45dca5f8"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/bd3afbc96b77409e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/bd3afbc96b77409e.json",
+      "size": 15727,
+      "sha256": "2cb7a617786580e0e57ff0c1e8c96177ca558b20b79a8cd1db04c70cf3b48065"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/c226f6c5faae34de.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "b09df22998b3ca5fb63f3094cdb5f74972f5b296"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c226f6c5faae34de.json",
+      "size": 2240,
+      "sha256": "dc78f9218fa2e40166ed62cd6a266bcf33b05e5f5a19423b242de724ab6d14d0"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/c24aa2ac329006f2.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c24aa2ac329006f2.json",
+      "size": 59625,
+      "sha256": "3c605c00652907736c02e5c4bfff6fa17c9edbfd06024be972b004dc2332f180"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/c44e118d5940e1bc.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c44e118d5940e1bc.json",
+      "size": 129567,
+      "sha256": "0db11e8b00ea502507156a02e8d15775b15de01b7e2b5ca4f0d23e391a0bdc4f"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/c80bbf22890fc8df.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c80bbf22890fc8df.json",
+      "size": 105794,
+      "sha256": "50d0bae8056606a96cef8612a070d362eefefaf4863c1650a7ba073ae8cc3726"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/c953dfc7fcf7520b.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c953dfc7fcf7520b.json",
+      "size": 195855,
+      "sha256": "699bc19281591ba93ad17ab7aac6e176b806b247b20dd13959237f53dfd3145c"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/c9df19048aae0738.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/c9df19048aae0738.json",
+      "size": 70151,
+      "sha256": "205c6a0aa195069e3ee4add27e8625dee2894f6750a8ca38b95d25fbcd008865"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/caae974fd091bde7.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/caae974fd091bde7.json",
+      "size": 91698,
+      "sha256": "1639eab3d5038e907e2cc858031ddb436c056fb76974012fc0ce59940c475456"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/cb5cd22138e4cd57.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/cb5cd22138e4cd57.json",
+      "size": 46546,
+      "sha256": "68a65d2ab8abca14084bda8a5c0f0216a2f2609778ee7695d353e446242fbea7"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/cc0df70583f28c98.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/cc0df70583f28c98.json",
+      "size": 53066,
+      "sha256": "f59807058734a50e245e4d97446e42d378a6589457f9359a05f9b5da09400583"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/cdb8167d4eccd0a8.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "768b5dce2da3bd8e55bea4b0611741b0bee5512f"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/cdb8167d4eccd0a8.json",
+      "size": 5601,
+      "sha256": "fe550572488ea0190a95021290f93630055c0c1ebde95963bc4c15e9f4b83b01"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d1caece85b04698e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d1caece85b04698e.json",
+      "size": 569036,
+      "sha256": "7c52a085b58a386cb83ceecf183886197e90100d9ecd76f72b90eda1302d5db9"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d20410227419c47a.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d20410227419c47a.json",
+      "size": 35067,
+      "sha256": "6bfafa1aa997bad786f7080669ebc7aac1d53ea8578a7a4bb18ff4f5d0f87f31"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d38dc8be1bfcda49.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d38dc8be1bfcda49.json",
+      "size": 33145,
+      "sha256": "1eda81a715b7064515c4f7e96a38908b76b54b4f1b4032316467ad5db1714261"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d66a660d74cbc9ec.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d66a660d74cbc9ec.json",
+      "size": 14955,
+      "sha256": "6855d89472a70305bedfdcdd14b1caaf4287afe333cd1e4f6c5a409d2b77b44c"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/live_agentic_corpus/d7363d65465708f5.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "8bb396351540f762eb352f8edc8209e4f03b0d16"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d7363d65465708f5.json",
+      "size": 1189,
+      "sha256": "7730940ab01727f13901b82d57ac190c937aed3bdf4f768714beab76fa97fc97"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d7853cd7421f9ebc.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d7853cd7421f9ebc.json",
+      "size": 23382,
+      "sha256": "0cf39ff1502b0029829a20c609b8a0caee6bfd45ee9472e327bdfdb95acf827c"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d813fedaabea87b7.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d813fedaabea87b7.json",
+      "size": 55886,
+      "sha256": "501fe619c5f4f686d93053390843ade4100e8c8b8b20556e68c35451a4afccc0"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/d93baf73c8a43f57.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/d93baf73c8a43f57.json",
+      "size": 38611,
+      "sha256": "7ff1a0cdf47cec5a91ddb9090f78d676da6bc46cbf824afd9f795d9a3b6e27e3"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/dc3e44e987def366.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/dc3e44e987def366.json",
+      "size": 62639,
+      "sha256": "fbed7dcaf7117501f3ca7a714d9f423e755b4e9c3d64c52a0ec9196c30286605"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/def5b5d3b3b372dd.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/def5b5d3b3b372dd.json",
+      "size": 34657,
+      "sha256": "68d3de381477d186c36446c69ec61ce20e5d5f79a0f2767fcfad43d9f8e0cb57"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/e343e3b050e4c6a9.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/e343e3b050e4c6a9.json",
+      "size": 71114,
+      "sha256": "b2826a88c8676591ad627537d5f0473d4fb0171003077da1026df08c67c03b6c"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/e8c20a18bba6455d.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/e8c20a18bba6455d.json",
+      "size": 49130,
+      "sha256": "0f5f93b84e41c7149d14df40ecdd8ce22b8f9d6a3f27fa40adba03563fd06d88"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/f0859f5d99dc9bdf.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/f0859f5d99dc9bdf.json",
+      "size": 48181,
+      "sha256": "b26e42fc1c8e6b2fa39836107e2161f5d67a35d6e5863a0266ae32f4801a6d4d"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/f0abffc2b525515c.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/f0abffc2b525515c.json",
+      "size": 29119,
+      "sha256": "4dd59dd4485c0e44db63f6180697d065b934e6201823e9ebbb72a8fccb407509"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/f657743bc2a3db17.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/f657743bc2a3db17.json",
+      "size": 59534,
+      "sha256": "4874162874ab6ddce8b7a248382e5ee20a392158f423c14f8ce1fffd4f21833e"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/f855deb7cdef4ace.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/f855deb7cdef4ace.json",
+      "size": 41490,
+      "sha256": "213b367cc227ceb5b18f2ea26a36ff922f29306c047c1bde675969b32326d05a"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/fc240f1c4331a5e5.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/fc240f1c4331a5e5.json",
+      "size": 29892,
+      "sha256": "bdf02f9705e5efdbf75feceb5ccf4c84b7914dd0796573433aa18835b9f62d01"
+    },
+    {
+      "origin": {
+        "kind": "local_corpus_copy",
+        "path": "external_workflows/corpus/ff076a0bcc687c3e.json"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/ff076a0bcc687c3e.json",
+      "size": 97300,
+      "sha256": "8bebcee908a9c9ba17f883e208abd93375e7d954121dd2c80db2d186767cd2b5"
+    },
+    {
+      "origin": {
+        "kind": "tracked_git_blob",
+        "path": "tests/fixtures/agent_edit/hotshot_base_unsaved_workflow_4.json",
+        "commit": "0aba4812eb6e301191db13a958a98c3f9fb19ce0",
+        "blob": "97206761df691e0bede97810e1a81458420343c0"
+      },
+      "fixture": "tests/fixtures/live_agentic_corpus/corpus/hotshot_base_unsaved_workflow_4.json",
+      "size": 8445,
+      "sha256": "13ed4f77db40b41c6378c596c24f6c0ad29e24aaa661e6ca04f6712a57baf7b6"
+    }
+  ]
+}

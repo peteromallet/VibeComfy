@@ -1,0 +1,253 @@
+{
+  "100": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "63",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "103": {
+    "class_type": "WanImageToVideo",
+    "inputs": {
+      "clip_vision_output": [
+        "51",
+        0
+      ],
+      "height": [
+        "106",
+        2
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "start_image": [
+        "52",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "widget_0": 864,
+      "widget_1": 480,
+      "widget_2": 101,
+      "widget_3": 1,
+      "width": [
+        "106",
+        1
+      ]
+    }
+  },
+  "106": {
+    "class_type": "ImageResize+",
+    "inputs": {
+      "image": [
+        "52",
+        0
+      ],
+      "widget_0": 480,
+      "widget_1": 864,
+      "widget_2": "nearest-exact",
+      "widget_3": "keep proportion",
+      "widget_4": "always",
+      "widget_5": 32
+    }
+  },
+  "107": {
+    "class_type": "easy cleanGpuUsed",
+    "inputs": {
+      "anything": [
+        "89",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 5.5,
+      "denoise": 1,
+      "latent_image": [
+        "103",
+        2
+      ],
+      "model": [
+        "107",
+        0
+      ],
+      "negative": [
+        "103",
+        1
+      ],
+      "positive": [
+        "103",
+        0
+      ],
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "seed": 947488185223967,
+      "steps": 50
+    }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "device": "default",
+      "type": "wan"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    }
+  },
+  "49": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {
+      "clip_name": "clip_vision_h.safetensors"
+    }
+  },
+  "51": {
+    "class_type": "CLIPVisionEncode",
+    "inputs": {
+      "clip_vision": [
+        "49",
+        0
+      ],
+      "crop": "none",
+      "image": [
+        "106",
+        0
+      ]
+    }
+  },
+  "52": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ChatGPT Image May 23, 2025, 11_42_35 AM.png"
+    }
+  },
+  "55": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 19,
+      "filename_prefix": "Wan480p_14B_",
+      "format": "video/h264-mp4",
+      "frame_rate": 20,
+      "images": [
+        "64",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true,
+      "trim_to_audio": false
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "38",
+        0
+      ],
+      "text": "A cinematic, miniature-style shot of a sleek, vintage car parked on a cobblestone street in a quaint European town at dusk. The car's chrome details glint under the soft glow of streetlamps, while ivy-covered stone buildings and flower baskets line the background, creating a nostalgic ambiance. A wide establishing shot captures the charming scene, followed by a smooth panning motion around the car, focusing on its polished curves and glowing headlights, highlighting the warm, golden lighting against the twilight sky."
+    }
+  },
+  "63": {
+    "class_type": "easy cleanGpuUsed",
+    "inputs": {
+      "anything": [
+        "3",
+        0
+      ]
+    }
+  },
+  "64": {
+    "class_type": "easy cleanGpuUsed",
+    "inputs": {
+      "anything": [
+        "100",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "38",
+        0
+      ],
+      "text": "Overexposure, static, blurred details, subtitles, paintings, pictures, still, overall gray, worst quality, low quality, JPEG compression residue, ugly, mutilated, redundant fingers, poorly painted hands, poorly painted faces, deformed, disfigured, deformed limbs, fused fingers, cluttered background, three legs, upside down ,Time-Lapse,Hyperlapse,Accelerated Time,time lapse,timelapse,Accelerated video,Fast-motion,Hyperlapse."
+    }
+  },
+  "83": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "wan2.1-i2v-14b-480p-q8_0.gguf"
+    }
+  },
+  "85": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "images": [
+        "64",
+        0
+      ],
+      "widget_0": "Wan480p_14B_",
+      "widget_1": 1.0000000000000002,
+      "widget_2": false,
+      "widget_3": 1,
+      "widget_4": "fastest"
+    }
+  },
+  "87": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": {
+      "model": [
+        "83",
+        0
+      ],
+      "shift": 3
+    }
+  },
+  "88": {
+    "class_type": "CFGZeroStarAndInit",
+    "inputs": {
+      "model": [
+        "87",
+        0
+      ],
+      "widget_0": true,
+      "widget_1": 0
+    }
+  },
+  "89": {
+    "class_type": "TeaCache",
+    "inputs": {
+      "model": [
+        "88",
+        0
+      ],
+      "widget_0": "wan2.1_i2v_480p_14B_ret_mode",
+      "widget_1": 0.30000000000000004,
+      "widget_2": 3
+    }
+  }
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import difflib
+import functools
 import importlib.util
 import logging
 import tempfile
@@ -15,8 +16,8 @@ from vibecomfy.porting.emitter import (
     emit_ready_template_python,
     emit_scratchpad_python,
 )
-from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
-from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
+from vibecomfy.porting.object_info.consume import ObjectInfoIdentity, class_entry_snapshot
+from vibecomfy._compile._resolve import ResolveDiagnostics
 from vibecomfy.porting.parity import (
     class_type_counter,
     compile_equivalent,
@@ -155,52 +156,6 @@ class PortConvertResult:
         }
 
 
-# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes whose
-# stable channel name (not the edge) is the routing key. PrimitiveNode is a value
-# helper, not a wire, so it is intentionally excluded here.
-_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
-
-
-def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
-    """Snapshot Get/Set/Reroute virtual-wire nodes BEFORE helper resolution.
-
-    Captures uid, type, channel name, pos/size, and the routed endpoints for each
-    virtual-wire node, keyed by uid. This must run before both
-    ``resolve_subgraph_helpers`` and ``resolve_helpers`` (which delete these nodes
-    in place). Returns ``{}`` when the graph has no virtual-wire nodes.
-    """
-    from vibecomfy._compile._helpers import (
-        BROADCAST_HELPER_CLASS_TYPES,
-        broadcast_name,
-    )
-
-    captured: dict[str, dict[str, Any]] = {}
-    for node_id, node in workflow.nodes.items():
-        if node.class_type not in _VIRTUAL_WIRE_CLASS_TYPES:
-            continue
-        uid = node.uid or str(node_id)
-        pos = copy.deepcopy(node.pos)
-        size = copy.deepcopy(node.size)
-        channel = (
-            broadcast_name(node)
-            if node.class_type in BROADCAST_HELPER_CLASS_TYPES
-            else None
-        )
-        endpoints = [
-            [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
-            for edge in workflow.edges
-            if str(edge.from_node) == str(node_id) or str(edge.to_node) == str(node_id)
-        ]
-        captured[uid] = {
-            "type": node.class_type,
-            "channel": channel,
-            "pos": pos,
-            "size": size,
-            "endpoints": endpoints,
-        }
-    return captured
-
-
 def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, ObjectInfoIdentity]:
     """Derive a node_id -> ObjectInfoIdentity map from raw workflow provenance."""
     from vibecomfy.porting.provenance import extract_provenance
@@ -230,6 +185,22 @@ def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, Obje
     return result
 
 
+def _with_conversion_object_info_snapshot(func):
+    """Resolve repeated object-info reads against one conversion snapshot."""
+    @functools.wraps(func)
+    def wrapped(workflow: VibeWorkflow, *args: Any, **kwargs: Any):
+        class_types = {str(node.class_type) for node in workflow.nodes.values()}
+        class_types.update(
+            str(node["class_type"])
+            for node in workflow._semantic_definition_nodes(workflow.definitions)
+        )
+        with class_entry_snapshot(class_types):
+            return func(workflow, *args, **kwargs)
+
+    return wrapped
+
+
+@_with_conversion_object_info_snapshot
 def port_convert_workflow(
     workflow: VibeWorkflow,
     *,
@@ -245,14 +216,9 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
 ) -> PortConvertResult:
-    # Capture the virtual-wire display/diagnostic sidecar before cloning, but
-    # publish it to the caller only after conversion reaches its successful
-    # return. Conversion must not mutate caller topology, nodes, or metadata
-    # when a resolver/emitter/parity step raises.
-    caller_workflow = workflow
-    _virtual_wires = _capture_virtual_wires(workflow)
-
-    # Conversion resolves helpers and annotates metadata in place. Work on a
+    # Keep conversion as an import/emission surface. Helper semantics are
+    # lowered only by the shared detached execution projection.
+    # Conversion keeps a private snapshot so callers can safely reuse the
     # private snapshot so callers can safely reuse the ingested IR (and raw UI
     # evidence) after conversion, including when conversion raises midway.
     workflow = workflow.copy()
@@ -260,63 +226,23 @@ def port_convert_workflow(
 
     emission_diagnostics: list[EmissionDiagnostic] = []
 
-    # ── Resolve helper nodes before emission ────────────────────────────
-    # Normalise the caller-owned dict so the resolver can populate it with
-    # name -> (consumer_node_id, consumer_field) entries for named
-    # single-consumer primitives promoted to public inputs.
     registered_inputs = dict(registered_inputs or {})
-
-    # Collect broadcast sources *before* the top-level resolver strips
-    # SetNode nodes.  Subgraph helpers (GetNode inside UUID subgraph
-    # definitions) need the original top-level broadcast map to resolve
-    # their sources.  Capturing this snapshot avoids a use-after-delete
-    # race between resolve_helpers (which deletes SetNode) and
-    # resolve_subgraph_helpers (which needs SetNode broadcast data).
-    from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
-    _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
-
-    # ── M2 Step 8: retain the furniture snapshot before helper resolution ─
-    # resolve_subgraph_helpers (below) and resolve_helpers (further down)
-    # both delete Get/Set/Reroute and subgraph-inner nodes in place. Snapshot
-    # above is copied into the private workflow metadata before that deletion.
-    # This is metadata-only — nothing reaches the execution API graph, so
-    # compile('api') stays byte-identical.
-    if _virtual_wires:
-        workflow.metadata["virtual_wires"] = _virtual_wires
-
-    # Resolve helper nodes inside UUID subgraph definitions FIRST, using
-    # the pre-resolve broadcast snapshot.  Subgraph helpers reference
-    # top-level SetNode broadcasts; if we resolve top-level helpers first,
-    # SetNode nodes are deleted and the subgraph resolver finds nothing.
     if raw_workflow is not None:
-        # Deep-copy the raw subgraph definitions before resolution mutates the
-        # graph. Graceful absence: store nothing when 'definitions' is missing.
         _definitions = raw_workflow.get("definitions")
         if _definitions is not None:
-            workflow.metadata["definitions"] = copy.deepcopy(_definitions)
+            from vibecomfy.ingest.normalize import _normalize_recursive_definitions
 
-        from vibecomfy.ingest.normalize import resolve_subgraph_helpers
-        resolve_subgraph_helpers(
-            raw_workflow,
-            workflow.nodes,
-            workflow.edges,
-            _pre_resolve_broadcasts,
+            workflow.definitions = _normalize_recursive_definitions(_definitions)
+        # Preserve authored helper nodes and capture only proven Set/Get intent
+        # before the shared projection lowers it.
+        from vibecomfy.ingest.normalize import (
+            _capture_import_virtual_wires,
+            _validate_virtual_wire_endpoints,
         )
 
-    # resolve_helpers mutates workflow.nodes/workflow.edges in place and
-    # populates *registered_inputs*.  This runs *before* the compile('api')
-    # parity capture at line ~203, so both source_api and the emitted
-    # module's build() compile the post-resolution graph.  Parity therefore
-    # validates emission fidelity of the resolved graph, not semantic
-    # preservation against the raw source.  Resolver-vs-source correctness
-    # is guaranteed by the Step 3.6 hard error and the Step 9 runexx oracle.
-    #
-    # When keep_virtual_wires=True, skip resolution so GetNode/SetNode/Reroute
-    # pass through to the emitter as explicit wf.node(...) calls.
-    if keep_virtual_wires:
-        resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
-    else:
-        resolve_diagnostics = resolve_helpers(workflow, registered_inputs)
+        _capture_import_virtual_wires(workflow)
+        _validate_virtual_wire_endpoints(workflow)
+    resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
 
     # Surface ResolveDiagnostics into the existing emission_diagnostics
     # channel (FG-005): convert each HelperDiagnostic into an
@@ -356,6 +282,9 @@ def port_convert_workflow(
             provenance=complete_provenance,
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
+            # Helper nodes remain authored source.  The shared execution
+            # projection lowers them for runtime; emission must not require a
+            # separate conversion-time resolver.
             keep_virtual_wires=keep_virtual_wires,
             prune_dead_branches=prune_dead_branches,
         )
@@ -499,8 +428,6 @@ def port_convert_workflow(
                 if result.validation.error is None:
                     result.validation.error = f"parity check failed: {parity_error}"
 
-    if _virtual_wires:
-        caller_workflow.metadata["virtual_wires"] = copy.deepcopy(_virtual_wires)
     return result
 
 
@@ -677,6 +604,13 @@ def _conversion_provenance(
         merged["workflow_shape"] = dict(workflow_shape)
     merged["output_mode"] = output_mode
     if ready_id is not None:
+        # A promoted ready artifact is identified by its namespaced ready id.
+        # Preserve an upstream/source declaration for provenance, but never let
+        # an unnamespaced upstream id become the canonical generated identity.
+        prior_source_id = merged.get("source_id")
+        if prior_source_id and str(prior_source_id) != str(ready_id):
+            merged.setdefault("upstream_source_id", prior_source_id)
+        merged["source_id"] = ready_id
         merged["ready_id"] = ready_id
     return merged
 
@@ -742,7 +676,15 @@ def _ready_metadata(
     if source_path is not None:
         metadata.setdefault("source_workflow", _repo_relative_provenance_path(source_path))
     if provenance:
-        metadata.setdefault("provenance", _normalize_provenance_paths(provenance))
+        authored_provenance = metadata.get("provenance")
+        ready_provenance = dict(authored_provenance) if isinstance(authored_provenance, dict) else {}
+        ready_provenance.update(_normalize_provenance_paths(provenance))
+        prior_source_id = ready_provenance.get("source_id")
+        if prior_source_id and str(prior_source_id) != str(ready_id):
+            ready_provenance.setdefault("upstream_source_id", prior_source_id)
+        ready_provenance["source_id"] = ready_id
+        ready_provenance["ready_id"] = ready_id
+        metadata["provenance"] = ready_provenance
     _ensure_sageattention_runtime_package(metadata, workflow)
     return metadata
 

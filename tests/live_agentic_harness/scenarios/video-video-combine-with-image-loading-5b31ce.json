@@ -1,7 +1,7 @@
 {
   "id": "video-video-combine-with-image-loading-5b31ce",
   "query": "I want the video to be 10 seconds long, with each of the two images shown for exactly 5 seconds.",
-  "workflow_path": "external_workflows/corpus/5b31ce48557b8ac2.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/5b31ce48557b8ac2.json",
   "network": true,
   "timeout": 280,
   "apply": true,

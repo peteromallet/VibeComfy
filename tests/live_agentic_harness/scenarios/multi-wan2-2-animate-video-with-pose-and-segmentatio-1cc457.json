@@ -1,7 +1,7 @@
 {
   "id": "multi-wan2-2-animate-video-with-pose-and-segmentatio-1cc457",
   "query": "Swap the Wan2.2 model for a Stable Video Diffusion (SVD) based animation model. Also, remove the SAM2 segmentation branch and replace it with a simple foreground mask derived from the pose keypoints, keeping the relighting LoRA stage.",
-  "workflow_path": "external_workflows/corpus/1cc45704dcffe34a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/1cc45704dcffe34a.json",
   "network": true,
   "timeout": 420,
   "apply": false,
@@ -10,11 +10,6 @@
     "allow_safe_refusal_outcome_kinds": ["clarify", "requires_custom_nodes"],
     "expected_no_candidate_reason": "SVD-based animation classes are absent from the authoritative object_info index and no SVD node exists in the workflow; the requested Wan2.2→SVD swap and pose-derived foreground mask cannot be authored without custom nodes. Honest requires_custom_nodes refusal is the grounded terminal.",
     "expected_no_candidate_absent_classes": ["SVD_img2vid_Conditioning", "ImageOnlyCheckpointLoader"]
-  },
-  "desired": {
-    "outcome": "The pipeline now uses SVD with pose/face detection still providing conditioning, segmentation replaced by keypoint masking, and the LoRA relighting still applied.",
-    "quality": "All connections are correctly rewired; the video output node is properly linked, and the workflow remains executable end-to-end.",
-    "alternatives_ok": true
   },
   "_tags": {
     "modality": "multi",

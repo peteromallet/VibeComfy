@@ -67,7 +67,7 @@ def _simple_api() -> dict:
         },
         2: {
             "class_type": "SaveImage",
-            "inputs": {"images": [1, 0], "filename_prefix": "out/"},
+            "inputs": {"images": ["1", 0], "filename_prefix": "out/"},
             "_ui": {"id": 2, "pos": [300, 0], "size": [200, 100], "properties": {"vibecomfy_uid": "save-uid"}},
         },
     })

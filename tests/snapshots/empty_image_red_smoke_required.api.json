@@ -2,10 +2,10 @@
   "1": {
     "class_type": "EmptyImage",
     "inputs": {
-      "width": 64,
-      "height": 64,
       "batch_size": 1,
-      "color": 16711680
+      "color": 16711680,
+      "height": 64,
+      "width": 64
     }
   },
   "2": {

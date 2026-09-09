@@ -13,7 +13,7 @@ WIDGET__NAME_3 = 'ae.safetensors'
 
 READY_METADATA = ReadyMetadata.build(
     capability='image',
-    provenance={'source_path': 'ready_templates/sources/official/image/z_image.json', 'source_id': 'z_image', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/z_image.json', 'output_mode': 'ready_template', 'ready_id': 'image/z_image'},
+    provenance={'source_path': 'ready_templates/sources/official/image/z_image.json', 'source_id': 'image/z_image', 'upstream_source_id': 'z_image', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/image/z_image.json', 'output_mode': 'ready_template', 'ready_id': 'image/z_image'},
 )
 
 # === Subgraph functions ===
@@ -36,10 +36,10 @@ def text_to_image_z_image_base(
     Inner nodes: CLIPTextEncodex2, EmptySD3LatentImage, VAELoader, CLIPLoader, VAEDecode, ModelSamplingAuraFlow, UNETLoader, KSampler.
     """
 
-    cliploader = CLIPLoader(type_='lumina2', clip_name=clip_name)
+    cliploader = CLIPLoader(type='lumina2', clip_name=clip_name)
     vaeloader = VAELoader(vae_name=vae_name)
-    unetloader = UNETLoader(unet_name=unet_name)
-    emptysd3latentimage = EmptySD3LatentImage(width=width, height=height)
+    unetloader = UNETLoader(unet_name=unet_name, weight_dtype='default')
+    emptysd3latentimage = EmptySD3LatentImage(width=width, height=height, batch_size=1)
     positive = CLIPTextEncode(text=prompt, clip=cliploader)
     modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
     negative = CLIPTextEncode(text='', clip=cliploader)
@@ -47,8 +47,10 @@ def text_to_image_z_image_base(
     ksampler = KSampler(
         seed=770044821593082,
         sampler_name='res_multistep',
+        scheduler='simple',
         steps=steps,
         cfg=cfg,
+        denoise=1,
         latent_image=emptysd3latentimage,
         model=modelsamplingauraflow,
         negative=negative,

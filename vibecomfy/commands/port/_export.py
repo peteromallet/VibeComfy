@@ -331,6 +331,9 @@ def _resolve_preserve_source(
 
     # 2. Check for both --from and sidecar (conflict case)
     from_path = getattr(args, "from_path", None)
+    # Compatibility export may inspect legacy .layout.json as transient
+    # preservation evidence.  It is never consumed by WorkflowBundle loading,
+    # approval, semantic digesting, or execution authority.
     sidecar_store = read_store(py_path)
 
     if from_path and sidecar_store:
@@ -569,7 +572,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             if not dry_run and _should_persist_sidecar(args):
                 try:
                     write_store(py_path, store_from_ui_json(ui_payload))
-                except Exception as exc:  # noqa: BLE001 - main UI JSON remains authoritative
+                except Exception as exc:  # noqa: BLE001 - surface legacy evidence failure
                     sidecar_path = py_path.with_suffix(".layout.json")
                     sidecar_diagnostic = Diagnostic(
                         code="sidecar_write_failed",
@@ -577,8 +580,8 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                             f"UI JSON export succeeded, but layout sidecar {sidecar_path} "
                             f"could not be written: {type(exc).__name__}: {exc}"
                         ),
-                        severity="warning",
-                        recoverable=True,
+                        severity="error",
+                        recoverable=False,
                         details={
                             "path": str(sidecar_path),
                             "exception_type": type(exc).__name__,
@@ -586,19 +589,10 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                         },
                     )
                     if getattr(args, "json", False):
-                        print(
-                            json.dumps(
-                                {
-                                    "status": "partial",
-                                    "partial": True,
-                                    "diagnostics": diagnostics_to_json([sidecar_diagnostic]),
-                                },
-                                indent=2,
-                                sort_keys=True,
-                            )
-                        )
+                        print(json.dumps({"status": "error", "diagnostics": diagnostics_to_json([sidecar_diagnostic])}, indent=2, sort_keys=True))
                     else:
                         print(diagnostics_to_text([sidecar_diagnostic]), file=sys.stderr)
+                    return 1
 
             # --- Change report ---
             if change_report_out:

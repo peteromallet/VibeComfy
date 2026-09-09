@@ -1,140 +1,359 @@
-# vibecomfy: generated scratchpad
-"""Auto-generated VibeComfy scratchpad."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+# vibecomfy: surface=canonical
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionEncode, CLIPVisionLoader, CreateVideo, KSampler, LoadImage, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader, WanImageToVideo
 
+
+CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
+CLIP_NAME_2 = 'clip_vision_h.safetensors'
+DEFAULT_FPS = 16
+DEFAULT_FRAMES = 33
+DEFAULT_PROMPT = 'a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around'
+DEFAULT_PROMPT_2 = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
+DEFAULT_SEED = 987948718394761
+GUIDE_STRENGTH = 6
+UNET_NAME = 'wan2.1_i2v_480p_14B_fp16.safetensors'
+VAE_NAME = 'wan_2.1_vae.safetensors'
+
+
+PUBLIC_INPUT_METADATA = {
+    'model': InputSpec(node='37', field='unet_name', default=UNET_NAME),
+    'prompt': InputSpec(node='6', field='text', default=DEFAULT_PROMPT),
+    'seed': InputSpec(node='3', field='seed', default=DEFAULT_SEED),
+    'steps': InputSpec(node='3', field='steps', default=20),
+    'image': InputSpec(node='52', field='image', default='image_to_video_wan_start_image.png', aliases=('input_image',)),
+    'fps': InputSpec(node='55', field='fps', default=DEFAULT_FPS),
+    'negative_prompt': InputSpec(node='7', field='text', default=DEFAULT_PROMPT_2, aliases=('negative',)),
+    'width': InputSpec(node='50', field='width', default=512, type='INT'),
+    'height': InputSpec(node='50', field='height', default=512, type='INT'),
+    'frames': InputSpec(node='50', field='length', default=DEFAULT_FRAMES, type='INT'),
+}
+
+READY_METADATA = ReadyMetadata.build(
+    capability='video',
+    template_id='video/wan_i2v',
+    inputs=PUBLIC_INPUT_METADATA,
+    requirements={'models': ['clip_vision_h.safetensors', 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_i2v_480p_14B_fp16.safetensors', 'wan_2.1_vae.safetensors']},
+    source_path='ready_templates/sources/official/video/wan_i2v.json',
+    source_id='video/wan_i2v',
+    upstream_source_id='wan_i2v',
+    source_type='api',
+    source_workflow_path='ready_templates/sources/official/video/wan_i2v.json',
+    output_mode='ready_template',
+    ready_id='video/wan_i2v',
+    provenance={'source_path': 'ready_templates/sources/official/video/wan_i2v.json', 'source_id': 'video/wan_i2v', 'upstream_source_id': 'wan_i2v', 'source_type': 'api', 'source_workflow_path': 'ready_templates/sources/official/video/wan_i2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_i2v', 'source_workflow': 'ready_templates/sources/official/video/wan_i2v.json'},
+)
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = VibeWorkflow(
-        'video/wan_i2v',
-        WorkflowSource(
-            id='video/wan_i2v',
-            path='ready_templates/sources/official/video/wan_i2v.json',
-            source_type='scratchpad',
-            provenance={},
-        ),
+    wf = new_workflow(READY_METADATA, source_path=__file__)
+
+    # Loaders
+    unetloader = UNETLoader(
+        _id='37',
+        unet_name=UNET_NAME,
+        weight_dtype='default',
+        _uid='n1',
+        _native_ports={'native_input_names': ['unet_name', 'weight_dtype'], 'native_output_names': ['MODEL'], 'native_input_types': ['CHOICE', 'CHOICE'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    unetloader = _node(wf, 'UNETLoader', '37', _uid='n1',
-        _outputs=('MODEL',),
-        unet_name='wan2.1_i2v_480p_14B_fp16.safetensors',
-    )
-    cliploader = _node(wf, 'CLIPLoader', '38', _uid='n2',
-        _outputs=('CLIP',),
-        clip_name='umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+    cliploader = CLIPLoader(
+        _id='38',
+        clip_name=CLIP_NAME,
         type='wan',
+        device='default',
+        _uid='n2',
+        _native_ports={'native_input_names': ['clip_name', 'type', 'device'], 'native_output_names': ['CLIP'], 'native_input_types': ['CHOICE', 'CHOICE', 'CHOICE'], 'native_output_types': ['CLIP'], 'native_input_optional': [False, False, True], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    vaeloader = _node(wf, 'VAELoader', '39', _uid='n3',
-        _outputs=('VAE',),
-        vae_name='wan_2.1_vae.safetensors',
+
+    vaeloader = VAELoader(
+        _id='39',
+        vae_name=VAE_NAME,
+        _uid='n3',
+        _native_ports={'native_input_names': ['vae_name'], 'native_output_names': ['VAE'], 'native_input_types': ['CHOICE'], 'native_output_types': ['VAE'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    clipvisionloader = _node(wf, 'CLIPVisionLoader', '49', _uid='n4',
-        _outputs=('CLIP_VISION',),
-        clip_name='clip_vision_h.safetensors',
+
+    clipvisionloader = CLIPVisionLoader(
+        _id='49',
+        clip_name=CLIP_NAME_2,
+        _uid='n4',
+        _native_ports={'native_input_names': ['clip_name'], 'native_output_names': ['CLIP_VISION'], 'native_input_types': ['CHOICE'], 'native_output_types': ['CLIP_VISION'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    loadimage = _node(wf, 'LoadImage', '52', _uid='n5',
-        _outputs=('IMAGE', 'MASK'),
+
+    # Inputs
+    image, _ = LoadImage(
+        _id='52',
         image='image_to_video_wan_start_image.png',
+        _uid='n5',
+        _native_ports={'native_input_names': ['image'], 'native_output_names': ['IMAGE', 'MASK'], 'native_input_types': ['CHOICE'], 'native_output_types': ['IMAGE', 'MASK'], 'native_input_optional': [False], 'native_input_asset_kinds': ['image'], 'native_output_slots': None},
     )
-    cliptextencode = _node(wf, 'CLIPTextEncode', '6', _uid='n6',
-        _outputs=('CONDITIONING',),
-        text='a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around',
-        clip=cliploader.out('CLIP'),
+
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        _id='6',
+        text=DEFAULT_PROMPT,
+        _uid='n6',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    cliptextencode_2 = _node(wf, 'CLIPTextEncode', '7', _uid='n7',
-        _outputs=('CONDITIONING',),
-        text='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
-        clip=cliploader.out('CLIP'),
+
+    cliptextencode_2 = CLIPTextEncode(
+        _id='7',
+        text=DEFAULT_PROMPT_2,
+        _uid='n7',
+        _native_ports={'native_input_names': ['text', 'clip'], 'native_output_names': ['CONDITIONING'], 'native_input_types': ['STRING', 'CLIP'], 'native_output_types': ['CONDITIONING'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    clipvisionencode = _node(wf, 'CLIPVisionEncode', '51', _uid='n8',
-        _outputs=('CLIP_VISION_OUTPUT',),
+
+    clipvisionencode = CLIPVisionEncode(
+        _id='51',
         crop='none',
-        clip_vision=clipvisionloader.out('CLIP_VISION'),
-        image=loadimage.out('IMAGE'),
+        _uid='n8',
+        _native_ports={'native_input_names': ['clip_vision', 'crop', 'image'], 'native_output_names': ['CLIP_VISION_OUTPUT'], 'native_input_types': ['CLIP_VISION', 'CHOICE', 'IMAGE'], 'native_output_types': ['CLIP_VISION_OUTPUT'], 'native_input_optional': [False, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    modelsamplingsd3 = _node(wf, 'ModelSamplingSD3', '54', _uid='n9',
-        _outputs=('MODEL',),
+
+    modelsamplingsd3 = ModelSamplingSD3(
+        _id='54',
         shift=8,
-        model=unetloader.out('MODEL'),
+        _uid='n9',
+        _native_ports={'native_input_names': ['shift', 'model'], 'native_output_names': ['MODEL'], 'native_input_types': ['FLOAT', 'MODEL'], 'native_output_types': ['MODEL'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    wanimagetovideo = _node(wf, 'WanImageToVideo', '50', _uid='n10',
-        _outputs=('POSITIVE', 'NEGATIVE', 'LATENT'),
-        widget_0=512,
-        widget_1=512,
-        widget_2=33,
-        widget_3=1,
-        clip_vision_output=clipvisionencode.out('CLIP_VISION_OUTPUT'),
-        negative=cliptextencode_2.out('CONDITIONING'),
-        positive=cliptextencode.out('CONDITIONING'),
-        start_image=loadimage.out('IMAGE'),
-        vae=vaeloader.out('VAE'),
+
+    positive, negative, latent = WanImageToVideo(
+        _id='50',
+        batch_size=1,
+        height=512,
+        length=DEFAULT_FRAMES,
+        width=512,
+        _uid='n10',
+        _native_ports={'native_input_names': ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae'], 'native_output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'native_input_types': ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE'], 'native_output_types': ['CONDITIONING', 'CONDITIONING', 'LATENT'], 'native_input_optional': [False, False, False, False, True, True, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
-    ksampler = _node(wf, 'KSampler', '3', _uid='n11',
-        _outputs=('LATENT',),
-        seed=987948718394761,
-        cfg=6,
+
+    # Sampling
+    ksampler = KSampler(
+        _id='3',
+        seed=DEFAULT_SEED,
+        steps=20,
+        cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
-        latent_image=wanimagetovideo.out('LATENT'),
-        model=modelsamplingsd3.out('MODEL'),
-        negative=wanimagetovideo.out('NEGATIVE'),
-        positive=wanimagetovideo.out('POSITIVE'),
-    )
-    vaedecode = _node(wf, 'VAEDecode', '8', _uid='n12',
-        _outputs=('IMAGE',),
-        samples=ksampler.out('LATENT'),
-        vae=vaeloader.out('VAE'),
-    )
-    createvideo = _node(wf, 'CreateVideo', '55', _uid='n13',
-        _outputs=('VIDEO',),
-        fps=16,
-        images=vaedecode.out('IMAGE'),
-    )
-    savevideo = _node(wf, 'SaveVideo', '56', _uid='n14',
-        video=createvideo.out('VIDEO'),
+        scheduler='simple',
+        denoise=1,
+        _uid='n11',
+        _native_ports={'native_input_names': ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive'], 'native_output_names': ['LATENT'], 'native_input_types': ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING'], 'native_output_types': ['LATENT'], 'native_input_optional': [False, False, False, False, False, False, False, False, False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
-    wf.finalize_metadata()
+    # Decode
+    vaedecode = VAEDecode(
+        _id='8',
+        _uid='n12',
+        _native_ports={'native_input_names': ['samples', 'vae'], 'native_output_names': ['IMAGE'], 'native_input_types': ['LATENT', 'VAE'], 'native_output_types': ['IMAGE'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    createvideo = CreateVideo(
+        _id='55',
+        fps=DEFAULT_FPS,
+        _uid='n13',
+        _native_ports={'native_input_names': ['fps', 'audio', 'images'], 'native_output_names': ['VIDEO'], 'native_input_types': ['FLOAT', 'AUDIO', 'IMAGE'], 'native_output_types': ['VIDEO'], 'native_input_optional': [False, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    # Outputs
+    savevideo = SaveVideo(
+        _id='56',
+        filename_prefix='video/ComfyUI',
+        format='auto',
+        codec='auto',
+        _uid='n14',
+        _native_ports={'native_input_names': ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video'], 'native_output_names': None, 'native_input_types': ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO'], 'native_output_types': None, 'native_input_optional': [False, False, False, True, True, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    wf.connect('38.0', '6.clip')
+    wf.connect('38.0', '7.clip')
+    wf.connect('49.0', '51.clip_vision')
+    wf.connect('52.0', '51.image')
+    wf.connect('37.0', '54.model')
+    wf.connect('7.0', '50.negative')
+    wf.connect('6.0', '50.positive')
+    wf.connect('39.0', '50.vae')
+    wf.connect('51.0', '50.clip_vision_output')
+    wf.connect('52.0', '50.start_image')
+    wf.connect('50.2', '3.latent_image')
+    wf.connect('54.0', '3.model')
+    wf.connect('50.1', '3.negative')
+    wf.connect('50.0', '3.positive')
+    wf.connect('3.0', '8.samples')
+    wf.connect('39.0', '8.vae')
+    wf.connect('8.0', '55.images')
+    wf.connect('55.0', '56.video')
+    wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video/ComfyUI')
+    wf.nodes['3'].inputs = {'cfg': 6, 'denoise': 1, 'sampler_name': 'uni_pc', 'scheduler': 'simple', 'seed': 987948718394761, 'steps': 20}
+    wf.nodes['3'].widgets = {}
+    wf.nodes['3'].metadata = {'provenance': 'agent_authored', 'output_names': ['LATENT'], 'keep_defaults': ['cfg', 'denoise', 'latent_image', 'model', 'negative', 'positive', 'sampler_name', 'scheduler', 'seed', 'steps']}
+    wf.nodes['3'].native_input_names = ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise', 'latent_image', 'model', 'negative', 'positive']
+    wf.nodes['3'].native_output_names = ['LATENT']
+    wf.nodes['3'].native_input_types = ['INT', 'INT', 'FLOAT', 'CHOICE', 'CHOICE', 'FLOAT', 'LATENT', 'MODEL', 'CONDITIONING', 'CONDITIONING']
+    wf.nodes['3'].native_output_types = ['LATENT']
+    wf.nodes['3'].native_input_optional = [False, False, False, False, False, False, False, False, False, False]
+    wf.nodes['3'].native_input_asset_kinds = None
+    wf.nodes['3'].native_output_slots = None
+    wf.nodes['37'].inputs = {'unet_name': 'wan2.1_i2v_480p_14B_fp16.safetensors', 'weight_dtype': 'default'}
+    wf.nodes['37'].widgets = {}
+    wf.nodes['37'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['unet_name', 'weight_dtype']}
+    wf.nodes['37'].native_input_names = ['unet_name', 'weight_dtype']
+    wf.nodes['37'].native_output_names = ['MODEL']
+    wf.nodes['37'].native_input_types = ['CHOICE', 'CHOICE']
+    wf.nodes['37'].native_output_types = ['MODEL']
+    wf.nodes['37'].native_input_optional = [False, False]
+    wf.nodes['37'].native_input_asset_kinds = None
+    wf.nodes['37'].native_output_slots = None
+    wf.nodes['38'].inputs = {'clip_name': 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'type': 'wan', 'device': 'default'}
+    wf.nodes['38'].widgets = {}
+    wf.nodes['38'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP'], 'keep_defaults': ['clip_name', 'device', 'type']}
+    wf.nodes['38'].native_input_names = ['clip_name', 'type', 'device']
+    wf.nodes['38'].native_output_names = ['CLIP']
+    wf.nodes['38'].native_input_types = ['CHOICE', 'CHOICE', 'CHOICE']
+    wf.nodes['38'].native_output_types = ['CLIP']
+    wf.nodes['38'].native_input_optional = [False, False, True]
+    wf.nodes['38'].native_input_asset_kinds = None
+    wf.nodes['38'].native_output_slots = None
+    wf.nodes['39'].inputs = {'vae_name': 'wan_2.1_vae.safetensors'}
+    wf.nodes['39'].widgets = {}
+    wf.nodes['39'].metadata = {'provenance': 'agent_authored', 'output_names': ['VAE'], 'keep_defaults': ['vae_name']}
+    wf.nodes['39'].native_input_names = ['vae_name']
+    wf.nodes['39'].native_output_names = ['VAE']
+    wf.nodes['39'].native_input_types = ['CHOICE']
+    wf.nodes['39'].native_output_types = ['VAE']
+    wf.nodes['39'].native_input_optional = [False]
+    wf.nodes['39'].native_input_asset_kinds = None
+    wf.nodes['39'].native_output_slots = None
+    wf.nodes['49'].inputs = {'clip_name': 'clip_vision_h.safetensors'}
+    wf.nodes['49'].widgets = {}
+    wf.nodes['49'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP_VISION'], 'keep_defaults': ['clip_name']}
+    wf.nodes['49'].native_input_names = ['clip_name']
+    wf.nodes['49'].native_output_names = ['CLIP_VISION']
+    wf.nodes['49'].native_input_types = ['CHOICE']
+    wf.nodes['49'].native_output_types = ['CLIP_VISION']
+    wf.nodes['49'].native_input_optional = [False]
+    wf.nodes['49'].native_input_asset_kinds = None
+    wf.nodes['49'].native_output_slots = None
+    wf.nodes['50'].inputs = {'batch_size': 1, 'height': 512, 'length': 33, 'width': 512}
+    wf.nodes['50'].widgets = {}
+    wf.nodes['50'].metadata = {'provenance': 'agent_authored', 'output_names': ['POSITIVE', 'NEGATIVE', 'LATENT'], 'keep_defaults': ['batch_size', 'clip_vision_output', 'height', 'length', 'negative', 'positive', 'start_image', 'vae', 'width']}
+    wf.nodes['50'].native_input_names = ['width', 'height', 'length', 'batch_size', 'clip_vision_output', 'start_image', 'negative', 'positive', 'vae']
+    wf.nodes['50'].native_output_names = ['POSITIVE', 'NEGATIVE', 'LATENT']
+    wf.nodes['50'].native_input_types = ['INT', 'INT', 'INT', 'INT', 'CLIP_VISION_OUTPUT', 'IMAGE', 'CONDITIONING', 'CONDITIONING', 'VAE']
+    wf.nodes['50'].native_output_types = ['CONDITIONING', 'CONDITIONING', 'LATENT']
+    wf.nodes['50'].native_input_optional = [False, False, False, False, True, True, False, False, False]
+    wf.nodes['50'].native_input_asset_kinds = None
+    wf.nodes['50'].native_output_slots = None
+    wf.nodes['51'].inputs = {'crop': 'none'}
+    wf.nodes['51'].widgets = {}
+    wf.nodes['51'].metadata = {'provenance': 'agent_authored', 'output_names': ['CLIP_VISION_OUTPUT'], 'keep_defaults': ['clip_vision', 'crop', 'image']}
+    wf.nodes['51'].native_input_names = ['clip_vision', 'crop', 'image']
+    wf.nodes['51'].native_output_names = ['CLIP_VISION_OUTPUT']
+    wf.nodes['51'].native_input_types = ['CLIP_VISION', 'CHOICE', 'IMAGE']
+    wf.nodes['51'].native_output_types = ['CLIP_VISION_OUTPUT']
+    wf.nodes['51'].native_input_optional = [False, True, False]
+    wf.nodes['51'].native_input_asset_kinds = None
+    wf.nodes['51'].native_output_slots = None
+    wf.nodes['52'].inputs = {'image': 'image_to_video_wan_start_image.png'}
+    wf.nodes['52'].widgets = {}
+    wf.nodes['52'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE', 'MASK'], 'keep_defaults': ['image']}
+    wf.nodes['52'].native_input_names = ['image']
+    wf.nodes['52'].native_output_names = ['IMAGE', 'MASK']
+    wf.nodes['52'].native_input_types = ['CHOICE']
+    wf.nodes['52'].native_output_types = ['IMAGE', 'MASK']
+    wf.nodes['52'].native_input_optional = [False]
+    wf.nodes['52'].native_input_asset_kinds = ['image']
+    wf.nodes['52'].native_output_slots = None
+    wf.nodes['54'].inputs = {'shift': 8}
+    wf.nodes['54'].widgets = {}
+    wf.nodes['54'].metadata = {'provenance': 'agent_authored', 'output_names': ['MODEL'], 'keep_defaults': ['model', 'shift']}
+    wf.nodes['54'].native_input_names = ['shift', 'model']
+    wf.nodes['54'].native_output_names = ['MODEL']
+    wf.nodes['54'].native_input_types = ['FLOAT', 'MODEL']
+    wf.nodes['54'].native_output_types = ['MODEL']
+    wf.nodes['54'].native_input_optional = [False, False]
+    wf.nodes['54'].native_input_asset_kinds = None
+    wf.nodes['54'].native_output_slots = None
+    wf.nodes['55'].inputs = {'fps': 16}
+    wf.nodes['55'].widgets = {}
+    wf.nodes['55'].metadata = {'provenance': 'agent_authored', 'output_names': ['VIDEO'], 'keep_defaults': ['fps', 'images']}
+    wf.nodes['55'].native_input_names = ['fps', 'audio', 'images']
+    wf.nodes['55'].native_output_names = ['VIDEO']
+    wf.nodes['55'].native_input_types = ['FLOAT', 'AUDIO', 'IMAGE']
+    wf.nodes['55'].native_output_types = ['VIDEO']
+    wf.nodes['55'].native_input_optional = [False, True, False]
+    wf.nodes['55'].native_input_asset_kinds = None
+    wf.nodes['55'].native_output_slots = None
+    wf.nodes['56'].inputs = {'codec': 'auto', 'filename_prefix': 'video/ComfyUI', 'format': 'auto'}
+    wf.nodes['56'].widgets = {}
+    wf.nodes['56'].metadata = {'provenance': 'agent_authored', 'keep_defaults': ['codec', 'filename_prefix', 'format', 'video']}
+    wf.nodes['56'].native_input_names = ['filename_prefix', 'format', 'codec', 'extra_pnginfo', 'prompt', 'video']
+    wf.nodes['56'].native_output_names = None
+    wf.nodes['56'].native_input_types = ['STRING', 'COMBO', 'COMBO', 'EXTRA_PNGINFO', 'PROMPT', 'VIDEO']
+    wf.nodes['56'].native_output_types = None
+    wf.nodes['56'].native_input_optional = [False, False, False, True, True, False]
+    wf.nodes['56'].native_input_asset_kinds = None
+    wf.nodes['56'].native_output_slots = None
+    wf.nodes['6'].inputs = {'text': 'a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around'}
+    wf.nodes['6'].widgets = {}
+    wf.nodes['6'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['6'].native_input_names = ['text', 'clip']
+    wf.nodes['6'].native_output_names = ['CONDITIONING']
+    wf.nodes['6'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['6'].native_output_types = ['CONDITIONING']
+    wf.nodes['6'].native_input_optional = [False, False]
+    wf.nodes['6'].native_input_asset_kinds = None
+    wf.nodes['6'].native_output_slots = None
+    wf.nodes['7'].inputs = {'text': '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'}
+    wf.nodes['7'].widgets = {}
+    wf.nodes['7'].metadata = {'provenance': 'agent_authored', 'output_names': ['CONDITIONING'], 'keep_defaults': ['clip', 'text']}
+    wf.nodes['7'].native_input_names = ['text', 'clip']
+    wf.nodes['7'].native_output_names = ['CONDITIONING']
+    wf.nodes['7'].native_input_types = ['STRING', 'CLIP']
+    wf.nodes['7'].native_output_types = ['CONDITIONING']
+    wf.nodes['7'].native_input_optional = [False, False]
+    wf.nodes['7'].native_input_asset_kinds = None
+    wf.nodes['7'].native_output_slots = None
+    wf.nodes['8'].inputs = {}
+    wf.nodes['8'].widgets = {}
+    wf.nodes['8'].metadata = {'provenance': 'agent_authored', 'output_names': ['IMAGE'], 'keep_defaults': ['samples', 'vae']}
+    wf.nodes['8'].native_input_names = ['samples', 'vae']
+    wf.nodes['8'].native_output_names = ['IMAGE']
+    wf.nodes['8'].native_input_types = ['LATENT', 'VAE']
+    wf.nodes['8'].native_output_types = ['IMAGE']
+    wf.nodes['8'].native_input_optional = [False, False]
+    wf.nodes['8'].native_input_asset_kinds = None
+    wf.nodes['8'].native_output_slots = None
+    wf.inputs.clear()
+    wf.register_input('fps', '55', 'fps', 16, type='FLOAT', default=16, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('image', '52', 'image', 'image_to_video_wan_start_image.png', type='IMAGE', default='image_to_video_wan_start_image.png', required=True, range=None, aliases=('input_image',), media_semantics='image', allow_missing_target=False)
+    wf.register_input('model', '37', 'unet_name', 'wan2.1_i2v_480p_14B_fp16.safetensors', type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['model'].default = None
+    wf.register_input('negative_prompt', '7', 'text', '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走', type='STRING', default='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走', required=False, range=None, aliases=('negative',), media_semantics='text', allow_missing_target=False)
+    wf.register_input('prompt', '6', 'text', 'a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around', type='STRING', default='a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around', required=True, range=None, aliases=(), media_semantics='text', allow_missing_target=False)
+    wf.register_input('seed', '3', 'seed', 987948718394761, type='INT', default=987948718394761, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.register_input('steps', '3', 'steps', 20, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
+    wf.inputs['steps'].default = None
+    wf.register_input('input_image', '52', 'image', 'image_to_video_wan_start_image.png', type='IMAGE', default='image_to_video_wan_start_image.png', required=True, range=None, aliases=(), media_semantics='image', allow_missing_target=False, materialized_alias_of='image')
+    wf.register_input('negative', '7', 'text', '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走', type='STRING', default='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走', required=False, range=None, aliases=(), media_semantics='text', allow_missing_target=False, materialized_alias_of='negative_prompt')
+    public_output_0 = wf.outputs[0]
+    wf.outputs.clear()
+    public_output_0.output_type = 'SaveVideo'
+    public_output_0.name = 'video'
+    public_output_0.artifact_kind = 'video'
+    public_output_0.mime_type = 'video/mp4'
+    public_output_0.filename_prefix = 'video/ComfyUI'
+    public_output_0.expected_cardinality = 'one'
+    wf.outputs.append(public_output_0)
+    wf.requirements.models = ['clip_vision_h.safetensors', 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_i2v_480p_14B_fp16.safetensors', 'wan_2.1_vae.safetensors']
+    wf.requirements.custom_nodes = []
+    wf.requirements.missing_models = []
+    wf.requirements.missing_nodes = []
+    wf.requirements.unsupported = []
+    wf.strict_types = False
     return wf
-
-
-def _node(
-    wf: VibeWorkflow,
-    class_type: str,
-    _id: str,
-    _extras: dict | None = None,
-    _outputs: tuple[str, ...] | None = None,
-    _uid: str | None = None,
-    **kwargs,
-):
-    """Create a node, preserving the original node id from the source workflow.
-
-    `_extras` carries kwargs whose names are not valid Python identifiers
-    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
-    They are applied to the new node post-construction.
-    """
-    from vibecomfy.handles import Handle
-    builder = wf.node(class_type, **kwargs)
-    if _uid:
-        builder.node.uid = _uid
-    if _outputs is not None:
-        builder.node.metadata["output_names"] = list(_outputs)
-    if _extras:
-        for key, value in _extras.items():
-            if isinstance(value, Handle):
-                wf.connect(value, f"{builder.node.id}.{key}")
-            else:
-                builder.node.inputs[key] = value
-    if builder.node.id != _id:
-        old_id = builder.node.id
-        node = wf.nodes.pop(old_id)
-        node.id = _id
-        wf.nodes[_id] = node
-        for edge in wf.edges:
-            if edge.to_node == old_id:
-                edge.to_node = _id
-            if edge.from_node == old_id:
-                edge.from_node = _id
-    return builder
 

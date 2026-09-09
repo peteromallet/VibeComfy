@@ -20,8 +20,8 @@ def _exec_io() -> dict[str, list[list[str]]]:
     }
 
 
-def _ui_exec_node(source: str) -> dict:
-    return {
+def _ui_exec_node(source: str, *, linked: bool = False) -> dict:
+    graph = {
         "nodes": [
             {
                 "id": 1,
@@ -33,6 +33,15 @@ def _ui_exec_node(source: str) -> dict:
         ],
         "links": [],
     }
+    if linked:
+        graph["nodes"][0]["inputs"][0]["link"] = 1
+        graph["nodes"].append({
+            "id": 2, "type": "LoadImage", "inputs": [],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1]}],
+            "widgets_values": ["fixture.png", "image"],
+        })
+        graph["links"] = [[1, 2, 0, 1, 0, "IMAGE"]]
+    return graph
 
 
 def _api_exec_node(source: str, *, include_ui: bool = True) -> dict[str, object]:
@@ -49,6 +58,13 @@ def _api_exec_node(source: str, *, include_ui: bool = True) -> dict[str, object]
     return node
 
 
+def _api_exec_graph(source: str, *, include_ui: bool = True) -> dict:
+    return {
+        "1": _api_exec_node(source, include_ui=include_ui),
+        "2": {"class_type": "LoadImage", "inputs": {"image": "fixture.png"}},
+    }
+
+
 def test_exec_ui_normalize_routes_source_and_io_to_widgets_and_derives_metadata() -> None:
     api = normalize_to_api(_ui_exec_node("return {'image': image}"), use_comfy_converter=False)
     workflow = from_api(api)
@@ -61,7 +77,7 @@ def test_exec_ui_normalize_routes_source_and_io_to_widgets_and_derives_metadata(
 
 
 def test_exec_api_reload_rebuilds_only_derived_io_metadata_from_widget_value() -> None:
-    workflow = from_api({"1": _api_exec_node("return {'image': image}")})
+    workflow = from_api(_api_exec_graph("return {'image': image}"))
 
     node = workflow.nodes["1"]
     assert "source" not in node.inputs
@@ -77,7 +93,7 @@ def test_exec_api_reload_rebuilds_only_derived_io_metadata_from_widget_value() -
 
 def test_exec_converter_output_path_enforces_limits_and_rebuilds_metadata() -> None:
     fake_module = MagicMock()
-    fake_module.convert_ui_to_api = MagicMock(return_value={"1": _api_exec_node("return {'image': image}", include_ui=False)})
+    fake_module.convert_ui_to_api = MagicMock(return_value=_api_exec_graph("return {'image': image}", include_ui=False))
     compatible = ComfyCompatibility(
         ok=True,
         reason_code="ok",
@@ -94,19 +110,19 @@ def test_exec_converter_output_path_enforces_limits_and_rebuilds_metadata() -> N
             "comfy.component_model.workflow_convert": fake_module,
         },
     ), patch("vibecomfy.ingest.normalize.check_comfy_compatibility", return_value=compatible):
-        api = normalize_to_api(_ui_exec_node("return {'image': image}"))
+        api = normalize_to_api(_ui_exec_node("return {'image': image}", linked=True))
 
     workflow = from_api(api)
     assert workflow.nodes["1"].metadata["_ui"]["properties"]["vibecomfy"]["io"] == _exec_io()
 
 
 def test_exec_source_per_node_limit_allows_exact_boundary() -> None:
-    from_api({"1": _api_exec_node("x" * EXEC_SOURCE_MAX_BYTES, include_ui=False)})
+    from_api(_api_exec_graph("x" * EXEC_SOURCE_MAX_BYTES, include_ui=False))
 
 
 def test_exec_source_per_node_limit_rejects_over_boundary() -> None:
     with pytest.raises(ValueError, match=f"exceeds {EXEC_SOURCE_MAX_BYTES} bytes"):
-        from_api({"1": _api_exec_node("x" * (EXEC_SOURCE_MAX_BYTES + 1), include_ui=False)})
+        from_api(_api_exec_graph("x" * (EXEC_SOURCE_MAX_BYTES + 1), include_ui=False))
 
 
 def test_exec_source_total_limit_rejects_aggregate_overflow() -> None:

@@ -1,7 +1,7 @@
 {
   "id": "multi-svd-image-to-video-with-animation-builder-99e2a9",
   "query": "The generated video has severe flickering and jittery motion, with frames occasionally going black. What in the workflow could be causing this?",
-  "workflow_path": "external_workflows/corpus/99e2a967a579197f.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/99e2a967a579197f.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -36,7 +36,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/99e2a967a579197f.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/99e2a967a579197f.json",
     "required_node_evidence": [
       "SVD_img2vid_Conditioning",
       "KSampler",

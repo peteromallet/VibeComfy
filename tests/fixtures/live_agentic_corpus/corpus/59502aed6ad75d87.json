@@ -1,0 +1,44 @@
+{
+  "1": {
+    "class_type": "Modelscopet2v",
+    "inputs": {
+      "prompt": [
+        "4",
+        0
+      ],
+      "widget_0": "Japanese model, red dress.",
+      "widget_1": "amature, blurry, bad quality,",
+      "widget_2": 25,
+      "widget_3": 15,
+      "widget_4": 85,
+      "widget_5": "increment",
+      "widget_6": 320,
+      "widget_7": 576,
+      "widget_8": 24
+    }
+  },
+  "2": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "crf": 10,
+      "filename_prefix": "ZeroScope",
+      "format": "video/h264-mp4",
+      "frame_rate": 15,
+      "images": [
+        "1",
+        0
+      ],
+      "loop_count": 0,
+      "pingpong": false,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "save_output": true
+    }
+  },
+  "4": {
+    "class_type": "CR Prompt Text",
+    "inputs": {
+      "widget_0": "Uka. Maxine Aki Gloom. Doom. Based. Robotic. "
+    }
+  }
+}

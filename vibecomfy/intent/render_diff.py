@@ -71,6 +71,18 @@ def fix_seeds_in_ir(wf: "VibeWorkflow", seed: int) -> "VibeWorkflow":
         node.inputs[seed_field] = seed
         if control_field is not None:
             node.inputs[control_field] = "fixed"
+        # A ready workflow may expose the sampler field as a public input.
+        # Update the detached descriptor value as well, otherwise projection
+        # reapplies its old default and the returned IR does not compile with
+        # the requested seed.
+        public_updates = {seed_field: seed}
+        if control_field is not None:
+            public_updates[control_field] = "fixed"
+        for public_name, public_input in cloned.inputs.items():
+            if str(public_input.node_id) != str(node.id):
+                continue
+            if public_input.field in public_updates:
+                cloned.set_input(public_name, public_updates[public_input.field])
         matched += 1
 
     if matched == 0:

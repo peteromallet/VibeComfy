@@ -12,10 +12,11 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from vibecomfy.utils import atomic_write_json
 from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle
 
 logger = logging.getLogger(__name__)
 
@@ -29,25 +30,40 @@ def _collect_drift_for_bundle(workflow: VibeWorkflow) -> dict[str, Any]:
 
 
 def build_attempt_bundle(
-    workflow: VibeWorkflow,
-    api_dict: dict[str, Any],
+    bundle: WorkflowBundle,
+    record: ApprovedProjectionRecord,
     *,
     backend: str,
     config: Any = None,
+    adapter_kind: str | None = None,
+    adapter_endpoint: str | None = None,
+    schema_provenance: Mapping[str, Any] | None = None,
+    runtime_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect the pre-queue attempt snapshot.
 
     Parameters:
-        workflow:
-            The compiled workflow whose prompt is about to be queued.
-        api_dict:
-            The compiled API dictionary (``workflow.compile(backend=...)``).
+        bundle:
+            The canonical source bundle whose approved revision is queued.
+        record:
+            The detached, immutable projection approved for this run.
         backend:
             Compilation backend used  (``"api"`` / ``"graphbuilder"``).
         config:
             Optional :class:`~vibecomfy.runtime.session.SessionConfig` for
             model-root resolution (used when computing *actual_sha256*).
+        adapter_kind / adapter_endpoint:
+            Operational transport identity; never part of the approved
+            projection authority.
+        schema_provenance:
+            Operational object-info/cache validation evidence.
     """
+    if not isinstance(bundle, WorkflowBundle) or not isinstance(record, ApprovedProjectionRecord):
+        raise TypeError("attempt evidence requires an ApprovedProjectionRecord and WorkflowBundle")
+    workflow = bundle.workflow
+    approved = record.to_dict()
+    api_dict = approved["api_projection"]
+
     from vibecomfy.comfy_nodes.agent.audit import (
         redact_audit_metadata,
         runtime_intent_metadata_from_api,
@@ -104,7 +120,13 @@ def build_attempt_bundle(
     # --- drift block (collected from live filesystem / git state) ----------
     drift: dict[str, Any] = _collect_drift_for_bundle(workflow)
 
-    return {
+    result = {
+        "adapter": {
+            "kind": adapter_kind,
+            "backend": backend,
+            "endpoint": adapter_endpoint,
+        },
+        "schema_provenance": dict(schema_provenance or {}),
         "compiled_prompt": compiled_prompt,
         "id_map": id_map,
         "node_lookups": node_lookups,
@@ -117,6 +139,9 @@ def build_attempt_bundle(
         "comfy_commit": comfy_commit,
         "drift": drift,
     }
+    if runtime_evidence is not None:
+        result["runtime_evidence"] = dict(runtime_evidence)
+    return result
 
 
 def write_attempt_json(
@@ -125,9 +150,6 @@ def write_attempt_json(
 ) -> Path:
     """Atomically write *bundle* to ``<run_dir>/attempt.json``."""
     return atomic_write_json(run_dir / "attempt.json", bundle)
-
-
-# -- helpers ------------------------------------------------------------------
 
 
 def _build_model_manifest(
@@ -268,8 +290,8 @@ def _read_lockfile_snapshot() -> dict[str, Any] | None:
 
 
 def build_shared_fields(
-    workflow: VibeWorkflow,
-    api_dict: dict[str, Any],
+    bundle: WorkflowBundle,
+    record: ApprovedProjectionRecord,
     *,
     config: Any = None,
 ) -> dict[str, Any]:
@@ -278,17 +300,17 @@ def build_shared_fields(
     This is a lightweight subset so ``_run_metadata`` can reuse the same
     derivation without duplicating logic.
     """
-    bundle = build_attempt_bundle(workflow, api_dict, backend="api", config=config)
+    evidence = build_attempt_bundle(bundle, record, backend="api", config=config)
     return {
-        "compiled_prompt": bundle["compiled_prompt"],
-        "id_map": bundle["id_map"],
-        "node_lookups": bundle["node_lookups"],
-        "source_workflow": bundle["source_workflow"],
-        "runtime_intent_nodes": bundle["runtime_intent_nodes"],
-        "redactions": bundle["redactions"],
-        "model_manifest": bundle["model_manifest"],
-        "lockfile_snapshot": bundle["lockfile_snapshot"],
-        "runtime_version": bundle["runtime_version"],
-        "comfy_commit": bundle["comfy_commit"],
-        "drift": bundle["drift"],
+        "compiled_prompt": evidence["compiled_prompt"],
+        "id_map": evidence["id_map"],
+        "node_lookups": evidence["node_lookups"],
+        "source_workflow": evidence["source_workflow"],
+        "runtime_intent_nodes": evidence["runtime_intent_nodes"],
+        "redactions": evidence["redactions"],
+        "model_manifest": evidence["model_manifest"],
+        "lockfile_snapshot": evidence["lockfile_snapshot"],
+        "runtime_version": evidence["runtime_version"],
+        "comfy_commit": evidence["comfy_commit"],
+        "drift": evidence["drift"],
     }

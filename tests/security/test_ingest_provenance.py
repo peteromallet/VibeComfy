@@ -38,11 +38,21 @@ def test_schema_derived_metadata_untouched():
     # not invent them.
     wf = from_api(_synthetic_api_workflow(), workflow_id="t")
     for node in wf.nodes.values():
-        for forbidden in ("output_names", "output_types", "input_aliases", "schema_source"):
+        for forbidden in ("output_names", "output_types", "input_aliases"):
             assert forbidden not in node.metadata, (
                 f"node {node.id} unexpectedly has schema-derived field "
                 f"{forbidden!r}={node.metadata.get(forbidden)!r}"
             )
+        assert node.metadata["schema_source"] == {
+            "provider": "",
+            "path": None,
+            "cache_path": None,
+            "server_url": None,
+            "package": None,
+            "version": None,
+            "hash": None,
+            "confidence": 0.0,
+        }
 
 
 def test_requesting_provenance_restored_after_call():

@@ -19,18 +19,70 @@ from vibecomfy.runtime.session import (
     _comfy_server_argv,
     _comfyui_command,
     _embedded_configuration_for_session,
-    _run_metadata,
+    _run_metadata as _run_metadata_impl,
     apply_memory_profile_override,
     model_fingerprint,
 )
 import vibecomfy.runtime.client as client_module
 from vibecomfy.workflow import VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+from vibecomfy.workflow_bundle import WorkflowBundleError
 
 from tests._runtime_session_helpers import (
     FakeConfiguration,
     _workflow,
+    _approved,
     fake_comfy,  # noqa: F401 -- pytest fixture imported for use in tests
 )
+
+
+def _run_metadata(**kwargs):
+    """Call runtime metadata through a real approved record/bundle boundary."""
+    workflow = kwargs.pop("workflow")
+    from vibecomfy.workflow import VibeNode
+
+    if not workflow.nodes and not workflow.outputs:
+        workflow.nodes["metadata-fixture"] = VibeNode(
+            "metadata-fixture", "MetadataFixture", uid="metadata-fixture"
+        )
+    for output in workflow.outputs:
+        if output.node_id not in workflow.nodes:
+            workflow.nodes[output.node_id] = VibeNode(
+                output.node_id,
+                output.output_type,
+                uid=f"metadata-{output.node_id}",
+            )
+    schemas = {
+        node.class_type: NodeSchema(
+            node.class_type,
+            None,
+            {
+                name: InputSpec(
+                    "INT"
+                    if type(value) is int
+                    else "FLOAT"
+                    if type(value) is float
+                    else "STRING"
+                )
+                for name, value in node.inputs.items()
+                if not (isinstance(value, (list, tuple)) and len(value) == 2)
+            },
+            [
+                OutputSpec(output.output_type, output.name)
+                for output in workflow.outputs
+                if output.node_id == node.id
+            ],
+        )
+        for node in workflow.nodes.values()
+    }
+
+    class MetadataProvider:
+        def get_schema(self, class_type):
+            return schemas.get(class_type)
+
+    record, bundle = _approved(workflow, schema_provider=MetadataProvider())
+    kwargs.pop("api_dict", None)
+    return _run_metadata_impl(bundle=bundle, record=record, **kwargs)
 
 
 def test_comfy_client_http_errors_include_response_body() -> None:
@@ -97,7 +149,7 @@ def test_run_metadata_uses_filename_prefix_and_keeps_uncertain_artifacts_unmappe
             ),
             VibeOutput(
                 node_id="10",
-                output_type="VHS_VideoCombine",
+                output_type="SaveImage",
                 name="clip",
                 artifact_kind="video",
                 filename_prefix="clips/clip",
@@ -521,22 +573,39 @@ def test_run_metadata_serializes_patch_applications_and_requirements() -> None:
     workflow.requirements.missing_nodes.extend(["MissingNode"])
     workflow.requirements.unsupported.extend(["legacy-widget"])
 
+    with pytest.raises(WorkflowBundleError, match="unresolved missing_models"):
+        _run_metadata(
+            run_id="run-test",
+            workflow=workflow,
+            api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+            queued={"prompt_id": "prompt-test"},
+            outputs=[],
+            runtime="embedded",
+        )
+
+    # Successful runtime metadata is constructed only from a separately
+    # approvable workflow.  Unresolved requirements cannot be restored after
+    # approval to make a contradictory record look executable.
+    approved = _workflow()
+    approved.metadata["patch_applications"] = list(workflow.metadata["patch_applications"])
+    approved.requirements.models.extend(["model-a.safetensors"])
+    approved.requirements.custom_nodes.extend(["ComfyUI-ControlNet"])
     metadata = _run_metadata(
         run_id="run-test",
-        workflow=workflow,
-        api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+        workflow=approved,
+        api_dict={},
         queued={"prompt_id": "prompt-test"},
         outputs=[],
         runtime="embedded",
     )
 
-    assert metadata["patch_applications"] == workflow.metadata["patch_applications"]
+    assert metadata["patch_applications"] == approved.metadata["patch_applications"]
     assert metadata["requirements"] == {
         "models": ["model-a.safetensors"],
         "custom_nodes": ["ComfyUI-ControlNet"],
-        "missing_models": ["missing-model.safetensors"],
-        "missing_nodes": ["MissingNode"],
-        "unsupported": ["legacy-widget"],
+        "missing_models": [],
+        "missing_nodes": [],
+        "unsupported": [],
     }
     assert json.dumps(metadata["requirements"], sort_keys=True)
 
@@ -553,7 +622,8 @@ def test_session_run_signatures_expose_chain_linkage_kwargs() -> None:
 def test_embedded_session_run_passes_chain_linkage_into_untracked_path(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_untracked(self, workflow, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+    async def fake_run_untracked(self, record, bundle, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+        workflow = bundle.workflow
         captured.update(
             {
                 "self": self,
@@ -572,7 +642,7 @@ def test_embedded_session_run_passes_chain_linkage_into_untracked_path(monkeypat
     session = EmbeddedSession()
     result = asyncio.run(
         session.run(
-            workflow,
+            *_approved(workflow),
             backend="graphbuilder",
             strict_drift=True,
             chain_id="chain-1",
@@ -595,7 +665,8 @@ def test_embedded_session_run_passes_chain_linkage_into_untracked_path(monkeypat
 def test_server_session_run_passes_chain_linkage_into_untracked_path(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_untracked(self, workflow, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+    async def fake_run_untracked(self, record, bundle, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+        workflow = bundle.workflow
         captured.update(
             {
                 "self": self,
@@ -614,7 +685,7 @@ def test_server_session_run_passes_chain_linkage_into_untracked_path(monkeypatch
     session = ServerSession()
     result = asyncio.run(
         session.run(
-            workflow,
+            *_approved(workflow),
             backend="graphbuilder",
             strict_drift=True,
             chain_id="chain-1",

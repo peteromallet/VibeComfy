@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
-import os
 import sys
 from pathlib import Path
 
-from vibecomfy.errors import RuntimeNodeError
-from vibecomfy.registry.library import load_workflow_reference
-from vibecomfy.runtime.client import ComfyClient
-from vibecomfy.runtime.eval import compile_eval_subgraph
+from vibecomfy.cli_loader import load_bundle
+from vibecomfy.local_library import Slot, resolve
+from vibecomfy.runtime.eval import eval_node_sync
 from vibecomfy.runtime.run import smoke_runtime_sync
-from vibecomfy.runtime.session import EmbeddedSession, SessionConfig
-from vibecomfy.schema import get_schema_provider
 
 
 def _cmd_runtime_doctor(args: argparse.Namespace) -> int:
@@ -60,6 +55,29 @@ def _checkout_comfy_dir_present() -> bool:
 
 
 def build_runtime_doctor_payload() -> dict[str, object]:
+    comfy_root, comfy_models = _detected_comfy_install()
+    custom_nodes = resolve(Slot.custom_nodes)
+    models = resolve(Slot.models)
+    embedded_ready = comfy_root is not None and _is_comfy_root(comfy_root)
+    local_library = {
+        "custom_nodes": _slot_payload(custom_nodes),
+        "models": _slot_payload(models),
+    }
+    if embedded_ready:
+        embedded = {
+            "status": "ready",
+            "comfy_root": str(comfy_root),
+            "models_root": str(comfy_models) if comfy_models else None,
+            "reason": "ComfyUI checkout contains server.py and nodes.py",
+        }
+    else:
+        embedded = {
+            "status": "not_ready",
+            "comfy_root": str(comfy_root) if comfy_root else None,
+            "models_root": str(comfy_models) if comfy_models else None,
+            "reason": "No local ComfyUI root with server.py and nodes.py was detected",
+            "next_action": "Set COMFYUI_PATH to a ComfyUI checkout or use --runtime server --server-url URL",
+        }
     messages = [
         "runtime modes: embedded, managed, external",
         "default `vibecomfy run` mode: auto",
@@ -67,6 +85,7 @@ def build_runtime_doctor_payload() -> dict[str, object]:
         "use `vibecomfy run --runtime server` for one-shot managed HTTP server mode",
         "use `vibecomfy run --runtime server --server-url URL` for external HTTP server mode",
     ]
+    messages.extend(_readiness_messages(embedded, local_library))
     if _pip_comfy_package_importable() and _checkout_comfy_dir_present():
         messages.append(
             "WARNING: split-brain ComfyUI install detected: a pip `comfy` "
@@ -77,10 +96,62 @@ def build_runtime_doctor_payload() -> dict[str, object]:
         )
     return {
         "status": "ok",
+        "readiness_status": "ready" if embedded_ready else "not_ready",
         "runtime_modes": ["embedded", "managed", "external"],
         "default_run_mode": "auto",
+        "local_library": local_library,
+        "readiness": {
+            "embedded": embedded,
+            "managed": {
+                "status": "ready" if embedded_ready else "not_ready",
+                "reason": "Managed mode uses the same local ComfyUI root as embedded mode",
+            },
+            "external": {
+                "status": "unverified",
+                "reason": "No external server URL was supplied; doctor does not claim a remote server is reachable",
+                "next_action": "Run with --server-url URL or use `vibecomfy run --runtime server --server-url URL`",
+            },
+        },
         "messages": messages,
     }
+
+
+def _detected_comfy_install() -> tuple[Path | None, Path | None]:
+    """Detect a local checkout without importing ComfyUI modules."""
+    from vibecomfy.local_library import detect_comfy_install
+
+    root, models = detect_comfy_install()
+    if root is not None and not _is_comfy_root(root):
+        return None, None
+    return root, models
+
+
+def _is_comfy_root(root: Path) -> bool:
+    return (root / "server.py").is_file() and (root / "nodes.py").is_file()
+
+
+def _slot_payload(slot) -> dict[str, object]:
+    return {
+        "state": slot.state.name.lower(),
+        "path": str(slot.path) if slot.path is not None else None,
+        "exists": bool(slot.path and slot.path.is_dir()),
+        "source": slot.source,
+    }
+
+
+def _readiness_messages(embedded: dict[str, object], library: dict[str, object]) -> list[str]:
+    messages: list[str] = []
+    if embedded["status"] == "ready":
+        messages.append(f"embedded readiness: ready (ComfyUI root: {embedded['comfy_root']})")
+    else:
+        messages.append("embedded readiness: NOT READY (no local ComfyUI root with server.py and nodes.py)")
+        messages.append("configure COMFYUI_PATH or provide an external server URL; configured model/node libraries do not make embedded runtime ready")
+    for name, value in library.items():
+        state = value["state"]
+        exists = value["exists"]
+        messages.append(f"{name} library: {state}, {'present' if exists else 'missing'}")
+    messages.append("external readiness: UNVERIFIED (supply a server URL to test/use an external ComfyUI server)")
+    return messages
 
 
 def _cmd_runtime_smoke(args: argparse.Namespace) -> int:
@@ -95,117 +166,23 @@ def _cmd_runtime_smoke(args: argparse.Namespace) -> int:
 
 def _cmd_runtime_eval_node(args: argparse.Namespace) -> int:
     try:
-        schema_provider = get_schema_provider("auto", server_url=args.server_url)
-        workflow = load_workflow_reference(
-            args.path,
-            schema_provider=schema_provider,
-            allow_scratchpad=True,
-            ready=getattr(args, "ready", False),
+        bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("runtime evaluation")
+        result = eval_node_sync(
+            bundle,
+            args.node,
+            runtime=getattr(args, "runtime", "embedded"),
+            server_url=getattr(args, "server_url", None),
         )
-
-        target_node = args.node
-        subgraph = compile_eval_subgraph(workflow, target_node)
-
-        # Build base result metadata
-        node_info = workflow.lookup_id(target_node)
-        result: dict = {
-            "node_id": target_node,
-            "class_type": node_info.get("class_type"),
-            "previewable": True,
-            "outputs": {},
-        }
-
-        if isinstance(subgraph, dict) and subgraph.get("previewable") is False:
-            result["previewable"] = False
-            result["outputs"] = subgraph
-            if args.json:
-                print(json.dumps(result, indent=2))
-            else:
-                print(
-                    f"Node {target_node} ({subgraph.get('class_type')}) "
-                    f"is not visualizable (output type: {subgraph.get('type')})"
-                )
-            return 0
-
-        # Queue through the selected runtime
-        runtime = getattr(args, "runtime", "embedded")
-        if runtime == "runpod":
-            if not _has_runpod_credentials():
-                print(
-                    "RunPod eval-node not available without credentials. "
-                    "Use --runtime embedded or --runtime server.",
-                    file=sys.stderr,
-                )
-                return 2
-            raise RuntimeNodeError(
-                "RunPod eval-node is not yet implemented",
-                next_action="vibecomfy runtime doctor",
-            )
-
-        elif runtime == "embedded":
-            queue_result = asyncio.run(_queue_embedded(subgraph))
-
-        elif runtime == "server":
-            server_url = args.server_url
-            if not server_url:
-                print(
-                    "--server-url is required for --runtime server",
-                    file=sys.stderr,
-                )
-                return 2
-            queue_result = asyncio.run(_queue_server(subgraph, server_url))
-
+        if getattr(args, "json", False):
+            print(json.dumps(result.to_json(), indent=2, sort_keys=True))
         else:
-            print(f"unknown runtime: {runtime}", file=sys.stderr)
-            return 2
-
-        result["outputs"] = queue_result
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            node_id = result["node_id"]
-            class_type = result["class_type"]
-            print(f"node_id: {node_id}")
-            print(f"class_type: {class_type}")
-            print(f"previewable: {result['previewable']}")
-            outputs = result.get("outputs", {})
-            if isinstance(outputs, dict):
-                prompt_id = outputs.get("prompt_id")
-                if prompt_id:
-                    print(f"prompt_id: {prompt_id}")
+            print(json.dumps(result.to_json(), indent=2, sort_keys=True))
         return 0
 
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print(f"eval-node failed: {exc}", file=sys.stderr)
         return 1
-
-
-async def _queue_embedded(api_dict: dict) -> dict:
-    """Queue an eval subgraph through an embedded ComfyUI session."""
-    session = EmbeddedSession(SessionConfig())
-    try:
-        await session.start()
-        assert session._comfy is not None
-        queued = await session._comfy.queue_prompt_api(api_dict)
-    finally:
-        await session.stop()
-    return queued if isinstance(queued, dict) else {"prompt_id": str(queued)}
-
-
-async def _queue_server(api_dict: dict, server_url: str) -> dict:
-    """Queue an eval subgraph through a server ComfyUI instance."""
-    client = ComfyClient(server_url)
-    return await client.queue_prompt(api_dict)
-
-
-def _has_runpod_credentials() -> bool:
-    """Check whether RunPod credentials are configured."""
-    if os.environ.get("RUNPOD_API_KEY"):
-        return True
-    runpod_config = os.environ.get("RUNPOD_CONFIG_PATH")
-    if runpod_config and os.path.exists(runpod_config):
-        return True
-    return False
 
 
 def register(subparsers) -> None:

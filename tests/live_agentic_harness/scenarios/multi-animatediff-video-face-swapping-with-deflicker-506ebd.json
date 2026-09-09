@@ -1,7 +1,7 @@
 {
   "id": "multi-animatediff-video-face-swapping-with-deflicker-506ebd",
   "query": "Replace the AnimateDiff motion module with a more recent v3 variant and restructure the pipeline to include a ControlNet stage for pose-guided animation as a conditioning input instead of relying solely on the base animatediff temporal module. Keep the face swapping, deflicker, and ICLight stages intact.",
-  "workflow_path": "external_workflows/corpus/506ebdde037e22d8.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/506ebdde037e22d8.json",
   "network": true,
   "timeout": 420,
   "apply": true,

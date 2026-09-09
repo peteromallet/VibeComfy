@@ -21,7 +21,6 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, Mapping
 
-from vibecomfy.ingest.normalize import door_get_nodes
 _ConvertUiToApi = Callable[[dict[str, Any]], Mapping[str, Any]]
 _convert_ui_to_api: _ConvertUiToApi | None = None
 _IMPORT_ERROR: BaseException | None = None
@@ -240,6 +239,8 @@ class EditorAheadError(Exception):
 
 def _uid_to_litegraph_id(ui_json: Mapping[str, Any]) -> dict[str, str]:
     """Build a ``{vibecomfy_uid: str(litegraph_id)}`` map from a UI JSON."""
+    from vibecomfy.ingest.normalize import door_get_nodes
+
     out: dict[str, str] = {}
     for node in door_get_nodes(ui_json, []) or []:
         if not isinstance(node, dict):

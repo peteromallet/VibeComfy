@@ -1,8 +1,20 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Auto-generated thin wrappers for ComfyUI node classes.
+# vibecomfy:generated
+# pack: florence2
+# source: object_info cache ComfyUI-Florence2@stub.json sha256:fefc87f406c2
+# source_sha256: 330ad7c50b02ebd06b372a9034b555789648ceec02bea9760a79cf972c334a65
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 2
+#
+# DO NOT EDIT — regenerate with:
+#   vibecomfy nodes generate-wrappers florence2
 
-Regenerate via: python -m tools.generate_node_shims
+"""Auto-generated public wrappers for the florence2 custom-node pack.
+
+Each function wraps one ComfyUI node class and delegates through the
+public ``vibecomfy.templates.node`` ABI.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -19,18 +31,20 @@ def DownloadAndLoadFlorence2Model(
     *args: VibeWorkflow,
     _id: str | None = None,
     model: Literal['microsoft/Florence-2-base', 'microsoft/Florence-2-large', 'microsoft/Florence-2-base-ft', 'microsoft/Florence-2-large-ft'] | _Omitted = _UNSET,
-    precision: Literal['fp16', 'bf16', 'fp32'] | _Omitted = _UNSET,
     attention: Literal['sdpa', 'flash_attention_2', 'eager'] | _Omitted = _UNSET,
+    precision: Literal['fp16', 'bf16', 'fp32'] | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``DownloadAndLoadFlorence2Model``.
+
+    Category: florence2
+
     Download and load Florence-2 model
 
-    Pack: ComfyUI-Florence2
     Returns: model
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-Florence2@stub.json sha256:fefc87f406c2
     """
     if len(args) > 1:
         raise TypeError(f"DownloadAndLoadFlorence2Model() takes at most 1 positional argument, got {len(args)}")
@@ -38,10 +52,10 @@ def DownloadAndLoadFlorence2Model(
     _kwargs: dict[str, Any] = {}
     if model is not _UNSET:
         _kwargs['model'] = model
-    if precision is not _UNSET:
-        _kwargs['precision'] = precision
     if attention is not _UNSET:
         _kwargs['attention'] = attention
+    if precision is not _UNSET:
+        _kwargs['precision'] = precision
     _kwargs.update(_extras)
     return node(wf, 'DownloadAndLoadFlorence2Model', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -50,19 +64,21 @@ def Florence2Run(
     _id: str | None = None,
     image: Any | _Omitted = _UNSET,
     florence2_model: Any | _Omitted = _UNSET,
-    text_input: str | _Omitted = _UNSET,
     task: Literal['caption', 'detailed_caption', 'more_detailed_caption', 'caption_to_phrase_grounding', 'referring_expression_segmentation', 'region_to_segmentation', 'open_vocabulary_detection', 'dense_region_caption', 'region_proposal', 'ocr', 'ocr_with_region'] | _Omitted = _UNSET,
+    text_input: str | _Omitted = _UNSET,
     fill_mask: bool | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
+) -> Any:
+    """Public wrapper for the ComfyUI node ``Florence2Run``.
+
+    Category: florence2
+
     Run Florence-2 model
 
-    Pack: ComfyUI-Florence2
     Returns: image, mask, caption
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-Florence2@stub.json sha256:fefc87f406c2
     """
     if len(args) > 1:
         raise TypeError(f"Florence2Run() takes at most 1 positional argument, got {len(args)}")
@@ -72,10 +88,10 @@ def Florence2Run(
         _kwargs['image'] = image
     if florence2_model is not _UNSET:
         _kwargs['florence2_model'] = florence2_model
-    if text_input is not _UNSET:
-        _kwargs['text_input'] = text_input
     if task is not _UNSET:
         _kwargs['task'] = task
+    if text_input is not _UNSET:
+        _kwargs['text_input'] = text_input
     if fill_mask is not _UNSET:
         _kwargs['fill_mask'] = fill_mask
     _kwargs.update(_extras)

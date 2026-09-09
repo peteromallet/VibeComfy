@@ -5,6 +5,7 @@ import importlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -13,15 +14,65 @@ import vibecomfy.runtime.session as session_module
 from vibecomfy.node_packs import CustomNodePack
 from vibecomfy.runtime.session import EmbeddedSession
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+from vibecomfy.porting.object_info import ObjectInfoLookupResult
+from vibecomfy.schema import NodeSchema
+from vibecomfy.workflow_bundle import load_bundle
 
 from tests._runtime_session_helpers import (
-    _patch_fast_runtime_run,
     _workflow,
     fake_comfy,  # noqa: F401 -- pytest fixture imported for use in tests
 )
 
 
 runtime_run_module = importlib.import_module("vibecomfy.runtime.run")
+
+
+def _approved(workflow):
+    for node in workflow.nodes.values():
+        if not node.uid:
+            node.uid = f"runtime-{node.id}"
+    bundle = load_bundle(workflow)
+    class _FixtureProvider:
+        def get_schema(self, class_type):
+            return NodeSchema(class_type, None, {}, [])
+
+    entry = ModelEntry(
+        "runtime-fixture-model",
+        ModelSource("local"),
+        0,
+        (ModelTarget("comfy_core", "checkpoints"),),
+    )
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=(entry,)),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", return_value=entry),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+        patch(
+            "vibecomfy.porting.object_info.resolve_class_entry",
+            return_value=ObjectInfoLookupResult(entry={}, source="fixture", low_confidence=False),
+        ),
+    ):
+        return bundle.compile(schema_provider=_FixtureProvider()), bundle
+
+
+def _patch_fast_runtime_run(monkeypatch):
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False):
+        return session_module.PreparedPrompt(record.to_dict()["api_projection"])
+
+    async def fake_maybe_flush(_session, _fp):
+        return None
+
+    async def fake_start_watchdog(*, server_url, client_id, api_dict):
+        return object()
+
+    async def fake_finalize_watchdog(_watchdog, *, run_dir, reason):
+        return None
+
+    monkeypatch.setattr(session_module, "_prepare_prompt_async", fake_prepare)
+    monkeypatch.setattr(session_module, "_maybe_flush_for_policy", fake_maybe_flush)
+    monkeypatch.setattr(session_module, "_start_watchdog", fake_start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", fake_finalize_watchdog)
+    monkeypatch.setattr(session_module, "_build_schema_provider", lambda _url: object())
 
 
 def test_one_shot_run_validates_against_active_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,8 +89,8 @@ def test_one_shot_run_validates_against_active_url(tmp_path: Path, monkeypatch: 
         built_for.append(server_url)
         return object()
 
-    async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False):
-        return workflow.compile(backend=backend)
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False):
+        return session_module.PreparedPrompt(record.to_dict()["api_projection"])
 
     async def fake_history(_url: str, prompt_id: str, **_kwargs):
         return {
@@ -57,7 +108,7 @@ def test_one_shot_run_validates_against_active_url(tmp_path: Path, monkeypatch: 
         def __init__(self, server_url: str) -> None:
             queued_urls.append(server_url)
 
-        async def queue_prompt(self, prompt: dict[str, Any]) -> dict[str, Any]:
+        async def _post_prompt(self, prompt: dict[str, Any]) -> dict[str, Any]:
             return {"prompt_id": "prompt-1"}
 
     monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
@@ -66,7 +117,7 @@ def test_one_shot_run_validates_against_active_url(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", fake_history)
 
-    asyncio.run(runtime_run_module.run(_workflow(), server_url="http://configured.test"))
+    asyncio.run(runtime_run_module.run(*_approved(_workflow()), server_url="http://configured.test"))
 
     assert built_for == ["http://active-runtime.test"]
     assert queued_urls == ["http://active-runtime.test"]
@@ -120,7 +171,7 @@ def test_embedded_run_ensure_packs_invokes_install_then_reload_then_queue(
         session = EmbeddedSession()
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
-            await session.run(_workflow(), ensure_packs=True)
+            await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -182,7 +233,7 @@ def test_embedded_run_ensure_packs_prefers_lockfile_restore(
         session = EmbeddedSession()
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
-            await session.run(_workflow(), ensure_packs=True)
+            await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -219,7 +270,7 @@ def test_embedded_run_ensure_packs_skips_reload_when_nothing_missing(
         session = EmbeddedSession()
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
-            await session.run(_workflow(), ensure_packs=True)
+            await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -252,7 +303,7 @@ def test_embedded_run_ensure_packs_continues_without_node_index_for_builtin_work
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(_workflow(), ensure_packs=True)
+            await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -312,7 +363,7 @@ def test_embedded_run_ensure_packs_falls_back_to_declared_requirements(
         session = EmbeddedSession()
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
-            await session.run(_workflow(), ensure_packs=True)
+            await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -369,7 +420,7 @@ def test_embedded_run_ensure_packs_falls_back_to_workflow_class_types(
         session = EmbeddedSession()
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
-            await session.run(workflow, ensure_packs=True)
+            await session.run(*_approved(workflow), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -426,7 +477,7 @@ def test_embedded_run_ensure_packs_raises_batch_failure_without_reload_or_queue(
         session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
         try:
             with pytest.raises(RuntimeError, match="ensure_packs: install failed: ExamplePack: clone failed"):
-                await session.run(_workflow(), ensure_packs=True)
+                await session.run(*_approved(_workflow()), ensure_packs=True)
         finally:
             await session.stop()
 
@@ -469,7 +520,7 @@ def test_embedded_run_ensure_models_downloads_declared_assets(
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 
@@ -519,7 +570,7 @@ def test_embedded_run_ensure_models_resolves_registry_assets_from_final_workflow
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 
@@ -584,7 +635,7 @@ def test_embedded_run_ensure_models_does_not_cross_resolve_same_basename_between
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 
@@ -632,7 +683,7 @@ def test_embedded_run_ensure_models_matches_declared_assets_with_normalized_path
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 
@@ -709,7 +760,7 @@ def test_embedded_run_ensure_models_matches_custom_node_model_directories(
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 
@@ -750,7 +801,7 @@ def test_embedded_run_ensure_models_resolves_cameraman_iclora_override(
     async def run_case() -> None:
         session = EmbeddedSession()
         try:
-            await session.run(workflow, ensure_models=True)
+            await session.run(*_approved(workflow), ensure_models=True)
         finally:
             await session.stop()
 

@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -53,12 +54,137 @@ AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v2"
 ROOT_SCOPE = MappingProxyType({"kind": "root", "path": ""})
 FIELD_CATEGORIES = frozenset({"execution_semantic", "layout_semantic", "native_defaulted", "derived_native", "opaque_extension", "unsupported"})
 _RULES = MappingProxyType({
-    "node.vibecomfy_uid": "derived_native", "node.id": "derived_native", "node.type": "execution_semantic", "node.mode": "native_defaulted", "node.fields": "execution_semantic", "node.widgets_values": "execution_semantic", "node.inputs": "derived_native", "node.outputs": "derived_native", "node.properties": "derived_native", "node.flags": "derived_native", "node.order": "derived_native", "node.showAdvanced": "derived_native", "node.pos": "layout_semantic", "node.size": "layout_semantic", "node.title": "layout_semantic", "node.color": "layout_semantic", "node.bgcolor": "layout_semantic", "node.boxcolor": "layout_semantic", "node.shape": "layout_semantic", "node.extensions": "opaque_extension",
+    "node.vibecomfy_uid": "derived_native", "node.id": "derived_native", "node.type": "execution_semantic", "node.class_type": "derived_native", "node.mode": "native_defaulted", "node.fields": "execution_semantic", "node.widgets_values": "execution_semantic", "node.inputs": "derived_native", "node.outputs": "derived_native", "node.properties": "derived_native", "node.flags": "derived_native", "node.order": "derived_native", "node.showAdvanced": "derived_native", "node.pos": "layout_semantic", "node.size": "layout_semantic", "node.title": "layout_semantic", "node.color": "layout_semantic", "node.bgcolor": "layout_semantic", "node.boxcolor": "layout_semantic", "node.shape": "layout_semantic", "node.extensions": "opaque_extension",
     "group.vibecomfy_group_id": "derived_native", "group.id": "derived_native", "group.scope_path": "derived_native", "group.flags": "derived_native", "group.font_size": "layout_semantic", "group.title": "layout_semantic", "group.bounding": "layout_semantic", "group.color": "layout_semantic", "group.nodes": "layout_semantic",
 })
 PROJECTIONS_V1 = MappingProxyType({"structural_v1": MappingProxyType({"allowed": True}), "layout_v1": MappingProxyType({"allowed": True}), "workflow_v1": MappingProxyType({"allowed": False, "reason": "forbidden_forward_agent_edit"})})
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_STAGED_BUNDLE_METADATA_KEYS = frozenset(
+    {
+        "revision_id",
+        "parent_revision",
+        "workflow_identity",
+        "python_path",
+        "semantic_digest",
+        "sidecar_state",
+        "ui_digest",
+        "sidecar_path",
+    }
+)
+
+
+def revision_identity_v1(revision_id: Any, parent_revision: Any) -> tuple[str, str]:
+    """Validate one canonical bundle revision/parent pair.
+
+    Revision identity is deliberately a closed value at the candidate and
+    journal boundaries.  In particular, callers may not omit either member or
+    substitute a graph hash as a revision.
+    """
+    if not isinstance(revision_id, str) or not _HEX64.fullmatch(revision_id):
+        raise ContractError(
+            "revision_id must be an exact lowercase 64-hex digest",
+            "invalid_revision_identity",
+        )
+    if not isinstance(parent_revision, str) or (
+        parent_revision and not _HEX64.fullmatch(parent_revision)
+    ):
+        raise ContractError(
+            "parent_revision must be empty or an exact lowercase 64-hex digest",
+            "invalid_parent_revision",
+        )
+    return revision_id, parent_revision
+
+
+def revision_identity_from_mapping(
+    payload: Any,
+    *copies: Any,
+) -> tuple[str, str]:
+    """Read one closed revision identity and require every copy to agree."""
+    mappings = (payload, *copies)
+    identities: list[tuple[str, str]] = []
+    for value in mappings:
+        if not isinstance(value, Mapping):
+            raise ContractError(
+                "revision identity must be a mapping",
+                "missing_revision_identity",
+            )
+        if "revision_id" not in value or "parent_revision" not in value:
+            raise ContractError(
+                "revision identity requires revision_id and parent_revision",
+                "missing_revision_identity",
+            )
+        identities.append(revision_identity_v1(value["revision_id"], value["parent_revision"]))
+    identity = identities[0]
+    if any(copy != identity for copy in identities[1:]):
+        raise ContractError(
+            "revision identity copies do not match",
+            "revision_identity_mismatch",
+        )
+    return identity
+
+
+def staged_bundle_metadata_v1(value: Any) -> dict[str, Any]:
+    """Validate the closed staged Python/sidecar metadata envelope."""
+    if not isinstance(value, Mapping):
+        raise ContractError("staged bundle metadata must be a mapping", "missing_bundle_metadata")
+    unknown = set(value) - _STAGED_BUNDLE_METADATA_KEYS
+    if unknown:
+        raise ContractError(
+            f"staged bundle metadata contains unknown fields: {', '.join(sorted(map(str, unknown)))}",
+            "unsupported_bundle_metadata",
+        )
+    revision_id, parent_revision = revision_identity_from_mapping(value)
+    workflow_id = value.get("workflow_identity")
+    workflow_identity_v1(workflow_id)
+    python_path = value.get("python_path")
+    if not isinstance(python_path, str) or not python_path.strip() or not Path(python_path).is_absolute():
+        raise ContractError("staged bundle metadata requires python_path", "missing_bundle_metadata")
+    semantic_digest = value.get("semantic_digest")
+    if not isinstance(semantic_digest, str) or not _HEX64.fullmatch(semantic_digest):
+        raise ContractError(
+            "staged bundle metadata requires a semantic_digest",
+            "invalid_bundle_metadata",
+        )
+    sidecar_state = value.get("sidecar_state")
+    if sidecar_state not in {"present", "absent"}:
+        raise ContractError(
+            "staged bundle metadata requires sidecar_state present/absent",
+            "invalid_bundle_metadata",
+        )
+    ui_digest = value.get("ui_digest")
+    if sidecar_state == "present":
+        if not isinstance(ui_digest, str) or not _HEX64.fullmatch(ui_digest):
+            raise ContractError(
+                "present staged sidecar requires a UI digest",
+                "invalid_bundle_metadata",
+            )
+        sidecar_path = value.get("sidecar_path")
+        expected_sidecar_path = str(Path(python_path).with_suffix(".vibe.json"))
+        if not isinstance(sidecar_path, str) or not sidecar_path.strip() or not Path(sidecar_path).is_absolute() or sidecar_path != expected_sidecar_path:
+            raise ContractError(
+                "present staged sidecar requires its canonical sidecar_path",
+                "missing_bundle_metadata",
+            )
+    elif ui_digest != "" or "sidecar_path" in value:
+        raise ContractError(
+            "absent staged sidecar requires empty UI digest and no sidecar_path",
+            "invalid_bundle_metadata",
+        )
+    return {
+        "revision_id": revision_id,
+        "parent_revision": parent_revision,
+        "workflow_identity": workflow_id,
+        "python_path": python_path,
+        "semantic_digest": semantic_digest,
+        "sidecar_state": sidecar_state,
+        "ui_digest": ui_digest,
+        **(
+            {"sidecar_path": value["sidecar_path"]}
+            if "sidecar_path" in value
+            else {}
+        ),
+    }
 
 
 def field_category_v1(entity: str, path: str, node_type: str | None = None) -> str:
@@ -1003,6 +1129,7 @@ def _forward_ops_from_accepted_batch(accepted_batch: Any) -> list[Any]:
 def _validate_candidate_authority_common(raw: Any, *, accepted_batch: Any = None) -> Any:
     if not isinstance(raw, Mapping) or raw.get("contract_version") not in {CANDIDATE_AUTHORITY_V1, PREPARED_AUTHORITY_V1}: raise ContractError("Unsupported authority version", "unknown_authority_version")
     for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash"): issued_identity_v1(raw.get(key), key)
+    revision_identity_v1(raw.get("revision_id"), raw.get("parent_revision"))
     if raw.get("authority_receipt_contract_version") != AUTHORITY_RECEIPT_CONTRACT_VERSION:
         raise ContractError("Authority receipt contract version must be explicit", "unknown_authority_receipt_version")
     if raw.get("authority_receipt_delta_schema") != DELTA_WIRE_VERSION:
@@ -1117,12 +1244,26 @@ def validate_candidate_transaction_v2(value: Any) -> Any:
     plan = value.get("plan")
     accepted_batch = plan.get("accepted_batch") if isinstance(plan, Mapping) else None
     candidate = validate_candidate_authority_v1(candidate, accepted_batch=accepted_batch)
+    revision_id, parent_revision = revision_identity_from_mapping(value, candidate)
+    bundle = value.get("bundle")
+    bundle_metadata = staged_bundle_metadata_v1(bundle)
+    if bundle_metadata["workflow_identity"] != candidate.get("workflow_id"):
+        raise ContractError(
+            "Candidate bundle workflow identity does not match authority",
+            "candidate_revision_mismatch",
+        )
+    revision_identity_from_mapping(value, bundle_metadata)
+    if candidate.get("revision_id") != revision_id or candidate.get("parent_revision") != parent_revision:
+        raise ContractError(
+            "Candidate transaction revision identity does not match authority",
+            "candidate_revision_mismatch",
+        )
     prepared = value.get("prepared_authority")
     if state in {"candidate_ready", "recoverable_error"}:
         if prepared is not None: raise ContractError("Candidate-ready authority cannot carry prepare identity", "unexpected_prepared_authority")
     elif state in {"prepared", "canvas_verified", "finalized", "rollback_complete", "superseded"}:
         prepared = validate_prepared_authority_v1(prepared, accepted_batch=accepted_batch)
-        for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash", "workflow_id", "scope", "operation", "operation_family", "precondition", "postcondition", "rollback_projection", "restoration_strategy", "authority_receipt_contract_version", "authority_receipt_delta_schema", "authority_receipt_digest"):
+        for key in ("transaction_id", "candidate_id", "session_id", "turn_id", "plan_hash", "workflow_id", "scope", "operation", "operation_family", "precondition", "postcondition", "rollback_projection", "restoration_strategy", "authority_receipt_contract_version", "authority_receipt_delta_schema", "authority_receipt_digest", "revision_id", "parent_revision"):
             if prepared.get(key) != candidate.get(key): raise ContractError("Prepared authority changed candidate-time authority", "prepared_authority_transition_mismatch")
         # restoration_strategy_compensation: sole prepare-owned additive key.
         # Candidate presence is forbidden (caught above); prepared absence is
@@ -1147,6 +1288,7 @@ def validate_journal_durable_v1(record: Any) -> Mapping[str, Any]:
     ):
         raise ContractError("Invalid journal_durable_v1 record", "invalid_journal_durable")
     workflow_identity_v1(record.get("workflow_id"))
+    revision_identity_v1(record.get("revision_id"), record.get("parent_revision"))
     baseline = record.get("baseline")
     fence = record.get("identity_fence")
     restoration = record.get("inverse_or_restore")
@@ -1156,6 +1298,9 @@ def validate_journal_durable_v1(record: Any) -> Mapping[str, Any]:
         raise ContractError("Durable journal requires exact baseline projection digests", "invalid_journal_durable")
     if any(not isinstance(fence.get(key), str) or not fence.get(key) for key in ("transaction_id", "candidate_id", "plan_hash", "lease_nonce")) or not isinstance(fence.get("generation"), int) or fence.get("generation") <= 0:
         raise ContractError("Durable journal requires a complete identity fence", "invalid_journal_durable")
+    revision_identity_v1(fence.get("revision_id"), fence.get("parent_revision"))
+    if fence.get("revision_id") != record.get("revision_id") or fence.get("parent_revision") != record.get("parent_revision"):
+        raise ContractError("Durable journal revision fence does not match record", "invalid_journal_durable")
     if (
         not isinstance(restoration.get("contract_version"), str)
         or not _HEX64.fullmatch(str(restoration.get("digest", "")))
@@ -1172,4 +1317,4 @@ def classify_legacy_migration_v1(value: Any) -> dict[str, Any]:
         return {"classification": "legacy_prepared_nonresumable", "actions": ["rebaseline", "cancel"], "rollback_allowed": exact}
     return {"classification": "legacy_non_resumable", "actions": ["rebaseline", "cancel"], "rollback_allowed": False}
 
-__all__ = [name for name in globals() if name.endswith("_V1") or name in {"ContractError", "DELTA_V1", "DELTA_WIRE_VERSION", "AUTHORITY_RECEIPT_CONTRACT_VERSION", "ROOT_SCOPE", "FIELD_CATEGORIES", "PROJECTIONS_V1", "RESTORATION_STRATEGY_TAGS", "canonical_json", "canonical_json_bytes_v1", "canonicalize_contract_numeric", "field_category_v1", "assert_root_scope_v1", "assert_root_graph_v1", "workflow_identity_v1", "node_identity_v1", "group_identity_v1", "issued_identity_v1", "project_graph_v1", "projection_reference_v1", "assert_projection_reference_v1", "build_structural_graph_projection", "structural_graph_hash_compat", "browser_layout_scope_issues_v1", "build_layout_graph_projection", "layout_graph_hash_compat", "forward_operation_digest", "validate_candidate_authority_v1", "validate_prepared_authority_v1", "validate_candidate_transaction_v2", "validate_journal_durable_v1", "classify_legacy_migration_v1"}]
+__all__ = [name for name in globals() if name.endswith("_V1") or name in {"ContractError", "DELTA_V1", "DELTA_WIRE_VERSION", "AUTHORITY_RECEIPT_CONTRACT_VERSION", "ROOT_SCOPE", "FIELD_CATEGORIES", "PROJECTIONS_V1", "RESTORATION_STRATEGY_TAGS", "canonical_json", "canonical_json_bytes_v1", "canonicalize_contract_numeric", "field_category_v1", "assert_root_scope_v1", "assert_root_graph_v1", "workflow_identity_v1", "revision_identity_v1", "revision_identity_from_mapping", "staged_bundle_metadata_v1", "node_identity_v1", "group_identity_v1", "issued_identity_v1", "project_graph_v1", "projection_reference_v1", "assert_projection_reference_v1", "build_structural_graph_projection", "structural_graph_hash_compat", "browser_layout_scope_issues_v1", "build_layout_graph_projection", "layout_graph_hash_compat", "forward_operation_digest", "validate_candidate_authority_v1", "validate_prepared_authority_v1", "validate_candidate_transaction_v2", "validate_journal_durable_v1", "classify_legacy_migration_v1"}]

@@ -27,6 +27,47 @@ from vibecomfy.schema import (
 )
 
 
+_REVISION_ID = "a" * 64
+_PARENT_REVISION = ""
+_record_prepared = S.record_prepared_transaction
+_record_finalized = S.record_finalized_transaction
+_record_rolled_back = S.record_rolled_back_transaction
+
+
+def _record_with_identity(fn, kwargs):
+    payload = dict(kwargs)
+    payload.setdefault("revision_id", _REVISION_ID)
+    payload.setdefault("parent_revision", _PARENT_REVISION)
+    durable = payload.get("journal_durable")
+    if isinstance(durable, dict):
+        durable = dict(durable)
+        durable.update(revision_id=_REVISION_ID, parent_revision=_PARENT_REVISION)
+        fence = durable.get("identity_fence")
+        if isinstance(fence, dict):
+            fence = dict(fence)
+            fence.update(revision_id=_REVISION_ID, parent_revision=_PARENT_REVISION)
+            durable["identity_fence"] = fence
+        payload["journal_durable"] = durable
+    return fn(**payload)
+
+
+def _prepared(**kwargs):
+    return _record_with_identity(_record_prepared, kwargs)
+
+
+def _finalized(**kwargs):
+    return _record_with_identity(_record_finalized, kwargs)
+
+
+def _rolled_back(**kwargs):
+    return _record_with_identity(_record_rolled_back, kwargs)
+
+
+S.record_prepared_transaction = _prepared
+S.record_finalized_transaction = _finalized
+S.record_rolled_back_transaction = _rolled_back
+
+
 # ── normalize_path_component ────────────────────────────────────────────────
 
 
@@ -859,7 +900,13 @@ def test_read_state_drops_corrupt_prepared_entries(tmp_path):
     # Write state with one valid and several invalid prepared entries.
     state_data = S.default_state()
     state_data["prepared_transactions"] = {
-        "turn-ok": {"plan_hash": "p" * 64, "generation": 5, "lease_nonce": "ok"},
+        "turn-ok": {
+            "plan_hash": "p" * 64,
+            "generation": 5,
+            "lease_nonce": "ok",
+            "revision_id": "a" * 64,
+            "parent_revision": "",
+        },
         "turn-bad-gen": {"plan_hash": "q" * 64, "generation": 0},
         "turn-no-hash": {"generation": 3},
         "turn-not-dict": ["list"],
@@ -1175,6 +1222,7 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
     from vibecomfy.comfy_nodes.agent.candidate_transaction import (
         build_candidate_transaction,
     )
+    from vibecomfy.workflow_bundle import capture_bundle
 
     root = tmp_path
     session_id = "txn-session"
@@ -1184,6 +1232,16 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
     turn_dir.mkdir(parents=True)
     workflow_id = "123e4567-e89b-12d3-a456-426614174000"
     plan_hash = "a" * 64
+    node_outputs = (
+        [
+            {"name": "IMAGE", "type": "IMAGE", "links": [], "slot_index": 0},
+            {"name": "MASK", "type": "MASK", "links": [], "slot_index": 1},
+        ]
+        if load_image
+        else [
+            {"name": "LATENT", "type": "LATENT", "links": [], "slot_index": 0}
+        ]
+    )
     submit_graph = {
         "last_node_id": 1,
         "last_link_id": 0,
@@ -1197,7 +1255,7 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
                 "properties": {"vibecomfy_uid": "sampler-1"},
                 "widgets_values": ["example.png"] if load_image else [],
                 "inputs": [],
-                "outputs": [],
+                "outputs": node_outputs,
             }
         ],
         "links": [],
@@ -1221,6 +1279,9 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         "accepted_batch": accepted_batch,
         "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
     }
+    schema_provider = _TurnSchemaProvider(
+        node_class="LoadImage" if load_image else "KSampler"
+    )
     receipt = build_authority_receipt(
         session_id=session_id,
         turn_id=turn_id,
@@ -1229,17 +1290,23 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         candidate=candidate_graph,
         response=response,
         schema_version="2.0.0",
-        schema_provider=_TurnSchemaProvider(
-            node_class="LoadImage" if load_image else "KSampler"
-        ),
+        schema_provider=schema_provider,
     )
     assert receipt.is_applyable
     write_authority_receipt(turn_dir, receipt)
+    staged_bundle = capture_bundle(
+        {**candidate_graph, "workflow_id": workflow_id},
+        turn_dir / "candidate.py",
+        {"operation": "captured"},
+        schema_provider=schema_provider,
+    )
     transaction = build_candidate_transaction(
         workflow_id=workflow_id,
         session_id=session_id,
         turn_id=turn_id,
         plan_hash=plan_hash,
+        revision_id=staged_bundle.revision_id,
+        parent_revision=staged_bundle.parent_revision,
         submit_graph=submit_graph,
         candidate_graph=candidate_graph,
         accepted_batch=accepted_batch,
@@ -1253,6 +1320,18 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         replay_ok=True,
         candidate_matches=True,
         applyable=True,
+        bundle_digests={
+            "revision_id": staged_bundle.revision_id,
+            "parent_revision": staged_bundle.parent_revision,
+            "workflow_identity": staged_bundle.workflow_identity,
+            "python_path": str(staged_bundle.python_path),
+            "semantic_digest": staged_bundle.semantic_digest,
+            "sidecar_state": (
+                "present" if staged_bundle.ui_sidecar is not None else "absent"
+            ),
+            "ui_digest": staged_bundle.ui_digest,
+            "sidecar_path": str(Path(staged_bundle.python_path).with_suffix(".vibe.json")),
+        },
     )
     S.write_candidate_transaction(turn_dir, transaction)
     response["candidate_transaction"] = transaction
@@ -1288,6 +1367,8 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
         "delta_hash": receipt.cumulative_delta_hash,
         "precondition_projection": transaction["candidate_authority"]["precondition"],
         "postcondition_projection": transaction["candidate_authority"]["postcondition"],
+        "revision_id": staged_bundle.revision_id,
+        "parent_revision": staged_bundle.parent_revision,
     }
     return S, root, session_id, turn_id, session_dir, evidence
 
@@ -1295,6 +1376,8 @@ def _fresh_v2_apply_turn(tmp_path: Path, *, load_image: bool = False):
 def _prepare_payload(evidence: dict, *, plan_hash: str | None = None, generation: int = 1) -> dict:
     return {
         "turn_id": "0001",
+        "revision_id": evidence["revision_id"],
+        "parent_revision": evidence["parent_revision"],
         "candidate_graph_hash": evidence["candidate_graph_hash"],
         "plan_hash": plan_hash if plan_hash is not None else evidence["plan_hash"],
         "structural_hash_before": evidence["submit_structural_hash"],
@@ -1363,6 +1446,8 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
         session_id=session_id,
         turn_id=turn_id,
         request_payload={
+            "revision_id": evidence["revision_id"],
+            "parent_revision": evidence["parent_revision"],
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": "wrong",
@@ -1381,6 +1466,8 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
         session_id=session_id,
         turn_id=turn_id,
         request_payload={
+            "revision_id": evidence["revision_id"],
+            "parent_revision": evidence["parent_revision"],
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
@@ -1399,6 +1486,8 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
         session_id=session_id,
         turn_id=turn_id,
         request_payload={
+            "revision_id": evidence["revision_id"],
+            "parent_revision": evidence["parent_revision"],
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
@@ -1441,6 +1530,8 @@ def test_finalize_uses_typed_semantic_postcondition_not_raw_native_widget_carrie
         session_id=session_id,
         turn_id=turn_id,
         request_payload={
+            "revision_id": evidence["revision_id"],
+            "parent_revision": evidence["parent_revision"],
             "plan_hash": evidence["plan_hash"],
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
@@ -1473,6 +1564,8 @@ def test_rollback_restores_prepare_time_baseline_from_nonterminal_state(tmp_path
         session_id=session_id,
         turn_id=turn_id,
         request_payload={
+            "revision_id": evidence["revision_id"],
+            "parent_revision": evidence["parent_revision"],
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
@@ -1530,7 +1623,14 @@ def _injection_submit_graph() -> dict:
                 "properties": {"vibecomfy_uid": "sampler-1"},
                 "widgets_values": [],
                 "inputs": [],
-                "outputs": [],
+                "outputs": [
+                    {
+                        "name": "LATENT",
+                        "type": "LATENT",
+                        "links": [],
+                        "slot_index": 0,
+                    }
+                ],
             }
         ],
         "links": [],
@@ -1541,8 +1641,32 @@ def _injection_submit_graph() -> dict:
     }
 
 
-def _injection_v2_request(submit: dict, workflow_id: str) -> dict:
-    return {"graph": submit, "workflow_id": workflow_id}
+def _injection_v2_request(
+    root: Path,
+    session_id: str,
+    submit: dict,
+    workflow_id: str,
+) -> dict:
+    """Build the public request with the real captured candidate revision."""
+    from vibecomfy.workflow_bundle import capture_bundle
+
+    candidate = json.loads(json.dumps(submit))
+    candidate["nodes"][0]["mode"] = 4
+    preview_path = root / f".{session_id}-candidate-preview.py"
+    preview = capture_bundle(
+        {**candidate, "workflow_id": workflow_id},
+        preview_path,
+        {"operation": "captured"},
+        schema_provider=_TurnSchemaProvider(),
+    )
+    preview_path.unlink(missing_ok=True)
+    preview_path.with_suffix(".vibe.json").unlink(missing_ok=True)
+    return {
+        "graph": submit,
+        "workflow_id": workflow_id,
+        "revision_id": preview.revision_id,
+        "parent_revision": preview.parent_revision,
+    }
 
 
 def _injection_v2_response(submit: dict, candidate: dict) -> dict:
@@ -1576,7 +1700,12 @@ def _injection_cycle(root: Path, session_id: str, idempotency_key: str):
     submit = _injection_submit_graph()
     candidate = json.loads(json.dumps(submit))
     candidate["nodes"][0]["mode"] = 4
-    request = _injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000")
+    request = _injection_v2_request(
+        root,
+        session_id,
+        submit,
+        "123e4567-e89b-12d3-a456-426614174000",
+    )
     allocation = S.allocate_turn(
         session_root=root, session_id=session_id,
         request_payload=request, idempotency_key=idempotency_key,
@@ -1604,7 +1733,12 @@ def test_duplicate_same_turn_request_replays_recorded_response(tmp_path: Path) -
     root = tmp_path
     first_alloc, _record = _injection_cycle(root, "dup-session", "k-dup")
     submit = _injection_submit_graph()
-    request = _injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000")
+    request = _injection_v2_request(
+        root,
+        "dup-session",
+        submit,
+        "123e4567-e89b-12d3-a456-426614174000",
+    )
 
     second_alloc = S.allocate_turn(
         session_root=root, session_id="dup-session",
@@ -1648,7 +1782,12 @@ def test_stale_turn_reference_fails_closed_and_new_submit_supersedes_candidate(
     submit = _injection_submit_graph()
     newer = S.allocate_turn(
         session_root=root, session_id="supersede-session",
-        request_payload=_injection_v2_request(submit, "123e4567-e89b-12d3-a456-426614174000"),
+        request_payload=_injection_v2_request(
+            root,
+            "supersede-session",
+            submit,
+            "123e4567-e89b-12d3-a456-426614174000",
+        ),
         idempotency_key="k-t2",
     )
     assert newer.context.turn_id != first_alloc.context.turn_id
@@ -1684,7 +1823,12 @@ def test_duplicate_idempotency_key_with_different_request_conflicts(tmp_path: Pa
     other["nodes"][0]["pos"] = [99, 99]
     conflicting = S.allocate_turn(
         session_root=root, session_id="conflict-session",
-        request_payload=_injection_v2_request(other, "123e4567-e89b-12d3-a456-426614174000"),
+        request_payload=_injection_v2_request(
+            root,
+            "conflict-session",
+            other,
+            "123e4567-e89b-12d3-a456-426614174000",
+        ),
         idempotency_key="k-conflict",
     )
     assert conflicting.replay is None

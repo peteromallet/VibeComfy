@@ -9,23 +9,50 @@ from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeOutput, VibeWo
 
 
 def test_finalize_metadata_matches_from_api_for_equivalent_graph() -> None:
+    from vibecomfy.schema import get_authoring_schema_provider
+
+    provider = get_authoring_schema_provider()
     workflow = VibeWorkflow("metadata", WorkflowSource("metadata"))
-    text = workflow.add_node("CLIPTextEncode", text="hello")
-    save = workflow.add_node("SaveVideo", video="placeholder")
-    workflow.connect(f"{text.id}.0", f"{save.id}.video")
+    source = workflow.node("LoadImage", _id="1", image="placeholder")
+    save = workflow.node("SaveImage", _id="2", filename_prefix="metadata")
+    workflow.connect(source.out(0), f"{save.id}.images")
     workflow.finalize_metadata()
 
     converted = from_api(
         {
-            "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "hello"}},
-            "2": {"class_type": "SaveVideo", "inputs": {"video": ["1", 0]}},
+            "1": {"class_type": "LoadImage", "inputs": {"image": "placeholder"}},
+            "2": {"class_type": "SaveImage", "inputs": {"filename_prefix": "metadata", "images": ["1", 0]}},
         },
         workflow_id="metadata",
+        schema_provider=provider,
     )
 
     assert workflow.inputs == converted.inputs
     assert workflow.outputs == converted.outputs
     assert workflow.requirements == converted.requirements
+
+
+def test_finalize_metadata_preserves_detached_ingress_diagnostics() -> None:
+    workflow = VibeWorkflow("diagnostics", WorkflowSource("diagnostics"))
+    workflow.node("SaveImage", _id="1", filename_prefix="out")
+    workflow.requirements.missing_models = ["missing-model.safetensors"]
+    workflow.requirements.missing_nodes = ["MissingNode"]
+    workflow.requirements.unsupported = ["unsupported-boundary"]
+    previous = workflow.requirements
+    expected = {
+        name: list(getattr(previous, name))
+        for name in ("missing_models", "missing_nodes", "unsupported")
+    }
+
+    workflow.finalize_metadata()
+
+    for name, values in expected.items():
+        assert getattr(previous, name) == values
+        actual = getattr(workflow.requirements, name)
+        assert actual == values
+        assert actual is not getattr(previous, name)
+    previous.missing_nodes.append("mutated-after-finalize")
+    assert workflow.requirements.missing_nodes == ["MissingNode"]
 
 
 def test_save_video_registers_output() -> None:

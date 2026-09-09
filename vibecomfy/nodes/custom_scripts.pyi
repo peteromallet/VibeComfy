@@ -1,5 +1,12 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Type stubs for generated ComfyUI node wrappers."""
+# vibecomfy:generated
+# pack: custom_scripts
+# source: object_info cache ComfyUI-Custom-Scripts@stub.json sha256:f2471b22ff0e
+# source_sha256: 27212910da8b4c465d1a80fc3926cf9b36f23ba8217942fbd0e7483f57904c79
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 2
+
+"""Type stubs for generated public node wrappers."""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -28,4 +35,4 @@ def ShowText_pysssss(
     **_extras: Any,
 ) -> Any: ...
 
-__all__: list[str]
+__all__ = ['MathExpression_pysssss', 'ShowText_pysssss']

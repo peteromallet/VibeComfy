@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-model-generation-and-preview-workflow-cc0df7",
   "query": "Enable the Rodin3D_Detail generation branch: set its Preview3D node to enabled so the detailed model previews, and bypass the Rodin3D_Regular node together with its Preview3D node. Keep the shared input-image batching feeding all branches and leave every other node wired as it is.",
-  "workflow_path": "external_workflows/corpus/cc0df70583f28c98.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/cc0df70583f28c98.json",
   "network": true,
   "timeout": 420,
   "apply": true,

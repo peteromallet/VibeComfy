@@ -20,6 +20,7 @@ from vibecomfy.runtime.session import (
 from tests._runtime_session_helpers import (
     _patch_fast_runtime_run,
     _workflow,
+    _approved,
     fake_comfy,  # noqa: F401 -- pytest fixture imported for use in tests
     fake_server,  # noqa: F401 -- pytest fixture imported for use in tests
 )
@@ -44,7 +45,7 @@ def test_strict_drift_is_typed_round_tripped_and_used(
 
     async def run_case() -> None:
         try:
-            await session.run(workflow)
+            await session.run(*_approved(workflow))
         finally:
             await session.stop()
 
@@ -113,7 +114,7 @@ def test_dynamic_io_is_snapshotted_at_server_process_start(
         )
         try:
             assert _configured_output_directory(session.config) == str(later_output)
-            result = await session.run(_workflow())
+            result = await session.run(*_approved(_workflow()))
             return result.outputs[0]
         finally:
             await session.stop()

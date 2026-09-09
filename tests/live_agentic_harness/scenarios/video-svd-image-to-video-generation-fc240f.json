@@ -1,7 +1,7 @@
 {
   "id": "video-svd-image-to-video-generation-fc240f",
   "query": "The generated video looks almost like a still image. Can you increase the motion_bucket_id to add more visible motion?",
-  "workflow_path": "external_workflows/corpus/fc240f1c4331a5e5.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/fc240f1c4331a5e5.json",
   "network": true,
   "timeout": 280,
   "apply": true,

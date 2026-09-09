@@ -10,12 +10,12 @@ from typing import Any
 
 from vibecomfy.errors import QueueError
 from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, WorkflowBundleError
 
 from .attempt import build_attempt_bundle, write_attempt_json
 from .client import ComfyClient
-from .execution import normalize_prompt_id
+from .execution import queue_server_prompt
 from .drift import enforce_strict_drift
-from vibecomfy.utils import atomic_write_json
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
 from .server import comfy_server
 from .session import (
@@ -28,7 +28,14 @@ from .session import (
     _embedded_configuration,
     _outputs_from_server_history,
     _prepare_prompt_async,
+    _begin_runtime_lifecycle,
+    _commit_queue_witness,
+    _complete_runtime_run,
+    _persist_runtime_evidence,
+    _persist_runtime_failure,
+    _runtime_evidence,
     _run_metadata,
+    _schema_provider_provenance,
     _schema_warn_only,
     _wait_for_server_history,
     _workflow_queue_failure_message,
@@ -52,7 +59,8 @@ def _allocate_run_dir(prefix: str) -> tuple[str, Path]:
 
 
 async def run(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     server_url: str | None = None,
     backend: str = "api",
@@ -63,6 +71,10 @@ async def run(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    bundle.require_canonical_authority("runtime execution")
+    workflow = bundle.workflow
     run_id, run_dir = _allocate_run_dir("run")
     log_path = run_dir / "comfy.log"
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
@@ -72,10 +84,21 @@ async def run(
         ensure_models=ensure_models,
         shared_root=shared_models_root,
     )
-    apply_model_preflight(workflow, policy)
     async with comfy_server(server_url=server_url, log_path=log_path, config=managed_config) as active_url:
-        provider = _build_schema_provider(active_url)
+        adapter_kind = "managed" if server_url is None else "external"
+        attempt_bundle, journal_state, journal_generation, initial_evidence = _begin_runtime_lifecycle(
+            run_dir=run_dir,
+            run_id=run_id,
+            record=record,
+            bundle=bundle,
+            adapter_kind=adapter_kind,
+            backend=backend,
+            endpoint=active_url,
+        )
+        schema_provenance = _schema_provider_provenance(None)
+        queue_acceptance = {"status": "not_attempted", "prompt_id": None}
         warned = {"emitted": False}
+        phase = "schema"
 
         def on_unavailable(msg: str) -> None:
             if warned["emitted"] and "schema validation skipped for class types" not in msg:
@@ -83,83 +106,125 @@ async def run(
             logger.log(logging.WARNING if _schema_warn_only(resolved_config) else logging.ERROR, "vibecomfy schema gate: %s", msg)
             warned["emitted"] = True
 
-        api_dict = await _prepare_prompt_async(
-            workflow,
-            backend=backend,
-            schema_provider=provider,
-            on_unavailable=on_unavailable,
-        )
-        schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
-        # Write attempt.json BEFORE every queue boundary.
-        attempt_bundle = build_attempt_bundle(workflow, api_dict, backend=backend, config=managed_config)
-        write_attempt_json(run_dir, attempt_bundle)
-        resolved_strict = strict_drift if strict_drift is not None else bool(resolved_config.strict_drift)
-        if resolved_strict:
-            enforce_strict_drift(workflow)
         try:
-            queued = await ComfyClient(active_url).queue_prompt(api_dict)
-        except Exception as exc:
-            raise QueueError(
-                _workflow_queue_failure_message(workflow, exc),
-                next_action="vibecomfy runtime doctor",
-            ) from exc
-        prompt_id = normalize_prompt_id(queued)
-        if prompt_id is not None and not prompt_id.strip():
-            prompt_id = None
-        prompt_id_is_usable = bool(prompt_id and prompt_id.strip())
-        attempt_bundle["queue_acceptance"] = {
-            "status": "accepted" if prompt_id_is_usable else "ambiguous",
-            "prompt_id": prompt_id,
-        }
-        try:
-            # The queue boundary may have accepted work even when the later
-            # history wait or terminal metadata write fails.  Record that
-            # witness durably before making the next request, and never retry
-            # a response that cannot identify the accepted prompt.
-            write_attempt_json(run_dir, attempt_bundle)
-        except Exception as exc:
-            raise QueueError(
-                "Comfy prompt acceptance could not be recorded durably; "
-                "the run may be in flight and must not be retried automatically",
-                next_action="vibecomfy runtime doctor",
-            ) from exc
-        if not prompt_id_is_usable:
-            raise QueueError(
-                "Comfy queue response did not include a prompt_id; acceptance "
-                "is ambiguous and must not be retried automatically",
-                next_action="vibecomfy runtime doctor",
+            apply_model_preflight(workflow, policy)
+            provider = _build_schema_provider(active_url)
+            api_dict = await _prepare_prompt_async(
+                record,
+                bundle,
+                backend=backend,
+                schema_provider=provider,
+                on_unavailable=on_unavailable,
             )
-        history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
-        comfy_outputs = _outputs_from_server_history(history, prompt_id)
-        outputs = _collect_output_paths(
-            comfy_outputs,
-            output_directory=_configured_output_directory(resolved_config),
-        )
-    metadata = _run_metadata(
-        run_id=run_id,
-        workflow=workflow,
-        api_dict=api_dict,
-        queued=queued,
-        comfy_outputs=comfy_outputs,
-        outputs=outputs,
-        runtime="server",
-        config=managed_config,
-        schema_validation_skipped=schema_validation_skipped,
-        chain_id=chain_id,
-        parent_run_id=parent_run_id,
-    )
-    metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
-    return RunResult(
-        run_id=run_id,
-        prompt_id=prompt_id,
-        outputs=outputs,
-        metadata_path=str(metadata_path),
-        log_path=str(log_path),
-    )
+            schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+            schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(provider)
+            evidence = _runtime_evidence(
+                record,
+                adapter_kind=adapter_kind,
+                backend=backend,
+                endpoint=active_url,
+                schema_provenance=schema_provenance,
+                queue_acceptance=queue_acceptance,
+                terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+            )
+            attempt_bundle = build_attempt_bundle(
+                bundle,
+                record,
+                backend=backend,
+                config=managed_config,
+                adapter_kind=adapter_kind,
+                adapter_endpoint=active_url,
+                schema_provenance=schema_provenance,
+                runtime_evidence=evidence,
+            )
+            _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+            phase = "drift"
+            resolved_strict = strict_drift if strict_drift is not None else bool(resolved_config.strict_drift)
+            if resolved_strict:
+                enforce_strict_drift(workflow)
+            phase = "queue"
+            try:
+                queued = (
+                    await queue_server_prompt(record, bundle, client=ComfyClient(active_url))
+                ).queued
+            except asyncio.TimeoutError:
+                raise
+            except Exception as exc:
+                raise QueueError(
+                    _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
+                ) from exc
+            phase = "acceptance_witness"
+            prompt_id = _commit_queue_witness(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind=adapter_kind, backend=backend, endpoint=active_url,
+                schema_provenance=schema_provenance, queued=queued,
+            )
+            queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
+            phase = "history"
+            history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
+            comfy_outputs = _outputs_from_server_history(history, prompt_id)
+            phase = "output"
+            outputs = _collect_output_paths(
+                comfy_outputs,
+                output_directory=_configured_output_directory(resolved_config),
+            )
+            phase = "metadata"
+            metadata = _run_metadata(
+                run_id=run_id,
+                bundle=bundle,
+                record=record,
+                queued=queued,
+                comfy_outputs=comfy_outputs,
+                outputs=outputs,
+                runtime=adapter_kind,
+                config=managed_config,
+                schema_validation_skipped=schema_validation_skipped,
+                schema_provenance=schema_provenance,
+                adapter_endpoint=active_url,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
+            metadata_path = _complete_runtime_run(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind=adapter_kind, backend=backend, endpoint=active_url,
+                schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
+                metadata=metadata,
+            )
+            return RunResult(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                outputs=outputs,
+                metadata_path=str(metadata_path),
+                log_path=str(log_path),
+            )
+        except asyncio.CancelledError as exc:
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
+        except KeyboardInterrupt as exc:
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
+        except Exception as exc:
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
 
 
 def run_sync(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     server_url: str | None = None,
     backend: str = "api",
@@ -172,7 +237,8 @@ def run_sync(
 ) -> RunResult:
     return asyncio.run(
         run(
-            workflow,
+            record,
+            bundle,
             server_url=server_url,
             backend=backend,
             config=config,
@@ -186,7 +252,8 @@ def run_sync(
 
 
 async def run_embedded(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str = "api",
     config: SessionConfig | None = None,
@@ -196,10 +263,14 @@ async def run_embedded(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
-    session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(workflow))
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    bundle.require_canonical_authority("runtime execution")
+    session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(bundle.workflow))
     try:
         return await session.run(
-            workflow,
+            record,
+            bundle,
             backend=backend,
             ensure_packs=ensure_packs,
             ensure_models=ensure_models,
@@ -212,7 +283,8 @@ async def run_embedded(
 
 
 def run_embedded_sync(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str = "api",
     config: SessionConfig | None = None,
@@ -224,7 +296,8 @@ def run_embedded_sync(
 ) -> RunResult:
     return asyncio.run(
         run_embedded(
-            workflow,
+            record,
+            bundle,
             backend=backend,
             config=config,
             ensure_packs=ensure_packs,

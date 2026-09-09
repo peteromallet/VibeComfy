@@ -1,7 +1,7 @@
 {
   "id": "video-generates-a-video-from-a",
   "query": "Set the video output to 24 fps.",
-  "workflow_path": "tests/fixtures/live_agentic_corpus/59502aed6ad75d87.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/59502aed6ad75d87.json",
   "apply": true,
   "network": true,
   "timeout": 300,

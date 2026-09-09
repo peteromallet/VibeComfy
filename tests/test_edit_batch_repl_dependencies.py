@@ -97,10 +97,12 @@ def test_build_reports_only_the_missing_names() -> None:
     assert f"2 of {S4_TOTAL}" in message
 
 
-def test_module_imports_are_stdlib_only() -> None:
+def test_module_level_imports_are_stdlib_only() -> None:
     tree = ast.parse(MODULE_SOURCE, filename=str(MODULE_PATH))
     findings: list[str] = []
-    for node in ast.walk(tree):
+    # Admission helpers import canonical package code when invoked; loading
+    # the dependency shell itself must remain independent of that package.
+    for node in tree.body:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".")[0]

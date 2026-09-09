@@ -1,7 +1,7 @@
 {
   "id": "3d-3d-model-load-edit-and-export-workflow-d66a66",
   "query": "Change the texture edit prompt to 'aged bronze statue with verdigris patina' and ensure the model exports as GLB with embedded textures.",
-  "workflow_path": "external_workflows/corpus/d66a660d74cbc9ec.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/d66a660d74cbc9ec.json",
   "network": true,
   "timeout": 320,
   "apply": true,

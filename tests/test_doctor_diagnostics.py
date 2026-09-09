@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 import vibecomfy.commands.doctor as doctor_cmd
+from vibecomfy.security.provenance import Provenance
+import vibecomfy.node_packs as node_packs
 from vibecomfy.node_packs import LockEntry
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
@@ -26,7 +28,7 @@ from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 def build():
     workflow = VibeWorkflow(id="doctor-valid", source=WorkflowSource(id="doctor-valid"))
-    workflow.nodes["1"] = VibeNode(id="1", class_type="SaveImage", inputs={"filename_prefix": "ok"})
+    workflow.nodes["1"] = VibeNode(id="1", class_type="SaveImage", inputs={"images": "image", "filename_prefix": "ok"}, uid="1")
     return workflow
 """,
     )
@@ -41,8 +43,8 @@ from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 def build():
     workflow = VibeWorkflow(id="doctor-video", source=WorkflowSource(id="doctor-video"))
-    workflow.nodes["1"] = VibeNode(id="1", class_type="LTXVAudioVAEDecode")
-    workflow.nodes["2"] = VibeNode(id="2", class_type="CreateVideo")
+    workflow.nodes["1"] = VibeNode(id="1", class_type="LTXVAudioVAEDecode", uid="1", inputs={"audio_vae": "vae", "samples": "latent"}, native_output_names=["Audio"], native_output_types=["AUDIO"], metadata={"object_info_identity": {"pack_slug": "comfy_core", "evidence_identity": "object_info_comfyui_0.24.0.1"}})
+    workflow.nodes["2"] = VibeNode(id="2", class_type="CreateVideo", uid="2", inputs={"images": "image", "fps": 30.0}, native_input_names=["images", "fps", "audio"], native_input_types=["IMAGE", "FLOAT", "AUDIO"])
     workflow.edges.append(VibeEdge("1", "0", "2", "audio"))
     return workflow
 """,
@@ -90,6 +92,13 @@ def _run_doctor(path: Path, *, json_output: bool = False, allow_drift: bool = Fa
 def doctor_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(doctor_cmd, "get_schema_provider", lambda _mode: None)
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda *args, **kwargs: [])
+    real_load_bundle = doctor_cmd.load_bundle
+    monkeypatch.setattr(
+        doctor_cmd,
+        "load_bundle",
+        lambda path: real_load_bundle(path, trust=Provenance.USER_CONFIRMED),
+    )
     monkeypatch.setattr(doctor_cmd, "_read_doctor_lockfile", lambda: [])
     monkeypatch.delenv("VIBECOMFY_COMFY_CONFIGURATION", raising=False)
     return tmp_path
@@ -126,8 +135,8 @@ def test_workflow_validation_issues_are_structured_with_rendered_messages() -> N
 
 def test_doctor_warning_findings_keep_compatibility_wrapper() -> None:
     workflow = VibeWorkflow("video", WorkflowSource("video"))
-    workflow.nodes["1"] = VibeNode("1", "LTXVAudioVAEDecode")
-    workflow.nodes["2"] = VibeNode("2", "CreateVideo")
+    workflow.nodes["1"] = VibeNode("1", "LTXVAudioVAEDecode", uid="1", inputs={"audio_vae": "vae", "samples": "latent"}, native_output_names=["Audio"], native_output_types=["AUDIO"], metadata={"object_info_identity": {"pack_slug": "comfy_core", "evidence_identity": "object_info_comfyui_0.24.0.1"}})
+    workflow.nodes["2"] = VibeNode("2", "CreateVideo", uid="2", inputs={"images": "image", "fps": 30.0}, native_input_names=["images", "fps", "audio"], native_input_types=["IMAGE", "FLOAT", "AUDIO"])
     workflow.edges.append(VibeEdge("1", "0", "2", "audio"))
 
     findings = doctor_cmd._doctor_warning_findings(workflow)

@@ -78,8 +78,6 @@ import time
 from dataclasses import dataclass, fields
 from typing import Any, Mapping
 
-from vibecomfy.ingest.normalize import door_get_nodes
-
 
 class MissingEditBatchReplDepsError(KeyError):
     """Façade globals lacked one or more names the batch REPL requires.
@@ -425,38 +423,104 @@ def _emit_ui_json(*args: Any, **kwargs: Any) -> dict[str, Any]:
 def _publish_session_candidate(state: AgentEditState, session: Any) -> None:
     """Validate the retained-IR candidate through the canonical UI emit door."""
     from vibecomfy.porting.edit.admit import (
+        AdmissionSnapshot,
         AdmissionRejected,
         admission_snapshot_for,
         admit_operations,
     )
+    from vibecomfy.ingest.snapshot import WorkflowSnapshot
+    from vibecomfy.schema import SchemaSnapshotError
+    from vibecomfy.workflow import VibeWorkflow
 
     workflow = getattr(session, "last_rendered_workflow", None)
     if workflow is None:
-        return
+        raise SchemaSnapshotError(
+            "candidate publication requires a rendered workflow",
+            code="missing_workflow_authority",
+        )
     landed = tuple(getattr(session, "landed_ops", ()) or ())
+    retained_schema = getattr(state, "schema_snapshot", None)
+    retained_workflow = getattr(state, "workflow_snapshot", None)
+    if retained_workflow is None:
+        raise SchemaSnapshotError(
+            "candidate publication requires a retained workflow witness",
+            code="missing_workflow_authority",
+        )
+    if not isinstance(retained_workflow, WorkflowSnapshot):
+        raise SchemaSnapshotError(
+            "candidate publication requires a WorkflowSnapshot witness",
+            code="malformed_workflow_snapshot",
+        )
+    if not isinstance(retained_workflow.workflow, VibeWorkflow):
+        raise SchemaSnapshotError(
+            "candidate publication requires a WorkflowSnapshot with a VibeWorkflow payload",
+            code="malformed_workflow_snapshot",
+        )
+    # Every candidate publication, including an empty semantic delta, must be
+    # tied to the retained ingress schema.  A provider-only completion here
+    # would publish without the authority that admitted the candidate.
+    if retained_schema is None:
+        raise SchemaSnapshotError(
+            "candidate publication requires a retained schema witness",
+            code="missing_schema_snapshot",
+        )
+    # Bind and validate the retained pair even for an empty delta. Provider
+    # completion is ingress-only; publication always uses this exact witness.
+    pair = admission_snapshot_for(
+        retained_workflow,
+        getattr(state, "schema_provider", None),
+        schema_snapshot=retained_schema,
+        retained_authority=AdmissionSnapshot(
+            workflow=retained_workflow,
+            schema=retained_schema,
+        ),
+    )
     if landed:
         # DEEP-AUDIT-FIX-1-ADJUDICATION: the final canonical admit_operations
         # call binds ONE AdmissionSnapshot for the whole atomic batch and locks
         # its schema generation on success only. Receipts persist from this
         # locked generation, never from a newer ambient provider.
-        pair = admission_snapshot_for(workflow, getattr(state, "schema_provider", None))
+        # Published operations are recursively frozen for public/session
+        # evidence. Reconstruct only private replay inputs at this boundary
+        # through the existing canonical serializer/parser so admission's
+        # ordinary COW simulation never receives mappingproxy containers.
+        from vibecomfy.porting.edit.ops import canonical_op_to_dict, parse_edit_op
+
+        replay_ops = tuple(
+            parse_edit_op(canonical_op_to_dict(operation))
+            for operation in landed
+        )
         admitted = admit_operations(
             pair,
-            landed,
-            working_workflow=getattr(session, "workflow", None),
+            replay_ops,
+            # Re-admit the cumulative durable delta against the retained
+            # ingress workflow, not the already-mutated post-session cursor;
+            # otherwise a valid prior turn is misclassified as a no-op when a
+            # later clarification republishes the same candidate.
+            working_workflow=(
+                retained_workflow.workflow
+                if retained_workflow is not None
+                else None
+            ),
         )
         if isinstance(admitted, AdmissionRejected):
-            return
-        state.admission_schema_snapshot = pair.schema
-    state.edited_workflow = workflow
+            raise SchemaSnapshotError(
+                "candidate admission rejected: "
+                f"{admitted.typed_reason}; evidence={list(admitted.evidence_refs)}",
+                code=admitted.typed_reason,
+            )
+    from vibecomfy.schema import FrozenSchemaSnapshotProvider
+
     _emit_ui_json(
         workflow,
-        schema_provider=state.schema_provider,
+        schema_provider=FrozenSchemaSnapshotProvider(pair.schema),
         prior_store=state.prior_store,
         guard_original_ui=state.guard_original_ui or state.graph,
         guard_resolved_ops=getattr(session, "resolved_ops", ()),
         prior_ui_payload=state.guard_original_ui or state.graph,
     )
+    state.admission_schema_snapshot = pair.schema
+    state.edited_workflow = workflow
 
 
 
@@ -1502,9 +1566,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "consecutive_errors": consecutive_errors,
             }
             state.user_message = clarify_message
+            _publish_session_candidate(state, session)
             state.python_after = current_render
             state.after_py_path.write_text(current_render, encoding="utf-8")
-            _publish_session_candidate(state, session)
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             state.report = {
@@ -1599,96 +1663,49 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             )
             next_render = session.render()
             _batch_journal_mod.maybe_inject_batch_fault("after_render")
+            _publish_session_candidate(state, session)
             state.python_after = next_render
             state.after_py_path.write_text(next_render, encoding="utf-8")
-            _publish_session_candidate(state, session)
             state.ui_payload = json.loads(json.dumps(session.working_ui))
             deps.write_json_artifact(state.candidate_ui_path, state.ui_payload)
             _batch_journal_mod.maybe_inject_batch_fault("after_candidate_write")
             execution_plan_status = _evaluate_execution_plan_after_candidate_update(deps, state)
 
-            # ── lint gate: post-apply no-op detection on landed ops ──────────
-            lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
-            lint_dropped_count = 0
-            lint_diag_dicts: tuple[dict[str, Any], ...] = ()
-            persisted_landed_ops = tuple(
-                session._projection_op(op) for op in batch_result.landed_ops
-            )
-            if (
-                deps._edit_lint_enabled()
-                and batch_result.landed_ops
-                and deps._agent_edit_batch_repl_enabled()
-            ):
-                LintIndex, lint_delta = _import_from("vibecomfy.porting.edit.lint", "LintIndex"), _import_from("vibecomfy.porting.edit.lint", "lint_delta")
-                RemoveLinkOp, SetModeOp, SetNodeFieldOp, UpsertLinkOp = _import_from("vibecomfy.porting.edit.ops", "RemoveLinkOp"), _import_from("vibecomfy.porting.edit.ops", "SetModeOp"), _import_from("vibecomfy.porting.edit.ops", "SetNodeFieldOp"), _import_from("vibecomfy.porting.edit.ops", "UpsertLinkOp")
-
-                index = LintIndex.build(state.graph)
-                lint_result = lint_delta(
-                    batch_result.landed_ops,
-                    index,
-                    schema_provider=state.schema_provider,
-                )
-
-                landed_add_uids = {
-                    str(item.detail.get("minted_uid"))
-                    for item in batch_result.statements
-                    if item.ok
-                    and str(item.op_kind or "") == "node_call"
-                    and isinstance(item.detail, Mapping)
-                    and item.detail.get("minted_uid") is not None
+            # The session/interpreter is the sole ordered lint and transition
+            # authority. Consume its result directly; never re-lint the
+            # committed candidate or subtract operations by a field identity.
+            lint_result = batch_result.lint_result
+            lint_dropped_count = int(lint_result.dropped_count)
+            lint_diag_dicts: tuple[dict[str, Any], ...] = tuple(
+                {
+                    "code": issue.code,
+                    "message": issue.message,
+                    "severity": issue.severity,
+                    "op_index": getattr(issue, "op_index", None),
+                    "op_kind": getattr(issue, "op_kind", None),
+                    "source": "lint",
                 }
-
-                # Build (uid, field_path) identities for lint-dropped ops.
-                _dropped_keys: list[tuple[str, str]] = []
-                for norm in lint_result.normalizations:
-                    if norm.disposition != "dropped_noop":
-                        continue
-                    op = norm.op
-                    key: tuple[str, str] | None = None
-                    if isinstance(op, SetNodeFieldOp):
-                        key = (op.target.uid, op.target.field_path)
-                    elif isinstance(op, SetModeOp):
-                        key = (op.target.uid, "mode")
-                    elif isinstance(op, UpsertLinkOp):
-                        key = (op.target.uid, op.target.input_field)
-                    elif isinstance(op, RemoveLinkOp) and op.target is not None:
-                        key = (op.target.uid, op.target.input_field)
-                    if key is not None:
-                        _dropped_keys.append(key)
-                lint_dropped_op_ids = frozenset(_dropped_keys)
-                lint_dropped_count = lint_result.dropped_count
-
-                # Accumulate human-readable lint no-op messages
-                _turn_noop_msgs: list[str] = []
-                for norm in lint_result.normalizations:
-                    if norm.disposition == "dropped_noop" and norm.issue is not None:
-                        _turn_noop_msgs.append(norm.issue.message)
-                state.lint_noop_messages = state.lint_noop_messages + tuple(_turn_noop_msgs)
-
-                def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
-                    return {
-                        "code": issue.code,
-                        "message": issue.message,
-                        "severity": issue.severity,
-                        "op_index": getattr(issue, "op_index", None),
-                        "op_kind": getattr(issue, "op_kind", None),
-                        "source": "lint",
-                    }
-
-                lint_issues = tuple(
-                    issue
-                    for issue in lint_result.issues
-                    if not (
-                        issue.code == "unknown_target"
-                        and issue.uid in landed_add_uids
-                    )
-                )
-                lint_diag_dicts = tuple(
-                    _lint_issue_to_dict(issue) for issue in lint_issues
-                )
+                for issue in tuple(lint_result.issues)
+            )
+            noop_occurrences = tuple(
+                {
+                    "occurrence": int(transition.occurrence),
+                    "statement_index": int(
+                        batch_result.occurrence_to_statement_index[transition.occurrence]
+                    ),
+                    "reason": str(getattr(transition, "reason", "no_op")),
+                }
+                for transition in tuple(batch_result.transitions)
+                if str(transition.outcome) == "noop"
+            )
+            state.lint_noop_messages = state.lint_noop_messages + tuple(
+                norm.issue.message
+                for norm in tuple(lint_result.normalizations)
+                if norm.disposition == "dropped_noop" and norm.issue is not None
+            )
 
             raw_landed = len(batch_result.landed_ops)
-            effective_landed = raw_landed - lint_dropped_count
+            effective_landed = raw_landed
             total_landed += effective_landed
             last_landed_count = effective_landed
             # Compute this turn's search() signatures once; used for the duplicate-
@@ -1698,25 +1715,56 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             # and must not trigger the cycle guard on repeat.
             current_search_signatures = deps._extract_search_signatures(batch_result)
             for item in batch_result.statements or ():
-                detail = item.detail if isinstance(item.detail, dict) else {}
+                # BatchResult detaches nested detail mappings immutably. Keep
+                # those frozen mappings visible to next-turn prompt/tool
+                # memory; requiring a concrete dict silently drops query and
+                # named-tool results before they can be reused.
+                detail = item.detail if isinstance(item.detail, Mapping) else {}
                 query_output = detail.get("query_output")
                 source = str(item.source or "").strip()
+                query_name = detail.get("query")
+                tool_call = detail.get("tool_call")
+                ledger_entry = detail.get("ledger_entry")
+                reusable_output = query_output
+                if (
+                    isinstance(tool_call, str)
+                    and isinstance(ledger_entry, Mapping)
+                    and isinstance(query_output, str)
+                ):
+                    # Keep the compact F01 decision visible with the tool
+                    # digest.  The immutable BatchResult retains this nested
+                    # mapping, but a plain dict check here would discard it.
+                    decision = str(ledger_entry.get("decision") or tool_call)
+                    conclusion = str(ledger_entry.get("conclusion") or "")
+                    evidence_ids = ledger_entry.get("evidence_ids")
+                    evidence = (
+                        ", ".join(str(value)[:120] for value in evidence_ids[:8])
+                        if isinstance(evidence_ids, (list, tuple)) and evidence_ids
+                        else "(none)"
+                    )
+                    reusable_output = (
+                        f"{decision} — {conclusion} — evidence: {evidence}\n"
+                        f"{query_output}"
+                    )
                 if (
                     item.ok
                     and str(item.op_kind or "") == "query"
-                    and detail.get("query") == "search"
                     and source
-                    and isinstance(query_output, str)
-                    and query_output.strip()
+                    and isinstance(reusable_output, str)
+                    and reusable_output.strip()
+                    and (
+                        query_name == "search"
+                        or isinstance(tool_call, str)
+                    )
                 ):
-                    reusable_query_results.setdefault(source, query_output[:4000])
+                    reusable_query_results.setdefault(source, reusable_output[:4000])
             if batch_result.landed_ops:
                 DELTA_SCHEMA_VERSION, ensure_root_scoped_delta_envelope, op_to_dict = _import_from("vibecomfy.porting.edit.ops", "DELTA_SCHEMA_VERSION"), _import_from("vibecomfy.porting.edit.ops", "ensure_root_scoped_delta_envelope"), _import_from("vibecomfy.porting.edit.ops", "op_to_dict")
 
                 delta_envelope_payload = ensure_root_scoped_delta_envelope(
                     {
                         "schema_version": DELTA_SCHEMA_VERSION,
-                        "ops": [op_to_dict(op) for op in persisted_landed_ops],
+                        "ops": [op_to_dict(op) for op in batch_result.landed_ops],
                     },
                     strict=True,
                 ).to_dict()
@@ -1727,9 +1775,14 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 for item in batch_result.statements
             )
 
+            transition_rejected = any(
+                str(transition.outcome) == "rejected"
+                for transition in tuple(batch_result.transitions)
+            )
             turn_has_errors = (
                 (not batch_result.ok)
                 or bool(batch_result.diagnostics)
+                or transition_rejected
                 or any(
                     d.get("severity") == "error" for d in lint_diag_dicts
                 )
@@ -1809,11 +1862,9 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
             )
             real_field_changes = deps._real_field_changes(
                 field_changes,
-                lint_dropped_op_ids=lint_dropped_op_ids,
             )
             noop_field_changes = deps._noop_field_changes(
                 field_changes,
-                lint_dropped_op_ids=lint_dropped_op_ids,
             )
             state.batch_field_changes = state.batch_field_changes + real_field_changes
             state.batch_noop_field_changes = state.batch_noop_field_changes + noop_field_changes
@@ -1831,6 +1882,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 "lint_dropped_op_count": lint_dropped_count,
                 "diagnostics": report_json["diagnostics"],
                 "statements": report_json["statements"],
+                "noop_occurrences": list(noop_occurrences),
                 "field_changes": deps._field_changes_payload(real_field_changes),
                 "diff": diff_text,
                 "report": report_text,
@@ -2020,7 +2072,7 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 item.ok and str(item.op_kind or "") == "done"
                 for item in batch_result.statements
             )
-            turn_failed_edit = any(
+            turn_failed_edit = transition_rejected or any(
                 (not item.ok)
                 and str(item.op_kind or "") not in {"query", "done", "clarify"}
                 for item in batch_result.statements
@@ -2174,6 +2226,29 @@ def _stage_agent_batch_repl(globals_dict: Mapping[str, Any],
                 )
                 state.batch_done_summary = done_result.summary
                 state.batch_final_summary = done_result.summary
+                # A lint-dropped edit followed by done() is a model mistake,
+                # not an answer-only/no-change completion.  Keep the typed
+                # no-op out of candidate/review publication and let the
+                # normal bounded budget path emit the same ModelMistake
+                # evidence as other exhausted corrective turns.  A bare
+                # ``done()`` remains a valid answer-only no-op.
+                lint_noop_edit = any(
+                    str(getattr(statement, "reason", "") or "") in {"cas_unchanged", "no_op"}
+                    and str(getattr(statement, "op_kind", "") or "")
+                    not in {"query", "done", "clarify"}
+                    for statement in getattr(batch_result, "statements", ()) or ()
+                )
+                if done_result.ok and not deps._batch_candidate_graph_changed(state) and lint_noop_edit:
+                    consecutive_errors = max(consecutive_errors, max_consecutive_errors)
+                    state.batch_done_summary = (
+                        "The requested edit was already applied; no operation changed the graph."
+                    )
+                    state.batch_final_summary = state.batch_done_summary
+                    state.batch_exit_mode = ""
+                    # Do not publish this turn as a successful noop.  Falling
+                    # through reaches the existing typed budget failure path,
+                    # preserving turn diagnostics and no candidate authority.
+                    continue
                 if not done_result.ok:
                     # PR-E: one bounded repair turn on done() validation
                     # failure.  Carry code/message/target/choices of every

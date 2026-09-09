@@ -1,7 +1,7 @@
 {
   "id": "image-wan2-2-video-generation-with-chroma-lut-and-fi-a7ecc5",
   "query": "Convert this video generation pipeline from text-to-video to image-to-video: take a single input image as the first frame, encode it through the Wan2.2 pipeline, and drive the rest of the motion from a text prompt, while keeping the Chroma LUT grading and film grain post-processing chain fully intact.",
-  "workflow_path": "external_workflows/corpus/a7ecc54027245cb7.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/a7ecc54027245cb7.json",
   "network": true,
   "timeout": 260,
   "apply": true,

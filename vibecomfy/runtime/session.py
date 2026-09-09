@@ -30,17 +30,29 @@ from vibecomfy.errors import (
     RuntimeNodeError,
     RuntimeStartupError,
     SchemaValidationError,
+    WorkflowBuildError,
     VibeComfyError,
     _safe_value_label,
 )
 from vibecomfy.memory_profile import MemoryProfile, apply_memory_profile_overrides
 from vibecomfy.utils import atomic_write_json, find_repo_root
 from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow_bundle import (
+    ApprovedProjectionRecord,
+    WorkflowBundle,
+    WorkflowBundleError,
+    canonical_digest,
+)
 
 from .attempt import build_attempt_bundle, build_shared_fields, write_attempt_json
 from .client import ComfyClient
 from .drift import enforce_strict_drift
-from .execution import normalize_prompt_id
+from .execution import (
+    authorized_queue_payload,
+    normalize_prompt_id,
+    queue_embedded_prompt,
+    queue_server_prompt,
+)
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
 from .watchdog import Watchdog, write_report
 
@@ -54,6 +66,445 @@ else:
 
 OVERRIDES_INCLUDE: set[str] = set()
 OVERRIDES_EXCLUDE: set[str] = set()
+
+
+def _require_runtime_boundary(
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+) -> VibeWorkflow:
+    if not isinstance(record, ApprovedProjectionRecord):
+        raise WorkflowBundleError(
+            "runtime session requires an ApprovedProjectionRecord"
+        )
+    if not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime session requires a WorkflowBundle")
+    return bundle.workflow
+
+
+def _schema_provider_provenance(provider: Any | None, *, failure: str | None = None) -> dict[str, Any]:
+    """Return deterministic schema evidence without creating a second receipt authority."""
+    provenance: dict[str, Any] = {
+        "provider": type(provider).__name__ if provider is not None else None,
+        "validation": "structural-only" if provider is None else "object-info",
+        "object_info_loaded": False,
+        "schema_digest": None,
+        "digest_algorithm": "sha256",
+        "digest_canonicalization": "object_info_payload_checksum",
+    }
+    if provider is not None:
+        for key in ("server_url", "cache_path", "log_path"):
+            value = getattr(provider, key, None)
+            if value is not None:
+                provenance[key] = str(value)
+        object_info = getattr(provider, "_object_info", None)
+        if isinstance(object_info, Mapping):
+            from vibecomfy.schema.cache import object_info_payload_checksum
+
+            provenance["object_info_loaded"] = True
+            provenance["schema_digest"] = object_info_payload_checksum(dict(object_info))
+        elif failure is None:
+            provenance["validation"] = "object-info-unavailable"
+    if failure:
+        provenance["failure"] = str(failure)
+    return provenance
+
+
+def _runtime_evidence(
+    record: ApprovedProjectionRecord,
+    *,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+    schema_provenance: Mapping[str, Any] | None = None,
+    queue_acceptance: Mapping[str, Any] | None = None,
+    terminal: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    approved = record.to_dict()
+    acceptance = {
+        "status": "not_attempted",
+        "prompt_id": None,
+    }
+    if queue_acceptance is not None:
+        acceptance.update(dict(queue_acceptance))
+    acceptance_status = acceptance.get("status")
+    terminal_default = {
+        "phase": "prepared",
+        "reason_type": "none",
+        "reason": None,
+        "acceptance_known": acceptance_status in {"accepted", "rejected"},
+    }
+    if terminal is not None:
+        terminal_default.update(dict(terminal))
+    return {
+        "approved_projection": approved,
+        "api_digest": record.api_digest,
+        "ui_digest": canonical_digest(approved["ui_projection"]),
+        "record_digest": canonical_digest(approved),
+        "adapter": {
+            "kind": adapter_kind,
+            "backend": backend,
+            "endpoint": endpoint,
+        },
+        "schema_provenance": dict(schema_provenance or _schema_provider_provenance(None)),
+        "queue_acceptance": acceptance,
+        "terminal": terminal_default,
+    }
+
+
+def _initial_attempt_bundle(record: ApprovedProjectionRecord, evidence: Mapping[str, Any]) -> dict[str, Any]:
+    return {"runtime_evidence": dict(evidence)}
+
+
+def _persist_runtime_evidence(
+    run_dir: Path,
+    attempt_bundle: dict[str, Any],
+    evidence: Mapping[str, Any],
+) -> None:
+    attempt_bundle["runtime_evidence"] = dict(evidence)
+    attempt_bundle["queue_acceptance"] = dict(evidence["queue_acceptance"])
+    attempt_bundle["terminal"] = dict(evidence["terminal"])
+    attempt_bundle["adapter"] = dict(evidence["adapter"])
+    attempt_bundle["schema_provenance"] = dict(evidence["schema_provenance"])
+    write_attempt_json(run_dir, attempt_bundle)
+
+
+def _journal_prepare(
+    run_dir: Path,
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+    evidence: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    from vibecomfy.comfy_nodes.agent import _session_transaction_journal as journal
+
+    state: dict[str, Any] = {}
+    event = journal.record_prepared_transaction_impl(
+        state=state,
+        turn_dir=run_dir,
+        turn_id=run_id,
+        plan_hash=record.api_digest,
+        revision_id=record.revision_id,
+        parent_revision=bundle.parent_revision,
+        lease_nonce=run_id,
+        structural_hash_before=None,
+        candidate_payload=None,
+        runtime_evidence=evidence,
+    )
+    state["revision_id"] = record.revision_id
+    state["parent_revision"] = bundle.parent_revision
+    return state, int(event["generation"])
+
+
+def _journal_terminal(
+    state: dict[str, Any],
+    run_dir: Path,
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    generation: int,
+    evidence: Mapping[str, Any],
+    *,
+    event_type: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    from vibecomfy.comfy_nodes.agent import _session_transaction_journal as journal
+
+    common = {
+        "state": state,
+        "turn_dir": run_dir,
+        "turn_id": run_id,
+        "plan_hash": record.api_digest,
+        "generation": generation,
+        "runtime_evidence": evidence,
+    }
+    if event_type == "finalized":
+        return journal.record_finalized_transaction_impl(
+            **common,
+            revision_id=record.revision_id,
+            parent_revision=state.get("parent_revision"),
+            structural_hash_after=None,
+            applied_payload=None,
+        )
+    if event_type == "superseded":
+        return journal.record_cancelled_transaction_impl(
+            **common,
+            reason=reason,
+        )
+    return journal.record_discarded_transaction_impl(
+        **common,
+        reason=reason or "runtime_failure",
+    )
+
+
+def _terminal_event_already_written(
+    run_dir: Path, record: ApprovedProjectionRecord, generation: int
+) -> bool:
+    """Detect an append-only terminal event after a derived receipt failure."""
+    lifecycle_path = (
+        run_dir
+        / "transactions"
+        / record.api_digest
+        / "lifecycle_events.jsonl"
+    )
+    try:
+        lines = lifecycle_path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            return False
+        latest = json.loads(lines[-1])
+        return (
+            isinstance(latest, Mapping)
+            and latest.get("generation") == generation
+            and latest.get("event_type") in {"finalized", "discarded", "superseded"}
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _runtime_failure_evidence(
+    record: ApprovedProjectionRecord,
+    *,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+    schema_provenance: Mapping[str, Any] | None,
+    queue_acceptance: Mapping[str, Any],
+    phase: str,
+    exc: BaseException,
+    queue_started: bool,
+    interrupted: bool = False,
+) -> dict[str, Any]:
+    status = str(queue_acceptance.get("status", "not_attempted"))
+    prompt_id = queue_acceptance.get("prompt_id")
+    cursor: BaseException | None = exc
+    timed_out = False
+    while cursor is not None:
+        if isinstance(cursor, (asyncio.TimeoutError, TimeoutError)):
+            timed_out = True
+            break
+        cursor = cursor.__cause__
+    if interrupted:
+        if status != "accepted":
+            status = "unknown" if queue_started else "not_attempted"
+        terminal_phase = "interrupted" if isinstance(exc, KeyboardInterrupt) else "cancelled"
+        reason_type = "KeyboardInterrupt" if isinstance(exc, KeyboardInterrupt) else "CancelledError"
+    elif phase == "queue":
+        if status != "accepted":
+            status = "unknown" if timed_out else "rejected"
+        terminal_phase, reason_type = phase, "TimeoutError" if timed_out else type(exc).__name__
+    elif phase == "acceptance_witness":
+        status, terminal_phase = "unknown", phase
+        reason_type = "persistence" if isinstance(exc, OSError) else type(exc).__name__
+    else:
+        terminal_phase, reason_type = phase, type(exc).__name__
+    reason = str(exc) or reason_type
+    return _runtime_evidence(
+        record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
+        schema_provenance=schema_provenance,
+        queue_acceptance={"status": status, "prompt_id": prompt_id},
+        terminal={"phase": terminal_phase, "reason_type": reason_type,
+                  "reason": reason, "acceptance_known": status in {"accepted", "rejected"}},
+    )
+
+
+def _persist_runtime_failure(
+    *,
+    run_dir: Path,
+    attempt_bundle: dict[str, Any],
+    state: dict[str, Any],
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    generation: int,
+    evidence: Mapping[str, Any] | None = None,
+    event_type: str | None = None,
+    original_error: BaseException | None = None,
+    queue_acceptance: Mapping[str, Any] | None = None,
+    phase: str | None = None,
+    exc: BaseException | None = None,
+    interrupted: bool | None = None,
+) -> None:
+    if _terminal_event_already_written(run_dir, record, generation):
+        return
+    exc_for_class = exc or original_error
+    if interrupted is None:
+        interrupted = isinstance(exc_for_class, (asyncio.CancelledError, KeyboardInterrupt))
+    if event_type is None:
+        event_type = "superseded" if interrupted else "discarded"
+    normalized_acceptance = dict(
+        queue_acceptance or {"status": "not_attempted", "prompt_id": None}
+    )
+    queue_started_phases = {"queue", "acceptance_witness", "history", "output", "metadata"}
+    if (
+        phase in queue_started_phases
+        and normalized_acceptance.get("status") == "not_attempted"
+    ):
+        normalized_acceptance = {"status": "unknown", "prompt_id": None}
+    if evidence is None:
+        if exc_for_class is None or phase is None:
+            raise TypeError("runtime failure needs evidence or exception context")
+        durable = attempt_bundle.get("runtime_evidence", {})
+        adapter = attempt_bundle.get("adapter") or durable.get("adapter", {})
+        evidence = _runtime_failure_evidence(
+            record, adapter_kind=str(adapter.get("kind") or "unknown"),
+            backend=str(adapter.get("backend") or "api"), endpoint=adapter.get("endpoint"),
+            schema_provenance=attempt_bundle.get("schema_provenance") or durable.get("schema_provenance"),
+            queue_acceptance=normalized_acceptance,
+            phase=phase, exc=exc_for_class,
+            queue_started=phase in queue_started_phases,
+            interrupted=interrupted,
+        )
+    attempt_error: Exception | None = None
+    try:
+        _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+    except Exception as exc:
+        # The append-only lifecycle log is the authoritative recovery source;
+        # still attempt it when the derived attempt witness cannot be updated.
+        attempt_error = exc
+    journal_error: Exception | None = None
+    try:
+        _journal_terminal(
+            state, run_dir, run_id, record, generation, evidence, event_type=event_type,
+            reason=str(evidence["terminal"].get("reason") or "runtime_failure"),
+        )
+    except Exception as exc:
+        journal_error = exc
+    if attempt_error is not None:
+        raise QueueError("runtime attempt evidence could not be persisted",
+                         next_action="vibecomfy runtime doctor") from (original_error or attempt_error)
+    if journal_error is not None:
+        raise QueueError("runtime lifecycle evidence could not be persisted",
+                         next_action="vibecomfy runtime doctor") from (original_error or journal_error)
+
+
+def _commit_queue_witness(
+    *,
+    run_dir: Path,
+    attempt_bundle: dict[str, Any],
+    journal_state: dict[str, Any],
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    journal_generation: int,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+    schema_provenance: Mapping[str, Any],
+    queued: Any,
+) -> str:
+    prompt_id = normalize_prompt_id(queued)
+    if prompt_id is not None and not prompt_id.strip():
+        prompt_id = None
+    usable = bool(prompt_id and prompt_id.strip())
+    acceptance = {"status": "accepted" if usable else "unknown", "prompt_id": prompt_id}
+    witness_error = QueueError(
+        "Comfy queue response did not include a prompt_id; acceptance is ambiguous and must not be retried automatically",
+        next_action="vibecomfy runtime doctor",
+    )
+    evidence = _runtime_evidence(
+        record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
+        schema_provenance=schema_provenance, queue_acceptance=acceptance,
+        terminal={"phase": "accepted" if usable else "ambiguous",
+                  "reason_type": "none" if usable else "missing_prompt_id",
+                  "reason": None if usable else str(witness_error), "acceptance_known": usable},
+    )
+    try:
+        _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+    except Exception as exc:
+        _persist_runtime_failure(
+            run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+            run_id=run_id, record=record, generation=journal_generation,
+            original_error=exc, queue_acceptance={"status": "unknown", "prompt_id": prompt_id},
+            phase="acceptance_witness", exc=exc,
+        )
+        raise QueueError("Comfy prompt acceptance could not be recorded durably; the run may be in flight and must not be retried automatically",
+                         next_action="vibecomfy runtime doctor") from exc
+    if not usable:
+        _persist_runtime_failure(
+            run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+            run_id=run_id, record=record, generation=journal_generation,
+            original_error=witness_error, queue_acceptance=acceptance,
+            phase="acceptance_witness", exc=witness_error,
+        )
+        raise witness_error
+    return prompt_id  # type: ignore[return-value]
+
+
+def _complete_runtime_run(
+    *,
+    run_dir: Path,
+    attempt_bundle: dict[str, Any],
+    journal_state: dict[str, Any],
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    journal_generation: int,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+    schema_provenance: Mapping[str, Any],
+    queue_acceptance: Mapping[str, Any],
+    metadata: dict[str, Any],
+) -> Path:
+    evidence = _runtime_evidence(
+        record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
+        schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
+        terminal={"phase": "completed", "reason_type": "none", "reason": None,
+                  "acceptance_known": True},
+    )
+    try:
+        _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+    except Exception as exc:
+        raise QueueError(
+            "runtime completed attempt evidence could not be persisted",
+            next_action="vibecomfy runtime doctor",
+        ) from exc
+    metadata.update(
+        runtime_evidence=dict(evidence),
+        queue_acceptance=dict(evidence["queue_acceptance"]),
+        terminal=dict(evidence["terminal"]),
+        adapter=dict(evidence["adapter"]),
+        schema_provenance=dict(evidence["schema_provenance"]),
+    )
+    try:
+        metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
+    except Exception as exc:
+        raise QueueError("runtime metadata could not be persisted",
+                         next_action="vibecomfy runtime doctor") from exc
+    try:
+        _journal_terminal(
+            journal_state, run_dir, run_id, record, journal_generation, evidence,
+            event_type="finalized",
+        )
+    except Exception as exc:
+        raise QueueError("runtime finalized evidence could not be persisted",
+                         next_action="vibecomfy runtime doctor") from exc
+    return metadata_path
+
+
+def _begin_runtime_lifecycle(
+    *,
+    run_dir: Path,
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any]]:
+    evidence = _runtime_evidence(
+        record,
+        adapter_kind=adapter_kind,
+        backend=backend,
+        endpoint=endpoint,
+        schema_provenance=_schema_provider_provenance(None),
+    )
+    attempt_bundle = _initial_attempt_bundle(record, evidence)
+    try:
+        write_attempt_json(run_dir, attempt_bundle)
+        state, generation = _journal_prepare(run_dir, run_id, record, bundle, evidence)
+    except Exception as exc:
+        raise QueueError(
+            "runtime approval lifecycle could not be persisted before queueing; "
+            "no transport was attempted",
+            next_action="vibecomfy runtime doctor",
+        ) from exc
+    return attempt_bundle, state, generation, evidence
 
 
 def _workflow_queue_failure_message(workflow: VibeWorkflow, exc: Exception) -> str:
@@ -91,6 +542,68 @@ def _node_packs_from_requirements(workflow: VibeWorkflow):
         return packs
     class_types = {node.class_type for node in workflow.nodes.values()}
     return resolve_node_packs(class_types)
+
+
+async def _ensure_embedded_prerequisites(
+    session: Any,
+    workflow: VibeWorkflow,
+    *,
+    ensure_packs: bool,
+    ensure_models: bool,
+) -> None:
+    """Run optional node/model preflight after the prepared lifecycle witness.
+
+    Runtime evidence must exist before these mutable/environment-dependent
+    checks.  This helper keeps the legacy preflight behavior in one place
+    without making it an approval or queue authority.
+    """
+    if ensure_packs:
+        from vibecomfy.custom_node_refs import check_pack_pin_compatibility
+        from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
+        from vibecomfy.node_packs import read_lockfile
+
+        lockfile_entries = read_lockfile()
+        pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
+        pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
+        if pin_errors:
+            raise RuntimeError("ensure_packs: " + "; ".join(pin_errors))
+        try:
+            packs, _unresolved = missing_packs_for_workflow(workflow)
+        except FileNotFoundError:
+            packs = _node_packs_from_requirements(workflow)
+            if not packs:
+                logger.warning(
+                    "ensure_packs: node index unavailable and workflow declares no custom nodes; continuing"
+                )
+                packs = []
+            else:
+                logger.warning(
+                    "ensure_packs: node index unavailable; falling back to workflow requirements: %s",
+                    ", ".join(pack.name for pack in packs),
+                )
+        except ValueError as exc:
+            raise RuntimeError("ensure_packs: " + str(exc)) from exc
+        if packs:
+            lock_entries = {entry.name: entry for entry in lockfile_entries}
+            batch = install_required_packs(
+                packs,
+                restore_entries=[
+                    entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None
+                ],
+            )
+            if not batch.ok:
+                errors = [
+                    f"{result.name}: {result.error or result.status}"
+                    for result in batch.results
+                    if result.status not in {"installed", "refreshed"}
+                ]
+                if not errors and batch.preflight.error:
+                    errors.append(batch.preflight.error)
+                raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
+            await session.reload_for_nodepack_change(reason="ensure_packs")
+    if ensure_models:
+        policy = resolve_model_preflight_policy(mode="embedded", ensure_models=True)
+        apply_model_preflight(workflow, policy)
 
 
 def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
@@ -173,9 +686,11 @@ class PreparedPrompt(dict):
         *,
         schema_validation_skipped: list[str] | None = None,
         normalization: Any | None = None,
+        schema_provenance: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(api_dict)
         self.schema_validation_skipped = schema_validation_skipped or []
+        self.schema_provenance = dict(schema_provenance or {})
         #: Applied-and-approved normalization proposal (evidence); None when no
         #: normalization was needed or approved.
         self.normalization = normalization
@@ -352,7 +867,8 @@ class VibeSession(Protocol):
 
     async def run(
         self,
-        workflow: VibeWorkflow,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
         *,
         backend: str = "api",
         strict_drift: bool | None = None,
@@ -481,7 +997,8 @@ class EmbeddedSession:
 
     async def run(
         self,
-        workflow: VibeWorkflow,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
         *,
         backend: str = "api",
         ensure_packs: bool = False,
@@ -489,70 +1006,27 @@ class EmbeddedSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
-        normalize_approval: Any | None = None,
     ) -> RunResult:
+        workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
-        if ensure_packs:
-            from vibecomfy.custom_node_refs import check_pack_pin_compatibility
-            from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
-            from vibecomfy.node_packs import read_lockfile
-
-            lockfile_entries = read_lockfile()
-            pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
-            pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
-            if pin_errors:
-                raise RuntimeError("ensure_packs: " + "; ".join(pin_errors))
-            # Dev convenience only; production should pre-stage nodepacks with `vibecomfy nodes ensure`.
-            try:
-                packs, _unresolved = missing_packs_for_workflow(workflow)
-            except FileNotFoundError:
-                packs = _node_packs_from_requirements(workflow)
-                if not packs:
-                    logger.warning(
-                        "ensure_packs: node index unavailable and workflow declares no custom nodes; continuing"
-                    )
-                    packs = []
-                else:
-                    logger.warning(
-                        "ensure_packs: node index unavailable; falling back to workflow requirements: %s",
-                        ", ".join(pack.name for pack in packs),
-                    )
-            except ValueError as exc:
-                raise RuntimeError("ensure_packs: " + str(exc)) from exc
-            if packs:
-                lock_entries = {entry.name: entry for entry in lockfile_entries}
-                batch = install_required_packs(
-                    packs,
-                    restore_entries=[entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None],
-                )
-                if not batch.ok:
-                    errors = [
-                        f"{result.name}: {result.error or result.status}"
-                        for result in batch.results
-                        if result.status not in {"installed", "refreshed"}
-                    ]
-                    if not errors and batch.preflight.error:
-                        errors.append(batch.preflight.error)
-                    raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
-                await self.reload_for_nodepack_change(reason="ensure_packs")
-        if ensure_models:
-            policy = resolve_model_preflight_policy(mode="embedded", ensure_models=True)
-            apply_model_preflight(workflow, policy)
         task = asyncio.current_task()
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            untracked_kwargs: dict[str, Any] = {}
-            if normalize_approval is not None:
-                untracked_kwargs["normalize_approval"] = normalize_approval
+            kwargs: dict[str, Any] = {}
+            if ensure_packs:
+                kwargs["ensure_packs"] = True
+            if ensure_models:
+                kwargs["ensure_models"] = True
             return await self._run_untracked(
-                workflow,
+                record,
+                bundle,
                 backend=backend,
                 strict_drift=resolved_strict,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
-                **untracked_kwargs,
+                **kwargs,
             )
         finally:
             if self._inflight_run is task:
@@ -560,77 +1034,113 @@ class EmbeddedSession:
 
     async def _run_untracked(
         self,
-        workflow: VibeWorkflow,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
         *,
         backend: str = "api",
         strict_drift: bool = False,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
-        normalize_approval: Any | None = None,
+        ensure_packs: bool = False,
+        ensure_models: bool = False,
     ) -> RunResult:
+        workflow = _require_runtime_boundary(record, bundle)
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
         await self.start()
         timings["session_start_sec"] = round(time.monotonic() - phase_start, 3)
         assert self._comfy is not None
-        if self._schema_provider is None:
-            self._schema_provider = _build_schema_provider(None)
-        phase_start = time.monotonic()
-        prepare_kwargs: dict[str, Any] = {}
-        if normalize_approval is not None:
-            prepare_kwargs["normalize_approval"] = normalize_approval
-        api_dict = await _prepare_prompt_async(
-            workflow,
-            backend=backend,
-            schema_provider=self._schema_provider,
-            on_unavailable=self._on_schema_unavailable,
-            **prepare_kwargs,
-        )
-        schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
-        normalization = getattr(api_dict, "normalization", None)
-        timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-        fp = model_fingerprint(api_dict)
-
-        phase_start = time.monotonic()
-        await _maybe_flush_for_policy(self, fp)
-        timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
-
         run_id, run_dir = _allocate_request_root("run", config=self.config)
         log_path = run_dir / "embedded.log"
-
-        # Embedded backend: comfy_kitchen does not necessarily expose a server
-        # WebSocket. The watchdog will record connection_state=never_connected
-        # in that case but VRAM-sampling and timeout-detection still work via
-        # /system_stats if the embedded backend exposes one. We pass the local
-        # loopback URL with whatever port the SessionConfig requests; if the
-        # endpoint is unreachable the watchdog handles it gracefully.
-        client_id = uuid.uuid4().hex
         ws_url = _embedded_observation_url(self.config)
-        watchdog = await _start_watchdog(server_url=ws_url, client_id=client_id, api_dict=api_dict)
+        attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
+            run_dir=run_dir,
+            run_id=run_id,
+            record=record,
+            bundle=bundle,
+            adapter_kind="embedded",
+            backend=backend,
+            endpoint=ws_url,
+        )
+        schema_provenance = _schema_provider_provenance(None)
+        queue_acceptance = {"status": "not_attempted", "prompt_id": None}
+        phase = "preflight"
+        watchdog = None
         stop_reason: str | None = None
-        phase_start = time.monotonic()
         try:
+            await _ensure_embedded_prerequisites(
+                self,
+                workflow,
+                ensure_packs=ensure_packs,
+                ensure_models=ensure_models,
+            )
+            phase = "schema"
+            if self._schema_provider is None:
+                self._schema_provider = _build_schema_provider(None)
+            phase_start = time.monotonic()
+            api_dict = await _prepare_prompt_async(
+                record,
+                bundle,
+                backend=backend,
+                schema_provider=self._schema_provider,
+                on_unavailable=self._on_schema_unavailable,
+            )
+            schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+            normalization = getattr(api_dict, "normalization", None)
+            schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(self._schema_provider)
+            timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            evidence = _runtime_evidence(
+                record,
+                adapter_kind="embedded",
+                backend=backend,
+                endpoint=ws_url,
+                schema_provenance=schema_provenance,
+                queue_acceptance=queue_acceptance,
+                terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+            )
+            attempt_bundle = build_attempt_bundle(
+                bundle,
+                record,
+                backend=backend,
+                config=self.config,
+                adapter_kind="embedded",
+                adapter_endpoint=ws_url,
+                schema_provenance=schema_provenance,
+                runtime_evidence=evidence,
+            )
+            _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+            fp = model_fingerprint(api_dict)
+            phase_start = time.monotonic()
+            await _maybe_flush_for_policy(self, fp)
+            timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
+            client_id = uuid.uuid4().hex
+            watchdog = await _start_watchdog(server_url=ws_url, client_id=client_id, api_dict=api_dict)
+            phase = "drift"
+            if strict_drift:
+                enforce_strict_drift(workflow)
+            phase = "queue"
+            phase_start = time.monotonic()
             try:
-                # Write attempt.json BEFORE every queue boundary.
-                attempt_bundle = build_attempt_bundle(workflow, api_dict, backend=backend, config=self.config)
-                write_attempt_json(run_dir, attempt_bundle)
-                if strict_drift:
-                    enforce_strict_drift(workflow)
-                queued = await self._comfy.queue_prompt_api(api_dict)
+                queued_execution = await queue_embedded_prompt(self._comfy, record, bundle)
+                queued = queued_execution.queued
             except asyncio.TimeoutError:
-                stop_reason = "timeout"
                 raise
             except Exception as exc:
-                stop_reason = "exception"
                 raise QueueError(
-                    _workflow_queue_failure_message(workflow, exc),
-                    next_action="vibecomfy runtime doctor",
+                    _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
                 ) from exc
-
-            prompt_id = normalize_prompt_id(queued)
+            phase = "acceptance_witness"
+            prompt_id = _commit_queue_witness(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind="embedded", backend=backend, endpoint=ws_url,
+                schema_provenance=schema_provenance, queued=queued,
+            )
+            queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
             _set_watchdog_prompt_id(watchdog, prompt_id)
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            phase = "output"
             phase_start = time.monotonic()
             comfy_outputs = _decode_terminal_result(
                 queued,
@@ -647,42 +1157,68 @@ class EmbeddedSession:
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
-        except asyncio.TimeoutError:
-            stop_reason = "timeout"
+            phase = "metadata"
+            timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
+            metadata = _run_metadata(
+                run_id=run_id,
+                bundle=bundle,
+                record=record,
+                queued=queued,
+                comfy_outputs=comfy_outputs,
+                outputs=outputs,
+                runtime="embedded",
+                config=self.config,
+                timings=timings,
+                schema_validation_skipped=schema_validation_skipped,
+                schema_provenance=schema_provenance,
+                normalization=normalization,
+                adapter_endpoint=ws_url,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
+            metadata_path = _complete_runtime_run(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind="embedded", backend=backend, endpoint=ws_url,
+                schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
+                metadata=metadata,
+            )
+            return RunResult(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                outputs=outputs,
+                metadata_path=str(metadata_path),
+                log_path=str(log_path),
+            )
+        except asyncio.CancelledError as exc:
+            stop_reason = "cancelled"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
             raise
-        except RuntimeNodeError:
+        except KeyboardInterrupt as exc:
+            stop_reason = "interrupted"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
+        except Exception as exc:
             stop_reason = "errored"
-            raise
-        except Exception:
-            if stop_reason is None:
-                stop_reason = "exception"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
             raise
         finally:
-            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason or "exception")
-        timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
-        metadata = _run_metadata(
-            run_id=run_id,
-            workflow=workflow,
-            api_dict=api_dict,
-            queued=queued,
-            comfy_outputs=comfy_outputs,
-            outputs=outputs,
-            runtime="embedded",
-            config=self.config,
-            timings=timings,
-            schema_validation_skipped=schema_validation_skipped,
-            normalization=normalization,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-        metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
-        return RunResult(
-            run_id=run_id,
-            prompt_id=prompt_id,
-            outputs=outputs,
-            metadata_path=str(metadata_path),
-            log_path=str(log_path),
-        )
+            if watchdog is not None:
+                await _finalize_watchdog(
+                    watchdog, run_dir=run_dir, reason=stop_reason or "exception",
+                )
 
     async def flush(self) -> None:
         if self._comfy is None:
@@ -718,7 +1254,11 @@ class EmbeddedSession:
             self._comfy = None
             self._process_configuration = None
 
-    async def reload_for_nodepack_change(self, *, reason: str) -> None:
+    async def reload_for_nodepack_change(
+        self, *, reason: str, server_url: str | None = None
+    ) -> str:
+        if server_url is not None:
+            return _nodepack_reload_status(server_url)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("reload_for_nodepack_change refused: run in flight")
         logger.info("reload_for_nodepack_change: %s", reason)
@@ -736,6 +1276,7 @@ class EmbeddedSession:
         self.last_fingerprint = None
         self._process_configuration = None
         await self.start()
+        return "reloaded"
 
 
 class ServerSession:
@@ -776,7 +1317,8 @@ class ServerSession:
 
     async def run(
         self,
-        workflow: VibeWorkflow,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
         *,
         backend: str = "api",
         ensure_models: bool = False,
@@ -784,30 +1326,20 @@ class ServerSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
-        normalize_approval: Any | None = None,
     ) -> RunResult:
+        workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
-        policy = resolve_model_preflight_policy(
-            mode="managed_local_server",
-            ensure_models=ensure_models,
-            shared_root=shared_models_root,
-        )
-        apply_model_preflight(workflow, policy)
         task = asyncio.current_task()
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            untracked_kwargs: dict[str, Any] = {}
-            if normalize_approval is not None:
-                untracked_kwargs["normalize_approval"] = normalize_approval
+            kwargs: dict[str, Any] = {}
+            if ensure_models:
+                kwargs.update(ensure_models=True, shared_models_root=shared_models_root)
             return await self._run_untracked(
-                workflow,
-                backend=backend,
-                strict_drift=resolved_strict,
-                chain_id=chain_id,
-                parent_run_id=parent_run_id,
-                **untracked_kwargs,
+                record, bundle, backend=backend, strict_drift=resolved_strict,
+                chain_id=chain_id, parent_run_id=parent_run_id, **kwargs,
             )
         finally:
             if self._inflight_run is task:
@@ -815,79 +1347,121 @@ class ServerSession:
 
     async def _run_untracked(
         self,
-        workflow: VibeWorkflow,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
         *,
         backend: str = "api",
         strict_drift: bool = False,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
-        normalize_approval: Any | None = None,
+        ensure_models: bool = False,
+        shared_models_root: str | Path | None = None,
     ) -> RunResult:
+        workflow = _require_runtime_boundary(record, bundle)
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
         await self.start()
         timings["session_start_sec"] = round(time.monotonic() - phase_start, 3)
         assert self.url is not None
-        if self._schema_provider is None:
-            self._schema_provider = _build_schema_provider(self.url)
-        phase_start = time.monotonic()
-        prepare_kwargs: dict[str, Any] = {}
-        if normalize_approval is not None:
-            prepare_kwargs["normalize_approval"] = normalize_approval
-        api_dict = await _prepare_prompt_async(
-            workflow,
-            backend=backend,
-            schema_provider=self._schema_provider,
-            on_unavailable=self._on_schema_unavailable,
-            **prepare_kwargs,
-        )
-        schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
-        normalization = getattr(api_dict, "normalization", None)
-        timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-        fp = model_fingerprint(api_dict)
-
-        phase_start = time.monotonic()
-        await _maybe_flush_for_policy(self, fp)
-        timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
-
         run_id, run_dir = _allocate_request_root("run", config=self.config)
         log_path = run_dir / "comfy.log"
-
-        client_id = uuid.uuid4().hex
-        watchdog = await _start_watchdog(server_url=self.url, client_id=client_id, api_dict=api_dict)
+        attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
+            run_dir=run_dir,
+            run_id=run_id,
+            record=record,
+            bundle=bundle,
+            adapter_kind="managed",
+            backend=backend,
+            endpoint=self.url,
+        )
+        schema_provenance = _schema_provider_provenance(None)
+        queue_acceptance = {"status": "not_attempted", "prompt_id": None}
+        phase = "preflight"
+        watchdog = None
         stop_reason: str | None = None
-        phase_start = time.monotonic()
         try:
+            if ensure_models:
+                policy = resolve_model_preflight_policy(
+                    mode="managed_local_server",
+                    ensure_models=True,
+                    shared_root=shared_models_root,
+                )
+                apply_model_preflight(workflow, policy)
+            phase = "schema"
+            if self._schema_provider is None:
+                self._schema_provider = _build_schema_provider(self.url)
+            phase_start = time.monotonic()
+            api_dict = await _prepare_prompt_async(
+                record,
+                bundle,
+                backend=backend,
+                schema_provider=self._schema_provider,
+                on_unavailable=self._on_schema_unavailable,
+            )
+            schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
+            normalization = getattr(api_dict, "normalization", None)
+            schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(self._schema_provider)
+            timings["prepare_prompt_sec"] = round(time.monotonic() - phase_start, 3)
+            evidence = _runtime_evidence(
+                record,
+                adapter_kind="managed",
+                backend=backend,
+                endpoint=self.url,
+                schema_provenance=schema_provenance,
+                queue_acceptance=queue_acceptance,
+                terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+            )
+            attempt_bundle = build_attempt_bundle(
+                bundle,
+                record,
+                backend=backend,
+                config=self.config,
+                adapter_kind="managed",
+                adapter_endpoint=self.url,
+                schema_provenance=schema_provenance,
+                runtime_evidence=evidence,
+            )
+            _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
+            fp = model_fingerprint(api_dict)
+            phase_start = time.monotonic()
+            await _maybe_flush_for_policy(self, fp)
+            timings["memory_policy_sec"] = round(time.monotonic() - phase_start, 3)
+            client_id = uuid.uuid4().hex
+            watchdog = await _start_watchdog(server_url=self.url, client_id=client_id, api_dict=api_dict)
+            phase = "drift"
+            if strict_drift:
+                enforce_strict_drift(workflow)
+            phase = "queue"
+            phase_start = time.monotonic()
             try:
-                # Write attempt.json BEFORE every queue boundary.
-                attempt_bundle = build_attempt_bundle(workflow, api_dict, backend=backend, config=self.config)
-                write_attempt_json(run_dir, attempt_bundle)
-                if strict_drift:
-                    enforce_strict_drift(workflow)
-                queued = await ComfyClient(self.url).queue_prompt(api_dict)
+                queued_execution = await queue_server_prompt(
+                    record,
+                    bundle,
+                    client=ComfyClient(self.url),
+                )
+                queued = queued_execution.queued
             except asyncio.TimeoutError:
-                stop_reason = "timeout"
                 raise
             except Exception as exc:
-                stop_reason = "exception"
                 raise QueueError(
-                    _workflow_queue_failure_message(workflow, exc),
-                    next_action="vibecomfy runtime doctor",
+                    _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
                 ) from exc
-
-            prompt_id = normalize_prompt_id(queued)
-            if not prompt_id:
-                raise QueueError(
-                    "Comfy queue response did not include a prompt_id; cannot retrieve terminal result",
-                    next_action="vibecomfy runtime doctor",
-                )
+            phase = "acceptance_witness"
+            prompt_id = _commit_queue_witness(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind="managed", backend=backend, endpoint=self.url,
+                schema_provenance=schema_provenance, queued=queued,
+            )
+            queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
             _set_watchdog_prompt_id(watchdog, prompt_id)
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
-
+            phase = "history"
             phase_start = time.monotonic()
             history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
             comfy_outputs = _outputs_from_server_history(history, prompt_id)
+            phase = "output"
             outputs = _collect_output_paths(
                 comfy_outputs,
                 output_directory=_configured_output_directory(
@@ -897,43 +1471,68 @@ class ServerSession:
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
-        except asyncio.TimeoutError:
-            stop_reason = "timeout"
+            phase = "metadata"
+            timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
+            metadata = _run_metadata(
+                run_id=run_id,
+                bundle=bundle,
+                record=record,
+                queued=queued,
+                comfy_outputs=comfy_outputs,
+                outputs=outputs,
+                runtime="managed",
+                config=self.config,
+                timings=timings,
+                schema_validation_skipped=schema_validation_skipped,
+                schema_provenance=schema_provenance,
+                normalization=normalization,
+                adapter_endpoint=self.url,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
+            metadata_path = _complete_runtime_run(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
+                run_id=run_id, record=record, journal_generation=journal_generation,
+                adapter_kind="managed", backend=backend, endpoint=self.url,
+                schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
+                metadata=metadata,
+            )
+            return RunResult(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                outputs=outputs,
+                metadata_path=str(metadata_path),
+                log_path=str(log_path),
+            )
+        except asyncio.CancelledError as exc:
+            stop_reason = "cancelled"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
             raise
-        except RuntimeNodeError:
+        except KeyboardInterrupt as exc:
+            stop_reason = "interrupted"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
+            raise
+        except Exception as exc:
             stop_reason = "errored"
-            raise
-        except Exception:
-            if stop_reason is None:
-                stop_reason = "exception"
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc, queue_acceptance=queue_acceptance, phase=phase, exc=exc,
+            )
             raise
         finally:
-            await _finalize_watchdog(watchdog, run_dir=run_dir, reason=stop_reason or "exception")
-
-        timings["total_inside_vibecomfy_sec"] = round(time.monotonic() - total_start, 3)
-        metadata = _run_metadata(
-            run_id=run_id,
-            workflow=workflow,
-            api_dict=api_dict,
-            queued=queued,
-            comfy_outputs=comfy_outputs,
-            outputs=outputs,
-            runtime="server",
-            config=self.config,
-            timings=timings,
-            schema_validation_skipped=schema_validation_skipped,
-            normalization=normalization,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-        metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
-        return RunResult(
-            run_id=run_id,
-            prompt_id=prompt_id,
-            outputs=outputs,
-            metadata_path=str(metadata_path),
-            log_path=str(log_path),
-        )
+            if watchdog is not None:
+                await _finalize_watchdog(
+                    watchdog, run_dir=run_dir, reason=stop_reason or "exception",
+                )
 
     async def flush(self) -> None:
         await self.start()
@@ -972,13 +1571,28 @@ class ServerSession:
         self.log_handle = None
         self._process_configuration = None
 
-    async def reload_for_nodepack_change(self, *, reason: str) -> None:
+    async def reload_for_nodepack_change(
+        self, *, reason: str, server_url: str | None = None
+    ) -> str:
+        if server_url is not None:
+            return _nodepack_reload_status(server_url)
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("reload_for_nodepack_change refused: run in flight")
-        # NOTE: ServerSession external-mode handling (attach to a server VibeComfy didn't spawn) is deferred to MP-5 alongside session-shared multi-stage orchestration. Current production paths route external server URLs through comfy_server(server_url=...) in vibecomfy/runtime/server.py, which already skips spawn/cleanup for external URLs.
         await self.stop()
         await self.start()
         logger.info("reload_for_nodepack_change: %s", reason)
+        return "reloaded"
+
+
+def _nodepack_reload_status(server_url: str | None) -> str:
+    """Classify URL-only node-pack changes without claiming ownership.
+
+    A supplied URL identifies an externally owned server. This helper is
+    intentionally status-only; it never starts, stops, or attaches a child.
+    """
+    if not isinstance(server_url, str) or not server_url.strip():
+        raise ValueError("external server_url must be a non-empty string")
+    return "restart_required"
 
 
 async def _resolve_inflight_before_stop(session: Any, wait_for_inflight: bool) -> None:
@@ -1638,39 +2252,32 @@ async def _warm_schema_provider(
 
 
 def _prepare_prompt(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str,
     schema_provider: Any | None = None,
-    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
-    try:
-        return _prepare_runtime_prompt(
-            workflow,
-            backend=backend,
-            schema_provider=schema_provider,
-            normalize_approval=normalize_approval,
+    if backend != "api":
+        raise WorkflowBuildError(
+            "runtime execution accepts only the approved API projection"
         )
-    except VibeComfyError:
-        # VibeComfyError subclasses carry next_action — re-raise unwrapped
-        # so callers can recover the remediation hint.
-        raise
-    except ValueError as exc:
-        raise ValueError(f"Workflow build failed: {exc}") from exc
-    except RuntimeError as exc:
-        raise RuntimeError(f"Workflow build failed: {exc}") from exc
-    except Exception as exc:
-        raise RuntimeError(f"Workflow build failed: {exc}") from exc
+    api_dict, _skipped = _prepare_runtime_prompt_with_evidence(
+        record,
+        bundle,
+        schema_provider=schema_provider,
+    )
+    return api_dict
 
 
 async def _prepare_prompt_async(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str,
     schema_provider: Any | None,
     on_unavailable,
     cache_only: bool = False,
-    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
     effective = await _warm_schema_provider(
         schema_provider,
@@ -1678,19 +2285,22 @@ async def _prepare_prompt_async(
         cache_only=cache_only,
     )
     try:
-        api_dict, applied = _prepare_runtime_prompt_with_evidence(
-            workflow,
-            backend=backend,
+        if backend != "api":
+            raise WorkflowBuildError(
+                "runtime execution accepts only the approved API projection"
+            )
+        api_dict, skipped = _prepare_runtime_prompt_with_evidence(
+            record,
+            bundle,
             schema_provider=effective,
-            normalize_approval=normalize_approval,
         )
-        skipped = _schema_skipped_class_types(api_dict) if schema_provider is not None and effective is None else []
         if skipped:
             on_unavailable("schema validation skipped for class types: " + ", ".join(skipped))
         return PreparedPrompt(
             api_dict,
             schema_validation_skipped=skipped,
-            normalization=applied,
+            normalization=None,
+            schema_provenance=_schema_provider_provenance(effective),
         )
     except VibeComfyError:
         # VibeComfyError subclasses carry next_action — re-raise unwrapped
@@ -1713,60 +2323,51 @@ def _validation_failed_message(report: Any) -> str:
 
 
 def _prepare_runtime_prompt(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
     backend: str,
     schema_provider: Any | None,
-    normalize_approval: Any | None = None,
 ) -> dict[str, Any]:
-    api_dict, _applied = _prepare_runtime_prompt_with_evidence(
-        workflow,
-        backend=backend,
+    api_dict, _skipped = _prepare_runtime_prompt_with_evidence(
+        record,
+        bundle,
         schema_provider=schema_provider,
-        normalize_approval=normalize_approval,
     )
     return api_dict
 
 
 def _prepare_runtime_prompt_with_evidence(
-    workflow: VibeWorkflow,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
     *,
-    backend: str,
     schema_provider: Any | None,
-    normalize_approval: Any | None = None,
-) -> tuple[dict[str, Any], Any | None]:
-    """Prepare the queue payload; returns (api_dict, applied_normalization).
-
-    Queue preparation is fail-closed: any change the runtime would need
-    (dropping an undeclared input, coercing a portable choice string) is
-    computed as a typed :class:`NormalizationProposal` and REFUSED unless the
-    caller supplies explicit agent approval binding exactly to that proposal.
-    When approved, exactly the proposed operations are applied and returned as
-    evidence alongside the payload.
-    """
-    structural_report = workflow.validate(schema_provider=None)
-    if not structural_report.ok:
-        raise SchemaValidationError(
-            _validation_failed_message(structural_report),
-            next_action="vibecomfy validate <template> --no-schema",
-        )
-    api_dict = workflow.compile(backend=backend)
-    if backend == "api" and schema_provider is not None:
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate the already-approved API projection without rewriting it."""
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime preparation requires an approved record and bundle")
+    record.assert_matches(
+        bundle,
+        record.selected_variant,
+        record.input_binding,
+        api_projection=record.api_projection,
+        ui_projection=record.ui_projection,
+    )
+    api_dict = record.to_dict()["api_projection"]
+    if not isinstance(api_dict, dict):
+        raise WorkflowBuildError("approved API projection must be a JSON object")
+    skipped = _schema_skipped_class_types(api_dict) if schema_provider is None else []
+    if schema_provider is not None:
         from vibecomfy.schema.validate import (
             SchemaNormalizationRequired,
-            apply_schema_normalization,
             propose_schema_normalization,
             validate_api_against_schema,
             validate_api_link_shapes,
         )
 
         proposal = propose_schema_normalization(api_dict, schema_provider)
-        applied: Any | None = None
         if proposal.ops:
-            if not proposal.approved_by(normalize_approval):
-                raise SchemaNormalizationRequired(proposal)
-            api_dict = apply_schema_normalization(api_dict, proposal)
-            applied = proposal
+            raise SchemaNormalizationRequired(proposal)
         schema_issues = [
             *validate_api_against_schema(api_dict, schema_provider),
             *validate_api_link_shapes(api_dict, schema_provider),
@@ -1778,15 +2379,14 @@ def _prepare_runtime_prompt_with_evidence(
                 _validation_failed_message(ValidationReport(ok=False, issues=schema_issues)),
                 next_action="vibecomfy schema refresh",
             )
-        return api_dict, applied
-    return api_dict, None
+    return api_dict, skipped
 
 
 def _run_metadata(
     *,
     run_id: str,
-    workflow: VibeWorkflow,
-    api_dict: dict[str, Any],
+    bundle: WorkflowBundle,
+    record: ApprovedProjectionRecord,
     queued: Any,
     outputs: list[str],
     runtime: str,
@@ -1794,21 +2394,33 @@ def _run_metadata(
     config: SessionConfig | None = None,
     timings: dict[str, float] | None = None,
     schema_validation_skipped: list[str] | None = None,
+    schema_provenance: Mapping[str, Any] | None = None,
+    adapter_endpoint: str | None = None,
     normalization: Any | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> dict[str, Any]:
+    workflow = _require_runtime_boundary(record, bundle)
+    approved = record.to_dict()
+    api_dict = approved["api_projection"]
     if comfy_outputs is None:
         comfy_outputs = _raw_comfy_outputs(queued)
     serialized = json.dumps(api_dict, sort_keys=True, default=str)
     artifact_manifest = _artifact_manifest(workflow, outputs)
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
-    shared = build_shared_fields(workflow, api_dict, config=config)
+    shared = build_shared_fields(bundle, record, config=config)
     metadata = {
         "run_id": run_id,
         "workflow_id": workflow.id,
         "source": asdict(workflow.source),
         "workflow_hash": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+        "api_digest": approved["api_digest"],
+        "adapter": {
+            "kind": runtime,
+            "backend": "api",
+            "endpoint": adapter_endpoint,
+        },
+        "schema_provenance": dict(schema_provenance or {}),
         "git_sha": _git_sha(),
         "inputs": {name: item.value for name, item in workflow.inputs.items()},
         "compiled_prompt": api_dict,

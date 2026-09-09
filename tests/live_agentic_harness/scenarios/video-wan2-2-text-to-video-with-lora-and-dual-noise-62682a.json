@@ -1,7 +1,7 @@
 {
   "id": "video-wan2-2-text-to-video-with-lora-and-dual-noise-62682a",
   "query": "Can you explain the dual-UNet staging in this Wan2.2 pipeline? Specifically, how do the high-noise and low-noise models divide the sampling work, and where does the LoRA get applied to improve output quality?",
-  "workflow_path": "external_workflows/corpus/62682a77ae33b43a.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/62682a77ae33b43a.json",
   "network": true,
   "timeout": 320,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/62682a77ae33b43a.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/62682a77ae33b43a.json",
     "required_node_evidence": [
       "UNETLoader",
       "LoraLoaderModelOnly",

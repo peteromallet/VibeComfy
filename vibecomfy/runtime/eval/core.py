@@ -1,395 +1,259 @@
-"""Preview subgraph compilation for ``vibecomfy runtime eval-node``.
-
-Provides :func:`compile_eval_subgraph` which traces upstream dependencies
-of a single target node, builds a minimal subgraph, and injects preview
-nodes for visualizable output types.  LATENT outputs with no discoverable
-upstream VAE fall back to metadata-only per SD1.
-
-
-"""
+"""Selection and approval of one ephemeral runtime-eval candidate graph."""
 
 from __future__ import annotations
 
-import logging
-from typing import Any
+import copy
+from typing import Any, Mapping
 
-
+from vibecomfy.analysis.graph import upstream
+from vibecomfy.errors import RuntimeNodeError
+from vibecomfy.handles import Handle
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow
+from vibecomfy.workflow_bundle import (
+    ApprovedProjectionRecord,
+    WorkflowBundle,
+    WorkflowBundleError,
+    load_bundle,
+)
 
 from .preview_types import PREVIEW_MAP, VAE_EMITTER_CLASSES, VIDEO_FALLBACK
 
-logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _node_error(message: str, node_id: str) -> RuntimeNodeError:
+    return RuntimeNodeError(message, next_action=f"vibecomfy inspect <workflow> --node {node_id}")
 
 
-def compile_eval_subgraph(
-    workflow: VibeWorkflow,
+def select_eval_workflow(bundle: WorkflowBundle, target_node_id: str) -> VibeWorkflow:
+    """Return a copied upstream graph with deterministic preview nodes."""
+    if not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError(
+            "eval selection requires a WorkflowBundle; load the source with "
+            "load_bundle(...) before calling select_eval_workflow"
+        )
+    bundle.require_canonical_authority("runtime evaluation")
+    workflow = bundle.workflow
+    nid = str(target_node_id)
+    if "#" in nid or "/" in nid:
+        raise _node_error("qualified eval node ids are not supported; select a root node", nid)
+    if nid not in workflow.nodes:
+        raise _node_error(f"eval node {nid!r} is not present in the root workflow", nid)
+
+    target = workflow.nodes[nid]
+    output_type = _detect_output_type(workflow, target)
+    upstream_ids = upstream(workflow, nid)
+    selected_ids: set[str] = {nid, *upstream_ids}
+    latent_vae_handle: Handle | None = None
+    if output_type == "LATENT":
+        latent_vae_handle = _resolve_upstream_vae_handle(workflow, upstream_ids)
+        injections = (
+            (f"{nid}_vaedecode", "VAEDecode", {}, nid, "0", "samples"),
+            (f"{nid}_preview", "PreviewImage", {}, f"{nid}_vaedecode", "0", "images"),
+        )
+    else:
+        preview = PREVIEW_MAP.get(output_type)
+        if preview is None and output_type == "VIDEO":
+            preview = VIDEO_FALLBACK
+        if preview is None:
+            raise _node_error(f"node {nid!r} has non-visualizable output {output_type!r}; eval is plan-only", nid)
+        injections = (
+            (f"{nid}_preview", preview.class_type, copy.deepcopy(preview.extra_inputs or {}), nid, "0", preview.output_input_slot),
+        )
+
+    for preview_id, _class_type, _inputs, _from, _output, _to in injections:
+        if preview_id in workflow.nodes or preview_id in {str(node.uid) for node in workflow.nodes.values()}:
+            raise _node_error(f"preview node identity {preview_id!r} collides with source graph", nid)
+
+    candidate = workflow.copy()
+    candidate.nodes = {
+        node_id: copy.deepcopy(candidate.nodes[node_id])
+        for node_id in sorted(selected_ids)
+        if node_id in candidate.nodes
+    }
+    candidate.edges = [
+        copy.deepcopy(edge)
+        for edge in candidate.edges
+        if edge.from_node in selected_ids and edge.to_node in selected_ids
+    ]
+    candidate.inputs = {name: copy.deepcopy(item) for name, item in candidate.inputs.items() if str(item.node_id) in selected_ids}
+    candidate.outputs = [copy.deepcopy(item) for item in candidate.outputs if str(item.node_id) in selected_ids]
+    candidate.groups = []
+    candidate.definitions = {}
+    candidate.interfaces = {}
+    candidate.boundary_ports = []
+    candidate.virtual_wires = {}
+    for preview_id, class_type, inputs, from_node, from_output, to_input in injections:
+        is_decoder = class_type == "VAEDecode"
+        candidate.nodes[preview_id] = VibeNode(
+            id=preview_id,
+            uid=preview_id,
+            class_type=class_type,
+            inputs=inputs,
+            native_input_names=["samples", "vae"] if is_decoder else [to_input],
+            native_output_names=["IMAGE"] if is_decoder else [],
+            native_input_types=["LATENT", "VAE"] if is_decoder else None,
+            native_output_types=["IMAGE"] if is_decoder else [],
+        )
+        candidate.edges.append(VibeEdge(from_node=from_node, from_output=from_output, to_node=preview_id, to_input=to_input))
+    if latent_vae_handle is not None:
+        candidate.edges.append(
+            VibeEdge(
+                from_node=latent_vae_handle.node_id,
+                from_output=str(latent_vae_handle.output_slot),
+                to_node=f"{nid}_vaedecode",
+                to_input="vae",
+            )
+        )
+    return candidate
+
+
+def approve_eval_subgraph(
+    bundle: WorkflowBundle,
     target_node_id: str,
     *,
-    backend: str = "api",
-) -> dict[str, Any]:
-    """Compile a minimal subgraph that evaluates *target_node_id*.
-
-    Traces upstream dependencies, builds a temporary :class:`VibeWorkflow`
-    containing only the required nodes + edges, and calls
-    :meth:`VibeWorkflow.compile` on it.
-
-    Parameters:
-        workflow:
-            The full source workflow.
-        target_node_id:
-            The node whose output should be previewed.
-        backend:
-            Compilation backend (``\"api\"`` or ``\"graphbuilder\"``).
-
-    Returns:
-        Either an API dict (for visualizable / preview-injectable outputs)
-        *or* a metadata dict ``{type, shape?, node_id, class_type,
-        previewable: false, plan_only?: true}`` for non-visualizable
-        outputs.
-
-    Raises:
-        KeyError: if *target_node_id* is not in *workflow*.
-        RuntimeNodeError: if no runtime is available at eval time
-            (caller should catch and suggest ``vibecomfy runtime doctor``).
-    """
-    nid = str(target_node_id)
-    if nid not in workflow.nodes:
-        raise KeyError(nid)
-
-    target_node = workflow.nodes[nid]
-    output_type = _detect_output_type(workflow, target_node)
-
-    # --- Trace upstream ------------------------------------------------------
-    from vibecomfy.analysis.graph import upstream
-
-    upstream_ids = upstream(workflow, nid)
-    selected_ids: set[str] = {nid} | upstream_ids
-
-    # --- Handle LATENT with VAE discovery ------------------------------------
-    if output_type == "LATENT":
-        vae_node_id = _find_upstream_vae(workflow, nid, upstream_ids)
-        if vae_node_id is not None:
-            # Inject VAEDecode + PreviewImage
-            selected_ids.add(vae_node_id)
-            return _build_latent_preview_subgraph(
-                workflow, nid, vae_node_id, selected_ids, backend=backend
-            )
-        else:
-            # SD1: metadata fallback — no upstream VAE
-            return _latent_metadata_fallback(workflow, nid, target_node)
-
-    # --- Visualizable output types -------------------------------------------
-    preview = PREVIEW_MAP.get(output_type)
-    if preview is not None:
-        return _build_preview_subgraph(
-            workflow, nid, preview, selected_ids, backend=backend
-        )
-
-    # VIDEO fallback if primary not in map
-    if output_type == "VIDEO":
-        return _build_preview_subgraph(
-            workflow, nid, VIDEO_FALLBACK, selected_ids, backend=backend
-        )
-
-    # --- Non-visualizable ----------------------------------------------------
-    return _non_visualizable_metadata(target_node, nid)
+    variant: str | None = None,
+    run_inputs: Mapping[str, Any] | None = None,
+    schema_provider: Any = None,
+) -> tuple[WorkflowBundle, ApprovedProjectionRecord]:
+    """Select, ephemerally bind, and approve one eval candidate graph."""
+    candidate = select_eval_workflow(bundle, target_node_id)
+    if schema_provider is not None:
+        _retain_explicit_provider_ports(candidate, schema_provider)
+    candidate_bundle = load_bundle(candidate)
+    record = candidate_bundle.compile(
+        variant=variant,
+        run_inputs=None if run_inputs is None else dict(run_inputs),
+        schema_provider=schema_provider,
+    )
+    return candidate_bundle, record
 
 
-
-# ---------------------------------------------------------------------------
-# Output type detection
-# ---------------------------------------------------------------------------
-
-
-def _detect_output_type(
+def _retain_explicit_provider_ports(
     workflow: VibeWorkflow,
-    target_node: VibeNode,
-) -> str:
-    """Best-effort detection of the output category for *target_node*.
+    schema_provider: Any,
+) -> None:
+    """Freeze exact supplied-schema ports onto an eval candidate before approval."""
+    for node in workflow.nodes.values():
+        schema = schema_provider.get_schema(node.class_type)
+        if schema is None:
+            continue
+        inputs = getattr(schema, "inputs", None)
+        if node.native_input_names is None and isinstance(inputs, Mapping):
+            node.native_input_names = [str(name) for name in inputs]
+            node.native_input_types = [
+                str(getattr(spec, "type"))
+                if getattr(spec, "type", None) is not None
+                else None
+                for spec in inputs.values()
+            ]
+            node.native_input_optional = [
+                not bool(getattr(spec, "required", False))
+                for spec in inputs.values()
+            ]
+            assets = [
+                str(getattr(spec, "asset_kind"))
+                if getattr(spec, "asset_kind", None) is not None
+                else None
+                for spec in inputs.values()
+            ]
+            node.native_input_asset_kinds = assets if any(assets) else None
+        outputs = getattr(schema, "outputs", None)
+        if node.native_output_names is None and isinstance(outputs, (list, tuple)):
+            node.native_output_names = [
+                str(getattr(spec, "name"))
+                if getattr(spec, "name", None) is not None
+                else None
+                for spec in outputs
+            ]
+            node.native_output_types = [
+                str(getattr(spec, "type"))
+                if getattr(spec, "type", None) is not None
+                else None
+                for spec in outputs
+            ]
+        node.__post_init__()
 
-    Heuristic order:
-    1. Check workflow outputs for a label matching this node_id.
-    2. Check class_type name for known patterns (VAEDecode → IMAGE,
-       KSampler → LATENT, etc.).
-    3. Default to ``\"UNKNOWN\"``.
-    """
-    nid = str(target_node.id)
 
-    # Check explicit workflow outputs
+def _detect_output_type(workflow: VibeWorkflow, target: VibeNode) -> str:
+    nid = str(target.id)
     for output in workflow.outputs:
         if str(output.node_id) == nid:
-            return output.output_type.upper()
-
-    # Class-type heuristics
-    ct = target_node.class_type.lower()
+            return str(output.output_type).upper()
+    ct = target.class_type.lower()
     if "vae" in ct and "decode" in ct:
         return "IMAGE"
     if "vae" in ct and ("encode" in ct or "loader" in ct):
         return "LATENT"
     if "ksampler" in ct or "latent" in ct or "sampler" in ct:
         return "LATENT"
-    if "preview" in ct or "save" in ct:
-        # Preview/SaveImage, PreviewMask, etc. — return the suffix
-        if "mask" in ct:
-            return "MASK"
-        if "video" in ct:
-            return "VIDEO"
-        if "audio" in ct:
-            return "AUDIO"
-        return "IMAGE"
-    if "image" in ct or "img" in ct:
-        return "IMAGE"
+    if "preview" in ct or "save" in ct or "image" in ct or "img" in ct:
+        return "MASK" if "mask" in ct else "VIDEO" if "video" in ct else "AUDIO" if "audio" in ct else "IMAGE"
     if "mask" in ct:
         return "MASK"
     if "video" in ct:
         return "VIDEO"
     if "audio" in ct:
         return "AUDIO"
-    if "latent" in ct:
-        return "LATENT"
-
     return "UNKNOWN"
 
 
-# ---------------------------------------------------------------------------
-# VAE discovery (upstream only — SD1 / FLAG-001)
-# ---------------------------------------------------------------------------
-
-
-def _find_upstream_vae(
+def _resolve_upstream_vae_handle(
     workflow: VibeWorkflow,
-    target_node_id: str,
     upstream_ids: set[str],
-) -> str | None:
-    """Find a VAE-emitting node among the upstream dependencies.
-
-    Returns the node_id of the closest VAE-emitting node, or ``None``.
-    Only walks upstream dependencies (edges reversed: ``edge.to_node →
-    edge.from_node``).  Sibling VAE loaders outside the upstream path are
-    out of scope per FLAG-001.
-    """
-    vae_candidates: list[tuple[int, str]] = []
-    # Compute BFS depth from target to each upstream node
-    depths = _upstream_depths(workflow, target_node_id)
-
-    for uid in upstream_ids:
-        if uid not in workflow.nodes:
+) -> Handle:
+    """Resolve exactly one closed-contract upstream generic VAE output."""
+    candidates: list[Handle] = []
+    for node_id in sorted(upstream_ids):
+        node = workflow.nodes.get(node_id)
+        if node is None:
             continue
-        node = workflow.nodes[uid]
-        if node.class_type in VAE_EMITTER_CLASSES:
-            depth = depths.get(uid, 1 << 30)
-            vae_candidates.append((depth, uid))
-
-    vae_candidates.sort()
-    return vae_candidates[0][1] if vae_candidates else None
-
-
-def _upstream_depths(
-    workflow: VibeWorkflow,
-    node_id: str,
-) -> dict[str, int]:
-    """BFS depth of each node from *node_id* (following edges in reverse)."""
-    from collections import deque
-
-    reverse: dict[str, set[str]] = {}
-    for edge in workflow.edges:
-        reverse.setdefault(edge.to_node, set()).add(edge.from_node)
-
-    depths: dict[str, int] = {str(node_id): 0}
-    queue: deque[str] = deque([str(node_id)])
-    visited: set[str] = {str(node_id)}
-
-    while queue:
-        current = queue.popleft()
-        current_depth = depths[current]
-        for upstream_node in reverse.get(current, ()):
-            if upstream_node not in visited:
-                visited.add(upstream_node)
-                depths[upstream_node] = current_depth + 1
-                queue.append(upstream_node)
-
-    return depths
-
-
-# ---------------------------------------------------------------------------
-# Subgraph builders
-# ---------------------------------------------------------------------------
-
-
-def _build_preview_subgraph(
-    workflow: VibeWorkflow,
-    target_node_id: str,
-    preview: Any,  # PreviewInjection
-    selected_ids: set[str],
-    *,
-    backend: str = "api",
-) -> dict[str, Any]:
-    """Build a subgraph API dict with a preview node injected."""
-    nid = str(target_node_id)
-
-    # Build temporary subgraph workflow
-    sub_nodes: dict[str, VibeNode] = {}
-    for node_id in selected_ids:
-        if node_id in workflow.nodes:
-            sub_nodes[node_id] = workflow.nodes[node_id]
-
-    # Filter edges to only those where both endpoints are in selected_ids
-    sub_edges: list[VibeEdge] = []
-    for edge in workflow.edges:
-        if edge.from_node in selected_ids and edge.to_node in selected_ids:
-            sub_edges.append(edge)
-
-    # Add preview node
-    preview_id = f"{nid}_preview"
-    preview_node = VibeNode(
-        id=preview_id,
-        class_type=preview.class_type,
-        inputs=dict(preview.extra_inputs or {}),
-    )
-    sub_nodes[preview_id] = preview_node
-    sub_edges.append(
-        VibeEdge(
-            from_node=nid,
-            from_output="0",
-            to_node=preview_id,
-            to_input=preview.output_input_slot,
+        descriptor = VAE_EMITTER_CLASSES.get(node.class_type)
+        if descriptor is None or not _valid_vae_rosters(node, descriptor.output_slot, descriptor.name, descriptor.output_type):
+            continue
+        candidates.append(
+            Handle(
+                node_id=str(node_id),
+                output_slot=descriptor.output_slot,
+                output_type=descriptor.output_type,
+                name=descriptor.name,
+            )
         )
-    )
-
-    # Build temporary VibeWorkflow and compile
-    temp_wf = VibeWorkflow(
-        id=f"{workflow.id}_eval_{nid}",
-        source=workflow.source,
-        nodes=sub_nodes,
-        edges=sub_edges,
-    )
-    return temp_wf.compile(backend=backend)
-
-
-def _build_latent_preview_subgraph(
-    workflow: VibeWorkflow,
-    target_node_id: str,
-    vae_node_id: str,
-    selected_ids: set[str],
-    *,
-    backend: str = "api",
-) -> dict[str, Any]:
-    """Build a subgraph with VAEDecode → PreviewImage for LATENT output."""
-    nid = str(target_node_id)
-
-    all_ids = selected_ids.copy()
-
-    # Build temporary subgraph workflow
-    sub_nodes: dict[str, VibeNode] = {}
-    for node_id in all_ids:
-        if node_id in workflow.nodes:
-            sub_nodes[node_id] = workflow.nodes[node_id]
-
-    # Filter edges
-    sub_edges: list[VibeEdge] = []
-    for edge in workflow.edges:
-        if edge.from_node in all_ids and edge.to_node in all_ids:
-            sub_edges.append(edge)
-
-    # Add VAEDecode node
-    decode_id = f"{nid}_vaedecode"
-    decode_node = VibeNode(
-        id=decode_id,
-        class_type="VAEDecode",
-        inputs={},
-    )
-    sub_nodes[decode_id] = decode_node
-    sub_edges.append(
-        VibeEdge(from_node=nid, from_output="0", to_node=decode_id, to_input="samples")
-    )
-    sub_edges.append(
-        VibeEdge(from_node=vae_node_id, from_output="0", to_node=decode_id, to_input="vae")
-    )
-
-    # Add PreviewImage node after VAEDecode
-    preview_id = f"{nid}_preview"
-    preview_node = VibeNode(
-        id=preview_id,
-        class_type="PreviewImage",
-        inputs={},
-    )
-    sub_nodes[preview_id] = preview_node
-    sub_edges.append(
-        VibeEdge(from_node=decode_id, from_output="0", to_node=preview_id, to_input="images")
-    )
-
-    # Build temporary VibeWorkflow and compile
-    temp_wf = VibeWorkflow(
-        id=f"{workflow.id}_eval_{nid}",
-        source=workflow.source,
-        nodes=sub_nodes,
-        edges=sub_edges,
-    )
-    return temp_wf.compile(backend=backend)
+    if not candidates:
+        raise RuntimeNodeError(
+            "vae_handle_unresolved: no valid upstream generic VAE handle; eval is plan-only",
+            next_action="add one valid VAELoader or CheckpointLoaderSimple upstream of the target",
+        )
+    if len(candidates) > 1:
+        source_ids = [f"{item.node_id}:{item.output_slot}" for item in candidates]
+        raise RuntimeNodeError(
+            f"vae_source_ambiguous: multiple valid upstream VAE handles: {source_ids}",
+            next_action="leave exactly one generic VAE emitter on the selected upstream path",
+        )
+    return candidates[0]
 
 
-def _latent_metadata_fallback(
-    workflow: VibeWorkflow,
-    target_node_id: str,
-    target_node: VibeNode,
-) -> dict[str, Any]:
-    """Return metadata dict for LATENT without discoverable upstream VAE."""
-    return {
-        "type": "LATENT",
-        "shape": _infer_latent_shape(workflow, target_node_id, target_node),
-        "node_id": str(target_node_id),
-        "class_type": target_node.class_type,
-        "previewable": False,
-        "plan_only": True,
-    }
+def _valid_vae_rosters(node: VibeNode, output_slot: int, name: str, output_type: str) -> bool:
+    """Validate every source-attached output roster without schema lookup."""
+    sources: list[tuple[str, Any, str]] = []
+    native = node.native_output_names
+    if native is not None:
+        sources.append(("native_output_names", native, "name"))
+    metadata = node.metadata if isinstance(node.metadata, dict) else {}
+    if "output_names" in metadata and metadata["output_names"] is not None:
+        sources.append(("output_names", metadata["output_names"], "name"))
+    if "output_types" in metadata and metadata["output_types"] is not None:
+        sources.append(("output_types", metadata["output_types"], "type"))
+    for source_name, roster, kind in sources:
+        if not isinstance(roster, (list, tuple)) or len(roster) <= output_slot:
+            return False
+        if any(not isinstance(item, str) or not item.strip() for item in roster):
+            return False
+        if len(set(roster)) != len(roster):
+            return False
+        if kind == "name" and roster[output_slot] != name:
+            return False
+        if kind == "type" and roster[output_slot] != output_type:
+            return False
+    return True
 
 
-def _non_visualizable_metadata(
-    target_node: VibeNode,
-    node_id: str,
-) -> dict[str, Any]:
-    """Return metadata dict for non-visualizable outputs."""
-    return {
-        "type": target_node.class_type,
-        "node_id": str(node_id),
-        "class_type": target_node.class_type,
-        "previewable": False,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _infer_latent_shape(
-    workflow: VibeWorkflow,
-    target_node_id: str,
-    target_node: VibeNode,
-) -> dict[str, Any] | None:
-    """Try to infer latent shape from node inputs."""
-    # Look for width/height inputs on the target node or its upstream
-    shape: dict[str, Any] = {}
-    for key in ("width", "height", "latent_width", "latent_height", "batch_size"):
-        if key in target_node.inputs:
-            shape[key] = target_node.inputs[key]
-
-    if not shape:
-        # Try upstream empty latent node
-        from vibecomfy.analysis.graph import upstream
-
-        for uid in upstream(workflow, target_node_id):
-            if uid not in workflow.nodes:
-                continue
-            node = workflow.nodes[uid]
-            if "empty" in node.class_type.lower() and "latent" in node.class_type.lower():
-                for key in ("width", "height", "batch_size"):
-                    if key in node.inputs:
-                        shape[key] = node.inputs[key]
-                break
-
-    return shape if shape else None
+__all__ = ["approve_eval_subgraph", "select_eval_workflow"]

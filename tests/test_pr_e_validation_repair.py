@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.live_agentic_harness.source_layouts import resolve_corpus_record_path
 from vibecomfy.comfy_nodes.agent.edit import (
     _class_names_from_text,
     _compact_diag_to_dict,
@@ -306,9 +307,11 @@ def test_h_scenario_speedup_value_is_genuinely_faster() -> None:
     query = scenario["query"]
     assert "steps to 4" in query and "speed up" in query
     assert "steps to 30" not in query
-    workflow = json.loads(
-        Path("external_workflows/corpus/def5b5d3b3b372dd.json").read_text(encoding="utf-8")
+    workflow_path = resolve_corpus_record_path(
+        "tests/fixtures/live_agentic_corpus/corpus/def5b5d3b3b372dd.json"
     )
+    assert workflow_path is not None
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
     nodes = workflow.get("nodes") or workflow.get("prompt") or {}
     steps_values: list[int] = []
 

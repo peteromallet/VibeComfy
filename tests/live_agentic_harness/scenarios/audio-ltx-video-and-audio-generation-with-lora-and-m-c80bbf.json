@@ -1,7 +1,7 @@
 {
   "id": "audio-ltx-video-and-audio-generation-with-lora-and-m-c80bbf",
   "query": "Replace the MelBand RoFormer audio sampler with AudioLDM2 for audio generation, integrating it with the LTX video generation pipeline and LoRA, so that audio and video remain synchronized.",
-  "workflow_path": "external_workflows/corpus/c80bbf22890fc8df.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/c80bbf22890fc8df.json",
   "network": true,
   "timeout": 380,
   "apply": false,
@@ -12,10 +12,6 @@
     ],
     "expected_no_candidate_reason": "The query demands AudioLDM2 as the audio generator, but no AudioLDM2 class exists anywhere in the authoritative object_info index - the exact lookup and the declared-family-prefix lookup both return an empty result set - and no such class exists in this corpus workflow either. The retained Mel-band branch (MelBandRoFormerSampler/MelBandRoFormerModelLoader, already muted) belongs to a pack whose cache is a non-authoritative stub. The query deliberately demands an absent class; the typed terminal for proven named-schema absence is a requires_custom_nodes refusal, and adjudication requires the authoritative named-class blocker to cite AudioLDM2 before any leg passes.",
     "expected_no_candidate_absent_classes": ["AudioLDM2"]
-  },
-  "desired": {
-    "outcome": "The agent inspects the audio/video chain, determines that no AudioLDM2 class (or any family member) is authorable in this environment and that the muted MelBand RoFormer nodes cannot be swapped for it, and truthfully reports that no candidate change exists; the graph stays unchanged.",
-    "quality": "The refusal names the real LTX/Mel-band nodes, gives the grounded index-absence reason for AudioLDM2, proposes no fabricated edit, and leaves existing nodes intact."
   },
   "_tags": {
     "modality": "audio",

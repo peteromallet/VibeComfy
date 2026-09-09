@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import vibecomfy.commands.doctor as doctor_cmd
+from vibecomfy.security.provenance import Provenance
 from vibecomfy.node_packs import LockEntry
 
 
@@ -18,7 +19,7 @@ from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 def build():
     workflow = VibeWorkflow(id="doctor-lockfile", source=WorkflowSource(id="doctor-lockfile"))
-    workflow.nodes["1"] = VibeNode(id="1", class_type="CLIPTextEncode", inputs={"text": "hello"})
+    workflow.nodes["1"] = VibeNode(id="1", class_type="CLIPTextEncode", inputs={"clip": "clip", "text": "hello"}, uid="1")
     return workflow
 """,
         encoding="utf-8",
@@ -34,6 +35,12 @@ def _run_doctor(path: Path, *, allow_drift: bool = False) -> int:
 def doctor_scratchpad(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(doctor_cmd, "get_schema_provider", lambda _mode: None)
+    real_load_bundle = doctor_cmd.load_bundle
+    monkeypatch.setattr(
+        doctor_cmd,
+        "load_bundle",
+        lambda path: real_load_bundle(path, trust=Provenance.USER_CONFIRMED),
+    )
     return _write_scratchpad(tmp_path / "scratch.py")
 
 

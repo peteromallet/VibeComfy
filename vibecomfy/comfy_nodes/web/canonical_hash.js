@@ -379,6 +379,93 @@ export function sha256HexFromString(canonicalJson) {
   return _sha256HexUtf8(canonicalJson);
 }
 
+function _skipJsonWhitespace(text, index) {
+  while (index < text.length && /\s/.test(text[index])) index += 1;
+  return index;
+}
+
+function _scanJsonStringEnd(text, start) {
+  if (text[start] !== '"') throw new Error("JSON string expected");
+  for (let index = start + 1; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code === 0x22) return index + 1;
+    if (code === 0x5c) {
+      index += 1;
+      if (index >= text.length) throw new Error("unterminated JSON escape");
+      if (text[index] === "u") {
+        if (!/^[0-9a-f]{4}$/i.test(text.slice(index + 1, index + 5))) throw new Error("invalid JSON unicode escape");
+        index += 4;
+      }
+      continue;
+    }
+    if (code < 0x20) throw new Error("unescaped JSON control character");
+  }
+  throw new Error("unterminated JSON string");
+}
+
+function _scanJsonValueEnd(text, start) {
+  const opening = text[start];
+  if (opening === '"') return _scanJsonStringEnd(text, start);
+  if (opening === "[") {
+    let index = _skipJsonWhitespace(text, start + 1);
+    if (text[index] === "]") return index + 1;
+    while (true) {
+      index = _scanJsonValueEnd(text, index);
+      index = _skipJsonWhitespace(text, index);
+      if (text[index] === "]") return index + 1;
+      if (text[index] !== ",") throw new Error("invalid JSON array separator");
+      index = _skipJsonWhitespace(text, index + 1);
+    }
+  }
+  if (opening === "{") {
+    let index = _skipJsonWhitespace(text, start + 1);
+    if (text[index] === "}") return index + 1;
+    while (true) {
+      index = _scanJsonStringEnd(text, index);
+      index = _skipJsonWhitespace(text, index);
+      if (text[index] !== ":") throw new Error("invalid JSON object separator");
+      index = _skipJsonWhitespace(text, index + 1);
+      index = _scanJsonValueEnd(text, index);
+      index = _skipJsonWhitespace(text, index);
+      if (text[index] === "}") return index + 1;
+      if (text[index] !== ",") throw new Error("invalid JSON object separator");
+      index = _skipJsonWhitespace(text, index + 1);
+    }
+  }
+  const match = text.slice(start).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+  if (!match) throw new Error("invalid JSON value");
+  return start + match[0].length;
+}
+
+export function extractCanonicalJsonValue(canonicalJson, targetKey) {
+  if (typeof canonicalJson !== "string" || typeof targetKey !== "string") throw new TypeError("canonical JSON and key are required");
+  let index = _skipJsonWhitespace(canonicalJson, 0);
+  if (canonicalJson[index] !== "{") throw new Error("canonical record object expected");
+  index = _skipJsonWhitespace(canonicalJson, index + 1);
+  const seen = new Set();
+  let found = null;
+  if (canonicalJson[index] === "}") throw new Error("canonical record key missing");
+  while (true) {
+    const keyStart = index;
+    const keyEnd = _scanJsonStringEnd(canonicalJson, keyStart);
+    const key = JSON.parse(canonicalJson.slice(keyStart, keyEnd));
+    if (seen.has(key)) throw new Error("duplicate canonical record key");
+    seen.add(key);
+    index = _skipJsonWhitespace(canonicalJson, keyEnd);
+    if (canonicalJson[index] !== ":") throw new Error("canonical record colon missing");
+    const valueStart = _skipJsonWhitespace(canonicalJson, index + 1);
+    const valueEnd = _scanJsonValueEnd(canonicalJson, valueStart);
+    if (key === targetKey) found = canonicalJson.slice(valueStart, valueEnd);
+    index = _skipJsonWhitespace(canonicalJson, valueEnd);
+    if (canonicalJson[index] === "}") break;
+    if (canonicalJson[index] !== ",") throw new Error("canonical record separator missing");
+    index = _skipJsonWhitespace(canonicalJson, index + 1);
+  }
+  if (_skipJsonWhitespace(canonicalJson, index + 1) !== canonicalJson.length) throw new Error("trailing canonical record data");
+  if (found === null) throw new Error(`canonical record key missing: ${targetKey}`);
+  return found;
+}
+
 // ── Cross-language numeric normaliser (§0.3.1) ──────────────────────────────
 
 // Maximum exactly-representable integer in IEEE-754 double (2**53 - 1).  JS

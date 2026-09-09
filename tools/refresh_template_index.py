@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from vibecomfy.registry.ready import repo_ready_template_discovery
-from vibecomfy.registry.static_contract import extract_ready_template_contract
+from vibecomfy.registry.static_contract import (
+    extract_ready_template_contract,
+    resolve_ready_wrapper_class_types,
+)
 from vibecomfy.porting._provenance_utils import resolve_source_workflow
 
 
@@ -54,12 +57,19 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
     generated_at = generated_at or _existing_generated_at(DEFAULT_OUTPUT)
     coverage = _load_coverage_by_template_id(DEFAULT_COVERAGE)
     templates: list[dict[str, Any]] = []
-    for record in repo_ready_template_discovery().records:
+    records = list(repo_ready_template_discovery().records)
+    wrapper_class_types = resolve_ready_wrapper_class_types(
+        record.path for record in records
+    )
+    for record in records:
         template_id = record.template_id
         source_path = record.path
         path = source_path.relative_to(REPO_ROOT).as_posix()
         metadata, requirements = _ready_template_metadata(source_path)
-        static_contract = extract_ready_template_contract(source_path)
+        static_contract = extract_ready_template_contract(
+            source_path,
+            wrapper_class_types=wrapper_class_types,
+        )
         coverage_row = coverage.get(template_id, {})
         coverage_tier = metadata.get("coverage_tier") or coverage_row.get("coverage_tier", "")
         row = {

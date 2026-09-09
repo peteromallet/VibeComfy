@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import hashlib
 from pathlib import Path
 
 from ._lockfile import LockEntry
@@ -411,10 +412,10 @@ def _pack_from_lock_entry(entry: LockEntry) -> CustomNodePack | None:
 def _rich_lock_packs(lockfile_path: Path = Path("custom_nodes.lock")) -> tuple[CustomNodePack, ...]:
     from vibecomfy.node_packs import read_lockfile  # see module-level comment
 
-    try:
-        entries = read_lockfile(lockfile_path)
-    except (OSError, ValueError):
-        return ()
+    # Missing/empty locks are represented by read_lockfile as an explicit
+    # empty result. Parser errors must remain observable; turning corruption
+    # into an empty catalog would silently unregister installed packs.
+    entries = read_lockfile(lockfile_path)
     return tuple(pack for entry in entries if (pack := _pack_from_lock_entry(entry)) is not None)
 
 
@@ -425,13 +426,19 @@ def _known_node_packs(lockfile_path: Path = Path("custom_nodes.lock")) -> tuple[
     return tuple(sorted(by_name.values(), key=lambda pack: pack.name.lower()))
 
 
-def _lockfile_fingerprint(lockfile_path: Path) -> tuple[str, bool, int, int]:
+def _lockfile_fingerprint(lockfile_path: Path) -> tuple[str, bool, int, int, str | None]:
     resolved = lockfile_path.expanduser().resolve(strict=False)
     try:
         stat = resolved.stat()
     except OSError:
-        return (str(resolved), False, 0, 0)
-    return (str(resolved), True, stat.st_mtime_ns, stat.st_size)
+        return (str(resolved), False, 0, 0, None)
+    try:
+        content_sha256 = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    except OSError:
+        # Let the canonical parser report a subsequent read failure; this
+        # fingerprint remains safe for a file that disappears between probes.
+        content_sha256 = None
+    return (str(resolved), True, stat.st_mtime_ns, stat.st_size, content_sha256)
 
 
 @lru_cache(maxsize=16)
@@ -440,8 +447,9 @@ def _cached_known_node_packs(
     exists: bool,
     mtime_ns: int,
     size: int,
+    content_sha256: str | None,
 ) -> tuple[CustomNodePack, ...]:
-    del exists, mtime_ns, size
+    del exists, mtime_ns, size, content_sha256
     return _known_node_packs(Path(resolved_lockfile_path))
 
 
@@ -449,7 +457,7 @@ def get_known_node_packs(lockfile_path: Path = Path("custom_nodes.lock")) -> tup
     """Return known custom-node packs with lockfile-aware in-process caching.
 
     ``custom_nodes.lock`` changes are reflected in the same interpreter when the
-    resolved file path, existence, ``mtime_ns``, or size changes. Edits to this
+    resolved file path, existence, ``mtime_ns``, size, or content identity changes. Edits to this
     module's static pack seed list still require a process restart because that
     source is imported only once per interpreter.
     """

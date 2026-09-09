@@ -1,0 +1,2025 @@
+{
+  "edges": [
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "9"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "7"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "clip_vision",
+      "to_node": "15"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "image",
+      "to_node": "15"
+    },
+    {
+      "from_node": "4",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "29",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "7",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "5",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "6"
+    },
+    {
+      "from_node": "4",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "23"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "27"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "12"
+    },
+    {
+      "from_node": "13",
+      "from_output": "0",
+      "to_input": "style_model",
+      "to_node": "12"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "clip_vision_output",
+      "to_node": "12"
+    },
+    {
+      "from_node": "27",
+      "from_output": "0",
+      "to_input": "conditioning_1",
+      "to_node": "29"
+    },
+    {
+      "from_node": "28",
+      "from_output": "0",
+      "to_input": "conditioning_2",
+      "to_node": "29"
+    },
+    {
+      "from_node": "6",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "28"
+    },
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "11",
+      "from_output": "0",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "conditioning",
+      "to_node": "22"
+    }
+  ],
+  "groups": [],
+  "id": "ce3c888de3cab14a",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "4",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "v1-5-pruned-emaonly.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "7",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "blurry, illustration, naked, text"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 10
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "3",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 20
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "11": {
+        "class_type": "VAELoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "vae_name",
+            "'vae-ft-mse-840000-ema-pruned.safetensors'"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "StyleModelApply",
+        "incoming_edge_sig": [
+          [
+            "clip_vision_output",
+            [
+              "15",
+              "0"
+            ]
+          ],
+          [
+            "conditioning",
+            [
+              "22",
+              "0"
+            ]
+          ],
+          [
+            "style_model",
+            [
+              "13",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "27",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "13": {
+        "class_type": "StyleModelLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "style_model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'coadapter-style-sd15v1.pth'"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "CLIPVisionLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "clip_vision"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "clip_name",
+            "'style_pytorch_model.bin'"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "CLIPVisionEncode",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "image",
+            [
+              "16",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "clip_vision_output"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "16": {
+        "class_type": "LoadImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "15",
+              "image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "image",
+            "'cwf_marble_statue.jpg'"
+          ],
+          [
+            "unused_widget_1",
+            "'image'"
+          ]
+        ]
+      },
+      "22": {
+        "class_type": "ConditioningZeroOut",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "23",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "23": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "22",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "''"
+          ]
+        ]
+      },
+      "27": {
+        "class_type": "ConditioningSetTimestepRange",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "29",
+              "conditioning_1"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "end",
+            "0.4"
+          ],
+          [
+            "start",
+            "0"
+          ]
+        ]
+      },
+      "28": {
+        "class_type": "ConditioningSetTimestepRange",
+        "incoming_edge_sig": [
+          [
+            "conditioning",
+            [
+              "6",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "29",
+              "conditioning_2"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "end",
+            "1"
+          ],
+          [
+            "start",
+            "0.4"
+          ]
+        ]
+      },
+      "29": {
+        "class_type": "ConditioningCombine",
+        "incoming_edge_sig": [
+          [
+            "conditioning_1",
+            [
+              "27",
+              "0"
+            ]
+          ],
+          [
+            "conditioning_2",
+            [
+              "28",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "5",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "4",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "7",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "29",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "7"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'dpmpp_2m'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "10"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'fixed'"
+          ]
+        ]
+      },
+      "4": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "23",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "6",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "7",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'v1-5-pruned-emaonly.safetensors'"
+          ]
+        ]
+      },
+      "5": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "512"
+          ],
+          [
+            "widget_1",
+            "512"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "6": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "28",
+              "conditioning"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'a serious guy in the park'"
+          ]
+        ]
+      },
+      "7": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "4",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'blurry, illustration, naked, text'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "11",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "9",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "9": {
+        "class_type": "SaveImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "filename_prefix",
+            "'Result'"
+          ]
+        ]
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "7cf357a55e5fab055a84853a55c2505ef5a8882ffd166e4305fc2d6ec4ad6d16",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "draft for the image conditioning section",
+      "commit_sha": "2380391ecb28476a2d094e2d934a2e71a30bf973",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/2380391ecb28476a2d094e2d934a2e71a30bf973",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:image_conditioning/experiments/timestepping_style_model.json:timestepping_style_model.json:ce3c888de3cab14a",
+      "filename": "timestepping_style_model.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "CLIPTextEncode": 3,
+        "CLIPVisionEncode": 1,
+        "CLIPVisionLoader": 1,
+        "CheckpointLoaderSimple": 1,
+        "ConditioningCombine": 1,
+        "ConditioningSetTimestepRange": 2,
+        "ConditioningZeroOut": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "SaveImage": 1,
+        "StyleModelApply": 1,
+        "StyleModelLoader": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 18,
+      "origin_date": "2023-09-02T15:14:01Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "image_conditioning/experiments/timestepping_style_model.json",
+      "source": "github",
+      "source_file_sha256": "ce3c888de3cab14a1d8ae1cf2d03d95e0c2baf2698e15812b28ae7c3aef6573c",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/image_conditioning/experiments/timestepping_style_model.json",
+      "source_workflow_sha256": "a12dc276a7c090027571d4518744e5ac0c7ac32fe91d3379cf8a8c1d08f17c12",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "github",
+    "summary": {
+      "_content_hash": "57ca9052c3cd22fd1575fe223abb5c5e3df2adc2b30a28929705ec582bfd081f",
+      "complexity": 3,
+      "description": "Applies a style model to conditioning from a reference image using CLIP vision encoding, then generates an image with Stable Diffusion v1.5.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": false,
+        "has_video_output": false,
+        "is_animated": false,
+        "requires_custom_nodes": true
+      },
+      "media_type": "image",
+      "tags": [
+        "style-transfer",
+        "ip-adapter",
+        "stable-diffusion",
+        "image-generation",
+        "conditioning"
+      ],
+      "task_type": "text_to_image",
+      "title": "Style Transfer with IP-Adapter and Stable Diffusion"
+    }
+  },
+  "nodes": {
+    "11": {
+      "class_type": "VAELoader",
+      "id": "11",
+      "inputs": {
+        "vae_name": "vae-ft-mse-840000-ema-pruned.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 11,
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                12
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            980,
+            370
+          ],
+          "properties": {
+            "Node name for S&R": "VAELoader"
+          },
+          "size": {
+            "0": 240,
+            "1": 60
+          },
+          "type": "VAELoader",
+          "widgets_values": [
+            "vae-ft-mse-840000-ema-pruned.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "vae-ft-mse-840000-ema-pruned.safetensors"
+        ]
+      },
+      "uid": "11",
+      "widgets": {}
+    },
+    "12": {
+      "class_type": "StyleModelApply",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 46,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 13,
+              "name": "style_model",
+              "type": "STYLE_MODEL"
+            },
+            {
+              "link": 14,
+              "name": "clip_vision_output",
+              "type": "CLIP_VISION_OUTPUT"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                47
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            630,
+            -170
+          ],
+          "properties": {
+            "Node name for S&R": "StyleModelApply"
+          },
+          "size": {
+            "0": 262,
+            "1": 70
+          },
+          "type": "StyleModelApply"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "12",
+      "widgets": {}
+    },
+    "13": {
+      "class_type": "StyleModelLoader",
+      "id": "13",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 13,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                13
+              ],
+              "name": "STYLE_MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "STYLE_MODEL"
+            }
+          ],
+          "pos": [
+            380,
+            260
+          ],
+          "properties": {
+            "Node name for S&R": "StyleModelLoader"
+          },
+          "size": {
+            "0": 210,
+            "1": 60
+          },
+          "type": "StyleModelLoader",
+          "widgets_values": [
+            "coadapter-style-sd15v1.pth"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "coadapter-style-sd15v1.pth"
+        ]
+      },
+      "uid": "13",
+      "widgets": {
+        "widget_0": "coadapter-style-sd15v1.pth"
+      }
+    },
+    "14": {
+      "class_type": "CLIPVisionLoader",
+      "id": "14",
+      "inputs": {
+        "clip_name": "style_pytorch_model.bin"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                15
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CLIP_VISION"
+            }
+          ],
+          "pos": [
+            80,
+            300
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPVisionLoader"
+          },
+          "size": {
+            "0": 210,
+            "1": 60
+          },
+          "type": "CLIPVisionLoader",
+          "widgets_values": [
+            "style_pytorch_model.bin"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "style_pytorch_model.bin"
+        ]
+      },
+      "uid": "14",
+      "widgets": {}
+    },
+    "15": {
+      "class_type": "CLIPVisionEncode",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "inputs": [
+            {
+              "link": 15,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 16,
+              "name": "image",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                14
+              ],
+              "name": "CLIP_VISION_OUTPUT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CLIP_VISION_OUTPUT"
+            }
+          ],
+          "pos": [
+            340,
+            360
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPVisionEncode"
+          },
+          "size": {
+            "0": 253.60000610351562,
+            "1": 50
+          },
+          "type": "CLIPVisionEncode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "15",
+      "widgets": {}
+    },
+    "16": {
+      "class_type": "LoadImage",
+      "id": "16",
+      "inputs": {
+        "image": "cwf_marble_statue.jpg",
+        "unused_widget_1": "image"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                16
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            },
+            {
+              "links": null,
+              "name": "MASK",
+              "shape": 3,
+              "type": "MASK"
+            }
+          ],
+          "pos": [
+            80,
+            400
+          ],
+          "properties": {
+            "Node name for S&R": "LoadImage"
+          },
+          "size": {
+            "0": 210,
+            "1": 314
+          },
+          "type": "LoadImage",
+          "widgets_values": [
+            "cwf_marble_statue.jpg",
+            "image"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "cwf_marble_statue.jpg",
+          "image"
+        ]
+      },
+      "uid": "16",
+      "widgets": {}
+    },
+    "22": {
+      "class_type": "ConditioningZeroOut",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "inputs": [
+            {
+              "link": 28,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                46
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            360,
+            -170
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningZeroOut"
+          },
+          "size": [
+            230,
+            30
+          ],
+          "type": "ConditioningZeroOut"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "22",
+      "widgets": {}
+    },
+    "23": {
+      "class_type": "CLIPTextEncode",
+      "id": "23",
+      "inputs": {
+        "text": ""
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 27,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                28
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            360,
+            -100
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": [
+            230,
+            76
+          ],
+          "title": "CLIP Text Encode (Positive)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            ""
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          ""
+        ]
+      },
+      "uid": "23",
+      "widgets": {}
+    },
+    "27": {
+      "class_type": "ConditioningSetTimestepRange",
+      "id": "27",
+      "inputs": {
+        "end": 0.4,
+        "start": 0
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 27,
+          "inputs": [
+            {
+              "link": 47,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "outputs": [
+            {
+              "links": [
+                49
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            920,
+            -170
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningSetTimestepRange"
+          },
+          "size": {
+            "0": 235.1999969482422,
+            "1": 82
+          },
+          "type": "ConditioningSetTimestepRange",
+          "widgets_values": [
+            0,
+            0.4
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0,
+          0.4
+        ]
+      },
+      "uid": "27",
+      "widgets": {}
+    },
+    "28": {
+      "class_type": "ConditioningSetTimestepRange",
+      "id": "28",
+      "inputs": {
+        "end": 1,
+        "start": 0.4
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 28,
+          "inputs": [
+            {
+              "link": 48,
+              "name": "conditioning",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "outputs": [
+            {
+              "links": [
+                50
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            660,
+            20
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningSetTimestepRange"
+          },
+          "size": {
+            "0": 235.1999969482422,
+            "1": 82
+          },
+          "type": "ConditioningSetTimestepRange",
+          "widgets_values": [
+            0.4,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 2,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          0.4,
+          1
+        ]
+      },
+      "uid": "28",
+      "widgets": {}
+    },
+    "29": {
+      "class_type": "ConditioningCombine",
+      "id": "29",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 29,
+          "inputs": [
+            {
+              "link": 49,
+              "name": "conditioning_1",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 50,
+              "name": "conditioning_2",
+              "type": "CONDITIONING"
+            }
+          ],
+          "mode": 0,
+          "order": 14,
+          "outputs": [
+            {
+              "links": [
+                51
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            1190,
+            -170
+          ],
+          "properties": {
+            "Node name for S&R": "ConditioningCombine"
+          },
+          "size": {
+            "0": 228.39999389648438,
+            "1": 46
+          },
+          "type": "ConditioningCombine"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "29",
+      "widgets": {}
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 7,
+        "denoise": 1,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "seed": 10,
+        "steps": 20,
+        "unused_widget_1": "fixed"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 1,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 51,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 6,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 2,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 15,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            980,
+            70
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 240,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            10,
+            "fixed",
+            20,
+            7,
+            "dpmpp_2m",
+            "karras",
+            1
+          ]
+        },
+        "control_after_generate": "fixed",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          10,
+          "fixed",
+          20,
+          7,
+          "dpmpp_2m",
+          "karras",
+          1
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "4",
+      "inputs": {
+        "ckpt_name": "v1-5-pruned-emaonly.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 4,
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                1
+              ],
+              "name": "MODEL",
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                3,
+                5,
+                27
+              ],
+              "name": "CLIP",
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [],
+              "name": "VAE",
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            40,
+            60
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 250,
+            "1": 100
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "v1-5-pruned-emaonly.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "v1-5-pruned-emaonly.safetensors"
+        ]
+      },
+      "uid": "4",
+      "widgets": {}
+    },
+    "5": {
+      "class_type": "EmptyLatentImage",
+      "id": "5",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 5,
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                2
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            710,
+            200
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 220,
+            "1": 106
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            512,
+            512,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          512,
+          512,
+          1
+        ]
+      },
+      "uid": "5",
+      "widgets": {
+        "widget_0": 512,
+        "widget_1": 512,
+        "widget_2": 1
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "id": "6",
+      "inputs": {
+        "text": "a serious guy in the park"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#353",
+          "color": "#232",
+          "flags": {},
+          "id": 6,
+          "inputs": [
+            {
+              "link": 3,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                48
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            360,
+            20
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 230,
+            "1": 80
+          },
+          "title": "CLIP Text Encode (Positive)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "a serious guy in the park"
+          ]
+        },
+        "bgcolor": "#353",
+        "color": "#232",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "a serious guy in the park"
+        ]
+      },
+      "uid": "6",
+      "widgets": {}
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "id": "7",
+      "inputs": {
+        "text": "blurry, illustration, naked, text"
+      },
+      "metadata": {
+        "_ui": {
+          "bgcolor": "#533",
+          "color": "#322",
+          "flags": {},
+          "id": 7,
+          "inputs": [
+            {
+              "link": 5,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                6
+              ],
+              "name": "CONDITIONING",
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            360,
+            140
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 230,
+            "1": 80
+          },
+          "title": "CLIP Text Encode (Negative)",
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "blurry, illustration, naked, text"
+          ]
+        },
+        "bgcolor": "#533",
+        "color": "#322",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "blurry, illustration, naked, text"
+        ]
+      },
+      "uid": "7",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 12,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 16,
+          "outputs": [
+            {
+              "links": [
+                9
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1260,
+            70
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 140,
+            "1": 60
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    },
+    "9": {
+      "class_type": "SaveImage",
+      "id": "9",
+      "inputs": {
+        "filename_prefix": "Result"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 9,
+          "inputs": [
+            {
+              "link": 9,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 17,
+          "pos": [
+            1450,
+            70
+          ],
+          "properties": {},
+          "size": {
+            "0": 410,
+            "1": 460
+          },
+          "type": "SaveImage",
+          "widgets_values": [
+            "Result"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Result"
+        ]
+      },
+      "uid": "9",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "9",
+      "output_type": "SaveImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "style_pytorch_model.bin",
+      "v1-5-pruned-emaonly.safetensors",
+      "vae-ft-mse-840000-ema-pruned.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "ce3c888de3cab14a",
+    "path": "/Users/peteromalley/Documents/reigh-workspace/vibecomfy/external_workflows/.shadow/source/ce3c888de3cab14a-timestepping_style_model.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "7cf357a55e5fab055a84853a55c2505ef5a8882ffd166e4305fc2d6ec4ad6d16",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "commit_message": "draft for the image conditioning section",
+      "commit_sha": "2380391ecb28476a2d094e2d934a2e71a30bf973",
+      "commit_url": "https://github.com/cubiq/ComfyUI_Workflows/commit/2380391ecb28476a2d094e2d934a2e71a30bf973",
+      "discovered_at": "2026-06-24T18:46:11+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "github:image_conditioning/experiments/timestepping_style_model.json:timestepping_style_model.json:ce3c888de3cab14a",
+      "filename": "timestepping_style_model.json",
+      "graph_identity_version": 1,
+      "ingested_at": "2026-06-24T18:46:17+00:00",
+      "node_class_multiset": {
+        "CLIPTextEncode": 3,
+        "CLIPVisionEncode": 1,
+        "CLIPVisionLoader": 1,
+        "CheckpointLoaderSimple": 1,
+        "ConditioningCombine": 1,
+        "ConditioningSetTimestepRange": 2,
+        "ConditioningZeroOut": 1,
+        "EmptyLatentImage": 1,
+        "KSampler": 1,
+        "LoadImage": 1,
+        "SaveImage": 1,
+        "StyleModelApply": 1,
+        "StyleModelLoader": 1,
+        "VAEDecode": 1,
+        "VAELoader": 1
+      },
+      "node_count": 18,
+      "origin_date": "2023-09-02T15:14:01Z",
+      "originator_email": "matt3o@gmail.com",
+      "originator_login": "matt3o",
+      "originator_type": "github_commit_author",
+      "repo": "ComfyUI_Workflows",
+      "repo_branch": "main",
+      "repo_path": "image_conditioning/experiments/timestepping_style_model.json",
+      "source": "github",
+      "source_file_sha256": "ce3c888de3cab14a1d8ae1cf2d03d95e0c2baf2698e15812b28ae7c3aef6573c",
+      "source_type": "github_file",
+      "source_url": "https://raw.githubusercontent.com/cubiq/ComfyUI_Workflows/main/image_conditioning/experiments/timestepping_style_model.json",
+      "source_workflow_sha256": "a12dc276a7c090027571d4518744e5ac0c7ac32fe91d3379cf8a8c1d08f17c12",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

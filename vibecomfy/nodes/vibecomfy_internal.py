@@ -1,8 +1,20 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Auto-generated thin wrappers for ComfyUI node classes.
+# vibecomfy:generated
+# pack: vibecomfy_internal
+# source: object_info cache vibecomfy@runpod-snapshot.json sha256:54bfa7fd55cd
+# source_sha256: 17fa357b13f426b373eb06242ce2adc6d526a81759862ef2ab7b2239cb7a06ec
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 1
+#
+# DO NOT EDIT — regenerate with:
+#   vibecomfy nodes generate-wrappers vibecomfy_internal
 
-Regenerate via: python -m tools.generate_node_shims
+"""Auto-generated public wrappers for the vibecomfy_internal custom-node pack.
+
+Each function wraps one ComfyUI node class and delegates through the
+public ``vibecomfy.templates.node`` ABI.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -18,28 +30,30 @@ _UNSET = _Omitted()
 def VibeComfyStripConditioningKeys(
     *args: VibeWorkflow,
     _id: str | None = None,
-    positive: Any | _Omitted = _UNSET,
     negative: Any | _Omitted = _UNSET,
+    positive: Any | _Omitted = _UNSET,
     keys: str | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    VibeComfy Strip Conditioning Keys
+) -> Any:
+    """Public wrapper for the ComfyUI node ``VibeComfyStripConditioningKeys``.
 
-    Pack: vibecomfy
+    Display name: VibeComfy Strip Conditioning Keys
+
+    Category: conditioning/vibecomfy
+
     Returns: positive, negative
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache vibecomfy@runpod-snapshot.json sha256:54bfa7fd55cd
     """
     if len(args) > 1:
         raise TypeError(f"VibeComfyStripConditioningKeys() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if positive is not _UNSET:
-        _kwargs['positive'] = positive
     if negative is not _UNSET:
         _kwargs['negative'] = negative
+    if positive is not _UNSET:
+        _kwargs['positive'] = positive
     if keys is not _UNSET:
         _kwargs['keys'] = keys
     _kwargs.update(_extras)

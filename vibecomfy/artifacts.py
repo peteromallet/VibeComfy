@@ -33,12 +33,17 @@ class Artifact:
         return self.workflow.compile("api")
 
     def run(self, *, runtime: str = "embedded", **kwargs: Any) -> RunResult:
-        from vibecomfy.runtime import run_embedded_sync, run_sync
+        del kwargs
+        if runtime in {"embedded", "server", "external"}:
+            from vibecomfy.workflow_bundle import WorkflowBundleError
 
-        if runtime == "embedded":
-            return run_embedded_sync(self.workflow, **kwargs)
-        if runtime in {"server", "external"}:
-            return run_sync(self.workflow, **kwargs)
+            raise WorkflowBundleError(
+                "Artifact.run cannot execute a bare workflow; execution requires finalizing and approving a candidate "
+                "into an ApprovedProjectionRecord bound to a WorkflowBundle. Next: call "
+                "run_embedded_sync(record, bundle) or run_sync(record, bundle, server_url=...). For raw or legacy sources, run "
+                "`vibecomfy port check <source> --json` then `vibecomfy port convert <source> --out "
+                "out/scratchpads/<name>.py`."
+            )
         raise ValueError(f"Unknown artifact runtime: {runtime}")
 
 

@@ -450,11 +450,44 @@ def _selected_precedent_unknown_class_feedback(
         for diagnostic in diagnostics:
             code = str(getattr(diagnostic, "code", "") or "")
             message = str(getattr(diagnostic, "message", "") or "")
-            if code != "unknown_add_node_class_type":
+            if code not in {"unknown_add_node_class_type", "missing_touched_schema"}:
                 continue
-            for match in re.findall(r"Unknown class_type '([^']+)'", message):
-                if match not in unknown_classes:
-                    unknown_classes.append(match)
+            if code == "missing_touched_schema":
+                statement_detail = getattr(statement, "detail", None)
+                operation = (
+                    statement_detail.get("edit_op")
+                    if isinstance(statement_detail, Mapping)
+                    else None
+                )
+                raw_class_type = (
+                    operation.get("class_type")
+                    if isinstance(operation, Mapping)
+                    else getattr(operation, "class_type", "")
+                )
+                class_type = str(raw_class_type or "").strip()
+                if class_type and class_type not in unknown_classes:
+                    unknown_classes.append(class_type)
+                detail = getattr(diagnostic, "detail", None)
+                evidence_refs = (
+                    detail.get("evidence_refs", ())
+                    if isinstance(detail, Mapping)
+                    else ()
+                )
+                for evidence_ref in evidence_refs:
+                    prefix = "class_type:"
+                    if isinstance(evidence_ref, str) and evidence_ref.startswith(prefix):
+                        class_type = evidence_ref[len(prefix):].strip()
+                        if class_type and class_type not in unknown_classes:
+                            unknown_classes.append(class_type)
+            patterns = (
+                (r"Unknown class_type '([^']+)'",)
+                if code == "unknown_add_node_class_type"
+                else (r"Class '([^']+)'", r"class_type '([^']+)'")
+            )
+            for pattern in patterns:
+                for match in re.findall(pattern, message):
+                    if match not in unknown_classes:
+                        unknown_classes.append(match)
 
     if not unknown_classes:
         return ""

@@ -68,7 +68,7 @@ def build() -> VibeWorkflow:
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     # Loaders
-    cliploader = CLIPLoader(_id='1', clip_name=CLIP_NAME, type_='wan')
+    cliploader = CLIPLoader(_id='1', clip_name=CLIP_NAME, type='wan')
     vaeloader = VAELoader(_id='2', vae_name=VAE_NAME)
     clipvisionloader = CLIPVisionLoader(_id='3', clip_name=CLIP_NAME_2)
 

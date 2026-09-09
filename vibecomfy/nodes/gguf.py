@@ -1,8 +1,20 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Auto-generated thin wrappers for ComfyUI node classes.
+# vibecomfy:generated
+# pack: gguf
+# source: object_info cache ComfyUI-GGUF@local-6ea2651.json sha256:a4cc46702e38
+# source_sha256: 9cbe636a73102fb56d60bacfa3b81696238242b147e0de017cfa758c9077e531
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 2
+#
+# DO NOT EDIT — regenerate with:
+#   vibecomfy nodes generate-wrappers gguf
 
-Regenerate via: python -m tools.generate_node_shims
+"""Auto-generated public wrappers for the gguf custom-node pack.
+
+Each function wraps one ComfyUI node class and delegates through the
+public ``vibecomfy.templates.node`` ABI.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -18,30 +30,19 @@ _UNSET = _Omitted()
 def DualCLIPLoaderGGUF(
     *args: VibeWorkflow,
     _id: str | None = None,
-    clip_name1: Any | _Omitted = _UNSET,
-    clip_name2: Any | _Omitted = _UNSET,
-    type_: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    DualCLIPLoaderGGUF
+) -> Any:
+    """Public wrapper for the ComfyUI node ``DualCLIPLoaderGGUF``.
 
-    Pack: ComfyUI-GGUF
     Returns: None
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-GGUF@local-6ea2651.json sha256:a4cc46702e38
     """
     if len(args) > 1:
         raise TypeError(f"DualCLIPLoaderGGUF() takes at most 1 positional argument, got {len(args)}")
     wf = args[0] if args else _current_workflow_or_raise()
     _kwargs: dict[str, Any] = {}
-    if clip_name1 is not _UNSET:
-        _kwargs['clip_name1'] = clip_name1
-    if clip_name2 is not _UNSET:
-        _kwargs['clip_name2'] = clip_name2
-    if type_ is not _UNSET:
-        _kwargs['type'] = type_
     _kwargs.update(_extras)
     return node(wf, 'DualCLIPLoaderGGUF', _id, pass_raw=pass_raw, **_kwargs)
 
@@ -51,14 +52,14 @@ def UnetLoaderGGUF(
     unet_name: Any | _Omitted = _UNSET,
     pass_raw: bool = False,
     **_extras: Any,
-):
-    """
-    UnetLoaderGGUF
+) -> Any:
+    """Public wrapper for the ComfyUI node ``UnetLoaderGGUF``.
 
-    Pack: ComfyUI-GGUF
+    Category: bootleg
+
     Returns: MODEL
 
-    Use inside a `with new_workflow(...) as wf:` block, or pass wf explicitly.
+    Source: object_info cache ComfyUI-GGUF@local-6ea2651.json sha256:a4cc46702e38
     """
     if len(args) > 1:
         raise TypeError(f"UnetLoaderGGUF() takes at most 1 positional argument, got {len(args)}")

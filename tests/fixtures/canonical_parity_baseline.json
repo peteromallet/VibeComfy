@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-29T23:38:30+00:00",
+  "generated_at": "2026-09-07T03:12:16+00:00",
   "generated_from": "repo-only buildable non-manual ready_templates canonical compile output",
   "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' ! -name '__init__.py', exclude '# vibecomfy: manual', and include templates whose build() compiles to API",
   "template_count": 64,
@@ -3319,11 +3319,11 @@
     {
       "id": "image/z_image",
       "path": "ready_templates/image/z_image.py",
-      "sha256": "a64f8cd6adeee88ab344485425506b0339729d9cb8ca55f26a8dcd9e2ef48975",
+      "sha256": "8e7c70d82c7ca465cff6cf7f0912b408a05ae51c1eadf8b979ca3394f3393191",
       "canonical_form": {
         "nodes": [
           {
-            "label": "3b3551bcb31c",
+            "label": "5db4900510ed",
             "class_type": "CLIPLoader",
             "inputs": {
               "clip_name": "qwen_3_4b.safetensors",
@@ -3331,106 +3331,110 @@
             }
           },
           {
-            "label": "506352be174c",
+            "label": "893ad4126275",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "3b3551bcb31c",
+                "5db4900510ed",
                 0
               ],
               "text": ""
             }
           },
           {
-            "label": "5d3ecaeb3314",
+            "label": "379270a08e0c",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "3b3551bcb31c",
+                "5db4900510ed",
                 0
               ],
               "text": "A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation."
             }
           },
           {
-            "label": "cdfc97fb966d",
+            "label": "b558665032df",
             "class_type": "EmptySD3LatentImage",
             "inputs": {
+              "batch_size": 1,
               "height": 1024,
               "width": 1024
             }
           },
           {
-            "label": "c3c47d5352b7",
+            "label": "1872cf6e4003",
             "class_type": "KSampler",
             "inputs": {
               "cfg": 4,
+              "denoise": 1,
               "latent_image": [
-                "cdfc97fb966d",
+                "b558665032df",
                 0
               ],
               "model": [
-                "648358329fa8",
+                "1655adbf0fd8",
                 0
               ],
               "negative": [
-                "506352be174c",
+                "893ad4126275",
                 0
               ],
               "positive": [
-                "5d3ecaeb3314",
+                "379270a08e0c",
                 0
               ],
               "sampler_name": "res_multistep",
+              "scheduler": "simple",
               "seed": 770044821593082,
               "steps": 25
             }
           },
           {
-            "label": "648358329fa8",
+            "label": "1655adbf0fd8",
             "class_type": "ModelSamplingAuraFlow",
             "inputs": {
               "model": [
-                "b4c7594b6683",
+                "c2d5adcd4505",
                 0
               ],
               "shift": 3
             }
           },
           {
-            "label": "afc555883295",
+            "label": "8dcdb1e86d1d",
             "class_type": "SaveImage",
             "inputs": {
               "filename_prefix": "z-image",
               "images": [
-                "0f4965b7915d",
+                "cbaea61a14e8",
                 0
               ]
             }
           },
           {
-            "label": "b4c7594b6683",
+            "label": "c2d5adcd4505",
             "class_type": "UNETLoader",
             "inputs": {
-              "unet_name": "z_image_bf16.safetensors"
+              "unet_name": "z_image_bf16.safetensors",
+              "weight_dtype": "default"
             }
           },
           {
-            "label": "0f4965b7915d",
+            "label": "cbaea61a14e8",
             "class_type": "VAEDecode",
             "inputs": {
               "samples": [
-                "c3c47d5352b7",
+                "1872cf6e4003",
                 0
               ],
               "vae": [
-                "20db8266c72e",
+                "4b4029a2a05f",
                 0
               ]
             }
           },
           {
-            "label": "20db8266c72e",
+            "label": "4b4029a2a05f",
             "class_type": "VAELoader",
             "inputs": {
               "vae_name": "ae.safetensors"
@@ -9503,118 +9507,119 @@
     {
       "id": "video/ltx2_3_lightricks_iclora_hdr",
       "path": "ready_templates/video/ltx2_3_lightricks_iclora_hdr.py",
-      "sha256": "3b0a5cadeadfe746864785b93972cbf8e5b83bc83cab7ca37dc24624b89e2e72",
+      "sha256": "945b4de083804a106d14a6359c8cc1dc74f25dc3142f218e165d8f86114ff15f",
       "canonical_form": {
         "nodes": [
           {
-            "label": "eb4051d64a01",
+            "label": "68a6cfbea85b",
             "class_type": "CFGGuider",
             "inputs": {
               "cfg": 1,
               "model": [
-                "7aff4558f437",
+                "c9487b811a15",
                 0
               ],
               "negative": [
-                "5044b5bbdfbf",
+                "67d585b91ae3",
                 1
               ],
               "positive": [
-                "5044b5bbdfbf",
+                "67d585b91ae3",
                 0
               ]
             }
           },
           {
-            "label": "2ba010465120",
+            "label": "c49fdbcd5fa0",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "c45c42c7e470",
+                "cc0357ce275d",
                 0
               ],
               "text": "HDR footage"
             }
           },
           {
-            "label": "d7c1b4bfa90d",
+            "label": "80e875ecceb8",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "c45c42c7e470",
+                "cc0357ce275d",
                 0
               ],
               "text": "pc game, console game, video game, ugly, still, static, slow"
             }
           },
           {
-            "label": "09b0a3672a8d",
+            "label": "4c7822f8eb55",
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
               "ckpt_name": "ltx-2.3-22b-dev.safetensors"
             }
           },
           {
-            "label": "4b54e00c6f40",
+            "label": "f828767349f0",
             "class_type": "CreateVideo",
             "inputs": {
               "audio": [
-                "ead878cb9fc2",
+                "28de87b25cbc",
                 1
               ],
+              "fps": 30,
               "images": [
-                "c1c0d1659eae",
+                "97f8a9fe056a",
                 1
               ]
             }
           },
           {
-            "label": "3336508499fe",
+            "label": "ad1edde52ce5",
             "class_type": "EmptyLTXVLatentVideo",
             "inputs": {
               "height": [
-                "1072c587c4c0",
+                "4225c9a10836",
                 1
               ],
               "length": [
-                "1072c587c4c0",
+                "4225c9a10836",
                 2
               ],
               "width": [
-                "1072c587c4c0",
+                "4225c9a10836",
                 0
               ]
             }
           },
           {
-            "label": "1072c587c4c0",
+            "label": "4225c9a10836",
             "class_type": "GetImageSize",
             "inputs": {
               "image": [
-                "839f0ab25672",
+                "d00c078a756b",
                 0
               ]
             }
           },
           {
-            "label": "ead878cb9fc2",
+            "label": "28de87b25cbc",
             "class_type": "GetVideoComponents",
             "inputs": {
               "video": [
-                "f6a654ad1832",
+                "5aae9d159c26",
                 0
               ]
             }
           },
           {
-            "label": "29d8fc83943f",
+            "label": "f4fc8725f1c6",
             "class_type": "KSamplerSelect",
             "inputs": {
               "sampler_name": "euler_ancestral"
             }
           },
           {
-            "label": "c45c42c7e470",
+            "label": "cc0357ce275d",
             "class_type": "LTXAVTextEncoderLoader",
             "inputs": {
               "ckpt_name": "ltx-2.3-22b-dev.safetensors",
@@ -9623,99 +9628,99 @@
             }
           },
           {
-            "label": "5044b5bbdfbf",
+            "label": "67d585b91ae3",
             "class_type": "LTXAddVideoICLoRAGuide",
             "inputs": {
               "crop": 1,
               "image": [
-                "839f0ab25672",
+                "d00c078a756b",
                 0
               ],
               "latent": [
-                "3336508499fe",
+                "ad1edde52ce5",
                 0
               ],
               "negative": [
-                "93ed6f8f8785",
+                "8e0f8d42c85a",
                 1
               ],
               "positive": [
-                "93ed6f8f8785",
+                "8e0f8d42c85a",
                 0
               ],
               "use_tiled_encode": "disabled",
               "vae": [
-                "09b0a3672a8d",
+                "4c7822f8eb55",
                 2
               ]
             }
           },
           {
-            "label": "9d79c4364f52",
+            "label": "9b728b3d2257",
             "class_type": "LTXICLoRALoaderModelOnly",
             "inputs": {
               "lora_name": "ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
               "model": [
-                "09b0a3672a8d",
+                "4c7822f8eb55",
                 0
               ],
               "strength_model": 0.5
             }
           },
           {
-            "label": "7aff4558f437",
+            "label": "c9487b811a15",
             "class_type": "LTXICLoRALoaderModelOnly",
             "inputs": {
               "lora_name": "ltxv/ltx2/ltx-2.3-22b-ic-lora-hdr-0.9.safetensors",
               "model": [
-                "9d79c4364f52",
+                "9b728b3d2257",
                 0
               ]
             }
           },
           {
-            "label": "93ed6f8f8785",
+            "label": "8e0f8d42c85a",
             "class_type": "LTXVConditioning",
             "inputs": {
               "frame_rate": [
-                "ead878cb9fc2",
+                "28de87b25cbc",
                 2
               ],
               "negative": [
-                "d7c1b4bfa90d",
+                "80e875ecceb8",
                 0
               ],
               "positive": [
-                "2ba010465120",
+                "c49fdbcd5fa0",
                 0
               ]
             }
           },
           {
-            "label": "2c00dcd8abf1",
+            "label": "082e93f6daa4",
             "class_type": "LTXVCropGuides",
             "inputs": {
               "latent": [
-                "de18d072c27b",
+                "c866d4eee51e",
                 0
               ],
               "negative": [
-                "5044b5bbdfbf",
+                "67d585b91ae3",
                 1
               ],
               "positive": [
-                "5044b5bbdfbf",
+                "67d585b91ae3",
                 0
               ]
             }
           },
           {
-            "label": "c1c0d1659eae",
+            "label": "97f8a9fe056a",
             "class_type": "LTXVHDRDecodePostprocess",
             "inputs": {
               "exposure": 7.1,
               "image": [
-                "9f577e434910",
+                "52ae2442f459",
                 0
               ],
               "output_dir": "output/hdr_exr3",
@@ -9723,104 +9728,104 @@
             }
           },
           {
-            "label": "f6a654ad1832",
+            "label": "5aae9d159c26",
             "class_type": "LoadVideo",
             "inputs": {
               "file": "hdr_input_video (1).mp4"
             }
           },
           {
-            "label": "cae67e4c9b1f",
+            "label": "a0463bbfbb37",
             "class_type": "ManualSigmas",
             "inputs": {
               "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
             }
           },
           {
-            "label": "77d0e3f0b264",
+            "label": "062636e5490e",
             "class_type": "RandomNoise",
             "inputs": {
               "noise_seed": 42
             }
           },
           {
-            "label": "839f0ab25672",
+            "label": "d00c078a756b",
             "class_type": "ResizeImageMaskNode",
             "inputs": {
               "input": [
-                "ead878cb9fc2",
+                "28de87b25cbc",
                 0
               ],
               "resize_type": "scale to multiple",
               "resize_type.multiple": [
-                "eabac55c821b",
+                "3fdcdc5f1311",
                 0
               ],
               "scale_method": "lanczos"
             }
           },
           {
-            "label": "de18d072c27b",
+            "label": "c866d4eee51e",
             "class_type": "SamplerCustomAdvanced",
             "inputs": {
               "guider": [
-                "eb4051d64a01",
+                "68a6cfbea85b",
                 0
               ],
               "latent_image": [
-                "5044b5bbdfbf",
+                "67d585b91ae3",
                 2
               ],
               "noise": [
-                "77d0e3f0b264",
+                "062636e5490e",
                 0
               ],
               "sampler": [
-                "29d8fc83943f",
+                "f4fc8725f1c6",
                 0
               ],
               "sigmas": [
-                "cae67e4c9b1f",
+                "a0463bbfbb37",
                 0
               ]
             }
           },
           {
-            "label": "a4a4ccd25ea0",
+            "label": "4de455569b6a",
             "class_type": "SaveVideo",
             "inputs": {
               "filename_prefix": "output",
               "video": [
-                "4b54e00c6f40",
+                "f828767349f0",
                 0
               ]
             }
           },
           {
-            "label": "eabac55c821b",
+            "label": "3fdcdc5f1311",
             "class_type": "SimpleMath+",
             "inputs": {
               "a": [
-                "7aff4558f437",
+                "c9487b811a15",
                 1
               ],
               "value": "a*32"
             }
           },
           {
-            "label": "9f577e434910",
+            "label": "52ae2442f459",
             "class_type": "VAEDecodeTiled",
             "inputs": {
               "overlap": 256,
               "samples": [
-                "2c00dcd8abf1",
+                "082e93f6daa4",
                 2
               ],
               "temporal_overlap": 4,
               "temporal_size": 8,
               "tile_size": 768,
               "vae": [
-                "09b0a3672a8d",
+                "4c7822f8eb55",
                 2
               ]
             }
@@ -19246,41 +19251,40 @@
     {
       "id": "video/ltx2_3_runexx_talking_avatar_qwen_tts",
       "path": "ready_templates/video/ltx2_3_runexx_talking_avatar_qwen_tts.py",
-      "sha256": "cd9e8fa9b29d30755b4ae9a87c3cc04c133c99f40de5b082070638184b496111",
+      "sha256": "ef3cb4dd6a67316023e35638699d8f61a2301ff5d903157fee2fa21b2d8df7f5",
       "canonical_form": {
         "nodes": [
           {
-            "label": "9e75c94483b0",
+            "label": "a0ad44b66621",
             "class_type": "AILab_Qwen3TTSVoiceClone",
             "inputs": {
               "reference_audio": [
-                "491a3c139f3e",
+                "4c626a64c333",
                 0
               ],
-              "seed": "randomize",
+              "seed": 986337553816914,
               "target_text": "So what if you just want to prompt. Text to video works fine as well. Go generate some while I enjoy my coffee. ",
-              "unload_models": 116899311982882,
-              "voice": 986337553816914,
+              "unload_models": true,
               "x_vector_only": true
             }
           },
           {
-            "label": "f4e02b447621",
+            "label": "0e78e953c9de",
             "class_type": "Audio Duration (mtb)",
             "inputs": {
               "audio": [
-                "3295208f5a25",
+                "518c70e95fb3",
                 0
               ]
             }
           },
           {
-            "label": "3295208f5a25",
+            "label": "518c70e95fb3",
             "class_type": "AudioEnhancementNode",
             "inputs": {
               "apply_to": "full_track",
               "audio": [
-                "c7a7a08537b6",
+                "223135bf5141",
                 0
               ],
               "bass_boost": 1,
@@ -19299,12 +19303,12 @@
             }
           },
           {
-            "label": "c7a7a08537b6",
+            "label": "223135bf5141",
             "class_type": "AudioNormalizeLUFS",
             "inputs": {
               "apply_to": "full_track",
               "audio": [
-                "9e75c94483b0",
+                "a0ad44b66621",
                 0
               ],
               "end_time": 0,
@@ -19505,11 +19509,11 @@
             }
           },
           {
-            "label": "5e1c17e9e8dc",
+            "label": "1516610bfd68",
             "class_type": "LTXVAudioVAEDecode",
             "inputs": {
               "audio_vae": [
-                "923f273f1639",
+                "6f1f64db26fa",
                 0
               ],
               "samples": [
@@ -19519,21 +19523,21 @@
             }
           },
           {
-            "label": "1a08e9f1f6f3",
+            "label": "fc676ae309e9",
             "class_type": "LTXVAudioVAEEncode",
             "inputs": {
               "audio": [
-                "3295208f5a25",
+                "518c70e95fb3",
                 0
               ],
               "audio_vae": [
-                "923f273f1639",
+                "6f1f64db26fa",
                 0
               ]
             }
           },
           {
-            "label": "923f273f1639",
+            "label": "6f1f64db26fa",
             "class_type": "LTXVAudioVAELoader",
             "inputs": {
               "ckpt_name": "LTX23_audio_vae_bf16_KJ.safetensors"
@@ -19550,11 +19554,11 @@
             }
           },
           {
-            "label": "7c5eb23e2d49",
+            "label": "23467ef7e558",
             "class_type": "LTXVConcatAVLatent",
             "inputs": {
               "audio_latent": [
-                "28fd5e55e3a3",
+                "47231ca71637",
                 0
               ],
               "video_latent": [
@@ -19703,7 +19707,7 @@
             "inputs": {
               "on_false": 241,
               "on_true": [
-                "f344c38b5680",
+                "67683d3af527",
                 1
               ],
               "switch": [
@@ -19713,7 +19717,7 @@
             }
           },
           {
-            "label": "64c5e97727a4",
+            "label": "838934bc60d6",
             "class_type": "LoadAudio",
             "inputs": {
               "audio": "d1b26d5a32db420183fa17af9c699278.mp3"
@@ -19753,22 +19757,22 @@
             }
           },
           {
-            "label": "d44ab79b0244",
+            "label": "7d260d224529",
             "class_type": "MelBandRoFormerModelLoader",
             "inputs": {
               "model": "MelBandRoformer/MelBandRoformer_fp16.safetensors"
             }
           },
           {
-            "label": "491a3c139f3e",
+            "label": "4c626a64c333",
             "class_type": "MelBandRoFormerSampler",
             "inputs": {
               "audio": [
-                "8400b78893c2",
+                "27e8e4c298f4",
                 0
               ],
               "model": [
-                "d44ab79b0244",
+                "7d260d224529",
                 0
               ]
             }
@@ -19795,11 +19799,11 @@
             }
           },
           {
-            "label": "3020a1b6855f",
+            "label": "646f5736957b",
             "class_type": "PreviewAudio",
             "inputs": {
               "audio": [
-                "3295208f5a25",
+                "518c70e95fb3",
                 0
               ]
             }
@@ -19864,7 +19868,7 @@
                 0
               ],
               "latent_image": [
-                "7c5eb23e2d49",
+                "23467ef7e558",
                 0
               ],
               "noise": [
@@ -19882,26 +19886,26 @@
             }
           },
           {
-            "label": "28fd5e55e3a3",
+            "label": "47231ca71637",
             "class_type": "SetLatentNoiseMask",
             "inputs": {
               "mask": [
-                "2de4d2c38383",
+                "1eb10843a5be",
                 0
               ],
               "samples": [
-                "1a08e9f1f6f3",
+                "fc676ae309e9",
                 0
               ]
             }
           },
           {
-            "label": "f344c38b5680",
+            "label": "67683d3af527",
             "class_type": "SimpleCalculatorKJ",
             "inputs": {
               "expression": "((round((a * b -1) / 8)) * 8) + 1 ",
               "variables.a": [
-                "b9aa601d04aa",
+                "dce55cbe0e28",
                 1
               ],
               "variables.b": 24.0
@@ -19914,24 +19918,24 @@
               "expression": "a<b ",
               "variables.a": 241,
               "variables.b": [
-                "f344c38b5680",
+                "67683d3af527",
                 1
               ]
             }
           },
           {
-            "label": "b9aa601d04aa",
+            "label": "dce55cbe0e28",
             "class_type": "SimpleCalculatorKJ",
             "inputs": {
               "expression": "ceil(a/1000)",
               "variables.a": [
-                "f4e02b447621",
+                "0e78e953c9de",
                 0
               ]
             }
           },
           {
-            "label": "2de4d2c38383",
+            "label": "1eb10843a5be",
             "class_type": "SolidMask",
             "inputs": {
               "height": [
@@ -19973,11 +19977,11 @@
             }
           },
           {
-            "label": "8400b78893c2",
+            "label": "27e8e4c298f4",
             "class_type": "TrimAudioDuration",
             "inputs": {
               "audio": [
-                "64c5e97727a4",
+                "838934bc60d6",
                 0
               ],
               "duration": 15
@@ -20024,7 +20028,7 @@
             "class_type": "VHS_VideoCombine",
             "inputs": {
               "audio": [
-                "5e1c17e9e8dc",
+                "1516610bfd68",
                 0
               ],
               "crf": 19,
@@ -22244,175 +22248,183 @@
     {
       "id": "video/wan_i2v",
       "path": "ready_templates/video/wan_i2v.py",
-      "sha256": "3f8271244c2173a75806b1b3c36aa5ac2072ba9830d7d030b06fb7bb1f456a41",
+      "sha256": "e48c1ed6c2c75675649fb1ed1f3705592190f507f30fc33d6a5873c9590f82ab",
       "canonical_form": {
         "nodes": [
           {
-            "label": "c61b6828e8bd",
+            "label": "c5661fc6bb6b",
             "class_type": "CLIPLoader",
             "inputs": {
               "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+              "device": "default",
               "type": "wan"
             }
           },
           {
-            "label": "2ae446b6bd79",
+            "label": "8692540a2ea7",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "c61b6828e8bd",
+                "c5661fc6bb6b",
                 0
               ],
               "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
             }
           },
           {
-            "label": "3704968eaa16",
+            "label": "1707b8153114",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "c61b6828e8bd",
+                "c5661fc6bb6b",
                 0
               ],
               "text": "a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around"
             }
           },
           {
-            "label": "836fe30e5518",
+            "label": "9240a7bda75d",
             "class_type": "CLIPVisionEncode",
             "inputs": {
               "clip_vision": [
-                "e1efa87c6ee5",
+                "59ba85ade03a",
                 0
               ],
               "crop": "none",
               "image": [
-                "57a091e515b1",
+                "6ecf68611ecc",
                 0
               ]
             }
           },
           {
-            "label": "e1efa87c6ee5",
+            "label": "59ba85ade03a",
             "class_type": "CLIPVisionLoader",
             "inputs": {
               "clip_name": "clip_vision_h.safetensors"
             }
           },
           {
-            "label": "b6c386038a94",
+            "label": "769e410750e4",
             "class_type": "CreateVideo",
             "inputs": {
               "fps": 16,
               "images": [
-                "fce1231a9b26",
+                "0a4c94028ee6",
                 0
               ]
             }
           },
           {
-            "label": "de27c3fff4d0",
+            "label": "15ebf69bda71",
             "class_type": "KSampler",
             "inputs": {
               "cfg": 6,
+              "denoise": 1,
               "latent_image": [
-                "19e8c2029453",
+                "895dc71f0b31",
                 2
               ],
               "model": [
-                "a48b8bb587f0",
+                "d53e6b1640d2",
                 0
               ],
               "negative": [
-                "19e8c2029453",
+                "895dc71f0b31",
                 1
               ],
               "positive": [
-                "19e8c2029453",
+                "895dc71f0b31",
                 0
               ],
               "sampler_name": "uni_pc",
-              "seed": 987948718394761
+              "scheduler": "simple",
+              "seed": 987948718394761,
+              "steps": 20
             }
           },
           {
-            "label": "57a091e515b1",
+            "label": "6ecf68611ecc",
             "class_type": "LoadImage",
             "inputs": {
               "image": "image_to_video_wan_start_image.png"
             }
           },
           {
-            "label": "a48b8bb587f0",
+            "label": "d53e6b1640d2",
             "class_type": "ModelSamplingSD3",
             "inputs": {
               "model": [
-                "7befc455410a",
+                "ee167c961778",
                 0
               ],
               "shift": 8
             }
           },
           {
-            "label": "6ffa1a97b950",
+            "label": "e1fb65f3143a",
             "class_type": "SaveVideo",
             "inputs": {
+              "codec": "auto",
+              "filename_prefix": "video/ComfyUI",
+              "format": "auto",
               "video": [
-                "b6c386038a94",
+                "769e410750e4",
                 0
               ]
             }
           },
           {
-            "label": "7befc455410a",
+            "label": "ee167c961778",
             "class_type": "UNETLoader",
             "inputs": {
-              "unet_name": "wan2.1_i2v_480p_14B_fp16.safetensors"
+              "unet_name": "wan2.1_i2v_480p_14B_fp16.safetensors",
+              "weight_dtype": "default"
             }
           },
           {
-            "label": "fce1231a9b26",
+            "label": "0a4c94028ee6",
             "class_type": "VAEDecode",
             "inputs": {
               "samples": [
-                "de27c3fff4d0",
+                "15ebf69bda71",
                 0
               ],
               "vae": [
-                "122fde9a0f07",
+                "0d8467f80a22",
                 0
               ]
             }
           },
           {
-            "label": "122fde9a0f07",
+            "label": "0d8467f80a22",
             "class_type": "VAELoader",
             "inputs": {
               "vae_name": "wan_2.1_vae.safetensors"
             }
           },
           {
-            "label": "19e8c2029453",
+            "label": "895dc71f0b31",
             "class_type": "WanImageToVideo",
             "inputs": {
               "clip_vision_output": [
-                "836fe30e5518",
+                "9240a7bda75d",
                 0
               ],
               "negative": [
-                "2ae446b6bd79",
+                "8692540a2ea7",
                 0
               ],
               "positive": [
-                "3704968eaa16",
+                "1707b8153114",
                 0
               ],
               "start_image": [
-                "57a091e515b1",
+                "6ecf68611ecc",
                 0
               ],
               "vae": [
-                "122fde9a0f07",
+                "0d8467f80a22",
                 0
               ],
               "widget_0": 512,
@@ -22427,11 +22439,11 @@
     {
       "id": "video/wan_t2v",
       "path": "ready_templates/video/wan_t2v.py",
-      "sha256": "8308564d9e9ad164118086d4b501e819fb2eaadda41657c38c3e0f699565ab0d",
+      "sha256": "2a8efa1f9087589c3192381f00f536c6e8e5f102941da42e6afcc3c167f75929",
       "canonical_form": {
         "nodes": [
           {
-            "label": "33ad22f506c6",
+            "label": "610c4f175d24",
             "class_type": "CLIPLoader",
             "inputs": {
               "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
@@ -22439,65 +22451,66 @@
             }
           },
           {
-            "label": "69f675eb4594",
+            "label": "413c8af2401b",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "33ad22f506c6",
+                "610c4f175d24",
                 0
               ],
               "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70"
             }
           },
           {
-            "label": "d3b9d899e4b4",
+            "label": "603a115b2b5e",
             "class_type": "CLIPTextEncode",
             "inputs": {
               "clip": [
-                "33ad22f506c6",
+                "610c4f175d24",
                 0
               ],
               "text": "a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera"
             }
           },
           {
-            "label": "2c00e93adbba",
+            "label": "ac970ecffcca",
             "class_type": "CreateVideo",
             "inputs": {
               "fps": 16,
               "images": [
-                "ecc6c738f216",
+                "2c96899c04b8",
                 0
               ]
             }
           },
           {
-            "label": "7005dc02fb47",
+            "label": "aed56f8f94e6",
             "class_type": "EmptyHunyuanLatentVideo",
             "inputs": {
+              "height": 480,
               "length": 33,
               "width": 832
             }
           },
           {
-            "label": "21b1be19788c",
+            "label": "51be4bd29ed4",
             "class_type": "KSampler",
             "inputs": {
               "cfg": 6,
               "latent_image": [
-                "7005dc02fb47",
+                "aed56f8f94e6",
                 0
               ],
               "model": [
-                "8781eb3beb61",
+                "061870bc9922",
                 0
               ],
               "negative": [
-                "69f675eb4594",
+                "413c8af2401b",
                 0
               ],
               "positive": [
-                "d3b9d899e4b4",
+                "603a115b2b5e",
                 0
               ],
               "sampler_name": "uni_pc",
@@ -22506,49 +22519,49 @@
             }
           },
           {
-            "label": "8781eb3beb61",
+            "label": "061870bc9922",
             "class_type": "ModelSamplingSD3",
             "inputs": {
               "model": [
-                "3acd1a98a2ee",
+                "e5bae497f715",
                 0
               ],
               "shift": 8
             }
           },
           {
-            "label": "3dd9fe6e1556",
+            "label": "730fec81e9be",
             "class_type": "SaveVideo",
             "inputs": {
               "video": [
-                "2c00e93adbba",
+                "ac970ecffcca",
                 0
               ]
             }
           },
           {
-            "label": "3acd1a98a2ee",
+            "label": "e5bae497f715",
             "class_type": "UNETLoader",
             "inputs": {
               "unet_name": "wan2.1_t2v_1.3B_fp16.safetensors"
             }
           },
           {
-            "label": "ecc6c738f216",
+            "label": "2c96899c04b8",
             "class_type": "VAEDecode",
             "inputs": {
               "samples": [
-                "21b1be19788c",
+                "51be4bd29ed4",
                 0
               ],
               "vae": [
-                "6cd618ce3a30",
+                "07b07a2a16bd",
                 0
               ]
             }
           },
           {
-            "label": "6cd618ce3a30",
+            "label": "07b07a2a16bd",
             "class_type": "VAELoader",
             "inputs": {
               "vae_name": "wan_2.1_vae.safetensors"

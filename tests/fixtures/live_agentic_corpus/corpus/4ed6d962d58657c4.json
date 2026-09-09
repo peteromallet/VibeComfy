@@ -1,0 +1,1960 @@
+{
+  "edges": [
+    {
+      "from_node": "3",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "8"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "8"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "21"
+    },
+    {
+      "from_node": "17",
+      "from_output": "0",
+      "to_input": "samples",
+      "to_node": "20"
+    },
+    {
+      "from_node": "16",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "20"
+    },
+    {
+      "from_node": "8",
+      "from_output": "0",
+      "to_input": "images",
+      "to_node": "10"
+    },
+    {
+      "from_node": "16",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "19"
+    },
+    {
+      "from_node": "23",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "17"
+    },
+    {
+      "from_node": "18",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "17"
+    },
+    {
+      "from_node": "19",
+      "from_output": "0",
+      "to_input": "negative",
+      "to_node": "17"
+    },
+    {
+      "from_node": "22",
+      "from_output": "0",
+      "to_input": "latent_image",
+      "to_node": "17"
+    },
+    {
+      "from_node": "23",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "18"
+    },
+    {
+      "from_node": "14",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "0",
+      "to_input": "positive",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "1",
+      "to_input": "negative",
+      "to_node": "3"
+    },
+    {
+      "from_node": "12",
+      "from_output": "2",
+      "to_input": "latent_image",
+      "to_node": "3"
+    },
+    {
+      "from_node": "15",
+      "from_output": "1",
+      "to_input": "clip_vision",
+      "to_node": "12"
+    },
+    {
+      "from_node": "20",
+      "from_output": "0",
+      "to_input": "init_image",
+      "to_node": "12"
+    },
+    {
+      "from_node": "15",
+      "from_output": "2",
+      "to_input": "vae",
+      "to_node": "12"
+    },
+    {
+      "from_node": "16",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "23"
+    },
+    {
+      "from_node": "16",
+      "from_output": "1",
+      "to_input": "clip",
+      "to_node": "23"
+    },
+    {
+      "from_node": "15",
+      "from_output": "0",
+      "to_input": "model",
+      "to_node": "14"
+    }
+  ],
+  "groups": [],
+  "id": "717439b98f999a17",
+  "inputs": {
+    "model": {
+      "aliases": [],
+      "default": null,
+      "field": "ckpt_name",
+      "media_semantics": null,
+      "name": "model",
+      "node_id": "16",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "starlightXLAnimated_v3.safetensors"
+    },
+    "prompt": {
+      "aliases": [],
+      "default": null,
+      "field": "text",
+      "media_semantics": null,
+      "name": "prompt",
+      "node_id": "19",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": "double letters, repeating letters, more than 8 letters"
+    },
+    "seed": {
+      "aliases": [],
+      "default": null,
+      "field": "seed",
+      "media_semantics": null,
+      "name": "seed",
+      "node_id": "17",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 120915972863565
+    },
+    "steps": {
+      "aliases": [],
+      "default": null,
+      "field": "steps",
+      "media_semantics": null,
+      "name": "steps",
+      "node_id": "17",
+      "range": null,
+      "required": false,
+      "type": null,
+      "value": 22
+    }
+  },
+  "metadata": {
+    "_ingest_snapshot": {
+      "10": {
+        "class_type": "SaveAnimatedWEBP",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "8",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'sdvid/vid'"
+          ],
+          [
+            "widget_1",
+            "10"
+          ],
+          [
+            "widget_2",
+            "False"
+          ],
+          [
+            "widget_3",
+            "85"
+          ],
+          [
+            "widget_4",
+            "'default'"
+          ],
+          [
+            "widget_5",
+            "None"
+          ]
+        ]
+      },
+      "12": {
+        "class_type": "SVD_img2vid_Conditioning",
+        "incoming_edge_sig": [
+          [
+            "clip_vision",
+            [
+              "15",
+              "1"
+            ]
+          ],
+          [
+            "init_image",
+            [
+              "20",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "positive"
+            ]
+          ],
+          [
+            "1",
+            [
+              "3",
+              "negative"
+            ]
+          ],
+          [
+            "2",
+            [
+              "3",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "25"
+          ],
+          [
+            "widget_3",
+            "50"
+          ],
+          [
+            "widget_4",
+            "6"
+          ],
+          [
+            "widget_5",
+            "0"
+          ]
+        ]
+      },
+      "14": {
+        "class_type": "VideoLinearCFGGuidance",
+        "incoming_edge_sig": [
+          [
+            "model",
+            [
+              "15",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "3",
+              "model"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "3"
+          ]
+        ]
+      },
+      "15": {
+        "class_type": "ImageOnlyCheckpointLoader",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "14",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "12",
+              "clip_vision"
+            ]
+          ],
+          [
+            "2",
+            [
+              "12",
+              "vae"
+            ]
+          ],
+          [
+            "2",
+            [
+              "8",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'svd_xt.safetensors'"
+          ]
+        ]
+      },
+      "16": {
+        "class_type": "CheckpointLoaderSimple",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "23",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "19",
+              "clip"
+            ]
+          ],
+          [
+            "1",
+            [
+              "23",
+              "clip"
+            ]
+          ],
+          [
+            "2",
+            [
+              "20",
+              "vae"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "model",
+            "ckpt_name"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "ckpt_name",
+            "'starlightXLAnimated_v3.safetensors'"
+          ]
+        ]
+      },
+      "17": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "22",
+              "0"
+            ]
+          ],
+          [
+            "model",
+            [
+              "23",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "19",
+              "0"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "18",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "20",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "seed",
+            "seed"
+          ],
+          [
+            "steps",
+            "steps"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "4.5"
+          ],
+          [
+            "denoise",
+            "1"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'normal'"
+          ],
+          [
+            "seed",
+            "120915972863565"
+          ],
+          [
+            "steps",
+            "22"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "18": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "23",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "positive"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "text",
+            "'HarroweD text logo, dripping blood, dreadful hellscape, disturbing future, secret underworld, eerie, Surreal, ethereal, dreadful, mysterious, creepy, highly detailed, '"
+          ]
+        ]
+      },
+      "19": {
+        "class_type": "CLIPTextEncode",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "16",
+              "1"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "negative"
+            ]
+          ]
+        ],
+        "public_input_binding": [
+          [
+            "prompt",
+            "text"
+          ]
+        ],
+        "widget_values_sig": [
+          [
+            "text",
+            "'double letters, repeating letters, more than 8 letters'"
+          ]
+        ]
+      },
+      "20": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "17",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "16",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "12",
+              "init_image"
+            ]
+          ],
+          [
+            "0",
+            [
+              "21",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "21": {
+        "class_type": "PreviewImage",
+        "incoming_edge_sig": [
+          [
+            "images",
+            [
+              "20",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      },
+      "22": {
+        "class_type": "EmptyLatentImage",
+        "incoming_edge_sig": [],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "latent_image"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "1024"
+          ],
+          [
+            "widget_1",
+            "576"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "23": {
+        "class_type": "LoraLoader",
+        "incoming_edge_sig": [
+          [
+            "clip",
+            [
+              "16",
+              "1"
+            ]
+          ],
+          [
+            "model",
+            [
+              "16",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "17",
+              "model"
+            ]
+          ],
+          [
+            "1",
+            [
+              "18",
+              "clip"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "widget_0",
+            "'Harrlogos_v2.0.safetensors'"
+          ],
+          [
+            "widget_1",
+            "0.8"
+          ],
+          [
+            "widget_2",
+            "1"
+          ]
+        ]
+      },
+      "3": {
+        "class_type": "KSampler",
+        "incoming_edge_sig": [
+          [
+            "latent_image",
+            [
+              "12",
+              "2"
+            ]
+          ],
+          [
+            "model",
+            [
+              "14",
+              "0"
+            ]
+          ],
+          [
+            "negative",
+            [
+              "12",
+              "1"
+            ]
+          ],
+          [
+            "positive",
+            [
+              "12",
+              "0"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "8",
+              "samples"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": [
+          [
+            "cfg",
+            "2.5"
+          ],
+          [
+            "denoise",
+            "0.8"
+          ],
+          [
+            "sampler_name",
+            "'euler'"
+          ],
+          [
+            "scheduler",
+            "'karras'"
+          ],
+          [
+            "seed",
+            "500605891641018"
+          ],
+          [
+            "steps",
+            "20"
+          ],
+          [
+            "unused_widget_1",
+            "'randomize'"
+          ]
+        ]
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "incoming_edge_sig": [
+          [
+            "samples",
+            [
+              "3",
+              "0"
+            ]
+          ],
+          [
+            "vae",
+            [
+              "15",
+              "2"
+            ]
+          ]
+        ],
+        "outgoing_edge_sig": [
+          [
+            "0",
+            [
+              "10",
+              "images"
+            ]
+          ]
+        ],
+        "public_input_binding": [],
+        "widget_values_sig": []
+      }
+    },
+    "external_workflow": true,
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "4ed6d962d58657c4770e4e683614aacb5615ad321548ee2871152ce90ca77cfd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1177799649969586247",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1177799649969586247:SVDxHarrlogos.json:717439b98f999a17",
+      "filename": "SVDxHarrlogos.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:54+00:00",
+      "message_id": 1177799649969586247,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "EmptyLatentImage": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 2,
+        "LoraLoader": 1,
+        "PreviewImage": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveAnimatedWEBP": 1,
+        "VAEDecode": 2,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 14,
+      "origin_date": "2023-11-25T02:35:19.012000+00:00",
+      "originator_global_name": "HarroweD",
+      "originator_id": "145754764414550017",
+      "originator_type": "discord_message_author",
+      "originator_username": "harrowed",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "717439b98f999a17f110930046d93cc7b06d24d34487563b0d9e7062098d9ca0",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1177799649642422322/SVDxHarrlogos.json?ex=683524e6&is=6833d366&hm=e37f40964300df5e87195383c2b1d3c2adadf4aa5abc3f6ff43891da26059ef7&",
+      "source_workflow_sha256": "14777ccf64f37a137a6f20835a66425d40e66bcafca1f701e0c8a59b712323fe",
+      "workflow_format": "comfy_ui"
+    },
+    "source_namespace": "banodoco-discord-archive",
+    "summary": {
+      "_content_hash": "82f98ed1efc6956506e2bf44bfea167342312313fed84ea058c88919a45ee8fd",
+      "complexity": 3,
+      "description": "Generates an animated WEBP video from an image using Stable Video Diffusion (SVD) conditioning, with optional LoRA loading and dual KSampler steps.",
+      "flags": {
+        "has_controlnet": false,
+        "has_ipadapter": false,
+        "has_lora": true,
+        "has_video_output": true,
+        "is_animated": true,
+        "requires_custom_nodes": true
+      },
+      "media_type": "multi",
+      "tags": [
+        "image-to-video",
+        "svd",
+        "animation",
+        "webp",
+        "lora",
+        "stable-diffusion",
+        "video-generation"
+      ],
+      "task_type": "animation",
+      "title": "Animated Image to Video with SVD and LoRA"
+    }
+  },
+  "nodes": {
+    "10": {
+      "class_type": "SaveAnimatedWEBP",
+      "id": "10",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 10,
+          "inputs": [
+            {
+              "link": 10,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 13,
+          "pos": [
+            1654,
+            829
+          ],
+          "properties": {
+            "Node name for S&R": "SaveAnimatedWEBP"
+          },
+          "size": {
+            "0": 741.6685791015625,
+            "1": 564.5909423828125
+          },
+          "type": "SaveAnimatedWEBP",
+          "widgets_values": [
+            "sdvid/vid",
+            10,
+            false,
+            85,
+            "default",
+            null
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "sdvid/vid",
+          10,
+          false,
+          85,
+          "default",
+          null
+        ]
+      },
+      "uid": "10",
+      "widgets": {
+        "widget_0": "sdvid/vid",
+        "widget_1": 10,
+        "widget_2": false,
+        "widget_3": 85,
+        "widget_4": "default",
+        "widget_5": null
+      }
+    },
+    "12": {
+      "class_type": "SVD_img2vid_Conditioning",
+      "id": "12",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 12,
+          "inputs": [
+            {
+              "link": 24,
+              "name": "clip_vision",
+              "type": "CLIP_VISION"
+            },
+            {
+              "link": 35,
+              "name": "init_image",
+              "slot_index": 1,
+              "type": "IMAGE"
+            },
+            {
+              "link": 25,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 9,
+          "outputs": [
+            {
+              "links": [
+                40
+              ],
+              "name": "positive",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                17
+              ],
+              "name": "negative",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CONDITIONING"
+            },
+            {
+              "links": [
+                18
+              ],
+              "name": "latent",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1463.739995117188,
+            496.55992248535154
+          ],
+          "properties": {
+            "Node name for S&R": "SVD_img2vid_Conditioning"
+          },
+          "size": {
+            "0": 315,
+            "1": 218
+          },
+          "type": "SVD_img2vid_Conditioning",
+          "widgets_values": [
+            1024,
+            576,
+            25,
+            50,
+            6,
+            0
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 6,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          25,
+          50,
+          6,
+          0
+        ]
+      },
+      "uid": "12",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 25,
+        "widget_3": 50,
+        "widget_4": 6,
+        "widget_5": 0
+      }
+    },
+    "14": {
+      "class_type": "VideoLinearCFGGuidance",
+      "id": "14",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 14,
+          "inputs": [
+            {
+              "link": 23,
+              "name": "model",
+              "type": "MODEL"
+            }
+          ],
+          "mode": 0,
+          "order": 3,
+          "outputs": [
+            {
+              "links": [
+                39
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            }
+          ],
+          "pos": [
+            1463.739995117188,
+            366.55992248535165
+          ],
+          "properties": {
+            "Node name for S&R": "VideoLinearCFGGuidance"
+          },
+          "size": {
+            "0": 315,
+            "1": 58
+          },
+          "type": "VideoLinearCFGGuidance",
+          "widgets_values": [
+            3
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          3
+        ]
+      },
+      "uid": "14",
+      "widgets": {
+        "widget_0": 3
+      }
+    },
+    "15": {
+      "class_type": "ImageOnlyCheckpointLoader",
+      "id": "15",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 15,
+          "mode": 0,
+          "order": 1,
+          "outputs": [
+            {
+              "links": [
+                23
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                24
+              ],
+              "name": "CLIP_VISION",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP_VISION"
+            },
+            {
+              "links": [
+                25,
+                26
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "slot_index": 2,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            1050,
+            320
+          ],
+          "properties": {
+            "Node name for S&R": "ImageOnlyCheckpointLoader"
+          },
+          "size": {
+            "0": 369.6000061035156,
+            "1": 98
+          },
+          "type": "ImageOnlyCheckpointLoader",
+          "widgets_values": [
+            "svd_xt.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "svd_xt.safetensors"
+        ]
+      },
+      "uid": "15",
+      "widgets": {
+        "widget_0": "svd_xt.safetensors"
+      }
+    },
+    "16": {
+      "class_type": "CheckpointLoaderSimple",
+      "id": "16",
+      "inputs": {
+        "ckpt_name": "starlightXLAnimated_v3.safetensors"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 16,
+          "mode": 0,
+          "order": 2,
+          "outputs": [
+            {
+              "links": [
+                41
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                31,
+                42
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            },
+            {
+              "links": [
+                34
+              ],
+              "name": "VAE",
+              "shape": 3,
+              "type": "VAE"
+            }
+          ],
+          "pos": [
+            -342,
+            515
+          ],
+          "properties": {
+            "Node name for S&R": "CheckpointLoaderSimple"
+          },
+          "size": {
+            "0": 315,
+            "1": 98
+          },
+          "type": "CheckpointLoaderSimple",
+          "widgets_values": [
+            "starlightXLAnimated_v3.safetensors"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "starlightXLAnimated_v3.safetensors"
+        ]
+      },
+      "uid": "16",
+      "widgets": {}
+    },
+    "17": {
+      "class_type": "KSampler",
+      "id": "17",
+      "inputs": {
+        "cfg": 4.5,
+        "denoise": 1,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "seed": 120915972863565,
+        "steps": 22,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 17,
+          "inputs": [
+            {
+              "link": 43,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 30,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 32,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 37,
+              "name": "latent_image",
+              "slot_index": 3,
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 7,
+          "outputs": [
+            {
+              "links": [
+                33
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            802.4000122070315,
+            566.4000274658204
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            120915972863565,
+            "randomize",
+            22,
+            4.5,
+            "euler",
+            "normal",
+            1
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          120915972863565,
+          "randomize",
+          22,
+          4.5,
+          "euler",
+          "normal",
+          1
+        ]
+      },
+      "uid": "17",
+      "widgets": {}
+    },
+    "18": {
+      "class_type": "CLIPTextEncode",
+      "id": "18",
+      "inputs": {
+        "text": "HarroweD text logo, dripping blood, dreadful hellscape, disturbing future, secret underworld, eerie, Surreal, ethereal, dreadful, mysterious, creepy, highly detailed, "
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 18,
+          "inputs": [
+            {
+              "link": 44,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 6,
+          "outputs": [
+            {
+              "links": [
+                30
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            342.4000122070312,
+            516.4000274658204
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 390,
+            "1": 130
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "HarroweD text logo, dripping blood, dreadful hellscape, disturbing future, secret underworld, eerie, Surreal, ethereal, dreadful, mysterious, creepy, highly detailed, "
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "HarroweD text logo, dripping blood, dreadful hellscape, disturbing future, secret underworld, eerie, Surreal, ethereal, dreadful, mysterious, creepy, highly detailed, "
+        ]
+      },
+      "uid": "18",
+      "widgets": {}
+    },
+    "19": {
+      "class_type": "CLIPTextEncode",
+      "id": "19",
+      "inputs": {
+        "text": "double letters, repeating letters, more than 8 letters"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 19,
+          "inputs": [
+            {
+              "link": 31,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 4,
+          "outputs": [
+            {
+              "links": [
+                32
+              ],
+              "name": "CONDITIONING",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "CONDITIONING"
+            }
+          ],
+          "pos": [
+            342.4000122070312,
+            696.4000274658205
+          ],
+          "properties": {
+            "Node name for S&R": "CLIPTextEncode"
+          },
+          "size": {
+            "0": 390,
+            "1": 130
+          },
+          "type": "CLIPTextEncode",
+          "widgets_values": [
+            "double letters, repeating letters, more than 8 letters"
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 1,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "double letters, repeating letters, more than 8 letters"
+        ]
+      },
+      "uid": "19",
+      "widgets": {}
+    },
+    "20": {
+      "class_type": "VAEDecode",
+      "id": "20",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 20,
+          "inputs": [
+            {
+              "link": 33,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 34,
+              "name": "vae",
+              "slot_index": 1,
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 8,
+          "outputs": [
+            {
+              "links": [
+                35,
+                36
+              ],
+              "name": "IMAGE",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            1172.400012207032,
+            566.4000274658204
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "20",
+      "widgets": {}
+    },
+    "21": {
+      "class_type": "PreviewImage",
+      "id": "21",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 21,
+          "inputs": [
+            {
+              "link": 36,
+              "name": "images",
+              "type": "IMAGE"
+            }
+          ],
+          "mode": 0,
+          "order": 10,
+          "pos": [
+            1152.400012207032,
+            656.4000274658205
+          ],
+          "properties": {
+            "Node name for S&R": "PreviewImage"
+          },
+          "size": {
+            "0": 275.9453125,
+            "1": 246
+          },
+          "type": "PreviewImage"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "21",
+      "widgets": {}
+    },
+    "22": {
+      "class_type": "EmptyLatentImage",
+      "id": "22",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 22,
+          "mode": 0,
+          "order": 0,
+          "outputs": [
+            {
+              "links": [
+                37
+              ],
+              "name": "LATENT",
+              "shape": 3,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            422.4000122070312,
+            866.4000274658204
+          ],
+          "properties": {
+            "Node name for S&R": "EmptyLatentImage"
+          },
+          "size": {
+            "0": 310,
+            "1": 110
+          },
+          "type": "EmptyLatentImage",
+          "widgets_values": [
+            1024,
+            576,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          1024,
+          576,
+          1
+        ]
+      },
+      "uid": "22",
+      "widgets": {
+        "widget_0": 1024,
+        "widget_1": 576,
+        "widget_2": 1
+      }
+    },
+    "23": {
+      "class_type": "LoraLoader",
+      "id": "23",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 23,
+          "inputs": [
+            {
+              "link": 41,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 42,
+              "name": "clip",
+              "type": "CLIP"
+            }
+          ],
+          "mode": 0,
+          "order": 5,
+          "outputs": [
+            {
+              "links": [
+                43
+              ],
+              "name": "MODEL",
+              "shape": 3,
+              "slot_index": 0,
+              "type": "MODEL"
+            },
+            {
+              "links": [
+                44
+              ],
+              "name": "CLIP",
+              "shape": 3,
+              "slot_index": 1,
+              "type": "CLIP"
+            }
+          ],
+          "pos": [
+            27,
+            323
+          ],
+          "properties": {
+            "Node name for S&R": "LoraLoader"
+          },
+          "size": {
+            "0": 315,
+            "1": 126
+          },
+          "type": "LoraLoader",
+          "widgets_values": [
+            "Harrlogos_v2.0.safetensors",
+            0.8,
+            1
+          ]
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 3,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          "Harrlogos_v2.0.safetensors",
+          0.8,
+          1
+        ]
+      },
+      "uid": "23",
+      "widgets": {
+        "widget_0": "Harrlogos_v2.0.safetensors",
+        "widget_1": 0.8,
+        "widget_2": 1
+      }
+    },
+    "3": {
+      "class_type": "KSampler",
+      "id": "3",
+      "inputs": {
+        "cfg": 2.5,
+        "denoise": 0.8,
+        "sampler_name": "euler",
+        "scheduler": "karras",
+        "seed": 500605891641018,
+        "steps": 20,
+        "unused_widget_1": "randomize"
+      },
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 3,
+          "inputs": [
+            {
+              "link": 39,
+              "name": "model",
+              "type": "MODEL"
+            },
+            {
+              "link": 40,
+              "name": "positive",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 17,
+              "name": "negative",
+              "type": "CONDITIONING"
+            },
+            {
+              "link": 18,
+              "name": "latent_image",
+              "type": "LATENT"
+            }
+          ],
+          "mode": 0,
+          "order": 11,
+          "outputs": [
+            {
+              "links": [
+                7
+              ],
+              "name": "LATENT",
+              "slot_index": 0,
+              "type": "LATENT"
+            }
+          ],
+          "pos": [
+            1843.7399951171883,
+            476.55992248535154
+          ],
+          "properties": {
+            "Node name for S&R": "KSampler"
+          },
+          "size": {
+            "0": 315,
+            "1": 262
+          },
+          "type": "KSampler",
+          "widgets_values": [
+            500605891641018,
+            "randomize",
+            20,
+            2.5,
+            "euler",
+            "karras",
+            0.8
+          ]
+        },
+        "control_after_generate": "randomize",
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": {
+        "has_dict_rows": false,
+        "length": 7,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "values": [
+          500605891641018,
+          "randomize",
+          20,
+          2.5,
+          "euler",
+          "karras",
+          0.8
+        ]
+      },
+      "uid": "3",
+      "widgets": {}
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "id": "8",
+      "inputs": {},
+      "metadata": {
+        "_ui": {
+          "flags": {},
+          "id": 8,
+          "inputs": [
+            {
+              "link": 7,
+              "name": "samples",
+              "type": "LATENT"
+            },
+            {
+              "link": 26,
+              "name": "vae",
+              "type": "VAE"
+            }
+          ],
+          "mode": 0,
+          "order": 12,
+          "outputs": [
+            {
+              "links": [
+                10
+              ],
+              "name": "IMAGE",
+              "slot_index": 0,
+              "type": "IMAGE"
+            }
+          ],
+          "pos": [
+            2183.73999511719,
+            476.55992248535154
+          ],
+          "properties": {
+            "Node name for S&R": "VAEDecode"
+          },
+          "size": {
+            "0": 210,
+            "1": 46
+          },
+          "type": "VAEDecode"
+        },
+        "flags": {},
+        "mode": 0,
+        "provenance": "untrusted_source"
+      },
+      "mode": 0,
+      "pack": null,
+      "raw_widgets": null,
+      "uid": "8",
+      "widgets": {}
+    }
+  },
+  "outputs": [
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "10",
+      "output_type": "SaveAnimatedWEBP"
+    },
+    {
+      "artifact_kind": null,
+      "expected_cardinality": null,
+      "filename_prefix": null,
+      "mime_type": null,
+      "name": null,
+      "node_id": "21",
+      "output_type": "PreviewImage"
+    }
+  ],
+  "requirements": {
+    "custom_nodes": [],
+    "missing_models": [],
+    "missing_nodes": [],
+    "models": [
+      "starlightXLAnimated_v3.safetensors"
+    ],
+    "unsupported": []
+  },
+  "source": {
+    "id": "717439b98f999a17",
+    "path": "external_workflows/.shadow/source/717439b98f999a17-SVDxHarrlogos.json",
+    "provenance": {
+      "authority_tier": "community",
+      "canonical_workflow_hash": "4ed6d962d58657c4770e4e683614aacb5615ad321548ee2871152ce90ca77cfd",
+      "canonical_workflow_representation": "vibecomfy.canonical_form.v1",
+      "channel_id": 1176658940306661416,
+      "channel_name": "stable-video-diffusion",
+      "discord_message_url": "https://discord.com/channels/@me/1176658940306661416/1177799649969586247",
+      "discovered_at": "2026-06-24T18:46:52+00:00",
+      "discovered_by": "kimi-agent",
+      "external_id": "banodoco-discord-archive:1177799649969586247:SVDxHarrlogos.json:717439b98f999a17",
+      "filename": "SVDxHarrlogos.json",
+      "graph_identity_version": 1,
+      "guild_id": 1076117621407223829,
+      "ingested_at": "2026-06-24T18:46:54+00:00",
+      "message_id": 1177799649969586247,
+      "node_class_multiset": {
+        "CLIPTextEncode": 2,
+        "CheckpointLoaderSimple": 1,
+        "EmptyLatentImage": 1,
+        "ImageOnlyCheckpointLoader": 1,
+        "KSampler": 2,
+        "LoraLoader": 1,
+        "PreviewImage": 1,
+        "SVD_img2vid_Conditioning": 1,
+        "SaveAnimatedWEBP": 1,
+        "VAEDecode": 2,
+        "VideoLinearCFGGuidance": 1
+      },
+      "node_count": 14,
+      "origin_date": "2023-11-25T02:35:19.012000+00:00",
+      "originator_global_name": "HarroweD",
+      "originator_id": "145754764414550017",
+      "originator_type": "discord_message_author",
+      "originator_username": "harrowed",
+      "source": "banodoco-discord-archive",
+      "source_file_sha256": "717439b98f999a17f110930046d93cc7b06d24d34487563b0d9e7062098d9ca0",
+      "source_type": "discord_attachment",
+      "source_url": "https://cdn.discordapp.com/attachments/1176658940306661416/1177799649642422322/SVDxHarrlogos.json?ex=683524e6&is=6833d366&hm=e37f40964300df5e87195383c2b1d3c2adadf4aa5abc3f6ff43891da26059ef7&",
+      "source_workflow_sha256": "14777ccf64f37a137a6f20835a66425d40e66bcafca1f701e0c8a59b712323fe",
+      "workflow_format": "comfy_ui"
+    },
+    "source_type": "api"
+  },
+  "strict_types": false,
+  "vibecomfy_format_version": "1.0"
+}

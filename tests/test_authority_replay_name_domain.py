@@ -47,7 +47,7 @@ def _tripo_fixture() -> dict:
    "outputs":[{"name":"model_file","type":"STRING","links":null,"slot_index":0},{"name":"model task_id","type":"MODEL_TASK_ID","links":null,"slot_index":1}],
    "widgets_values":[true,true,42,"standard","original_image"]}
  ],
- "links":[[2,7,1,26,"model_task_id","MODEL_TASK_ID"]]}
+ "links":[[2,7,1,26,0,"MODEL_TASK_ID"]]}
 '''
     )
 
@@ -186,6 +186,26 @@ def test_ambiguous_unlinked_socket_domain_stays_fail_closed() -> None:
     ui["links"] = []
     frozen, _prov = _frozen_provider()
     table = canonical_frozen_name_table(ui, schema_provider=frozen)
+    # The current frozen schema carries an explicit compact widget order, so
+    # removing the link alone does not erase that stronger authority.
+    assert table["26"] == (
+        "texture",
+        "pbr",
+        "texture_seed",
+        "texture_quality",
+        "texture_alignment",
+    )
+    # Model the genuinely ambiguous persisted domain: a provider without the
+    # input/widget split included the unlinked custom socket as slot zero.
+    # Replay must reject a candidate authored against the compact domain.
+    ambiguous_table = dict(table)
+    ambiguous_table["26"] = (
+        "model_task_id",
+        "texture",
+        "pbr",
+        "texture_seed",
+        "texture_quality",
+    )
     candidate = copy.deepcopy(ui)
     candidate["nodes"][1]["widgets_values"] = [True, True, 42, "detailed", "original_image"]
     envelope = {
@@ -203,7 +223,7 @@ def test_ambiguous_unlinked_socket_domain_stays_fail_closed() -> None:
         envelope,
         candidate,
         schema_provider=frozen,
-        name_authority={k: v for k, v in table.items()} or None,
+        name_authority=ambiguous_table,
     )
     assert receipt.candidate_matches is False
 

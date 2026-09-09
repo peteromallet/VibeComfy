@@ -7,6 +7,7 @@ fail closed at every binding-condition attack listed in the pre-code review.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pytest
 
 from vibecomfy.porting.edit.admit import AdmissionAllowed, AdmissionRejected, TouchedScope
 from vibecomfy.porting.edit.checkpoint import (
+    AcceptedDelta,
     TERMINAL_STATE_APPLIED,
     TERMINAL_STATE_AUTHORITY_REJECTED,
     TERMINAL_STATE_CLARIFY,
@@ -25,6 +27,7 @@ from vibecomfy.porting.edit.checkpoint import (
     CheckpointLineage,
     LineageError,
     TerminalCloseError,
+    checkpoint_to_evidence,
     close_terminal_checkpoint,
     infer_terminal_state,
     project_terminal_checkpoint,
@@ -39,7 +42,12 @@ _DISPOSABLE = Path("/tmp/t22-rerun")
 
 
 def _session() -> EditSession:
-    return EditSession(json.loads(_FLAT.read_text(encoding="utf-8")))
+    from tests.test_porting_edit_session_harness import _flat_schema_provider
+
+    return EditSession(
+        json.loads(_FLAT.read_text(encoding="utf-8")),
+        schema_provider=_flat_schema_provider(),
+    )
 
 
 def _lineage(**overrides: str) -> CheckpointLineage:
@@ -294,6 +302,73 @@ def test_rejected_candidate_is_audit_only() -> None:
         )
 
 
+def test_checkpoint_evidence_is_deeply_frozen_and_projection_is_detached() -> None:
+    original = {"nodes": [{"id": 1, "pos": [0, 0]}], "links": []}
+    facts = {"fact:graph": {"path": ["nodes", 0]}}
+    rejected = {"graph": {"nodes": [{"id": 99}]}, "state": "rejected"}
+    checkpoint = close_terminal_checkpoint(
+        terminal_state=TERMINAL_STATE_AUTHORITY_REJECTED,
+        original_graph=original,
+        rejected_candidate=rejected,
+        facts=facts,
+        lineage=_lineage(),
+    )
+    projected = checkpoint.project()
+
+    original["nodes"][0]["pos"][:] = [7, 8]
+    facts["fact:graph"]["path"].append("forged")
+    rejected["graph"]["nodes"][0]["id"] = -1
+
+    with pytest.raises(TypeError):
+        dict.__setitem__(checkpoint.original_graph["nodes"][0], "pos", [7, 8])
+    with pytest.raises(TypeError):
+        list.append(checkpoint.original_graph["nodes"], {"id": 2})
+    with pytest.raises(TypeError):
+        dict.__setitem__(checkpoint.facts["fact:graph"], "path", ["forged"])
+    with pytest.raises(TypeError):
+        dict.__setitem__(checkpoint.audit["rejected_candidate"], "state", "forged")
+
+    assert checkpoint.original_graph["nodes"][0]["pos"] == [0, 0]
+    assert checkpoint.facts["fact:graph"]["path"] == ["nodes", 0]
+    assert checkpoint.audit["rejected_candidate"]["graph"]["nodes"][0]["id"] == 99
+    projected.graph["nodes"][0]["pos"] = [10, 20]
+    assert checkpoint.project().graph["nodes"][0]["pos"] == [0, 0]
+    assert json.loads(json.dumps(checkpoint_to_evidence(checkpoint)))["facts"] == {
+        "fact:graph": {"path": ["nodes", 0]}
+    }
+
+
+def test_accepted_delta_detaches_and_freezes_nested_operation_values() -> None:
+    operation = {
+        "op": "set_node_field",
+        "target": ["", "u", "schedule"],
+        "value": {"steps": [1, 2]},
+    }
+    delta = AcceptedDelta("delta:test", (operation,))
+
+    operation["target"].append("forged")
+    operation["value"]["steps"].append(3)
+
+    assert tuple(delta.ops[0]["target"]) == ("", "u", "schedule")
+    assert tuple(delta.ops[0]["value"]["steps"]) == (1, 2)
+    with pytest.raises(TypeError):
+        dict.__setitem__(delta.ops[0]["value"], "steps", [9])
+    with pytest.raises(TypeError):
+        list.append(delta.ops[0]["value"]["steps"], 9)
+
+    checkpoint = close_terminal_checkpoint(
+        terminal_state=TERMINAL_STATE_APPLIED,
+        original_graph=_original_graph(),
+        graph=_original_graph(),
+        ops=delta.ops,
+        admitted=AdmissionAllowed(),
+        replay_verified=True,
+        lineage=_lineage(),
+    )
+    serialized = json.loads(json.dumps(checkpoint_to_evidence(checkpoint)))
+    assert serialized["deltas"][0]["ops"][0]["value"]["steps"] == [1, 2]
+
+
 def test_accepted_delta_without_t21_gateway_fails_closed() -> None:
     with pytest.raises(TerminalCloseError, match="AdmissionAllowed"):
         close_terminal_checkpoint(
@@ -431,10 +506,10 @@ def test_stamped_applied_durable_recovers_accepted_batch_not_undetermined() -> N
     assert projection.accepted is True
     assert projection.eligibility["applyable"] is True
     assert projection.graph == durable["graph"]
-    landed_ops = [op if isinstance(op, dict) else op for op in recovered.deltas[0].ops]
+    landed_ops = list(recovered.deltas[0].ops)
     assert any(
-        (item.get("op") if isinstance(item, dict) else None) == "set_node_field"
-        or (isinstance(item, dict) and item.get("target"))
+        (item.get("op") if isinstance(item, Mapping) else None) == "set_node_field"
+        or (isinstance(item, Mapping) and item.get("target"))
         for item in landed_ops
     )
 
@@ -531,7 +606,8 @@ def test_rejected_stamped_envelope_is_audit_only() -> None:
             "outcome": {"kind": "candidate"},
             "candidate": {"graph": rejected_graph, "state": "ready"},
             "graph": rejected_graph,
-            "accepted_batch": [{"statement_index": 1, "op": _applied_op()}],
+            "accepted_batch": [],
+            "change_details": {"landed_operation_count": 0},
             "message": "Edit landed.",
         },
         receipt,
@@ -596,3 +672,24 @@ def test_revision_disposable_root_is_outside_checkout() -> None:
     assert "exec-spine" not in str(marker)
     marker.unlink()
 
+
+def test_terminal_checkpoint_workflow_view_is_detached_on_every_read() -> None:
+    from vibecomfy.porting.edit.checkpoint import (
+        TERMINAL_STATE_NO_OP,
+        close_terminal_checkpoint,
+    )
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("wf", WorkflowSource("wf"))
+    workflow.nodes["1"] = VibeNode("1", "Probe", uid="probe")
+    checkpoint = close_terminal_checkpoint(
+        terminal_state=TERMINAL_STATE_NO_OP,
+        workflow=workflow,
+        original_graph={"nodes": [], "links": []},
+    )
+
+    exposed = checkpoint.workflow
+    exposed.nodes.clear()
+    assert sorted(checkpoint.workflow.nodes) == ["1"]
+    assert checkpoint.workflow is not exposed
+    assert sorted(workflow.nodes) == ["1"]

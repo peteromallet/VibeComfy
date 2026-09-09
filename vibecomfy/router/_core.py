@@ -50,8 +50,6 @@ def describe_route(verb_kind: str, verb_name: str) -> list[_RouteMeta]:
 def _build_missing_route_message(verb_kind: str, verb_name: str) -> str:
     all_routes = list_routes()
     verb_pairs = sorted({(r["verb_kind"], r["verb_name"]) for r in all_routes})
-    available = [f"{k}.{n}" for k, n in verb_pairs]
-
     # Exact verb_kind matches
     kind_matches = [n for k, n in verb_pairs if k == verb_kind]
 
@@ -97,9 +95,11 @@ def pick(
 
 
 def _default_workflow_loader(template_id: str) -> VibeWorkflow:
-    from vibecomfy.cli_loader import load_workflow_any
+    from vibecomfy.cli_loader import load_bundle
 
-    return load_workflow_any(template_id)
+    # Routing predicates inspect a candidate only.  Execution callers must
+    # rebind the selected reference through load_bundle before approval.
+    return load_bundle(template_id).workflow
 
 
 __all__ = [

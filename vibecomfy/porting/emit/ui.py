@@ -51,6 +51,7 @@ inputs get NO input-slot entry — they live in ``widgets_values``.
 """
 
 from __future__ import annotations
+import functools
 import hashlib
 import json
 import os
@@ -83,6 +84,31 @@ from vibecomfy.porting.endpoint_invariant import schema_input_sockets_for_unwire
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge, VibeNode, _get_node_mode, _raise_embedded_api_links
+
+
+@dataclass(frozen=True, slots=True)
+class PresentationGraphRecords:
+    """Detached structural records crossing the LiteGraph presentation door."""
+
+    nodes: Any
+    links: Any
+    groups: Any
+    groups_present: bool
+
+
+def capture_presentation_graph_records(candidate: Mapping[str, Any]) -> PresentationGraphRecords:
+    """Detach the three graph-shaped presentation records from *candidate*.
+
+    This is deliberately a shape-neutral door.  The bundle boundary retains
+    its context-specific validation: UI envelopes require a node list while
+    strict sidecars require a UID-keyed node mapping.
+    """
+    return PresentationGraphRecords(
+        nodes=deepcopy(candidate.get("nodes")),
+        links=deepcopy(candidate.get("links")),
+        groups=deepcopy(candidate.get("groups")),
+        groups_present="groups" in candidate,
+    )
 
 # Documented default control_after_generate mode when none is retained in metadata.
 _CONTROL_AFTER_GENERATE_DEFAULT = "fixed"
@@ -240,7 +266,28 @@ def _materialized_schema_outputs(
     schema: Any | None,
 ) -> list[Any]:
     """Expand an explicitly dynamic node's base output schema for the editor."""
-    base = list(getattr(schema, "outputs", None) or []) if schema else []
+    native_names = getattr(node, "native_output_names", None)
+    native_types = getattr(node, "native_output_types", None)
+    if isinstance(native_names, list):
+        # A node's retained native roster is the exact materialized socket
+        # shape.  A class schema is only a generic declaration and may be
+        # older or shorter than a particular rendered node (including
+        # positional holes), so it cannot collapse those retained indices.
+        base = [
+            _DynamicOutputSpec(
+                (
+                    native_types[slot]
+                    if isinstance(native_types, list)
+                    and slot < len(native_types)
+                    and native_types[slot] is not None
+                    else ""
+                ),
+                name or f"output_{slot}",
+            )
+            for slot, name in enumerate(native_names)
+        ]
+    else:
+        base = list(getattr(schema, "outputs", None) or []) if schema else []
     count = _dynamic_output_count(node, schema)
     if count is None or not base:
         return base
@@ -499,6 +546,113 @@ def _canonicalize_group_geometry(groups: list[dict[str, Any]]) -> None:
                 _canonicalize_coord(float(bbox[2])),
                 _canonicalize_coord(float(bbox[3])),
             ]
+
+
+def _extend_groups_for_anchored_nodes(
+    groups: list[dict[str, Any]],
+    nodes: list[dict[str, Any]],
+    anchors: Mapping[str, Any],
+    explicit_groups: Mapping[str, str],
+) -> None:
+    """Keep anchor-placed nodes inside their retained regular canvas group."""
+    if not groups or not anchors:
+        return
+
+    node_by_uid: dict[str, Mapping[str, Any]] = {}
+    for node in nodes:
+        properties = node.get("properties") if isinstance(node, Mapping) else None
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        if uid not in (None, ""):
+            node_by_uid[str(uid)] = node
+
+    base_bounds: list[tuple[float, float, float, float] | None] = []
+    for group in groups:
+        bounding = group.get("bounding") if isinstance(group, Mapping) else None
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            base_bounds.append(None)
+            continue
+        try:
+            base_bounds.append(tuple(float(value) for value in bounding[:4]))
+        except (TypeError, ValueError):
+            base_bounds.append(None)
+
+    def _node_box(uid: str) -> tuple[float, float, float, float] | None:
+        node = node_by_uid.get(uid)
+        if node is None:
+            return None
+        pos, size = node.get("pos"), node.get("size")
+        if not isinstance(pos, (list, tuple)) or not isinstance(size, (list, tuple)):
+            return None
+        if len(pos) < 2 or len(size) < 2:
+            return None
+        try:
+            return float(pos[0]), float(pos[1]), float(size[0]), float(size[1])
+        except (TypeError, ValueError):
+            return None
+
+    def _containing_group(uid: str) -> int | None:
+        box = _node_box(uid)
+        if box is None:
+            return None
+        x, y, width, height = box
+        center_x, center_y = x + width / 2.0, y + height / 2.0
+        candidates: list[tuple[float, int]] = []
+        for index, bounds in enumerate(base_bounds):
+            if bounds is None:
+                continue
+            gx, gy, gw, gh = bounds
+            if gx <= center_x <= gx + gw and gy <= center_y <= gy + gh:
+                candidates.append((gw * gh, index))
+        return min(candidates)[1] if candidates else None
+
+    assignments: dict[str, int] = {}
+    pending = {str(uid): str(anchor) for uid, anchor in anchors.items()}
+    for uid, title in explicit_groups.items():
+        matches = [
+            index
+            for index, group in enumerate(groups)
+            if str(group.get("title") or "") == str(title)
+        ]
+        if matches:
+            assignments[str(uid)] = min(
+                matches,
+                key=lambda index: (
+                    float("inf")
+                    if base_bounds[index] is None
+                    else base_bounds[index][2] * base_bounds[index][3],
+                    index,
+                ),
+            )
+
+    while pending:
+        progressed = False
+        for uid, anchor_uid in tuple(pending.items()):
+            group_index = assignments.get(uid)
+            if group_index is None:
+                group_index = assignments.get(anchor_uid)
+            if group_index is None:
+                group_index = _containing_group(anchor_uid)
+            if group_index is None:
+                continue
+            assignments[uid] = group_index
+            pending.pop(uid)
+            progressed = True
+        if not progressed:
+            break
+
+    for uid, group_index in assignments.items():
+        box = _node_box(uid)
+        if box is None or group_index >= len(groups):
+            continue
+        x, y, width, height = box
+        group = groups[group_index]
+        bounding = group.get("bounding")
+        if not isinstance(bounding, (list, tuple)) or len(bounding) < 4:
+            continue
+        gx, gy, gw, gh = (float(value) for value in bounding[:4])
+        left, top = min(gx, x), min(gy, y)
+        right, bottom = max(gx + gw, x + width), max(gy + gh, y + height)
+        group["bounding"] = [left, top, right - left, bottom - top]
 
 
 def _stub_layout(order: int) -> dict[str, list[float]]:
@@ -984,17 +1138,33 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
     so the envelope omits both ``definitions`` and the top-level ``state`` and stays
     byte-identical.
     """
+    typed_defs = getattr(wf, "definitions", None)
     metadata = getattr(wf, "metadata", None)
-    defs = metadata.get("definitions") if isinstance(metadata, dict) else None
-    subgraphs = defs.get("subgraphs") if isinstance(defs, dict) else None
+    legacy_defs = metadata.get("definitions") if isinstance(metadata, dict) else None
+    # An empty typed mapping is an authoritative remove-all edit.  Falling
+    # through on truthiness would resurrect the stale ingest compatibility
+    # alias after ``workflow.definitions.clear()``.
+    defs = typed_defs if isinstance(typed_defs, Mapping) else legacy_defs
+    if isinstance(defs, dict) and isinstance(defs.get("subgraphs"), (list, tuple)):
+        subgraphs = list(defs["subgraphs"])
+    elif isinstance(defs, dict):
+        subgraphs = list(defs.values())
+    elif isinstance(defs, (list, tuple)):
+        subgraphs = list(defs)
+    else:
+        subgraphs = []
     if not subgraphs:
         return None
-    out_subgraphs: list[dict[str, Any]] = []
-    for raw_sg in subgraphs:
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    def emit_subgraph(raw_sg: Mapping[str, Any], parent_scope: tuple[str, ...] = ()) -> dict[str, Any]:
         # Detached copy: stamping uids/state below must never mutate the IR's
         # metadata definitions (``dict(raw_sg)`` alone would alias the inner
         # ``nodes`` list into the caller's data).
         sg = deepcopy(raw_sg)
+        scope_key = sg_key(raw_sg)
+        scope = compose_scope_path((*parent_scope, scope_key))
         links = sg.get("links")
         if isinstance(links, list):
             sg["links"] = [
@@ -1014,12 +1184,134 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
                         props = {}
                         inner_node["properties"] = props
                     if "vibecomfy_uid" not in props:
-                        local_uid = mint_local_uid(
-                            inner_node, str(inner_node.get("id", ""))
+                        authored_uid = inner_node.get("uid")
+                        local_uid = (
+                            str(authored_uid)
+                            if isinstance(authored_uid, str) and authored_uid.strip()
+                            else mint_local_uid(inner_node, str(inner_node.get("id", "")))
                         )
                         props["vibecomfy_uid"] = local_uid
-        out_subgraphs.append(sg)
+        # Python-authored virtual legs are represented in the disposable UI as
+        # ordinary endpoint links.  The sidecar may decorate those links, but
+        # it never supplies their endpoints or leg ordering.
+        inner_nodes_by_alias: dict[str, Mapping[str, Any]] = {}
+        for inner_node in sg.get("nodes", []) if isinstance(sg.get("nodes"), list) else []:
+            if not isinstance(inner_node, Mapping):
+                continue
+            local_uid = str((inner_node.get("properties") or {}).get("vibecomfy_uid", inner_node.get("uid", inner_node.get("id", ""))))
+            inner_nodes_by_alias[local_uid] = inner_node
+            if inner_node.get("id") is not None:
+                inner_nodes_by_alias[str(inner_node["id"])] = inner_node
+        virtual_wires = sg.get("virtual_wires", {})
+        if isinstance(virtual_wires, Mapping):
+            from vibecomfy.workflow import WorkflowCompileError, _resolve_virtual_wire_legs
+
+            existing = defaultdict(int)
+            for link in sg.get("links", []):
+                if isinstance(link, Mapping):
+                    existing[(str(link.get("origin_id")), link.get("origin_slot"), str(link.get("target_id")), link.get("target_slot"))] += 1
+            # Keep every authored node as resolver evidence.  Keying this
+            # temporary map by qualified UID would overwrite duplicate local
+            # identities before the shared resolver can reject them.
+            resolver_nodes: dict[str, Mapping[str, Any]] = {}
+            resolver_endpoint_nodes: dict[str, Mapping[str, Any]] = {}
+            for ordinal, inner_node in enumerate(sg.get("nodes", [])):
+                if not isinstance(inner_node, Mapping):
+                    continue
+                properties = inner_node.get("properties")
+                local_uid = inner_node.get("uid")
+                if not isinstance(local_uid, str) or not local_uid.strip():
+                    local_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+                if not isinstance(local_uid, str) or not local_uid.strip():
+                    local_uid = str(inner_node.get("id", ""))
+                qualified_uid = make_uid(scope, local_uid)
+                # Keep the qualified identity in each unique temporary key so
+                # the shared resolver returns the exact lookup used below.
+                # The ordinal only prevents a pre-resolver dict overwrite;
+                # duplicate semantic UIDs still fail inside that resolver.
+                resolver_key = f"{qualified_uid}@{ordinal}"
+                resolver_nodes[resolver_key] = inner_node
+                resolver_endpoint_nodes[resolver_key] = inner_node
+            next_id = max(
+                [int(link.get("id")) for link in sg.get("links", []) if isinstance(link, Mapping) and type(link.get("id")) is int]
+                + [0]
+            ) + 1
+            try:
+                resolved_legs = _resolve_virtual_wire_legs(
+                    resolver_nodes,
+                    virtual_wires,
+                    scope_path=scope,
+                )
+            except WorkflowCompileError as exc:
+                raise ValueError(str(exc)) from exc
+            for leg in resolved_legs:
+                    source = resolver_endpoint_nodes.get(leg.from_lookup)
+                    target = resolver_endpoint_nodes.get(leg.to_lookup)
+                    if source is None or target is None:
+                        raise ValueError("Python virtual-wire leg endpoint is not local to its definition")
+                    key = (str(source.get("id")), leg.from_port, str(target.get("id")), leg.to_port)
+                    if existing[key]:
+                        existing[key] -= 1
+                        continue
+                    sg.setdefault("links", []).append({
+                        "id": next_id,
+                        "origin_id": source.get("id"),
+                        "origin_slot": leg.from_port,
+                        "target_id": target.get("id"),
+                        "target_slot": leg.to_port,
+                        "type": "",
+                    })
+                    next_id += 1
+        nested = sg.get("definitions")
+        if nested:
+            if isinstance(nested, Mapping) and isinstance(nested.get("subgraphs"), (list, tuple)):
+                nested_items = list(nested["subgraphs"])
+            elif isinstance(nested, Mapping):
+                nested_items = list(nested.values())
+            elif isinstance(nested, (list, tuple)):
+                nested_items = list(nested)
+            else:
+                raise ValueError("definition definitions must be a mapping or sequence")
+            sg["definitions"] = {
+                "subgraphs": [
+                    emit_subgraph(item, (*parent_scope, scope_key))
+                    for item in nested_items if isinstance(item, Mapping)
+                ]
+            }
+        return sg
+
+    out_subgraphs: list[dict[str, Any]] = []
+    for raw_sg in subgraphs:
+        if isinstance(raw_sg, Mapping):
+            out_subgraphs.append(emit_subgraph(raw_sg))
     return {"subgraphs": out_subgraphs}
+
+
+def _root_virtual_display_edges(wf: Any) -> list[VibeEdge]:
+    """Materialize explicit root Python virtual legs for the UI display graph."""
+    from vibecomfy.workflow import _resolve_workflow_virtual_wire_records
+
+    # The resolver records the detached lookup identity that was used to find
+    # each endpoint.  Build the root lookup table once; do not decode a
+    # qualified UID or re-resolve aliases in this consumer.
+    by_lookup: dict[str, str] = {}
+    for key, node in wf.nodes.items():
+        by_lookup[str(key)] = str(node.id)
+        if node.uid:
+            by_lookup[str(node.uid)] = str(node.id)
+    result: list[VibeEdge] = []
+    for (scope, _name), legs in sorted(_resolve_workflow_virtual_wire_records(wf).items()):
+        if scope != "":
+            continue
+        for leg in legs:
+            source = by_lookup.get(leg.from_lookup)
+            target = by_lookup.get(leg.to_lookup)
+            if source is None or target is None:
+                raise ValueError(
+                    f"Python virtual-wire leg endpoint is not a root node: {leg.from_node!r}->{leg.to_node!r}"
+                )
+            result.append(VibeEdge(source, leg.from_output, target, leg.to_input))
+    return result
 
 
 def _canonical_emitted_output_name(from_output: Any, slot: int) -> str:
@@ -1094,6 +1386,15 @@ def _original_ui_payloads(
     if isinstance(top, Mapping) and isinstance(top.get("links"), list):
         payloads.append(top)
     return payloads
+
+
+def _thaw_json_view(value: Any) -> Any:
+    """Detach Mapping/sequence read views into ordinary JSON containers."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_json_view(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_json_view(item) for item in value]
+    return deepcopy(value)
 
 
 def _original_link_slots_if_present(
@@ -1329,6 +1630,7 @@ def _resolve_output_slot_and_type(
     from_output: str,
     class_type: str,
     schema_cache: dict[str, Any],
+    node: Any | None = None,
 ) -> tuple[int, str]:
     """Return (slot_index, socket_type) for a VibeEdge.from_output value.
 
@@ -1338,8 +1640,21 @@ def _resolve_output_slot_and_type(
     if it is a name and no schema exists we return slot 0 with an empty type.
     """
     schema = schema_cache.get(class_type)
+    native_roster = getattr(node, "native_output_names", None) if node is not None else None
+    native_types = getattr(node, "native_output_types", None) if node is not None else None
     if from_output.isdigit():
         slot = int(from_output)
+        if isinstance(native_roster, list) and slot < len(native_roster):
+            socket_type = (
+                native_types[slot]
+                if isinstance(native_types, list)
+                and slot < len(native_types)
+                and native_types[slot] is not None
+                else ""
+            )
+            if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
+                socket_type = getattr(schema.outputs[slot], "type", "") or ""
+            return slot, socket_type
         if schema is not None:
             outputs = getattr(schema, "outputs", None) or []
             if slot < len(outputs):
@@ -1354,6 +1669,22 @@ def _resolve_output_slot_and_type(
                 return slot, outputs[0].type or dynamic[1]
         return slot, ""
     # Name lookup against OutputSpec list position
+    if isinstance(native_roster, list):
+        try:
+            slot = native_roster.index(from_output)
+        except ValueError:
+            slot = -1
+        if slot >= 0:
+            socket_type = (
+                native_types[slot]
+                if isinstance(native_types, list)
+                and slot < len(native_types)
+                and native_types[slot] is not None
+                else ""
+            )
+            if schema is not None and slot < len(getattr(schema, "outputs", ()) or ()):
+                socket_type = getattr(schema.outputs[slot], "type", "") or ""
+            return slot, socket_type
     if schema is not None:
         outputs = getattr(schema, "outputs", None) or []
         for idx, out_spec in enumerate(outputs):
@@ -1383,6 +1714,7 @@ def _resolve_output_slot_and_type(
 def _ordered_incoming_edges(
     edges: list[Any],
     schema: Any | None,
+    node: Any | None = None,
 ) -> list[Any]:
     """Order linked inputs by their physical ComfyUI socket position.
 
@@ -1393,8 +1725,13 @@ def _ordered_incoming_edges(
     input order mirrors ComfyUI's declared order, so use it whenever present;
     retain a deterministic name-based fallback for schema-less nodes.
     """
+    native_inputs = getattr(node, "native_input_names", None) if node is not None else None
     schema_inputs = getattr(schema, "inputs", None)
-    ordered_names = list(schema_inputs) if isinstance(schema_inputs, Mapping) else []
+    ordered_names = (
+        [name for name in native_inputs if isinstance(name, str)]
+        if isinstance(native_inputs, list)
+        else list(schema_inputs) if isinstance(schema_inputs, Mapping) else []
+    )
     position = {name: index for index, name in enumerate(ordered_names)}
     unknown_offset = len(position)
     return sorted(
@@ -1441,8 +1778,6 @@ def _widget_names_for_emission(
     ``name_authority`` (the sealed snapshot table) wins over every ambient
     source when the node carries a uid present in it (P0-WIDGET-CANON).
     """
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     if node is not None and isinstance(name_authority, Mapping):
         uid = getattr(node, "uid", None) or getattr(node, "id", None)
         authority_names = name_authority.get(str(uid)) if uid is not None else None
@@ -1459,7 +1794,9 @@ def _widget_names_for_emission(
             )
 
     committed = widget_names_for_class(class_type)
-    object_info_order = object_info_widget_order(class_type)
+    object_info_order = _object_info_widget_order_for_emission(
+        class_type, schema_provider
+    )
     if _widget_value_domain_for_emission(node, committed, object_info_order) == "raw_object_info":
         if committed is not None and any(name is None for name in committed):
             return list(committed)
@@ -1600,6 +1937,27 @@ def _raw_widget_order_from_provider(
     return None
 
 
+def _object_info_widget_order_for_emission(
+    class_type: str,
+    schema_provider: Any | None,
+) -> list[str | None]:
+    """Return only the widget roster bound to this emission authority.
+
+    A supplied provider represents the retained ingress generation.  If it
+    does not expose raw object-info order, an ambient process-global cache is
+    advisory and cannot fill that gap.  Providerless legacy emission keeps
+    its historical cache lookup.
+    """
+    retained = _raw_widget_order_from_provider(class_type, schema_provider)
+    if retained is not None:
+        return retained
+    if schema_provider is not None:
+        return []
+    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
+
+    return list(object_info_widget_order(class_type))
+
+
 # Schema inputs whose type suggests a seed-bearing INT field that ComfyUI
 # pairs with a ``control_after_generate`` widget slot.
 _SEED_INPUT_NAMES: frozenset[str] = frozenset({"seed", "noise_seed"})
@@ -1682,9 +2040,9 @@ def _full_widget_name_count(
     # it is clearly the same named order plus UI-only slots.
     committed = widget_names_for_class(class_type)
     if committed is not None:
-        from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
-        object_info_order = object_info_widget_order(class_type)
+        object_info_order = _object_info_widget_order_for_emission(
+            class_type, schema_provider
+        )
         if _object_info_order_safely_extends_committed(committed, object_info_order):
             return len(object_info_order)
         return len(committed)
@@ -1951,12 +2309,17 @@ def _emit_litegraph_node_dict(
     inputs: list[dict[str, Any]],
     outputs: list[dict[str, Any]],
     schema: Any | None,
+    schema_provider: Any | None,
     include_main_positions: bool,
     widget_default_values: Mapping[str, Any] | None = None,
     name_authority: Mapping[str, Sequence[str | None]] | None = None,
 ) -> dict[str, Any]:
     widget_names = _widget_names_for_emission(
-        node.class_type, schema, node=node, name_authority=name_authority
+        node.class_type,
+        schema,
+        node=node,
+        schema_provider=schema_provider,
+        name_authority=name_authority,
     )
 
     # Step 6 (T8): re-stamp the verbatim captured properties blob as the base,
@@ -1997,12 +2360,10 @@ def _emit_litegraph_node_dict(
             if isinstance(exec_source, str):
                 intent_props["source"] = exec_source
 
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     value_domain = _widget_value_domain_for_emission(
         node,
         widget_names_for_class(node.class_type),
-        object_info_widget_order(node.class_type),
+        _object_info_widget_order_for_emission(node.class_type, schema_provider),
     )
     node_dict: dict[str, Any] = {
         "id": litegraph_node_id,
@@ -2032,6 +2393,25 @@ def _emit_litegraph_node_dict(
     if include_main_positions and furniture["title"] is not None:
         node_dict["title"] = furniture["title"]
     return node_dict
+
+
+class _MaterializeSchemaProvider:
+    """Bind one supplied node schema as the materialization authority."""
+
+    __slots__ = ("_class_type", "_schema")
+
+    def __init__(self, class_type: str, schema: Any) -> None:
+        self._class_type = class_type
+        self._schema = schema
+
+    def get_schema(self, class_type: str) -> Any | None:
+        return self._schema if class_type == self._class_type else None
+
+    def raw_widget_order(self, class_type: str) -> list[str | None]:
+        if class_type != self._class_type:
+            return []
+        order = getattr(self._schema, "widget_input_order", ())
+        return list(order) if isinstance(order, (list, tuple)) else []
 
 
 def materialize_litegraph_node(
@@ -2102,6 +2482,11 @@ def materialize_litegraph_node(
         if exec_io is not None:
             inputs = _exec_dynamic_inputs(exec_io, {})
             outputs = _exec_dynamic_outputs(exec_io, {})
+    schema_provider = (
+        _MaterializeSchemaProvider(class_type, schema)
+        if schema is not None
+        else None
+    )
     return _emit_litegraph_node_dict(
         node,
         litegraph_node_id=int(node_id),
@@ -2111,6 +2496,7 @@ def materialize_litegraph_node(
         inputs=inputs,
         outputs=outputs,
         schema=schema,
+        schema_provider=schema_provider,
         include_main_positions=False,
     )
 
@@ -2244,9 +2630,9 @@ def _has_object_info_widget_schema(
     raw_order = _raw_widget_order_from_provider(class_type, schema_provider)
     if raw_order:
         return True
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
-    return bool(object_info_widget_order(class_type))
+    return bool(
+        _object_info_widget_order_for_emission(class_type, schema_provider)
+    )
 
 
 def _has_schema_default_regeneration_basis(
@@ -2695,12 +3081,10 @@ def derive_widget_shape_evidence(
         node=node,
         schema_provider=schema_provider,
     )
-    from vibecomfy.porting.object_info.consume import object_info_widget_order  # noqa: PLC0415
-
     value_domain = _widget_value_domain_for_emission(
         node,
         widget_names_for_class(node.class_type),
-        object_info_widget_order(node.class_type),
+        _object_info_widget_order_for_emission(node.class_type, schema_provider),
     )
     candidate_widget_count = len(
         _build_widget_values(node, widget_names, value_domain=value_domain)
@@ -2711,6 +3095,12 @@ def derive_widget_shape_evidence(
         schema_provider=schema_provider,
     )
     raw_widget_count, raw_widget_shape, has_dict_rows = _raw_widget_shape_from_node(node)
+    if node.class_type == "vibecomfy.exec" and _exec_io_for_node(node) is not None:
+        # The exec node's `io` mapping is its validated socket declaration,
+        # not a dynamic widget-row schema.  Treating that fixed builtin row as
+        # opaque dynamic shape incorrectly refuses every authorized topology
+        # edit involving an existing exec node.
+        has_dict_rows = False
     schema_inputs = getattr(schema, "inputs", None)
     provider_widget_count = len(schema_inputs) if isinstance(schema_inputs, dict) else None
     if (
@@ -2814,6 +3204,26 @@ def derive_widget_shape_evidence(
     )
 
 
+def _with_emit_object_info_snapshot(func):
+    """Keep cached class evidence coherent for one UI serialization."""
+    @functools.wraps(func)
+    def wrapped(wf: Any, *args: Any, **kwargs: Any):
+        from vibecomfy.porting.object_info.consume import class_entry_snapshot
+
+        classes = {str(node.class_type) for node in wf.nodes.values()}
+        definitions = getattr(wf, "definitions", None)
+        if definitions:
+            classes.update(
+                str(node["class_type"])
+                for node in wf._semantic_definition_nodes(definitions)
+            )
+        with class_entry_snapshot(classes):
+            return func(wf, *args, **kwargs)
+
+    return wrapped
+
+
+@_with_emit_object_info_snapshot
 def emit_ui_json(
     wf: Any,
     *,
@@ -2834,6 +3244,7 @@ def emit_ui_json(
     guard_resolved_ops: Any = None,
     prior_ui_payload: Mapping[str, Any] | None = None,
     force_drop_editor_only: bool = False,
+    presentation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
 
@@ -2882,6 +3293,51 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
+    if prior_ui_payload is not None:
+        prior_ui_payload = _thaw_json_view(prior_ui_payload)
+    if guard_original_ui is not None:
+        guard_original_ui = _thaw_json_view(guard_original_ui)
+    presentation_mode = presentation is not None
+    if presentation_mode:
+        # The bundle route has one explicit source-separation mode.  Do not
+        # permit the legacy furniture/raw payload arguments to be combined
+        # with it; doing so would create an ambiguous presentation authority.
+        if any(value is not None for value in (prior_store, layout, extra, definitions, source_template, prior_path, prior_ui_payload)):
+            raise ValueError("presentation mode cannot be combined with prior/layout/raw UI authorities")
+        from vibecomfy.workflow_bundle import validate_sidecar
+
+        presentation = validate_sidecar(presentation, wf)
+        # Strip import/replay evidence before the existing serializer runs.
+        wf = wf.copy()
+        metadata = getattr(wf, "metadata", None)
+        if isinstance(metadata, dict):
+            wf.metadata = {
+                key: value for key, value in metadata.items()
+                if key not in {
+                    _UI_DOOR_KEY, "_ingest_snapshot", "_ingest_raw", "_raw_ui",
+                    "_edit_link_id_hints", "definitions",
+                }
+            }
+        for node in wf.nodes.values():
+            node.raw_widgets = None
+            if isinstance(getattr(node, "metadata", None), dict):
+                node.metadata = {
+                    key: value for key, value in node.metadata.items()
+                    if key != "_ui" and not str(key).startswith("_ui_")
+                }
+        layout = dict(presentation.get("nodes", {}))
+        canvas = presentation.get("canvas", {})
+        extra = {}
+        if isinstance(canvas, Mapping):
+            ds = {}
+            if "zoom" in canvas:
+                ds["scale"] = deepcopy(canvas["zoom"])
+            if "pan" in canvas:
+                ds["offset"] = deepcopy(canvas["pan"])
+            if ds:
+                extra["ds"] = ds
+        include_main_positions = True
+
     (
         chunked_emit_node_threshold,
         chunked_emit_chunk_size,
@@ -2925,8 +3381,10 @@ def emit_ui_json(
         # a definitions-only edit, while replacing just the changed definitions
         # blob with the IR-authoritative form.
         captured_defs = _door_top(_door).get("definitions")
-        ir_metadata = getattr(wf, "metadata", None)
-        ir_defs = ir_metadata.get("definitions") if isinstance(ir_metadata, Mapping) else None
+        ir_defs = getattr(wf, "definitions", None)
+        if not isinstance(ir_defs, Mapping):
+            ir_metadata = getattr(wf, "metadata", None)
+            ir_defs = ir_metadata.get("definitions") if isinstance(ir_metadata, Mapping) else None
         if isinstance(captured_defs, Mapping) and isinstance(ir_defs, Mapping):
             from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
 
@@ -2934,6 +3392,9 @@ def emit_ui_json(
                 emitted_defs = _emit_definitions(wf)
                 if emitted_defs is not None:
                     envelope["definitions"] = emitted_defs
+                else:
+                    envelope.pop("definitions", None)
+                    envelope.pop("state", None)
         if guard_original_ui is not None:
             from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
             from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
@@ -2945,19 +3406,42 @@ def emit_ui_json(
 
     # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
     # virtual_wires}); reconcile() is called once at top and the result exposed to
-    # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still
-    # reads from ``layout`` (= prior_store['entries']) for this batch — Step 9b
-    # will replace that precedence chain with ``reconcile_result.matched``.
-    from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
+    # the per-node loop as a local. Presentation is a separate source boundary:
+    # its validated entries are already keyed by structural UID, so invoking the
+    # legacy furniture reconciler would reintroduce an unapproved authority.
     _prior_store: dict[str, Any] = dict(prior_store) if prior_store else {}
     raw_ui_node_map = extract_raw_ui_node_map(prior_ui_payload)
-    # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
-    # into a minimal envelope so reconcile() sees the entries. Step 9b retires
-    # ``layout`` entirely once all call sites migrate to prior_store.
-    if layout is not None and not _prior_store:
-        _prior_store = {"entries": dict(layout) if isinstance(layout, dict) else {}}
-    reconcile_result = _reconcile(wf, _prior_store)
-    layout = _prior_store.get("entries", {}) or {}
+    if presentation_mode:
+        from vibecomfy.porting.layout.reconcile import ReconcileResult  # noqa: PLC0415
+
+        current_uids = {
+            str(node.uid)
+            for node in wf.nodes.values()
+            if getattr(node, "uid", None)
+        }
+        presentation_entries = presentation.get("nodes", {})
+        matched = {
+            str(uid): dict(entry)
+            for uid, entry in presentation_entries.items()
+            if str(uid) in current_uids and isinstance(entry, Mapping)
+        }
+        reconcile_result = ReconcileResult(
+            matched=matched,
+            new=sorted(current_uids - set(matched)),
+            removed=[],
+            degraded_virtual_wires=[],
+        )
+        layout = {}
+    else:
+        from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
+
+        # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
+        # into a minimal envelope so reconcile() sees the entries. Step 9b retires
+        # ``layout`` entirely once all call sites migrate to prior_store.
+        if layout is not None and not _prior_store:
+            _prior_store = {"entries": dict(layout) if isinstance(layout, dict) else {}}
+        reconcile_result = _reconcile(wf, _prior_store)
+        layout = _prior_store.get("entries", {}) or {}
     anchors = anchors or {}
 
     # ── Editor-ahead detection (T3) ───────────────────────────────────────────
@@ -3022,7 +3506,17 @@ def emit_ui_json(
     # effective_edges: direct links for the EXECUTION (flat) graph
     # broadcast_ids: SetNode/GetNode node ids to drop from flat graph
     # orphaned_get_ids: GetNode ids whose broadcast name has no SetNode source
-    effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
+    if presentation_mode:
+        # Canonical materialization displays the Python graph as authored.  Do
+        # not lower broadcast/reroute helpers or infer a flat execution graph
+        # from transient UI-era helper conventions at this boundary.
+        effective_edges = list(wf.edges)
+        broadcast_ids: set[str] = set()
+        orphaned_get_ids: set[str] = set()
+    else:
+        effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
+
+    presentation_virtual_edges = _root_virtual_display_edges(wf) if presentation_mode else []
 
     # Collect the full set of virtual-wire node ids (broadcast + Reroute)
     reroute_ids = {
@@ -3040,7 +3534,7 @@ def emit_ui_json(
     if include_virtual_wires:
         # DISPLAY mode: keep all nodes, use ALL original edges (helpers visible)
         order_list = _emission_order(wf)
-        display_edges = list(wf.edges)
+        display_edges = list(wf.edges) + presentation_virtual_edges
     else:
         # EXECUTION (flat) mode: drop virtual-wire nodes, resolve edges
         order_list = [
@@ -3097,8 +3591,41 @@ def emit_ui_json(
             computed_anchors[key] = anchor
 
     effective_anchors: dict[str, Any] = dict(anchors) if anchors else {}
+    group_anchors: dict[str, Any] = dict(effective_anchors)
+    topology_between_keys: set[str] = set()
+    explicit_anchor_groups: dict[str, str] = {}
+    for node_id in order_list:
+        node = wf.nodes[node_id]
+        key = _node_key(node_id)
+        metadata = getattr(node, "metadata", None)
+        if not isinstance(metadata, Mapping):
+            continue
+        retained_anchor = metadata.get("_edit_anchor_uid")
+        retained_relation = metadata.get("_edit_anchor_relation")
+        retained_between = metadata.get("_edit_anchor_between_uids")
+        is_complete_between = (
+            retained_relation == "between"
+            and isinstance(retained_between, (list, tuple))
+            and len(retained_between) == 2
+            and all(value not in (None, "") for value in retained_between)
+        )
+        if is_complete_between and key not in effective_anchors:
+            # The topology engine already places a true splice between its
+            # two wired endpoints.  Collapsing this to a one-sided constrained
+            # anchor pushes it to the right of the downstream node.  Retain
+            # the full relation as the reason to suppress that lossy override.
+            topology_between_keys.add(key)
+            group_anchors.setdefault(key, str(retained_between[1]))
+        elif retained_anchor not in (None, ""):
+            effective_anchors.setdefault(key, str(retained_anchor))
+            group_anchors.setdefault(key, str(retained_anchor))
+        retained_group = metadata.get("_edit_group_title")
+        if retained_group not in (None, ""):
+            explicit_anchor_groups[key] = str(retained_group)
     for k, v in computed_anchors.items():
-        effective_anchors.setdefault(k, v)
+        if k not in topology_between_keys:
+            effective_anchors.setdefault(k, v)
+            group_anchors.setdefault(k, v)
 
     # Flat mode (include_virtual_wires=False): the layout engine must compute
     # positions against the FLAT execution graph — virtual-wire nodes removed,
@@ -3304,6 +3831,11 @@ def emit_ui_json(
     # identical; only the emission is sliced.
     nodes: list[dict[str, Any]] = []
     last_node_id = max(id_remap.values()) if id_remap else 0
+    # COW removal records the highest retired native id so a rebuild or later
+    # add cannot rewind LiteGraph's monotonic node counter.
+    edit_counter = (getattr(wf, "metadata", {}) or {}).get("_edit_last_node_id")
+    if isinstance(edit_counter, int) and not isinstance(edit_counter, bool):
+        last_node_id = max(last_node_id, edit_counter)
     emitted_outputs_by_node: dict[str, list[dict[str, Any]]] = {}
     emitted_inputs_by_node: dict[str, list[dict[str, Any]]] = {}
 
@@ -3328,7 +3860,7 @@ def emit_ui_json(
                 incoming_link_ids_by_input[edge.to_input].append(lid)
             outgoing_link_ids_by_slot: dict[int, list[int]] = defaultdict(list)
             for edge in edges_from[node_id]:
-                slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
+                slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache, node)
                 lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
                 outgoing_link_ids_by_slot[slot].append(lid)
             pinned = _raw_ui_payload_for_pin(
@@ -3380,7 +3912,7 @@ def emit_ui_json(
         # Build a set of (from_output_val) → links for this node from edges
         output_links_by_slot: dict[int, list[int]] = defaultdict(list)
         for edge in edges_from[node_id]:
-            slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
+            slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache, node)
             eid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
             output_links_by_slot[slot].append(eid)
 
@@ -3388,6 +3920,24 @@ def emit_ui_json(
             node,
             schema,
         )
+
+        # T04 native rosters are the canonical socket shape when present.  A
+        # roster may intentionally contain ``None`` holes; retain those slots
+        # verbatim rather than inferring an ordinal from UI/schema evidence.
+        if not schema_outputs and isinstance(node.native_output_names, list):
+            schema_outputs = [
+                _DynamicOutputSpec(
+                    (
+                        node.native_output_types[slot]
+                        if isinstance(node.native_output_types, list)
+                        and slot < len(node.native_output_types)
+                        and node.native_output_types[slot] is not None
+                        else ""
+                    ),
+                    name or f"output_{slot}",
+                )
+                for slot, name in enumerate(node.native_output_names)
+            ]
 
         if exec_io is not None:
             outputs = _exec_dynamic_outputs(exec_io, output_links_by_slot)
@@ -3446,7 +3996,7 @@ def emit_ui_json(
         # --- inputs list (physical ComfyUI socket order) ---
         # Only LINKED inputs get an input-slot entry; a linked input whose name is a
         # widget-type input additionally carries widget:{name:...} (widget→link).
-        incoming_sorted = _ordered_incoming_edges(edges_to[node_id], schema)
+        incoming_sorted = _ordered_incoming_edges(edges_to[node_id], schema, node)
         incoming_link_ids_by_input: dict[str, list[int]] = defaultdict(list)
         for edge in incoming_sorted:
             lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
@@ -3454,10 +4004,51 @@ def emit_ui_json(
         inputs: list[dict[str, Any]] = []
         if exec_io is not None:
             inputs = _exec_dynamic_inputs(exec_io, incoming_link_ids_by_input)
+        elif isinstance(node.native_input_names, list):
+            incoming_by_name = {edge.to_input: edge for edge in incoming_sorted}
+            for slot_idx, name in enumerate(node.native_input_names):
+                edge = incoming_by_name.get(name) if isinstance(name, str) else None
+                if (
+                    edge is None
+                    and isinstance(name, str)
+                    and name in widget_name_set
+                ):
+                    # Unlinked widgets live in widgets_values, not the physical
+                    # input array.  A prior widget→link conversion that was
+                    # auto-unlinked by SetNodeField must not keep a dead slot.
+                    continue
+                socket_type = (
+                    node.native_input_types[slot_idx]
+                    if isinstance(node.native_input_types, list)
+                    and slot_idx < len(node.native_input_types)
+                    and node.native_input_types[slot_idx] is not None
+                    else "UNKNOWN"
+                )
+                link_id = None
+                if edge is not None:
+                    from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
+                    _, source_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
+                    if not socket_type or socket_type == "UNKNOWN":
+                        socket_type = source_type
+                    link_id = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
+                slot = {
+                    "name": name or f"input_{slot_idx}",
+                    "type": socket_type or "UNKNOWN",
+                    "link": link_id,
+                }
+                if (
+                    isinstance(node.native_input_optional, list)
+                    and slot_idx < len(node.native_input_optional)
+                    and node.native_input_optional[slot_idx]
+                ):
+                    slot["shape"] = 7
+                if isinstance(name, str) and name in widget_name_set:
+                    slot["widget"] = {"name": name}
+                inputs.append(slot)
         else:
             for edge in incoming_sorted:
                 from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
-                _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
+                _, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
                 if not socket_type or socket_type in {"*", "UNKNOWN"}:
                     raw_inputs = raw_ui_node.get("inputs") if isinstance(raw_ui_node, Mapping) else None
                     raw_input = next(
@@ -3493,6 +4084,7 @@ def emit_ui_json(
                 inputs=inputs,
                 outputs=outputs,
                 schema=schema,
+                schema_provider=schema_provider,
                 include_main_positions=include_main_positions,
                 widget_default_values=widget_shape_default_values[node_id],
                 name_authority=name_authority,
@@ -3504,7 +4096,7 @@ def emit_ui_json(
     dangling_links: list[dict[str, Any]] = []
     for edge in sorted_edges:
         from_class = wf.nodes[edge.from_node].class_type if edge.from_node in wf.nodes else ""
-        from_slot, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache)
+        from_slot, socket_type = _resolve_output_slot_and_type(edge.from_output, from_class, schema_cache, wf.nodes.get(edge.from_node))
         from_exec_io = _exec_io_for_node(wf.nodes[edge.from_node]) if edge.from_node in wf.nodes else None
         if from_exec_io is not None:
             try:
@@ -3523,7 +4115,7 @@ def emit_ui_json(
                 to_slot = 0
         else:
             target_schema = schema_cache.get(wf.nodes[edge.to_node].class_type)
-            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema)
+            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema, wf.nodes.get(edge.to_node))
             to_slot = next(
                 (
                     i
@@ -3534,6 +4126,10 @@ def emit_ui_json(
                 ),
                 0,
             )
+            target_node = wf.nodes.get(edge.to_node)
+            native_inputs = getattr(target_node, "native_input_names", None) if target_node is not None else None
+            if isinstance(native_inputs, list) and edge.to_input in native_inputs:
+                to_slot = native_inputs.index(edge.to_input)
         if (
             to_exec_io is not None
             and 0 <= to_slot < len(to_exec_io["inputs"])
@@ -3773,6 +4369,12 @@ def emit_ui_json(
     for eg in engine_groups:
         if eg.get("title", "") not in ir_titles:
             emitted_groups.append(eg)
+    _extend_groups_for_anchored_nodes(
+        emitted_groups,
+        nodes,
+        group_anchors,
+        explicit_anchor_groups,
+    )
     if include_main_positions and emitted_groups:
         _canonicalize_group_geometry(emitted_groups)
 
@@ -3799,8 +4401,10 @@ def emit_ui_json(
             if isinstance(_door_top(_door), Mapping)
             else None
         )
-        metadata = getattr(wf, "metadata", None)
-        ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
+        ir_defs = getattr(wf, "definitions", None)
+        if not isinstance(ir_defs, Mapping):
+            metadata = getattr(wf, "metadata", None)
+            ir_defs = metadata.get("definitions") if isinstance(metadata, Mapping) else None
         from vibecomfy.ingest.normalize import _door_freeze  # noqa: PLC0415
 
         if (
@@ -3809,8 +4413,6 @@ def emit_ui_json(
             and _door_freeze(ir_defs) != _door_freeze(captured_defs)
         ):
             effective_defs = _emit_definitions(wf)
-            if effective_defs is None:
-                effective_defs = deepcopy(ir_defs)
         else:
             effective_defs = (
                 deepcopy(captured_defs) if isinstance(captured_defs, Mapping) else _emit_definitions(wf)
@@ -3828,6 +4430,16 @@ def emit_ui_json(
             "lastLinkId": _wire_counter(_door, "last_link_id", last_link_id),
             "lastRerouteId": 0,
         }
+
+    # Python-owned recursive interfaces and their local endpoint bindings are
+    # semantic carriers.  They are not recoverable from LiteGraph's native
+    # inputNode/outputNode or -10/-20 boundary encoding, which is deliberately
+    # unsupported.  Emit the exact detached typed carriers even when empty so
+    # a remove-all edit cannot be resurrected from definition port decoration
+    # during the next ingest.
+    if effective_defs is not None or wf.interfaces or wf.boundary_ports:
+        envelope["interfaces"] = deepcopy(wf.interfaces)
+        envelope["boundary_ports"] = deepcopy(wf.boundary_ports)
 
     # When include_main_positions=True, always emit state counters even if there
     # are no definitions (the lean default ties state to definitions presence).
@@ -3851,7 +4463,664 @@ def emit_ui_json(
         _delta = compute_field_delta(_snap, wf) if _snap else {}
         _guard_emit(guard_original_ui, envelope, _delta, resolved_ops=guard_resolved_ops)
 
+    if presentation_mode:
+        _overlay_validated_presentation(envelope, presentation, wf)
+
     return envelope
+
+
+def materialize_ui_json(
+    wf: Any,
+    sidecar: Mapping[str, Any] | None = None,
+    *,
+    schema_provider: Any = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Materialize the canonical UI projection for one validated presentation.
+
+    This is the narrow bundle-facing boundary.  It deliberately invokes the
+    existing emitter exactly once, with a detached workflow whose import/raw UI
+    evidence has been removed.  The sidecar is presentation-only: it is used
+    for furniture, link identities/occurrences, groups, and canvas after the
+    semantic node/link projection has been emitted from Python.
+
+    ``sidecar`` is validated by :func:`vibecomfy.workflow_bundle.validate_sidecar`
+    before this function is normally called by ``WorkflowBundle``.  Repeating
+    the validation here keeps this public emitter seam fail-closed for direct
+    callers and, importantly, means no emitter work occurs for an invalid pair.
+    """
+    from vibecomfy.workflow_bundle import validate_sidecar
+
+    if not hasattr(wf, "copy") or not hasattr(wf, "nodes"):
+        raise TypeError("materialize_ui_json requires a VibeWorkflow")
+    if sidecar is None:
+        sidecar = {
+            "format_version": 1,
+            "bind": {
+                "workflow_identity": wf.id,
+                "semantic_digest": wf.semantic_digest(),
+            },
+            "nodes": {},
+            "links": [],
+            "groups": [],
+            "canvas": {},
+        }
+    normalized = validate_sidecar(sidecar, wf)
+
+    # Raw UI, snapshots, and the door are evidence at import/replay boundaries;
+    # none can affect a canonical bundle materialization.  Keep only authored
+    # semantic metadata and the typed node fields already present in Python.
+    materialized_wf = wf.copy()
+    metadata = getattr(materialized_wf, "metadata", None)
+    if isinstance(metadata, dict):
+        materialized_wf.metadata = {
+            key: value
+            for key, value in metadata.items()
+            if key not in {
+                _UI_DOOR_KEY,
+                "_ingest_snapshot",
+                "_ingest_raw",
+                "_raw_ui",
+                "_edit_link_id_hints",
+                "definitions",
+            }
+        }
+    for node in materialized_wf.nodes.values():
+        node.raw_widgets = None
+        node_metadata = getattr(node, "metadata", None)
+        if isinstance(node_metadata, dict):
+            node.metadata = {
+                key: value for key, value in node_metadata.items()
+                if key != "_ui" and not str(key).startswith("_ui_")
+            }
+
+    canvas = normalized.get("canvas", {})
+    extra: dict[str, Any] = {}
+    if isinstance(canvas, Mapping):
+        ds: dict[str, Any] = {}
+        if "zoom" in canvas:
+            ds["scale"] = deepcopy(canvas["zoom"])
+        if "pan" in canvas:
+            ds["offset"] = deepcopy(canvas["pan"])
+        if ds:
+            extra["ds"] = ds
+
+    envelope = emit_ui_json(
+        materialized_wf,
+        schema_provider=schema_provider,
+        strict=strict,
+        presentation=normalized,
+    )
+    structural_report = structural_validate(envelope, schema_provider=schema_provider)
+    if not structural_report.get("ok", False):
+        raise ValueError(
+            "canonical UI materialization failed structural validation: "
+            f"{structural_report.get('errors', [])}"
+        )
+    return envelope
+
+
+def _overlay_validated_presentation(
+    envelope: dict[str, Any],
+    sidecar: Mapping[str, Any],
+    wf: Any,
+) -> None:
+    """Overlay the closed v1 presentation allowlist onto a fresh envelope."""
+    side_nodes = sidecar.get("nodes", {})
+    if not isinstance(side_nodes, Mapping):
+        raise ValueError("validated sidecar nodes must be a mapping")
+    emitted_nodes = envelope.get("nodes", [])
+    if not isinstance(emitted_nodes, list):
+        raise ValueError("emitter returned an invalid nodes list")
+    from vibecomfy.porting.emit.emit_constants import UI_ONLY_CLASS_TYPES
+
+    by_uid: dict[str, dict[str, Any]] = {}
+    old_id_by_uid: dict[str, int] = {}
+    for node in emitted_nodes:
+        if not isinstance(node, dict):
+            continue
+        props = node.get("properties")
+        uid = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+        if isinstance(uid, str):
+            by_uid[uid] = node
+            if type(node.get("id")) is int:
+                old_id_by_uid[uid] = int(node["id"])
+    native_ids: set[int] = {
+        int(node["id"]) for node in emitted_nodes
+        if isinstance(node, Mapping) and type(node.get("id")) is int
+    }
+
+    # UI-only furniture has no executable VibeNode, but it is still part of
+    # the captured presentation custody.  Recreate the allowlisted note
+    # classes from their sidecar record so materialization does not silently
+    # discard authored canvas annotations.  Their synthetic UID is a custody
+    # key only; no semantic links are synthesized for them.
+    next_ui_only_id = max(native_ids, default=0) + 1
+    for uid, entry in side_nodes.items():
+        if uid in by_uid or not isinstance(entry, Mapping):
+            continue
+        class_type = entry.get("class_type")
+        if class_type not in UI_ONLY_CLASS_TYPES:
+            continue
+        native_id = entry.get("id")
+        if type(native_id) is not int:
+            while next_ui_only_id in native_ids:
+                next_ui_only_id += 1
+            native_id = next_ui_only_id
+            next_ui_only_id += 1
+        if native_id in native_ids:
+            raise ValueError(f"sidecar native node id collision for {native_id}")
+        node: dict[str, Any] = {
+            "id": native_id,
+            "type": class_type,
+            "properties": {
+                "Node name for S&R": class_type,
+                "vibecomfy_uid": str(uid),
+            },
+        }
+        for field in ("pos", "size", "color", "bgcolor", "title"):
+            if field in entry:
+                node[field] = deepcopy(entry[field])
+        if "z_order" in entry:
+            node["order"] = deepcopy(entry["z_order"])
+        if "collapsed" in entry:
+            node["flags"] = {"collapsed": entry["collapsed"]}
+        if "group" in entry:
+            node["group"] = deepcopy(entry["group"])
+        emitted_nodes.append(node)
+        by_uid[str(uid)] = node
+        native_ids.add(native_id)
+
+    # Preserve the emitted ids for link remapping, then apply native sidecar ids.
+    old_to_new: dict[int, int] = {}
+    for uid, entry in side_nodes.items():
+        node = by_uid.get(str(uid))
+        if node is None or not isinstance(entry, Mapping):
+            continue
+        old_id = node.get("id")
+        if type(entry.get("id")) is int:
+            new_id = int(entry["id"])
+            if new_id in native_ids and new_id != old_id:
+                raise ValueError(f"sidecar native node id collision for {new_id}")
+            native_ids.discard(old_id)
+            native_ids.add(new_id)
+            if type(old_id) is int:
+                old_to_new[old_id] = new_id
+            node["id"] = new_id
+        if "pos" in entry:
+            node["pos"] = deepcopy(entry["pos"])
+        if "size" in entry:
+            node["size"] = deepcopy(entry["size"])
+        if "collapsed" in entry:
+            flags = node.get("flags")
+            flags = dict(flags) if isinstance(flags, Mapping) else {}
+            flags["collapsed"] = entry["collapsed"]
+            node["flags"] = flags
+        for field in ("color", "bgcolor", "title"):
+            if field in entry:
+                node[field] = deepcopy(entry[field])
+        if "z_order" in entry:
+            node["order"] = deepcopy(entry["z_order"])
+        if "group" in entry:
+            # Keep the direct parent marker as well as the group member list;
+            # Comfy/LiteGraph consumers use both forms in different versions.
+            node["group"] = deepcopy(entry["group"])
+
+    # Rebuild links from Python-emitted endpoint geometry and sidecar foreign
+    # keys.  This preserves duplicate visual occurrences while never accepting
+    # sidecar endpoints as new semantic edges.
+    side_links = sidecar.get("links", [])
+    if not isinstance(side_links, list):
+        raise ValueError("validated sidecar links must be a list")
+    uid_by_old_id = {native_id: uid for uid, native_id in old_id_by_uid.items()}
+    wf_by_uid = {
+        str(node.uid): node
+        for node in getattr(wf, "nodes", {}).values()
+        if getattr(node, "uid", None)
+    }
+
+    def _semantic_port(node_obj: Any, ui_node: Mapping[str, Any] | None, slot: int, direction: str) -> int:
+        roster = getattr(node_obj, f"native_{direction}_names", None)
+        sockets = ui_node.get("outputs" if direction == "output" else "inputs") if isinstance(ui_node, Mapping) else None
+        name = None
+        if isinstance(sockets, list) and 0 <= slot < len(sockets) and isinstance(sockets[slot], Mapping):
+            raw_name = sockets[slot].get("name")
+            name = raw_name if isinstance(raw_name, str) else None
+        if isinstance(roster, list) and name is not None:
+            matches = [
+                index for index, roster_name in enumerate(roster)
+                if roster_name == name
+            ]
+            if len(matches) == 1:
+                return matches[0]
+        # Schema-less emit names native slots output_N / input_N. Sidecar
+        # edge_ref already stores that native index, so index emitted links
+        # the same way when the roster is missing or does not uniquely match.
+        prefix = "output_" if direction == "output" else "input_"
+        if isinstance(name, str) and name.startswith(prefix) and name[len(prefix):].isdigit():
+            return int(name[len(prefix):])
+        return slot
+
+    emitted_by_key: dict[tuple[str, int, str, int], list[list[Any]]] = defaultdict(list)
+    for link in envelope.get("links", []):
+        if not isinstance(link, (list, tuple)) or len(link) < 6:
+            continue
+        source_uid = uid_by_old_id.get(link[1])
+        target_uid = uid_by_old_id.get(link[3])
+        if source_uid is None or target_uid is None:
+            continue
+        from_port = int(link[2])
+        to_port = int(link[4])
+        source_node = wf_by_uid.get(source_uid)
+        target_node = wf_by_uid.get(target_uid)
+        if source_node is not None:
+            from_port = _semantic_port(source_node, by_uid.get(source_uid), from_port, "output")
+        if target_node is not None:
+            to_port = _semantic_port(target_node, by_uid.get(target_uid), to_port, "input")
+        emitted_by_key[(source_uid, from_port, target_uid, to_port)].append(list(link))
+
+    rebuilt_links: list[list[Any]] = []
+    used_link_ids: set[int] = set()
+    next_link_id = max(
+        [int(item.get("id")) for item in side_links if isinstance(item, Mapping) and type(item.get("id")) is int]
+        + [int(link[0]) for link in envelope.get("links", []) if isinstance(link, (list, tuple)) and type(link[0]) is int]
+        + [0]
+    ) + 1
+    root_side_links = [
+        item for item in side_links
+        if isinstance(item, Mapping)
+        and str((item.get("edge_ref") or item.get("virtual_wire_ref") or {}).get("scope_path", "")) == ""
+    ]
+    # Every Python-emitted semantic link remains in the result.  Sidecar rows
+    # are optional presentation overrides, not a second edge list: rows that
+    # are absent leave their Python link untouched, while duplicate rows create
+    # duplicate visual occurrences of the same Python endpoint.
+    side_overrides: dict[tuple[str, int, str, int], list[Mapping[str, Any]]] = defaultdict(list)
+    for item in root_side_links:
+        if not isinstance(item, Mapping):
+            raise ValueError("validated sidecar link must be a mapping")
+        ref = item.get("edge_ref")
+        key: tuple[str, int, str, int] | None = None
+        if isinstance(ref, Mapping):
+            key = (
+                str(ref["from_uid"]), int(ref["from_port"]),
+                str(ref["to_uid"]), int(ref["to_port"]),
+            )
+        if key is None:
+            # A virtual leg is Python-owned and must have a corresponding
+            # materialized endpoint; never synthesize an endpoint from sidecar.
+            ref = item.get("virtual_wire_ref")
+            if not isinstance(ref, Mapping):
+                raise ValueError("validated sidecar link has no semantic reference")
+            from vibecomfy.workflow_bundle import _virtual_legs
+            legs = _virtual_legs(wf).get((str(ref["scope_path"]), str(ref["name"])))
+            matching = [
+                leg for leg in (legs or ())
+                if leg[5] == int(ref["leg_index"]) and leg[6] == int(item.get("occurrence_index", 0))
+            ]
+            if not matching:
+                raise ValueError("virtual sidecar link has no Python-owned materialized leg")
+            leg = matching[0]
+            key = (str(leg[1]), int(leg[2]), str(leg[3]), int(leg[4]))
+        candidates = emitted_by_key.get(key, [])
+        if not candidates:
+            raise ValueError(f"sidecar link {key!r} has no Python-emitted endpoint")
+        side_overrides[key].append(item)
+
+    def materialize_link(
+        link: list[Any], item: Mapping[str, Any] | None = None
+    ) -> list[Any]:
+        nonlocal next_link_id
+        result = list(link)
+        result[1] = old_to_new.get(result[1], result[1])
+        result[3] = old_to_new.get(result[3], result[3])
+        lid = item.get("id") if isinstance(item, Mapping) else None
+        if type(lid) is not int:
+            lid = result[0]
+            while lid in used_link_ids:
+                lid = next_link_id
+                next_link_id += 1
+        if lid in used_link_ids:
+            raise ValueError(f"duplicate materialized native link id {lid}")
+        used_link_ids.add(lid)
+        result[0] = lid
+        # Reroute geometry is a presentation member of the link record.  The
+        # seventh array member is retained for round-trip callers while the six
+        # LiteGraph endpoint members remain untouched.
+        if isinstance(item, Mapping) and "reroute" in item:
+            result.append(deepcopy(item["reroute"]))
+        return result
+
+    for key, candidates in emitted_by_key.items():
+        overrides = side_overrides.get(key)
+        if overrides:
+            # A sidecar is optional presentation evidence.  It may override
+            # only the first authored occurrence; omitted Python occurrences
+            # must remain visible.  Extra sidecar rows intentionally duplicate
+            # the first Python endpoint, preserving the v1 occurrence model.
+            rebuilt_links.extend(
+                materialize_link(candidates[min(index, len(candidates) - 1)], item)
+                for index, item in enumerate(overrides)
+            )
+            rebuilt_links.extend(
+                materialize_link(candidate)
+                for candidate in candidates[len(overrides):]
+            )
+        else:
+            rebuilt_links.extend(materialize_link(candidate) for candidate in candidates)
+
+    # Preserve non-semantic emitter links (for example explicit virtual-wire
+    # display links) when no sidecar row can identify their endpoint.  Key
+    # through the same native-roster mapping used to index emitted_by_key so a
+    # visual-slot link is not appended again after its semantic key was kept.
+    for raw_link in envelope.get("links", []):
+        if not isinstance(raw_link, (list, tuple)) or len(raw_link) < 6:
+            continue
+        source_uid = uid_by_old_id.get(raw_link[1])
+        target_uid = uid_by_old_id.get(raw_link[3])
+        from_port = int(raw_link[2])
+        to_port = int(raw_link[4])
+        source_node = wf_by_uid.get(source_uid) if source_uid is not None else None
+        target_node = wf_by_uid.get(target_uid) if target_uid is not None else None
+        if source_node is not None:
+            from_port = _semantic_port(source_node, by_uid.get(source_uid), from_port, "output")
+        if target_node is not None:
+            to_port = _semantic_port(target_node, by_uid.get(target_uid), to_port, "input")
+        key = (source_uid, from_port, target_uid, to_port)
+        if key not in emitted_by_key:
+            rebuilt_links.append(materialize_link(list(raw_link)))
+    envelope["links"] = rebuilt_links
+
+    # Link references inside node socket arrays are derived from the rebuilt
+    # links, never copied from sidecar endpoint data.
+    for node in emitted_nodes:
+        for output in node.get("outputs", []) if isinstance(node, Mapping) else []:
+            if isinstance(output, dict) and isinstance(output.get("links"), list):
+                output["links"] = []
+        for input_slot in node.get("inputs", []) if isinstance(node, Mapping) else []:
+            if isinstance(input_slot, dict) and "link" in input_slot:
+                input_slot["link"] = None
+    for link in rebuilt_links:
+        source = next((node for node in emitted_nodes if node.get("id") == link[1]), None)
+        target = next((node for node in emitted_nodes if node.get("id") == link[3]), None)
+        if isinstance(source, dict) and isinstance(source.get("outputs"), list) and 0 <= link[2] < len(source["outputs"]):
+            output = source["outputs"][link[2]]
+            if isinstance(output, dict):
+                output.setdefault("links", []).append(link[0])
+        if isinstance(target, dict) and isinstance(target.get("inputs"), list) and 0 <= link[4] < len(target["inputs"]):
+            target_slot = target["inputs"][link[4]]
+            if isinstance(target_slot, dict):
+                target_slot["link"] = link[0]
+
+    # Groups are wholly presentation-owned.  Build LiteGraph groups from the
+    # validated scoped records and parent markers; never title-deduplicate.
+    groups_out: list[dict[str, Any]] = []
+    for group in sidecar.get("groups", []):
+        if not isinstance(group, Mapping):
+            continue
+        scope = str(group["scope_path"])
+        if scope != "":
+            continue
+        pid = str(group["presentation_id"])
+        member_ids: list[int] = []
+        for uid, entry in side_nodes.items():
+            if not isinstance(entry, Mapping) or entry.get("group") != pid:
+                continue
+            node_scope = uid.rsplit("#", 1)[0] if "#" in uid else ""
+            if node_scope == scope:
+                node = by_uid.get(str(uid))
+                if isinstance(node, Mapping) and type(node.get("id")) is int:
+                    member_ids.append(int(node["id"]))
+        out: dict[str, Any] = {
+            "id": pid,
+            "vibecomfy_group_id": pid,
+            "nodes": member_ids,
+        }
+        if "bounds" in group:
+            out["bounding"] = deepcopy(group["bounds"])
+        if "title" in group:
+            out["title"] = deepcopy(group["title"])
+        if "color" in group:
+            out["color"] = deepcopy(group["color"])
+        if "z_order" in group:
+            out["order"] = deepcopy(group["z_order"])
+        groups_out.append(out)
+    envelope["groups"] = groups_out
+
+    _overlay_nested_presentation(envelope, sidecar, wf, handled=set(by_uid))
+
+
+def _overlay_nested_presentation(
+    envelope: Mapping[str, Any],
+    sidecar: Mapping[str, Any],
+    wf: Any,
+    *,
+    handled: set[str],
+) -> None:
+    """Apply the same allowlist to recursively emitted definition nodes.
+
+    Definitions are Python-owned semantic data; this helper only edits their
+    disposable UI furniture.  Structural scope keys are recomputed from each
+    definition, so nested clones never fall back to ordinal or title aliases.
+    """
+    definitions = envelope.get("definitions")
+    if not isinstance(definitions, Mapping):
+        missing = [str(uid) for uid in sidecar.get("nodes", {}) if str(uid) not in handled]
+        if missing:
+            raise ValueError(f"sidecar contains unmaterialized recursive node(s): {missing!r}")
+        return
+    from vibecomfy.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.identity.uid import make_uid
+
+    side_nodes = sidecar.get("nodes", {})
+    side_links = sidecar.get("links", [])
+
+    def entries(raw: Any) -> list[Mapping[str, Any]]:
+        if isinstance(raw, Mapping) and isinstance(raw.get("subgraphs"), list):
+            return [item for item in raw["subgraphs"] if isinstance(item, Mapping)]
+        if isinstance(raw, Mapping):
+            return [item for item in raw.values() if isinstance(item, Mapping)]
+        if isinstance(raw, list):
+            return [item for item in raw if isinstance(item, Mapping)]
+        return []
+
+    def node_local(node: Mapping[str, Any]) -> str | None:
+        props = node.get("properties")
+        value = props.get("vibecomfy_uid") if isinstance(props, Mapping) else None
+        if value is None:
+            value = node.get("uid", node.get("id"))
+        return str(value) if value is not None else None
+
+    def walk(raw_defs: Any, parent: tuple[str, ...]) -> None:
+        for definition in entries(raw_defs):
+            key = sg_key(definition)
+            scope = compose_scope_path((*parent, key))
+            out_nodes = definition.get("nodes", [])
+            out_nodes = out_nodes if isinstance(out_nodes, list) else list(out_nodes.values()) if isinstance(out_nodes, Mapping) else []
+            by_local = {local: node for node in out_nodes if isinstance(node, Mapping) and (local := node_local(node)) is not None}
+            original_node_ids = {
+                local: node.get("id") for local, node in by_local.items()
+            }
+            node_id_remap: dict[int, int] = {}
+            occupied_node_ids = {
+                int(node["id"])
+                for node in out_nodes
+                if isinstance(node, Mapping) and type(node.get("id")) is int
+            }
+            for local, node in by_local.items():
+                uid = make_uid(scope, local)
+                entry = side_nodes.get(uid)
+                if not isinstance(entry, Mapping):
+                    continue
+                handled.add(uid)
+                if type(entry.get("id")) is int:
+                    old_id = node.get("id")
+                    new_id = int(entry["id"])
+                    if new_id in occupied_node_ids and new_id != old_id:
+                        raise ValueError(
+                            f"sidecar native nested node id collision in {scope!r}: {new_id}"
+                        )
+                    if type(old_id) is int:
+                        occupied_node_ids.discard(old_id)
+                        node_id_remap[old_id] = new_id
+                    occupied_node_ids.add(new_id)
+                    node["id"] = new_id
+                if "pos" in entry: node["pos"] = deepcopy(entry["pos"])
+                if "size" in entry: node["size"] = deepcopy(entry["size"])
+                if "collapsed" in entry:
+                    flags = dict(node.get("flags") or {}) if isinstance(node.get("flags"), Mapping) else {}
+                    flags["collapsed"] = entry["collapsed"]
+                    node["flags"] = flags
+                for field in ("color", "bgcolor", "title"):
+                    if field in entry: node[field] = deepcopy(entry[field])
+                if "z_order" in entry: node["order"] = deepcopy(entry["z_order"])
+                if "group" in entry: node["group"] = deepcopy(entry["group"])
+
+            # Groups inside definitions are presentation records too.  Rebuild
+            # them by structural scope and sidecar presentation id, retaining
+            # Python-emitted membership ids while overlaying only the closed
+            # furniture fields.  A sidecar group may be present even when the
+            # raw definition carried no group object, so construct that object
+            # from the already validated node parent markers.
+            raw_groups = definition.get("groups", [])
+            groups_out = list(raw_groups) if isinstance(raw_groups, list) else []
+            groups_by_id = {
+                str(group.get("vibecomfy_group_id", group.get("id"))): group
+                for group in groups_out
+                if isinstance(group, Mapping)
+            }
+            for group in sidecar.get("groups", []) if isinstance(sidecar.get("groups"), list) else []:
+                if not isinstance(group, Mapping) or str(group.get("scope_path")) != scope:
+                    continue
+                presentation_id = str(group["presentation_id"])
+                member_ids = [
+                    node.get("id")
+                    for local, node in by_local.items()
+                    if isinstance(node, Mapping)
+                    and isinstance(side_nodes.get(make_uid(scope, local)), Mapping)
+                    and side_nodes[make_uid(scope, local)].get("group") == presentation_id
+                    and type(node.get("id")) is int
+                ]
+                target = groups_by_id.get(presentation_id)
+                if target is None:
+                    target = {"id": presentation_id, "vibecomfy_group_id": presentation_id}
+                    groups_out.append(target)
+                    groups_by_id[presentation_id] = target
+                target["nodes"] = member_ids
+                if "bounds" in group: target["bounding"] = deepcopy(group["bounds"])
+                if "title" in group: target["title"] = deepcopy(group["title"])
+                if "color" in group: target["color"] = deepcopy(group["color"])
+                if "z_order" in group: target["order"] = deepcopy(group["z_order"])
+            if groups_out:
+                definition["groups"] = groups_out
+
+            # Definition links are object records.  Select by Python-owned
+            # local endpoints, then apply only native id/reroute presentation.
+            raw_def_links = definition.get("links", [])
+            if isinstance(raw_def_links, list):
+                overridden: set[int] = set()
+                link_id_remap: dict[int, int] = {}
+                occupied_link_ids = {
+                    int(link.get("id"))
+                    for link in raw_def_links
+                    if isinstance(link, Mapping) and type(link.get("id")) is int
+                }
+                next_nested_link_id = max(
+                    [
+                        int(link.get("id"))
+                        for link in raw_def_links
+                        if isinstance(link, Mapping) and type(link.get("id")) is int
+                    ]
+                    + [0]
+                ) + 1
+                for item in side_links if isinstance(side_links, list) else []:
+                    if not isinstance(item, Mapping): continue
+                    ref = item.get("edge_ref")
+                    if isinstance(ref, Mapping):
+                        if ref.get("scope_path") != scope:
+                            continue
+                        from_local = str(ref.get("from_uid"))
+                        from_port = ref.get("from_port")
+                        to_local = str(ref.get("to_uid"))
+                        to_port = ref.get("to_port")
+                    else:
+                        virtual_ref = item.get("virtual_wire_ref")
+                        if not isinstance(virtual_ref, Mapping) or virtual_ref.get("scope_path") != scope:
+                            continue
+                        from vibecomfy.workflow_bundle import _virtual_legs
+                        legs = _virtual_legs(wf).get((scope, str(virtual_ref.get("name"))))
+                        leg_index = virtual_ref.get("leg_index")
+                        matching = [
+                            leg for leg in (legs or ())
+                            if leg[5] == leg_index and leg[6] == int(item.get("occurrence_index", 0))
+                        ]
+                        if not matching:
+                            continue
+                        leg = matching[0]
+                        from_local, from_port, to_local, to_port = str(leg[1]), leg[2], str(leg[3]), leg[4]
+                    matching = [
+                        link for link in raw_def_links
+                        if isinstance(link, Mapping)
+                        and str(link.get("origin_id")) == str(original_node_ids.get(from_local))
+                        and str(link.get("target_id")) == str(original_node_ids.get(to_local))
+                        and link.get("origin_slot") == from_port
+                        and link.get("target_slot") == to_port
+                    ]
+                    if not matching:
+                        continue
+                    target = matching[0]
+                    if id(target) in overridden:
+                        target = deepcopy(target)
+                        raw_def_links.append(target)
+                        if type(item.get("id")) is not int:
+                            target["id"] = next_nested_link_id
+                            next_nested_link_id += 1
+                    overridden.add(id(target))
+                    if type(item.get("id")) is int:
+                        new_link_id = int(item["id"])
+                        old_link_id = target.get("id")
+                        if new_link_id in occupied_link_ids and new_link_id != old_link_id:
+                            raise ValueError(
+                                f"sidecar native nested link id collision in {scope!r}: {new_link_id}"
+                            )
+                        if type(old_link_id) is int:
+                            occupied_link_ids.discard(old_link_id)
+                            link_id_remap.setdefault(old_link_id, new_link_id)
+                        occupied_link_ids.add(new_link_id)
+                        target["id"] = new_link_id
+                    if "reroute" in item:
+                        target["reroute"] = deepcopy(item["reroute"])
+            for link in raw_def_links:
+                if not isinstance(link, Mapping):
+                    continue
+                if type(link.get("origin_id")) is int:
+                    link["origin_id"] = node_id_remap.get(link["origin_id"], link["origin_id"])
+                if type(link.get("target_id")) is int:
+                    link["target_id"] = node_id_remap.get(link["target_id"], link["target_id"])
+            if isinstance(raw_def_links, list):
+                for node in out_nodes:
+                    if not isinstance(node, Mapping):
+                        continue
+                    inputs = node.get("inputs")
+                    if isinstance(inputs, list):
+                        for input_slot in inputs:
+                            if isinstance(input_slot, Mapping) and type(input_slot.get("link")) is int:
+                                input_slot["link"] = link_id_remap.get(input_slot["link"], input_slot["link"])
+                    outputs = node.get("outputs")
+                    if isinstance(outputs, list):
+                        for output_slot in outputs:
+                            if not isinstance(output_slot, Mapping) or not isinstance(output_slot.get("links"), list):
+                                continue
+                            output_slot["links"] = [
+                                link_id_remap.get(link_id, link_id)
+                                for link_id in output_slot["links"]
+                            ]
+            walk(definition.get("definitions"), (*parent, key))
+
+    walk(definitions.get("subgraphs", definitions), ())
+    missing = [str(uid) for uid in side_nodes if str(uid) not in handled]
+    if missing:
+        raise ValueError(f"sidecar contains unmaterialized recursive node(s): {missing!r}")
 
 
 def offline_emitter_normalizer_self_consistency_check(
@@ -3958,9 +5227,18 @@ def structural_validate(
         if widget_count is not None:
             wv_len = len(node.get("widgets_values", []))
             if wv_len > widget_count:
-                errors.append(
-                    f"node {node['id']}({class_type}): widgets_values length {wv_len} "
-                    f"exceeds schema widget count {widget_count}"
+                # Committed widget tables can be a named subset of live
+                # source slots (widget_N / extra UI widgets).  Extra values
+                # are retained; they are not a missing-schema hard error.
+                skipped.append(
+                    {
+                        "node_id": node["id"],
+                        "class_type": class_type,
+                        "reason": (
+                            f"widgets_values length {wv_len} exceeds schema "
+                            f"widget count {widget_count}; extra source slots retained"
+                        ),
+                    }
                 )
         else:
             skipped.append(
@@ -4016,6 +5294,7 @@ __all__ = [
     "derive_widget_shape_evidence",
     "extract_raw_ui_node_map",
     "materialize_litegraph_node",
+    "materialize_ui_json",
     "_normalize_pinned_node_link_refs",
     "_raw_ui_payload_for_pin",
     "emit_ui_json",
@@ -4043,6 +5322,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
+    LinkTargetRef,
     RemoveLinkOp,
     RemoveNodeOp,
     SetModeOp,
@@ -4252,34 +5532,6 @@ def _remap_preserved_inbound_links(
     return remapped_links
 
 
-def _link_preserves_canonical_target(
-    original_link: Any,
-    candidate_link: Any,
-    original_scope: Mapping[str, Any],
-    candidate_scope: Mapping[str, Any],
-) -> bool:
-    """True for a derived target re-slot that preserves endpoint identity."""
-    if not (
-        isinstance(original_link, (list, tuple))
-        and isinstance(candidate_link, (list, tuple))
-        and len(original_link) == 6
-        and len(candidate_link) == 6
-    ):
-        return False
-    if list(original_link[:4]) != list(candidate_link[:4]) or original_link[5] != candidate_link[5]:
-        return False
-    original_nodes = _nodes_by_native_id(original_scope)
-    candidate_nodes = _nodes_by_native_id(candidate_scope)
-    target_id = str(original_link[3])
-    original_name = _socket_name_at(
-        original_nodes.get(target_id), "input", original_link[4]
-    )
-    candidate_name = _socket_name_at(
-        candidate_nodes.get(target_id), "input", candidate_link[4]
-    )
-    return bool(original_name and original_name == candidate_name)
-
-
 def _scope_node_uids(scope_graph: Mapping[str, Any]) -> list[str]:
     nodes = scope_graph.get("nodes")
     if not isinstance(nodes, list):
@@ -4377,6 +5629,8 @@ def _set_node_field_allowed_ui_paths(
     original_node: Mapping[str, Any],
     candidate_node: Mapping[str, Any],
     field_paths: set[str],
+    *,
+    topology_input_fields: set[str] | None = None,
 ) -> set[str]:
     """Resolve semantic field attribution to the exact LiteGraph paths it owns.
 
@@ -4385,6 +5639,17 @@ def _set_node_field_allowed_ui_paths(
     whole widget array merely because one field was edited.
     """
     allowed: set[str] = set()
+    original_widgets = original_node.get("widgets_values")
+    candidate_widgets = candidate_node.get("widgets_values")
+    if isinstance(original_widgets, Mapping) and isinstance(candidate_widgets, Mapping):
+        # Some captured nodes serialize their authored widget surface as a
+        # name-keyed mapping rather than LiteGraph's positional array.  Keep
+        # attribution equally narrow: a SetNodeField operation owns only the
+        # exact pre-existing mapping key it names.
+        for field in field_paths:
+            field = str(field)
+            if field in original_widgets and field in candidate_widgets:
+                allowed.add(f"widgets_values.{field}")
     class_type = str(candidate_node.get("type") or original_node.get("type") or "")
     widget_names = widget_names_for_class(class_type) or []
     if not widget_names:
@@ -4396,6 +5661,29 @@ def _set_node_field_allowed_ui_paths(
             widget_names = list(object_info_widget_value_order(class_type))
         except Exception:
             widget_names = []
+
+    # A captured UI node is stronger evidence than a registry/object_info
+    # roster.  Registry hydration can fill in a schema for an existing node
+    # without knowing the exact compact widget projection that was serialized
+    # by that canvas.  In that case the captured input records (when present)
+    # are the only reliable source for the widgets_values position.
+    captured_widget_names: list[str] = []
+    original_inputs = original_node.get("inputs")
+    if isinstance(original_inputs, list):
+        for item in original_inputs:
+            if not isinstance(item, Mapping) or item.get("link") is not None:
+                continue
+            widget = item.get("widget")
+            name = widget.get("name") if isinstance(widget, Mapping) else None
+            if isinstance(name, str) and name:
+                captured_widget_names.append(name)
+    if captured_widget_names:
+        # Keep the captured order and only use it when the requested field is
+        # actually represented by an input widget.  A schema may contain
+        # hidden/UI-only rows which are not input records.
+        for field in field_paths:
+            if field in captured_widget_names:
+                allowed.add(f"widgets_values[{captured_widget_names.index(field)}]")
 
     attributed_input_names: set[str] = set()
     for field_path in field_paths:
@@ -4412,10 +5700,13 @@ def _set_node_field_allowed_ui_paths(
         elif field.startswith("widget_") and field[len("widget_"):].isdigit():
             index = int(field[len("widget_"):])
         else:
-            try:
-                index = widget_names.index(field)
-            except ValueError:
-                index = None
+            if field in captured_widget_names:
+                index = captured_widget_names.index(field)
+            else:
+                try:
+                    index = widget_names.index(field)
+                except ValueError:
+                    index = None
             attributed_input_names.add(field)
         if index is not None:
             allowed.add(f"widgets_values[{index}]")
@@ -4441,6 +5732,30 @@ def _set_node_field_allowed_ui_paths(
         ]
         if candidate_inputs == expected_inputs:
             allowed.add("inputs")
+    if (
+        topology_input_fields
+        and isinstance(original_inputs, list)
+        and isinstance(candidate_inputs, list)
+        and len(original_inputs) == len(candidate_inputs)
+    ):
+        # A cumulative UpsertLink/RemoveLink may legitimately update only the
+        # native link reference of an input socket.  Keep this authorization
+        # byte-precise: a candidate that also changes type/widget/name remains
+        # outside the topology operation and fails the strict guard.
+        for index, (original_input, candidate_input) in enumerate(
+            zip(original_inputs, candidate_inputs)
+        ):
+            diffs = _value_diff_paths(
+                original_input,
+                candidate_input,
+                f"inputs[{index}]",
+            )
+            if (
+                diffs == [f"inputs[{index}].link"]
+                and isinstance(original_input, Mapping)
+                and str(original_input.get("name")) in topology_input_fields
+            ):
+                allowed.add(f"inputs[{index}].link")
     return allowed
 
 
@@ -4714,6 +6029,13 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
     removed_scope_ids: set[str] = set()
     changed_scope_ids: set[str] = set()
     set_node_fields: dict[tuple[str, str], set[str]] = {}
+    # ``SetNodeFieldOp`` and topology ops may touch the same node.  The
+    # former owns only its named literal; a target-side link op owns the
+    # current link reference in the input socket.  Keep this distinction so
+    # pinning does not restore an old link from the ingest snapshot after a
+    # cumulative rewire.
+    topology_input_fields: dict[tuple[str, str], set[str]] = {}
+    topology_output_refs: dict[tuple[str, str], set[str | int]] = {}
 
     def allow_node_paths(scope_path: str, uid: str, *paths: str) -> None:
         node_paths.setdefault((scope_path, uid), set()).update(paths)
@@ -4722,24 +6044,45 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         link_ops.add(scope_path)
         link_ops_by_scope.setdefault(scope_path, []).append(op)
 
+    def mark_topology_node(scope_path: str, uid: str) -> None:
+        # Keep a node in the attribution index without granting either of its
+        # socket arrays wholesale.  Exact socket ownership is resolved later
+        # against the captured scope (including RemoveLink source inference).
+        node_paths.setdefault((scope_path, uid), set())
+        touched_scopes.add(scope_path)
+
     for op in ops:
         if isinstance(op, SetNodeFieldOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "widgets_values", "inputs")
             set_node_fields.setdefault(
                 (op.target.scope_path, op.target.uid), set()
             ).add(op.target.field_path)
+            # A literal assignment on a previously linked widget auto-unlinks
+            # that input. Record the op so later folding can attribute the
+            # target socket and the inferred source output; unlinked fields
+            # remain a topology no-op.
+            record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, SetModeOp):
             allow_node_paths(op.target.scope_path, op.target.uid, "mode")
             continue
         if isinstance(op, UpsertLinkOp):
-            allow_node_paths(op.source.scope_path, op.source.uid, "outputs")
-            allow_node_paths(op.target.scope_path, op.target.uid, "inputs")
+            mark_topology_node(op.source.scope_path, op.source.uid)
+            mark_topology_node(op.target.scope_path, op.target.uid)
+            topology_input_fields.setdefault(
+                (op.target.scope_path, op.target.uid), set()
+            ).add(str(op.target.input_field))
+            topology_output_refs.setdefault(
+                (op.source.scope_path, op.source.uid), set()
+            ).add(op.source.output_slot)
             record_link_op(op.target.scope_path, op)
             continue
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
-                allow_node_paths(op.target.scope_path, op.target.uid, "inputs", "outputs")
+                mark_topology_node(op.target.scope_path, op.target.uid)
+                topology_input_fields.setdefault(
+                    (op.target.scope_path, op.target.uid), set()
+                ).add(str(op.target.input_field))
                 record_link_op(op.target.scope_path, op)
                 link_removal_ops.add(op.target.scope_path)
             continue
@@ -4789,6 +6132,8 @@ def _attribution(ops: Iterable[EditOp]) -> dict[str, Any]:
         "removed_scope_ids": removed_scope_ids,
         "changed_scope_ids": changed_scope_ids,
         "set_node_fields": set_node_fields,
+        "topology_input_fields": topology_input_fields,
+        "topology_output_refs": topology_output_refs,
     }
 
 
@@ -4930,8 +6275,18 @@ def _scope_identity_issues(scope: Mapping[str, Any], *, scope_path: str) -> list
 def _expected_ui_links(
     original_scope: Mapping[str, Any],
     scope_ops: Sequence[EditOp],
+    candidate_scope: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], set[int], set[int], list[PortIssue]]:
-    """Fold the landed topology ops using the UI projection of apply_edit_cow."""
+    """Fold landed topology ops using the retained UI projection.
+
+    The fold is the producing projection for the exit guard.  Native
+    LiteGraph node IDs may be rematerialized by the emitter, so once the
+    canonical operation fold is complete, existing endpoint records are
+    projected onto the candidate's native IDs by stable UID.  The comparator
+    remains deliberately strict: it sees the repaired fold and compares raw
+    endpoint tuples exactly, while unknown/ambiguous identities remain
+    unprojected and therefore fail closed.
+    """
     records: list[dict[str, Any]] = []
     diagnostics: list[PortIssue] = []
     original_ids: set[int] = set()
@@ -4963,6 +6318,20 @@ def _expected_ui_links(
         if isinstance(op, RemoveLinkOp):
             if op.target is not None:
                 records = [record for record in records if not endpoint_match(record, op)]
+            continue
+        if isinstance(op, SetNodeFieldOp):
+            unlink_target = LinkTargetRef(
+                op.target.scope_path,
+                op.target.uid,
+                op.target.field_path,
+            )
+            records = [
+                record
+                for record in records
+                if not _link_matches_remove_target(
+                    record["parts"], unlink_target, original_scope
+                )
+            ]
             continue
         if isinstance(op, UpsertLinkOp):
             source = _scope_node_for_uid(original_scope, op.source.uid)
@@ -5074,6 +6443,43 @@ def _expected_ui_links(
         and record["parts"][0] in original_by_id
         and tuple(record["parts"][1:]) != tuple(original_by_id[record["parts"][0]][1:])
     }
+    if candidate_scope is not None:
+        original_nodes_by_id = {
+            _canonical_native_int(node.get("id")): _node_uid(node)
+            for node in original_scope.get("nodes") or ()
+            if isinstance(node, Mapping)
+            and _canonical_native_int(node.get("id")) is not None
+            and _node_uid(node) is not None
+        }
+        candidate_ids_by_uid = {
+            _node_uid(node): _canonical_native_int(node.get("id"))
+            for node in candidate_scope.get("nodes") or ()
+            if isinstance(node, Mapping)
+            and _node_uid(node) is not None
+            and _canonical_native_int(node.get("id")) is not None
+        }
+        projected: list[dict[str, Any]] = []
+        for record in records:
+            parts = record["parts"]
+            source_uid = original_nodes_by_id.get(_canonical_native_int(parts[1]))
+            target_uid = original_nodes_by_id.get(_canonical_native_int(parts[3]))
+            source_id = candidate_ids_by_uid.get(source_uid)
+            target_id = candidate_ids_by_uid.get(target_uid)
+            if source_id is not None and target_id is not None:
+                record = dict(record)
+                record["parts"] = (
+                    parts[0], source_id, parts[2], target_id, parts[4], parts[5]
+                )
+            projected.append(record)
+        records = projected
+        allowed_changed_ids = {
+            record["parts"][0]
+            for record in records
+            if record["locked"]
+            and type(record["parts"][0]) is int
+            and record["parts"][0] in original_by_id
+            and tuple(record["parts"][1:]) != tuple(original_by_id[record["parts"][0]][1:])
+        }
     return records, fold_removed_ids, allowed_changed_ids, diagnostics
 
 
@@ -5097,6 +6503,7 @@ def _compare_expected_ui_links(
         if parts is not None
     }
     used: set[int] = set()
+
     for record in expected:
         parts = record["parts"]
         if record["locked"]:
@@ -5113,21 +6520,6 @@ def _compare_expected_ui_links(
                 continue
             used.add(link_id)
             if tuple(actual[1:]) != tuple(parts[1:]):
-                original_link = next(
-                    (
-                        link
-                        for link in original_scope.get("links") or ()
-                        if _link_id(link) == link_id
-                    ),
-                    None,
-                )
-                if original_link is not None and _link_preserves_canonical_target(
-                    original_link,
-                    actual,
-                    original_scope,
-                    candidate_scope,
-                ):
-                    continue
                 diagnostics.append(
                     _issue(
                         "full_ui_link_changed_unattributed",
@@ -5280,6 +6672,555 @@ def _guard_subgraph_state(
     return diagnostics
 
 
+def _socket_link_value(socket: Any) -> Any:
+    if not isinstance(socket, Mapping):
+        return None
+    return socket.get("link")
+
+
+def _socket_name(socket: Any) -> str | None:
+    if not isinstance(socket, Mapping):
+        return None
+    name = socket.get("name")
+    return str(name) if isinstance(name, str) and name else None
+
+
+def _topology_owned_refs(
+    scope_path: str,
+    uid: str,
+    scope_ops: Sequence[EditOp],
+    original_scope: Mapping[str, Any],
+) -> tuple[set[str], set[str | int]]:
+    """Resolve the exact input/output sockets owned by topology ops.
+
+    ``RemoveLinkOp`` names only its target, so its source output is recovered
+    from the current folded endpoint map.  Folding in order is important for
+    a remove/upsert/remove batch: the source being removed may have been
+    introduced by an earlier upsert rather than exist in the ingest snapshot.
+    """
+    inputs: set[str] = set()
+    outputs: set[str | int] = set()
+    endpoint_sources: dict[tuple[str, str], tuple[str, str, str | int]] = {}
+
+    nodes = original_scope.get("nodes")
+    native_to_uid: dict[int, str] = {}
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, Mapping):
+                continue
+            native = _native_node_id(node)
+            node_uid = _node_uid(node)
+            if native is not None and node_uid is not None:
+                native_to_uid[native] = node_uid
+
+    for link in original_scope.get("links") or ():
+        parts = _raw_link_parts(link)
+        if parts is None:
+            continue
+        source_native = _canonical_native_int(parts[1])
+        target_native = _canonical_native_int(parts[3])
+        source_uid = native_to_uid.get(source_native) if source_native is not None else None
+        target_uid = native_to_uid.get(target_native) if target_native is not None else None
+        if source_uid is None or target_uid is None:
+            continue
+        target_node = _scope_node_for_uid(original_scope, target_uid)
+        input_name = (
+            _socket_name_at(target_node, "input", parts[4])
+            if target_node is not None
+            else None
+        )
+        if input_name is not None:
+            endpoint_sources[(target_uid, input_name)] = (
+                source_uid,
+                scope_path,
+                parts[2],
+            )
+
+    for op in scope_ops:
+        if isinstance(op, UpsertLinkOp):
+            if op.target.scope_path == scope_path:
+                previous = endpoint_sources.get(
+                    (op.target.uid, str(op.target.input_field))
+                )
+                if previous is not None:
+                    previous_uid, previous_scope, previous_slot = previous
+                    if previous_scope == scope_path and previous_uid == uid:
+                        outputs.add(previous_slot)
+                endpoint_sources[(op.target.uid, str(op.target.input_field))] = (
+                    op.source.uid,
+                    op.source.scope_path,
+                    op.source.output_slot,
+                )
+            if op.source.scope_path == scope_path and op.source.uid == uid:
+                source_node = _scope_node_for_uid(original_scope, uid)
+                output_slot = (
+                    _output_slot_for_ref(source_node, op.source.output_slot)
+                    if source_node is not None
+                    else None
+                )
+                outputs.add(
+                    output_slot
+                    if output_slot is not None
+                    else op.source.output_slot
+                )
+            if op.target.scope_path == scope_path and op.target.uid == uid:
+                inputs.add(str(op.target.input_field))
+            continue
+        if isinstance(op, SetNodeFieldOp):
+            target_key = (op.target.uid, str(op.target.field_path))
+            source = endpoint_sources.get(target_key)
+            if source is None:
+                continue
+            endpoint_sources.pop(target_key, None)
+            if op.target.scope_path == scope_path and op.target.uid == uid:
+                inputs.add(str(op.target.field_path))
+            source_uid, source_scope, source_slot = source
+            if source_scope == scope_path and source_uid == uid:
+                outputs.add(source_slot)
+            continue
+        if not isinstance(op, RemoveLinkOp) or op.target is None:
+            continue
+        target_key = (op.target.uid, str(op.target.input_field))
+        if op.target.scope_path == scope_path and op.target.uid == uid:
+            inputs.add(str(op.target.input_field))
+        source = endpoint_sources.pop(target_key, None)
+        if source is not None:
+            source_uid, source_scope, source_slot = source
+            if source_scope == scope_path and source_uid == uid:
+                outputs.add(source_slot)
+    return inputs, outputs
+
+
+def _topology_removed_inputs(
+    scope_path: str,
+    uid: str,
+    scope_ops: Sequence[EditOp],
+) -> set[str]:
+    state: dict[tuple[str, str], bool] = {}
+    for op in scope_ops:
+        if isinstance(op, UpsertLinkOp) and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.input_field))] = True
+        elif isinstance(op, RemoveLinkOp) and op.target is not None and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.input_field))] = False
+        elif isinstance(op, SetNodeFieldOp) and op.target.scope_path == scope_path:
+            state[(op.target.uid, str(op.target.field_path))] = False
+    return {
+        input_name
+        for (target_uid, input_name), present in state.items()
+        if target_uid == uid and not present
+    }
+
+
+def _topology_allowed_ui_paths(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+) -> set[str]:
+    """Return exact socket paths, never an entire inputs/outputs array."""
+    allowed: set[str] = set()
+    original_inputs = original_node.get("inputs")
+    if isinstance(original_inputs, list):
+        for index, socket in enumerate(original_inputs):
+            if isinstance(socket, Mapping) and str(socket.get("name")) in input_names:
+                allowed.add(f"inputs[{index}].link")
+                # Emitters commonly omit a linked input record after removal.
+                if (
+                    isinstance(candidate_node.get("inputs"), list)
+                    and not any(
+                        isinstance(candidate, Mapping)
+                        and candidate.get("name") == socket.get("name")
+                        for candidate in candidate_node["inputs"]
+                    )
+                ):
+                    allowed.add(f"inputs[{index}]")
+    original_outputs = original_node.get("outputs")
+    if isinstance(original_outputs, list):
+        for index, socket in enumerate(original_outputs):
+            if not isinstance(socket, Mapping):
+                continue
+            name = socket.get("name")
+            slot_index = socket.get("slot_index", index)
+            if any(
+                ref == name or (type(ref) is int and ref == slot_index)
+                for ref in output_refs
+            ):
+                allowed.add(f"outputs[{index}].links")
+    return allowed
+
+
+def _merge_topology_sockets(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+    removed_input_names: set[str] | None = None,
+    candidate_links: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    """Apply only owned link values while preserving socket presentation."""
+    merged = deepcopy(dict(original_node))
+    removed_input_names = removed_input_names or set()
+    candidate_link_parts = [
+        parts
+        for link in candidate_links or ()
+        for parts in [_raw_link_parts(link)]
+        if parts is not None
+    ]
+    native_id = _native_node_id(original_node)
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    if isinstance(original_inputs, list) and isinstance(candidate_inputs, list):
+        candidates = {
+            str(item.get("name")): item
+            for item in candidate_inputs
+            if isinstance(item, Mapping) and item.get("name") is not None
+        }
+        inputs: list[Any] = []
+        for original in original_inputs:
+            name = _socket_name(original)
+            candidate = candidates.get(name or "")
+            if name in input_names:
+                if name in removed_input_names and _socket_link_value(original) is not None:
+                    # A later SetNodeField may reconstruct the stale captured
+                    # link record after RemoveLink; the folded topology is
+                    # authoritative and the removal must survive pinning.
+                    continue
+                if candidate is None and _socket_link_value(original) is not None:
+                    # Canonical remove projection: linked socket record gone.
+                    continue
+                current = deepcopy(original)
+                input_index = next(
+                    (
+                        index
+                        for index, item in enumerate(original_inputs)
+                        if item is original
+                    ),
+                    None,
+                )
+                candidate_target_links = (
+                    [
+                        parts[0]
+                        for parts in candidate_link_parts
+                        if native_id is not None
+                        and _canonical_native_int(parts[3]) == native_id
+                        and input_index is not None
+                        and _canonical_native_int(parts[4]) == input_index
+                    ]
+                    if candidate_links is not None
+                    else []
+                )
+                if candidate_links is not None:
+                    if candidate_target_links:
+                        current["link"] = candidate_target_links[-1]
+                    elif _socket_link_value(original) is not None:
+                        continue
+                    else:
+                        current["link"] = None
+                elif isinstance(candidate, Mapping) and "link" in candidate:
+                    current["link"] = deepcopy(candidate["link"])
+                elif candidate is None:
+                    current["link"] = None
+                inputs.append(current)
+            else:
+                inputs.append(deepcopy(original))
+        original_names = {
+            _socket_name(item) for item in original_inputs if _socket_name(item)
+        }
+        for candidate in candidate_inputs:
+            name = _socket_name(candidate)
+            if name in input_names and name not in original_names:
+                if _socket_link_value(candidate) is not None:
+                    inputs.append(deepcopy(candidate))
+        merged["inputs"] = inputs
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        by_ref: dict[str | int, Mapping[str, Any]] = {}
+        for index, socket in enumerate(candidate_outputs):
+            if not isinstance(socket, Mapping):
+                continue
+            by_ref.setdefault(socket.get("name"), socket)
+            by_ref.setdefault(index, socket)
+            by_ref.setdefault(socket.get("slot_index", index), socket)
+        outputs: list[Any] = []
+        for index, original in enumerate(original_outputs):
+            if not isinstance(original, Mapping):
+                outputs.append(deepcopy(original))
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            current = deepcopy(original)
+            if ref in output_refs or slot_index in output_refs or index in output_refs:
+                candidate = by_ref.get(ref) or by_ref.get(slot_index) or by_ref.get(index)
+                output_link_ids = (
+                    [
+                        parts[0]
+                        for parts in candidate_link_parts
+                        if native_id is not None
+                        and _canonical_native_int(parts[1]) == native_id
+                        and (
+                            _canonical_native_int(parts[2]) == slot_index
+                            or _canonical_native_int(parts[2]) == index
+                        )
+                    ]
+                    if candidate_links is not None
+                    else None
+                )
+                if candidate_links is not None:
+                    current["links"] = output_link_ids or []
+                elif isinstance(candidate, Mapping) and "links" in candidate:
+                    current["links"] = deepcopy(candidate["links"])
+            outputs.append(current)
+        merged["outputs"] = outputs
+    return merged
+
+
+def _topology_socket_changes_exact(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+) -> bool:
+    """Check topology arrays by socket identity, not positional list diffs."""
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    if isinstance(original_inputs, list) and isinstance(candidate_inputs, list):
+        candidate_by_name = {
+            _socket_name(item): item
+            for item in candidate_inputs
+            if _socket_name(item) is not None
+        }
+        original_names = {
+            _socket_name(item) for item in original_inputs if _socket_name(item) is not None
+        }
+        if len(candidate_by_name) != len(
+            [item for item in candidate_inputs if _socket_name(item) is not None]
+        ):
+            return False
+        for original in original_inputs:
+            name = _socket_name(original)
+            candidate = candidate_by_name.get(name)
+            if name in input_names:
+                if candidate is None:
+                    if _socket_link_value(original) is None:
+                        return False
+                    continue
+                left = dict(original) if isinstance(original, Mapping) else {}
+                right = dict(candidate) if isinstance(candidate, Mapping) else {}
+                left.pop("link", None)
+                right.pop("link", None)
+                if left != right:
+                    return False
+            elif candidate != original:
+                return False
+        for name, candidate in candidate_by_name.items():
+            if name not in original_names:
+                if name not in input_names or _socket_link_value(candidate) is None:
+                    return False
+    elif original_inputs != candidate_inputs:
+        return False
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        if len(original_outputs) != len(candidate_outputs):
+            return False
+        for index, (original, candidate) in enumerate(zip(original_outputs, candidate_outputs)):
+            if not isinstance(original, Mapping) or not isinstance(candidate, Mapping):
+                if original != candidate:
+                    return False
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            owned = ref in output_refs or slot_index in output_refs or index in output_refs
+            if not owned:
+                if candidate != original:
+                    return False
+                continue
+            left = dict(original)
+            right = dict(candidate)
+            left.pop("links", None)
+            right.pop("links", None)
+            if left != right:
+                return False
+    elif original_outputs != candidate_outputs:
+        return False
+    return True
+
+
+def _topology_socket_values_match_links(
+    original_node: Mapping[str, Any],
+    candidate_node: Mapping[str, Any],
+    input_names: set[str],
+    output_refs: set[str | int],
+    candidate_links: Sequence[Any],
+) -> bool:
+    """Require owned socket link values to agree with candidate ``links``."""
+    candidate_parts = [
+        parts
+        for link in candidate_links
+        for parts in [_raw_link_parts(link)]
+        if parts is not None
+    ]
+    native_id = _native_node_id(original_node)
+    if native_id is None:
+        return False
+    original_inputs = original_node.get("inputs")
+    candidate_inputs = candidate_node.get("inputs")
+    candidate_by_name = {
+        _socket_name(item): item
+        for item in candidate_inputs or ()
+        if isinstance(item, Mapping) and _socket_name(item) is not None
+    }
+    if isinstance(original_inputs, list):
+        for index, original in enumerate(original_inputs):
+            name = _socket_name(original)
+            if name not in input_names:
+                continue
+            expected = [
+                parts[0]
+                for parts in candidate_parts
+                if _canonical_native_int(parts[3]) == native_id
+                and _canonical_native_int(parts[4]) == index
+            ]
+            candidate = candidate_by_name.get(name)
+            if not isinstance(candidate, Mapping) or "link" not in candidate:
+                # Sparse UI payloads may omit socket link presentation; when
+                # present, however, the value must agree with the link table.
+                continue
+            actual = candidate.get("link")
+            if expected:
+                if actual != expected[-1]:
+                    return False
+            elif actual is not None:
+                return False
+
+    original_outputs = original_node.get("outputs")
+    candidate_outputs = candidate_node.get("outputs")
+    if isinstance(original_outputs, list) and isinstance(candidate_outputs, list):
+        for index, original in enumerate(original_outputs):
+            if not isinstance(original, Mapping):
+                continue
+            ref = original.get("name")
+            slot_index = original.get("slot_index", index)
+            if ref not in output_refs and slot_index not in output_refs and index not in output_refs:
+                continue
+            if index >= len(candidate_outputs) or not isinstance(candidate_outputs[index], Mapping):
+                return False
+            expected = [
+                parts[0]
+                for parts in candidate_parts
+                if _canonical_native_int(parts[1]) == native_id
+                and (
+                    _canonical_native_int(parts[2]) == slot_index
+                    or _canonical_native_int(parts[2]) == index
+                )
+            ]
+            if "links" not in candidate_outputs[index]:
+                # Sparse UI payloads may omit socket link presentation; when
+                # present, however, the value must agree with the link table.
+                continue
+            actual = candidate_outputs[index].get("links")
+            if actual != expected:
+                return False
+    return True
+
+
+def _merge_set_field_input_sockets(
+    original_inputs: Sequence[Any],
+    candidate_inputs: Sequence[Any],
+    set_fields: set[str],
+    *,
+    topology_input_fields: set[str] | None = None,
+) -> list[Any]:
+    """Preserve captured input records while applying owned link changes.
+
+    The UI emitter is allowed to reconstruct input sockets from a hydrated
+    schema.  That projection can change harmless presentation bytes (for
+    example ``type: "*"`` to ``type: "UNKNOWN"`` or remove ``widget``), so
+    those bytes must remain sourced from the captured UI.  A topology op is
+    the one exception: its target input's *link* value comes from the current
+    candidate and must win over the captured value.  The named literal field
+    may also remove a linked input, or turn it into an unlinked value-bearing
+    record; no other candidate socket is admitted.
+    """
+    topology_input_fields = topology_input_fields or set()
+    candidates_by_name: dict[str, list[tuple[int, Mapping[str, Any]]]] = defaultdict(list)
+    for index, item in enumerate(candidate_inputs):
+        name = _socket_name(item)
+        if name is not None and isinstance(item, Mapping):
+            candidates_by_name[name].append((index, item))
+    used_candidate_indices: set[int] = set()
+    merged: list[Any] = []
+
+    for original in original_inputs:
+        name = _socket_name(original)
+        matches = candidates_by_name.get(name or "", [])
+        match: tuple[int, Mapping[str, Any]] | None = None
+        for candidate in matches:
+            if candidate[0] not in used_candidate_indices:
+                match = candidate
+                break
+        if match is not None:
+            used_candidate_indices.add(match[0])
+        candidate = match[1] if match is not None else None
+        original_link = _socket_link_value(original)
+        candidate_link = _socket_link_value(candidate)
+
+        if original_link is not None:
+            if candidate is None:
+                # A literal assignment to a linked input removes that
+                # endpoint.  Other missing records remain untouched.
+                if name in set_fields or name in topology_input_fields:
+                    continue
+                merged.append(deepcopy(original))
+                continue
+            if candidate_link is None and name in set_fields:
+                # Some emit paths retain the socket and carry the new literal
+                # in a value field instead of omitting the input record. Keep
+                # captured metadata but apply only that owned projection.
+                replacement = deepcopy(original)
+                replacement["link"] = None
+                if "value" in candidate:
+                    replacement["value"] = deepcopy(candidate["value"])
+                merged.append(replacement)
+                continue
+            if name in topology_input_fields and candidate_link is not None:
+                current = deepcopy(original)
+                current["link"] = deepcopy(candidate_link)
+                merged.append(current)
+                continue
+            # A SetNodeField alone does not authorize any linked socket
+            # rewrite, including a seemingly harmless type/widget change.
+            merged.append(deepcopy(original))
+            continue
+
+        # Unlinked captured records are socket metadata, not the literal
+        # value itself. Preserve them even when hydration omitted the record
+        # or reconstructed it without its widget descriptor. A value-bearing
+        # projection is the only owned exception.
+        current = deepcopy(original)
+        if name in set_fields and isinstance(candidate, Mapping) and "value" in candidate:
+            current["value"] = deepcopy(candidate["value"])
+        merged.append(current)
+
+    # Existing-node field edits cannot invent a new socket. A target-side
+    # topology operation may, however, materialize a previously absent linked
+    # endpoint; retain only those candidate records and discard all other
+    # reconstructed extras.
+    if topology_input_fields:
+        for index, candidate in enumerate(candidate_inputs):
+            if (
+                index in used_candidate_indices
+                or _socket_link_value(candidate) is None
+                or _socket_name(candidate) not in topology_input_fields
+            ):
+                continue
+            merged.append(deepcopy(candidate))
+    return merged
+
+
 def pin_untouched_ui(
     original_ui: Mapping[str, Any],
     candidate_ui: Mapping[str, Any],
@@ -5291,15 +7232,63 @@ def pin_untouched_ui(
     unattributed nodes and links byte-identical to the ingest UI so
     ``guard_exit_ui`` can fail closed on real drift.
     """
+    original_ui = _thaw_json_view(original_ui)
+    candidate_ui = _thaw_json_view(candidate_ui)
     attribution = _attribution(ops)
     attributed_nodes = set(attribution["node_paths"]) | set(attribution["new_nodes"])
     pinned = deepcopy(dict(candidate_ui))
+    # Definitions are Python-owned semantic state.  Preserve the candidate's
+    # identity-based subgraph add/change/remove result while pinning only UI
+    # furniture for the retained scopes.
+    candidate_definitions = (
+        deepcopy(pinned.get("definitions"))
+        if any(isinstance(op, SubgraphInterfaceOp) for op in ops)
+        else None
+    )
     original_nodes = _index_nodes(original_ui)
     original_scopes = dict(_iter_scopes(original_ui))
+    # RemoveLinkOp names only the target; include its inferred source node in
+    # the pin set so the exact source output link can be carried forward.
+    for scope_path, scope_ops in attribution["link_ops_by_scope"].items():
+        original_scope = original_scopes.get(scope_path)
+        if not isinstance(original_scope, Mapping):
+            continue
+        for node in original_scope.get("nodes") or ():
+            if not isinstance(node, Mapping):
+                continue
+            uid = _node_uid(node)
+            if uid is None:
+                continue
+            input_refs, output_refs = _topology_owned_refs(
+                scope_path, uid, tuple(scope_ops), original_scope
+            )
+            if input_refs or output_refs:
+                attributed_nodes.add((scope_path, uid))
     for scope_path, scope in _iter_scopes(pinned):
         if not isinstance(scope, dict):
             continue
         nodes = scope.get("nodes")
+        scope_ops = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        original_scope_for_topology = original_scopes.get(scope_path)
+        if isinstance(original_scope_for_topology, Mapping):
+            # LiteGraph counters are retirement ledgers, not live cardinality.
+            # Reconstructive emission can derive a smaller value after the
+            # highest-numbered link is removed; pinning must retain the larger
+            # observed counter just as it retains all other untouched canvas
+            # furniture.
+            for counter in ("last_node_id", "last_link_id"):
+                original_counter = original_scope_for_topology.get(counter)
+                candidate_counter = scope.get(counter)
+                if (
+                    isinstance(original_counter, int)
+                    and not isinstance(original_counter, bool)
+                    and (
+                        not isinstance(candidate_counter, int)
+                        or isinstance(candidate_counter, bool)
+                        or original_counter > candidate_counter
+                    )
+                ):
+                    scope[counter] = original_counter
         if isinstance(nodes, list):
             for index, node in enumerate(nodes):
                 if not isinstance(node, Mapping):
@@ -5314,55 +7303,136 @@ def pin_untouched_ui(
                 if key in attributed_nodes:
                     allowed = attribution["node_paths"].get(key, set())
                     merged = deepcopy(dict(original_node))
-                    for field in allowed:
-                        # A named widget write is represented in
-                        # ``widgets_values``. Re-emission may reconstruct
-                        # linked input sockets with a schema-less placeholder
-                        # (``UNKNOWN``) even when the captured UI used ``*``.
-                        # Copying that reconstructed ``inputs`` array here
-                        # would let an unrelated field write launder a socket
-                        # identity change into the replay candidate. Link
-                        # operations still own ``inputs`` through their own
-                        # attribution; SetNodeField only owns the named
-                        # literal field and any explicitly removed inbound
-                        # socket.
-                        preserve_linked_inputs = (
-                            field == "inputs"
-                            and key in attribution["set_node_fields"]
-                            and any(
-                                isinstance(item, Mapping) and item.get("link") is not None
-                                for item in original_node.get("inputs") or ()
-                            )
-                            and any(
-                                isinstance(item, Mapping) and item.get("link") is not None
-                                for item in node.get("inputs") or ()
-                            )
+                    set_fields = attribution["set_node_fields"].get(key, set())
+                    topology_input_fields = attribution["topology_input_fields"].get(key, set())
+                    topology_output_refs = attribution["topology_output_refs"].get(key, set())
+                    resolved_inputs: set[str] = set(topology_input_fields)
+                    resolved_outputs: set[str | int] = set(topology_output_refs)
+                    removed_input_names: set[str] = set()
+                    if isinstance(original_scope_for_topology, Mapping) and scope_ops:
+                        folded_inputs, folded_outputs = _topology_owned_refs(
+                            scope_path,
+                            uid,
+                            scope_ops,
+                            original_scope_for_topology,
                         )
-                        if preserve_linked_inputs:
+                        resolved_inputs.update(folded_inputs)
+                        resolved_outputs.update(folded_outputs)
+                        removed_input_names = _topology_removed_inputs(
+                            scope_path, uid, scope_ops
+                        )
+                    for field in allowed:
+                        # A SetNodeField owns only the named literal and the
+                        # exact linked endpoint it replaces.  Input socket
+                        # metadata is merged below so registry hydration
+                        # cannot launder captured type/widget bytes.  A
+                        # target-side topology op is allowed to carry the
+                        # candidate's current link value through that merge.
+                        if field == "inputs" and set_fields:
+                            continue
+                        if field == "widgets_values" and set_fields:
                             continue
                         if field in node:
                             merged[field] = deepcopy(node[field])
-                    set_fields = attribution["set_node_fields"].get(key, set())
-                    if set_fields and isinstance(merged.get("inputs"), list):
-                        candidate_input_names = {
-                            str(item.get("name"))
-                            for item in node.get("inputs") or ()
-                            if isinstance(item, Mapping) and item.get("name") is not None
-                        }
-                        # Assigning a literal to a linked input removes that
-                        # edge in the IR. Preserve all other captured input
-                        # records, but drop precisely the endpoint that the
-                        # SetNodeField operation replaced.
-                        merged["inputs"] = [
-                            item
-                            for item in merged["inputs"]
+                    if (
+                        set_fields
+                        and isinstance(original_node.get("inputs"), list)
+                        and isinstance(node.get("inputs"), list)
+                    ):
+                        merged["inputs"] = _merge_set_field_input_sockets(
+                            original_node["inputs"],
+                            node["inputs"],
+                            set_fields,
+                            topology_input_fields=topology_input_fields,
+                        )
+                    if resolved_inputs or resolved_outputs:
+                        topology_merged = _merge_topology_sockets(
+                            original_node,
+                            node,
+                            resolved_inputs,
+                            resolved_outputs,
+                            removed_input_names,
+                            scope.get("links"),
+                        )
+                        if resolved_inputs:
+                            merged["inputs"] = topology_merged.get("inputs", merged.get("inputs"))
+                        if resolved_outputs:
+                            merged["outputs"] = topology_merged.get("outputs", merged.get("outputs"))
+                    if set_fields and isinstance(node.get("widgets_values"), list):
+                        original_widgets = original_node.get("widgets_values")
+                        merged_widgets = (
+                            list(original_widgets)
+                            if isinstance(original_widgets, list)
+                            else []
+                        )
+                        candidate_widgets = node["widgets_values"]
+                        allowed_widget_paths = _set_node_field_allowed_ui_paths(
+                            original_node,
+                            node,
+                            set_fields,
+                            topology_input_fields=resolved_inputs,
+                        )
+                        precise_widget_indices: list[int] = []
+                        for path in allowed_widget_paths:
                             if not (
-                                isinstance(item, Mapping)
-                                and item.get("link") is not None
-                                and str(item.get("name")) in set_fields
-                                and str(item.get("name")) not in candidate_input_names
-                            )
-                        ]
+                                path.startswith("widgets_values[") and path.endswith("]")
+                            ):
+                                continue
+                            raw_index = path[len("widgets_values["):-1]
+                            if not raw_index.isdigit():
+                                continue
+                            widget_index = int(raw_index)
+                            if widget_index >= len(candidate_widgets):
+                                continue
+                            precise_widget_indices.append(widget_index)
+                        if precise_widget_indices:
+                            for widget_index in precise_widget_indices:
+                                while len(merged_widgets) <= widget_index:
+                                    merged_widgets.append(None)
+                                merged_widgets[widget_index] = deepcopy(
+                                    candidate_widgets[widget_index]
+                                )
+                            merged["widgets_values"] = merged_widgets
+                        else:
+                            merged["widgets_values"] = deepcopy(candidate_widgets)
+                    elif set_fields and isinstance(node.get("widgets_values"), Mapping):
+                        # Dict-shaped widgets carry authoritative field names;
+                        # preserve untouched keys and copy only the exact
+                        # schema-admitted fields owned by this delta. No
+                        # positional inference is involved.
+                        original_widgets = original_node.get("widgets_values")
+                        merged_widgets = (
+                            deepcopy(dict(original_widgets))
+                            if isinstance(original_widgets, Mapping)
+                            else {}
+                        )
+                        candidate_widgets = node["widgets_values"]
+                        for field in set_fields:
+                            if field in candidate_widgets:
+                                merged_widgets[field] = deepcopy(
+                                    candidate_widgets[field]
+                                )
+                        merged["widgets_values"] = merged_widgets
+                    # A concrete schema witness is emit furniture rather
+                    # than an authored property, but a registry-hydrated
+                    # candidate must retain it for the authority receipt. Do
+                    # not carry the emitter's low-information ``unknown``
+                    # marker across the pin boundary; that remains exactly
+                    # the captured property state.
+                    candidate_properties = node.get("properties")
+                    candidate_provider = (
+                        candidate_properties.get("_vibecomfy_schema_provider")
+                        if isinstance(candidate_properties, Mapping)
+                        else None
+                    )
+                    if (
+                        isinstance(candidate_provider, str)
+                        and candidate_provider
+                        and candidate_provider.casefold() != "unknown"
+                    ):
+                        properties = deepcopy(dict(merged.get("properties") or {}))
+                        properties["_vibecomfy_schema_provider"] = candidate_provider
+                        merged["properties"] = properties
                     nodes[index] = merged
                     continue
                 nodes[index] = deepcopy(dict(original_node))
@@ -5446,6 +7516,8 @@ def pin_untouched_ui(
                 scope[key] = deepcopy(original_scope[key])
             elif key in _EMIT_SCOPE_FURNITURE or key in {"extra", "config", "groups"}:
                 del scope[key]
+    if candidate_definitions is not None:
+        pinned["definitions"] = candidate_definitions
     return pinned
 
 
@@ -5455,9 +7527,17 @@ def guard_exit_ui(
     ops: Sequence[EditOp] = (),
 ) -> ExitGuardResult:
     """Refuse emit candidates that change UI outside the accepted Δ."""
+    original_ui = _thaw_json_view(original_ui)
+    candidate_ui = _thaw_json_view(candidate_ui)
     diagnostics: list[PortIssue] = []
     original_scopes = dict(_iter_scopes(original_ui))
     candidate_scopes = dict(_iter_scopes(candidate_ui))
+    candidate_scopes_by_id = {
+        scope_id: scope
+        for _path, scope in candidate_scopes.items()
+        for scope_id in (_scope_definition_id(scope),)
+        if scope_id is not None
+    }
     invalid_identity_scopes: set[str] = set()
     for scope_path in set(original_scopes) | set(candidate_scopes):
         for graph in (original_scopes.get(scope_path), candidate_scopes.get(scope_path)):
@@ -5480,8 +7560,22 @@ def guard_exit_ui(
 
     for scope_path, original_scope in original_scopes.items():
         candidate_scope = candidate_scopes.get(scope_path)
+        original_scope_id = _scope_definition_id(original_scope)
+        # Subgraph array indices are presentation paths, not identities.  A
+        # removal shifts later siblings, so match retained definitions by id
+        # before attributing a missing path as a whole-scope deletion.
+        if (
+            scope_path
+            and
+            original_scope_id is not None
+            and (
+                candidate_scope is None
+                or _scope_definition_id(candidate_scope) != original_scope_id
+            )
+        ):
+            candidate_scope = candidate_scopes_by_id.get(original_scope_id)
         if candidate_scope is None:
-            removed_id = _scope_definition_id(original_scope)
+            removed_id = original_scope_id
             if removed_id and removed_id in attribution["removed_scope_ids"]:
                 continue
             diagnostics.append(
@@ -5506,7 +7600,11 @@ def guard_exit_ui(
                 fold_removed_ids,
                 allowed_changed_link_ids,
                 fold_diagnostics,
-            ) = _expected_ui_links(original_scope, scope_ops)
+            ) = _expected_ui_links(
+                original_scope,
+                scope_ops,
+                candidate_scope=candidate_scope,
+            )
             diagnostics.extend(fold_diagnostics)
         scope_id = _scope_definition_id(candidate_scope) or _scope_definition_id(original_scope)
         if scope_id and scope_id in attribution["changed_scope_ids"]:
@@ -5623,6 +7721,9 @@ def guard_exit_ui(
     for key, original_node in original_nodes.items():
         scope_path, uid = key
         candidate_node = candidate_nodes.get(key)
+        candidate_scope_for_node = candidate_scopes.get(scope_path)
+        if not isinstance(candidate_scope_for_node, Mapping):
+            candidate_scope_for_node = {}
         if candidate_node is None:
             if key in attribution["removed_nodes"]:
                 continue
@@ -5634,7 +7735,20 @@ def guard_exit_ui(
                 )
             )
             continue
-        if candidate_node == original_node:
+        topology_inputs = set(attribution["topology_input_fields"].get(key, set()))
+        topology_outputs = set(attribution["topology_output_refs"].get(key, set()))
+        scope_ops_for_node = tuple(attribution["link_ops_by_scope"].get(scope_path, ()))
+        original_scope_for_node = original_scopes.get(scope_path)
+        if isinstance(original_scope_for_node, Mapping) and scope_ops_for_node:
+            folded_inputs, folded_outputs = _topology_owned_refs(
+                scope_path,
+                uid,
+                scope_ops_for_node,
+                original_scope_for_node,
+            )
+            topology_inputs.update(folded_inputs)
+            topology_outputs.update(folded_outputs)
+        if candidate_node == original_node and not (topology_inputs or topology_outputs):
             continue
         diffs = [
             path
@@ -5646,7 +7760,7 @@ def guard_exit_ui(
                 candidate_node,
             )
         ]
-        if not diffs:
+        if not diffs and not (topology_inputs or topology_outputs):
             continue
         allowed_paths = set(attribution["node_paths"].get(key, set()))
         set_fields = attribution["set_node_fields"].get(key, set())
@@ -5660,6 +7774,51 @@ def guard_exit_ui(
                     original_node,
                     candidate_node,
                     set_fields,
+                    topology_input_fields=attribution["topology_input_fields"].get(
+                        key, set()
+                    ),
+                )
+            )
+        if topology_inputs or topology_outputs:
+            if not _topology_socket_values_match_links(
+                original_node,
+                candidate_node,
+                topology_inputs,
+                topology_outputs,
+                candidate_scope_for_node.get("links") or [],
+            ):
+                diagnostics.append(
+                    _issue(
+                        "full_ui_node_changed_unattributed",
+                        "Candidate socket link values disagree with its top-level topology.",
+                        detail={
+                            "scope_path": scope_path,
+                            "uid": uid,
+                            "field_paths": ["inputs/outputs link topology"],
+                        },
+                    )
+                )
+                continue
+            if _topology_socket_changes_exact(
+                original_node,
+                candidate_node,
+                topology_inputs,
+                topology_outputs,
+            ):
+                diffs = [
+                    path
+                    for path in diffs
+                    if not path == "inputs"
+                    and not path.startswith("inputs[")
+                    and not path == "outputs"
+                    and not path.startswith("outputs[")
+                ]
+            allowed_paths.update(
+                _topology_allowed_ui_paths(
+                    original_node,
+                    candidate_node,
+                    topology_inputs,
+                    topology_outputs,
                 )
             )
         if _all_diffs_op_allowed(diffs, allowed_paths):

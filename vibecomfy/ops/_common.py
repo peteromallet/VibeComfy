@@ -14,6 +14,12 @@ def set_prompt_preserving_registration(workflow: VibeWorkflow, prompt: str, patc
     workflow.set_prompt(prompt)
 
 
+def bind_run_inputs(workflow: VibeWorkflow, run_inputs: dict[str, object]) -> None:
+    """Apply validated public-input bindings onto a lazy op candidate."""
+    for name, value in run_inputs.items():
+        workflow.set_input(name, value)
+
+
 def _restore_input(workflow: VibeWorkflow, name: str, target: VibeInput) -> None:
     if name in workflow.inputs or target.node_id not in workflow.nodes:
         return

@@ -267,7 +267,10 @@ def _ensure_comfyui_root_on_path() -> None:
             else:
                 _LOGGER.info("ComfyUI root already on sys.path: %s", path_str)
             return
-    _LOGGER.warning("Could not locate ComfyUI root (no server.py + nodes.py found).")
+    # Importing VibeComfy from a read-only CLI does not imply that ComfyUI is
+    # installed.  Keep this expected absence quiet; an actual ComfyUI startup
+    # still gets the actionable runtime diagnosis from ``runtime doctor``.
+    _LOGGER.debug("Could not locate ComfyUI root (no server.py + nodes.py found).")
 
 
 def _resolve_prompt_server_instance() -> Any:
@@ -407,6 +410,11 @@ def _ensure_routes_registered() -> None:
             _route_condition.notify_all()
         raise
     owner = _route_registration_owner(instance)
+    from ._server_compat import is_official_import_only_stub
+
+    if is_official_import_only_stub(instance):
+        _LOGGER.info("Deferring VibeComfy route registration for pip Comfy import-only PromptServer stub.")
+        return
     with owner.condition:
         while True:
             _mirror_route_owner(owner)
@@ -485,7 +493,7 @@ if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
     try:
         _route_registration_entrypoint()._ensure_routes_registered()
     except ImportError as _route_import_exc:
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Could not register VibeComfy agent routes (%s); "
             "the ComfyUI server may not be available. "
             "POST /vibecomfy/agent-edit and /vibecomfy/agent/status will not be served.",

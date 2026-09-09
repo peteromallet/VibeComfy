@@ -17,7 +17,7 @@ pytestmark = pytest.mark.intent_ci
 # ---------------------------------------------------------------------------
 
 def _load_image_pair():
-    """Return (pre_wf, post_wf) for the z_image template with a seed change."""
+    """Return independent complete z_image graphs whose public sampler seed changes."""
     pre = load_workflow_any("image/z_image")
     post = fix_seeds_in_ir(pre, seed=99999)
     return pre, post
@@ -27,6 +27,8 @@ def test_structural_proxy_diff_detects_difference():
     pre, post = _load_image_pair()
     report = structural_proxy_diff(pre, post)
     assert isinstance(report, StructuralDiffResult)
+    assert pre.compile("api")["8"]["inputs"]["seed"] == 770044821593082
+    assert post.compile("api")["8"]["inputs"]["seed"] == 99999
     assert report.api_sha_pre != report.api_sha_post, "pre and post hashes should differ after seed change"
     assert report.equal is False
 

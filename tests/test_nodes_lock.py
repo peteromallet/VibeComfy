@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from vibecomfy.node_packs import (
     LockEntry,
@@ -288,6 +291,87 @@ class_set = ["BetaNode", "AlphaNode"]
             class_set=("AlphaNode", "BetaNode"),
         )
     ]
+
+
+def test_known_node_pack_cache_invalidates_same_size_same_mtime_replacement(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.node_packs import clear_known_node_packs_cache, get_known_node_packs
+
+    lockfile = tmp_path / "custom_nodes.lock"
+    first = """[nodepacks.PackOne]
+source = "local"
+path = "."
+class_set = ["NodeOne"]
+"""
+    second = """[nodepacks.PackTwo]
+source = "local"
+path = "."
+class_set = ["NodeTwo"]
+"""
+    assert len(first) == len(second)
+    lockfile.write_text(first, encoding="utf-8")
+    original_mtime_ns = lockfile.stat().st_mtime_ns
+    clear_known_node_packs_cache()
+    assert any(pack.name == "PackOne" for pack in get_known_node_packs(lockfile))
+
+    lockfile.write_text(second, encoding="utf-8")
+    os.utime(lockfile, ns=(original_mtime_ns, original_mtime_ns))
+    refreshed = get_known_node_packs(lockfile)
+    assert any(pack.name == "PackTwo" for pack in refreshed)
+    assert not any(pack.name == "PackOne" for pack in refreshed)
+    clear_known_node_packs_cache()
+
+
+def test_known_node_pack_cache_does_not_hide_malformed_lock(tmp_path: Path) -> None:
+    from vibecomfy.node_packs import get_known_node_packs
+
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        "[nodepacks.Broken]\nsource = \"git\"\ncommit = [\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        get_known_node_packs(lockfile)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (
+            '[nodepacks.Bad]\nsource = "git"\nurl = "https://example.test/bad.git"\n',
+            "git_commit_sha",
+        ),
+        (
+            '[nodepacks.Bad]\nsource = "git"\ncommit = "abc"\n',
+            "url",
+        ),
+        (
+            '[nodepacks.Bad]\nsource = "local"\n',
+            "path",
+        ),
+        (
+            '[nodepacks.Bad]\nsource = ["git"]\ncommit = "abc"\nurl = "x"\n',
+            "source must be a string",
+        ),
+        (
+            '[nodepacks.Bad]\nsource = "git"\ncommit = ["abc"]\nurl = "x"\n',
+            "commit must be a string",
+        ),
+        (
+            '[nodepacks.Bad]\nsource = "git"\ncommit = "abc"\nurl = 3\n',
+            "url must be a string",
+        ),
+    ],
+)
+def test_lockfile_rejects_malformed_required_fields(
+    tmp_path: Path, body: str, message: str,
+) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(body, encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_lockfile(lockfile)
 
 
 def test_schema_hash_projection_is_stable_and_limited_to_contract_fields() -> None:

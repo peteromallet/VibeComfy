@@ -1,7 +1,7 @@
 {
   "id": "audio-acestep-audio-generation-workflow-2a31ec",
   "query": "Load a different AceStep base model checkpoint: use 'acestep-sft-v2.safetensors' instead of the current one.",
-  "workflow_path": "external_workflows/corpus/2a31ec45fd22a623.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/2a31ec45fd22a623.json",
   "network": true,
   "timeout": 280,
   "apply": true,

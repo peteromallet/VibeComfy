@@ -38,6 +38,26 @@ _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
 _ALLOWED_RESPONSE_KEYS = frozenset({"delta", "message"})
 _CANONICAL_DELTA_KEYS = frozenset({"schema_version", "ops", "legacy_bridge"})
+
+
+def _canonical_wire_value(value: Any) -> Any:
+    """Detach immutable nested op values into JSON-shaped wire data.
+
+    Operation reports are deeply frozen before they reach the durable delta
+    envelope (mapping proxies and tuples).  Passing those containers through
+    ``json.dumps(..., default=str)`` would turn an authored declaration such
+    as dynamic exec ``io`` into a Python repr, losing its exact schema.  Keep
+    the one canonical op serializer lossless for JSON-shaped values; unknown
+    objects remain unchanged so callers fail closed instead of inventing a
+    second coercion format.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _canonical_wire_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_wire_value(item) for item in value]
+    if isinstance(value, set):
+        return [_canonical_wire_value(item) for item in sorted(value, key=repr)]
+    return value
 _LEGACY_DELTA_WRAPPER_KEYS = frozenset(
     {
         "automatic_link_removals",
@@ -226,13 +246,11 @@ class SetModeOp:
 
 @dataclass(frozen=True, slots=True)
 class SubgraphInterfaceOp:
-    """Definition-level subgraph signature statement (Law 3, batch 9 fix).
+    """Definition-level signature statement on the typed workflow authority.
 
-    ``diff`` emits these when pre/post ``metadata["definitions"]`` subgraph
-    signatures differ; ``apply_edit_cow`` mirrors what ``interpret``'s
-    ``subgraph_interface(...)`` source statement applies (append/remove/upsert
-    into ``metadata["definitions"]["subgraphs"]``).  ``id`` is the stable
-    identity key; ``name``/``inputs``/``outputs`` are the emitted signature.
+    ``id`` is the stable definition key; ``name``/``inputs``/``outputs`` are
+    the emitted signature.  ``scope_path`` is populated for nested typed
+    definitions and is never a raw metadata selector.
     """
 
     op: Literal["subgraph_interface"]
@@ -241,6 +259,9 @@ class SubgraphInterfaceOp:
     inputs: tuple[tuple[str, Any], ...] = ()
     outputs: tuple[tuple[str, Any], ...] = ()
     id: str | None = None
+    # Canonical owner scope for recursive interface edits.  Interfaces are
+    # stored on the typed workflow, never authored through raw metadata.
+    scope_path: str = ""
 
 
 EditOp = (
@@ -497,36 +518,54 @@ def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
         normalized["id"] = normalized["link_id"]
     return normalized
 
-def _schema_snapshot_from_payload(payload: Mapping[str, Any] | SchemaSnapshot | None) -> Any | None:
-    from vibecomfy.schema import SchemaSnapshot, schema_snapshot_from_payload
-
-    if payload is None:
-        return None
-    if isinstance(payload, SchemaSnapshot):
-        return payload
-    if not isinstance(payload, Mapping):
-        return None
-    snapshot = payload.get("schema_snapshot") if "schema_snapshot" in payload else payload
-    if snapshot is None:
-        return None
-    if isinstance(snapshot, SchemaSnapshot):
-        return snapshot
-    if isinstance(snapshot, Mapping) and snapshot.get("contract_version") == "schema-snapshot-v1":
-        return schema_snapshot_from_payload(snapshot)
-    return snapshot
-
-
 def require_known_schema_for_operation(
     operation: Mapping[str, Any] | EditOp,
     schema_snapshot: Mapping[str, Any] | SchemaSnapshot | None,
 ) -> None:
     """Fail closed when an operation depends on unknown endpoint/node schema."""
-    from vibecomfy.porting.edit.admit import AdmissionRejected, admit_operation
+    from vibecomfy.porting.edit.admit import (
+        AdmissionRejected,
+        _validated_schema_argument,
+        admit_operation,
+    )
     from vibecomfy.schema import SchemaSnapshot, SchemaSnapshotError, require_known_touched_schema
 
-    snapshot = schema_snapshot if isinstance(schema_snapshot, SchemaSnapshot) else _schema_snapshot_from_payload(
-        schema_snapshot if isinstance(schema_snapshot, Mapping) else None
-    )
+    snapshot: SchemaSnapshot | None
+    if schema_snapshot is None:
+        snapshot = None
+    else:
+        if isinstance(schema_snapshot, SchemaSnapshot):
+            candidate: Any = schema_snapshot
+        elif isinstance(schema_snapshot, Mapping):
+            if "schema" in schema_snapshot:
+                candidate = schema_snapshot["schema"]
+            elif "schema_snapshot" in schema_snapshot:
+                candidate = schema_snapshot["schema_snapshot"]
+            else:
+                candidate = schema_snapshot
+            # A supplied wrapper is authority evidence.  Null, false, empty,
+            # and wrong-type values are malformed, not optional absence.
+            if candidate is None:
+                raise EditOpParseError(
+                    "schema authority wrapper is null",
+                    code="malformed_schema_snapshot",
+                )
+        else:
+            raise EditOpParseError(
+                "schema authority must be a SchemaSnapshot or payload",
+                code="malformed_schema_snapshot",
+            )
+        try:
+            snapshot, _payload = _validated_schema_argument(
+                candidate,
+                label="operation schema authority",
+            )
+        except SchemaSnapshotError as exc:
+            raise EditOpParseError(
+                str(exc),
+                code=exc.code,
+                detail={"authority": "schema_snapshot"},
+            ) from exc
     if snapshot is None:
         admitted = admit_operation(None, operation)
         if isinstance(admitted, AdmissionRejected):
@@ -619,6 +658,7 @@ def parse_edit_op(
             inputs=_require_port_list(data.get("inputs"), path="subgraph_interface.inputs"),
             outputs=_require_port_list(data.get("outputs"), path="subgraph_interface.outputs"),
             id=_parse_optional_identity(data.get("id"), path="subgraph_interface.id"),
+            scope_path=_require_string(data.get("scope_path", ""), path="subgraph_interface.scope_path", allow_empty=True),
         )
 
     if op_name == "remove_node":
@@ -692,7 +732,7 @@ def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
         "uid": op.uid,
         "node_id": op.node_id,
         "class_type": op.class_type,
-        "fields": dict(op.fields),
+        "fields": _canonical_wire_value(op.fields),
         "inputs": {
             key: [ref.scope_path, ref.uid, ref.output_slot]
             for key, ref in op.inputs.items()
@@ -721,7 +761,7 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
         return {
             "op": parsed.op,
             "target": [parsed.target.scope_path, parsed.target.uid, parsed.target.field_path],
-            "value": parsed.value,
+            "value": _canonical_wire_value(parsed.value),
         }
     if isinstance(parsed, AddNodeOp):
         return _canonicalize_add_node(parsed)
@@ -758,6 +798,8 @@ def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
             payload["outputs"] = [list(port) for port in parsed.outputs]
         if parsed.id is not None:
             payload["id"] = parsed.id
+        if parsed.scope_path:
+            payload["scope_path"] = parsed.scope_path
         return payload
     raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
 
@@ -868,23 +910,15 @@ def ensure_root_scoped_delta_envelope(
 ) -> CanonicalDeltaEnvelope:
     envelope = normalize_delta_envelope(payload, allow_legacy_list=allow_legacy_list, strict=strict)
     for op in envelope.ops:
-        scoped_paths: list[str] = []
-        if isinstance(op, SetNodeFieldOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, AddNodeOp):
-            scoped_paths.append(op.scope_path)
-        elif isinstance(op, RemoveNodeOp):
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, UpsertLinkOp):
-            scoped_paths.extend((op.source.scope_path, op.target.scope_path))
-        elif isinstance(op, RemoveLinkOp) and op.target is not None:
-            scoped_paths.append(op.target.scope_path)
-        elif isinstance(op, SetModeOp):
-            scoped_paths.append(op.target.scope_path)
+        from vibecomfy.porting.edit._ir_utils import _operation_scope_paths
+
+        scoped_paths = _operation_scope_paths(op)
         bad = sorted({path for path in scoped_paths if path})
         if bad:
             raise EditOpParseError(
-                "Non-root scoped apply is unsupported for canonical delta consumers.",
+                "Non-root scoped apply is unsupported for canonical delta consumers; "
+                "capture the current canvas/export, port through canonical Python, "
+                "then reopen/reload the resulting workflow.",
                 code=DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
                 detail={"scope_paths": bad, "op": op.op},
             )
@@ -964,14 +998,14 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
         return {
             "op": op.op,
             "target": [op.target.scope_path, op.target.uid, op.target.field_path],
-            "value": op.value,
+            "value": _canonical_wire_value(op.value),
         }
     if isinstance(op, AddNodeOp):
         payload: dict[str, Any] = {
             "op": op.op,
             "scope_path": op.scope_path,
             "class_type": op.class_type,
-            "fields": dict(op.fields),
+            "fields": _canonical_wire_value(op.fields),
             "inputs": {
                 key: [ref.scope_path, ref.uid, ref.output_slot]
                 for key, ref in op.inputs.items()
@@ -1015,6 +1049,17 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
             "target": [op.target.scope_path, op.target.uid],
             "mode": op.mode,
         }
+    if isinstance(op, SubgraphInterfaceOp):
+        payload: dict[str, Any] = {"op": op.op, "action": op.action, "name": op.name}
+        if op.inputs:
+            payload["inputs"] = [list(port) for port in op.inputs]
+        if op.outputs:
+            payload["outputs"] = [list(port) for port in op.outputs]
+        if op.id is not None:
+            payload["id"] = op.id
+        if op.scope_path:
+            payload["scope_path"] = op.scope_path
+        return payload
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
 

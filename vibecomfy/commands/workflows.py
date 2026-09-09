@@ -781,9 +781,11 @@ def _cmd_workflows_contract_validate(args: argparse.Namespace) -> int:
 
 def _resolve_workflow_for_inspection(template_or_path: str) -> "VibeWorkflow":
     """Resolve a template id or file path to a VibeWorkflow for CLI inspection."""
-    from vibecomfy.cli_loader import load_workflow_any
+    from vibecomfy.cli_loader import load_bundle
 
-    return load_workflow_any(template_or_path)
+    bundle = load_bundle(template_or_path)
+    bundle.require_canonical_authority("workflow inspection")
+    return bundle.workflow
 
 
 # ── argparse registration ────────────────────────────────────────────────────

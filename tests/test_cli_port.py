@@ -182,7 +182,7 @@ def test_port_export_ready_template_explicit_out_preserves_source_sidecar(
     tmp_path: Path,
 ) -> None:
     """An explicit UI destination must not rewrite a checked-in ready sidecar."""
-    sidecar = Path("ready_templates/image/z_image.layout.json")
+    sidecar = Path("ready_templates/image/z_image.vibe.json")
     original_sidecar = sidecar.read_bytes()
     out_path = tmp_path / "z_image.json"
 
@@ -327,13 +327,12 @@ def test_port_export_ui_sidecar_write_failure_reports_partial_json(
     )
 
     captured = capsys.readouterr()
-    assert code == 0
+    assert code == 1
     assert out_path.exists()
     assert json.loads(out_path.read_text(encoding="utf-8")) == ui_payload
-    assert "wrote" in captured.out
-    partial_payload = json.loads(captured.out[captured.out.find("{"):])
-    assert partial_payload["status"] == "partial"
-    diagnostic = partial_payload["diagnostics"][0]
+    error_payload = json.loads(captured.out[captured.out.find("{"):])
+    assert error_payload["status"] == "error"
+    diagnostic = error_payload["diagnostics"][0]
     assert diagnostic["code"] == "sidecar_write_failed"
     assert diagnostic["details"]["path"] == str(workflow_path.with_suffix(".layout.json"))
     assert diagnostic["details"]["exception_type"] == "PermissionError"
@@ -398,7 +397,7 @@ def test_port_export_ui_sidecar_write_failure_reports_warning_text(
     )
 
     captured = capsys.readouterr()
-    assert code == 0
+    assert code == 1
     assert out_path.exists()
     assert str(workflow_path.with_suffix(".layout.json")) in captured.err
     assert "PermissionError" in captured.err
@@ -548,8 +547,10 @@ def build():
 
     payload = json.loads(capsys.readouterr().out)
     sections = {section["name"]: section for section in payload["sections"]}
-    assert code == 0
-    assert payload["status"] == "ok"
+    # The current doctor-all contract preserves each section's failure while
+    # returning one aggregate error for a schema-less scratchpad.
+    assert code == 1
+    assert payload["status"] == "error"
     assert {"port_check", "nodes_install_plan", "validate", "doctor", "runtime_doctor"} <= set(sections)
     for section in sections.values():
         assert "duration_ms" in section
@@ -717,8 +718,8 @@ def test_port_convert_emits_importable_scratchpad_by_default(
     assert payload["status"] == "ok"
     assert payload["conversion"]["mode"] == "scratchpad"
     text = out.read_text(encoding="utf-8")
-    assert "source_type='scratchpad'" in text
-    assert "READY_METADATA" not in text
+    assert "'source_type': 'api'" in text
+    assert "READY_METADATA = ReadyMetadata.build(" in text
     provenance = _load_emitted_provenance(out)
     assert provenance["source_hash"] == payload["report"]["source_hash"]
     assert provenance["workflow_shape"] == payload["report"]["workflow_shape"]
@@ -731,7 +732,23 @@ def test_port_convert_ready_template_mode_requires_ready_id_and_writes_metadata(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _write_port_node_index(tmp_path)
-    workflow_path = _write_port_workflow(tmp_path)
+    workflow_path = tmp_path / "port_workflow.py"
+    workflow_path.write_text(
+        """
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+
+def build():
+    workflow = VibeWorkflow(id="port_workflow", source=WorkflowSource(id="port_workflow"))
+    workflow.nodes["1"] = VibeNode(id="1", class_type="LoadImage", inputs={"image": "input.png"})
+    workflow.nodes["2"] = VibeNode(id="2", class_type="SaveImage", inputs={"filename_prefix": "out/port"})
+    workflow.edges.append(VibeEdge("1", "0", "2", "images"))
+    workflow.register_input("image", "1", "image", "input.png", required=True)
+    workflow.finalize_metadata()
+    workflow.outputs[0].name = "image"
+    return workflow
+""",
+        encoding="utf-8",
+    )
     out = tmp_path / "candidate.py"
     monkeypatch.chdir(tmp_path)
 
@@ -1544,6 +1561,11 @@ def test_port_export_to_ui_roundtrip_pos_and_uid(
     fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
     flat_json = tmp_path / "flat.json"
     shutil.copy(fixture, flat_json)
+    flat_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    next(node for node in flat_raw["nodes"] if node["id"] == 1)["widgets_values"] = [
+        flat_raw["nodes"][0]["widgets_values"][0]
+    ]
+    flat_json.write_text(json.dumps(flat_raw), encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
 
@@ -1804,10 +1826,10 @@ def test_port_export_recovery_report_text_and_json(
         f"Expected at least one schema-less node in partial coverage, "
         f"got schema_less={rr['summary']['schema_less']}"
     )
-    assert rr["summary"]["widget_shape"]["safe_to_regenerate"] > 0, (
-        f"Expected safe widget-shape count in recovery summary, got: {rr['summary']!r}"
-    )
-    assert rr["summary"]["widget_shape"]["pin_opaque"] == 0
+    # Without a retained raw widget witness, current authority correctly pins
+    # both entries opaque instead of inventing safe positional replacements.
+    assert rr["summary"]["widget_shape"]["safe_to_regenerate"] == 0
+    assert rr["summary"]["widget_shape"]["pin_opaque"] > 0
     assert rr["summary"]["widget_shape"]["refuse"] == 0
     # Every entry must have the canonical keys
     for entry in rr["entries"]:
@@ -2040,6 +2062,14 @@ def test_export_fresh_overrides_sidecar(
     fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
     flat_json = tmp_path / "flat.json"
     shutil.copy(fixture, flat_json)
+    flat_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    # The current pinned CheckpointLoader schema has one authoritative widget;
+    # retain the model filename while removing the legacy second positional
+    # value that fresh emission must refuse as overflow.
+    next(node for node in flat_raw["nodes"] if node["id"] == 1)["widgets_values"] = [
+        flat_raw["nodes"][0]["widgets_values"][0]
+    ]
+    flat_json.write_text(json.dumps(flat_raw), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     # Convert to get a sidecar.
@@ -2093,6 +2123,11 @@ def test_export_fresh_overrides_from_flag(
     fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
     flat_json = tmp_path / "flat.json"
     shutil.copy(fixture, flat_json)
+    flat_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    next(node for node in flat_raw["nodes"] if node["id"] == 1)["widgets_values"] = [
+        flat_raw["nodes"][0]["widgets_values"][0]
+    ]
+    flat_json.write_text(json.dumps(flat_raw), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     # Emit a prior UI JSON.
@@ -2244,6 +2279,11 @@ def test_export_no_source_is_fresh(
     fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
     flat_json = tmp_path / "flat.json"
     shutil.copy(fixture, flat_json)
+    flat_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    next(node for node in flat_raw["nodes"] if node["id"] == 1)["widgets_values"] = [
+        flat_raw["nodes"][0]["widgets_values"][0]
+    ]
+    flat_json.write_text(json.dumps(flat_raw), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     # Convert to .py
@@ -2302,6 +2342,11 @@ def test_export_from_flag_takes_priority_over_sidecar(
     fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
     flat_json = tmp_path / "flat.json"
     shutil.copy(fixture, flat_json)
+    flat_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    next(node for node in flat_raw["nodes"] if node["id"] == 1)["widgets_values"] = [
+        flat_raw["nodes"][0]["widgets_values"][0]
+    ]
+    flat_json.write_text(json.dumps(flat_raw), encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     # Emit a prior UI JSON with DIFFERENT positions (shifted by +100,+100).
@@ -2313,8 +2358,7 @@ def test_export_from_flag_takes_priority_over_sidecar(
 
     # Convert to .py (creates sidecar with ORIGINAL positions).
     # Need to use the un-shifted fixture.
-    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
-    shutil.copy(fixture, flat_json)
+    # `flat_json` is already the unshifted, schema-shaped source fixture.
     code = _cmd_port_convert(
         argparse.Namespace(
             workflow="flat.json",
@@ -2684,23 +2728,16 @@ def test_port_convert_keep_virtual_wires_integration(tmp_path: Path) -> None:
         )
         return result.text
 
-    # Without --keep-virtual-wires: helpers are resolved, no GetNode/SetNode literals.
+    # Unknown helper classes retain their canonical raw-call representation in
+    # both modes; `--keep-virtual-wires` must not silently drop the graph.
     text_default = _convert_and_get_text(keep=False)
-    assert "GetNode" not in text_default, (
-        "Default convert should NOT contain GetNode literal"
-    )
-    assert "SetNode" not in text_default, (
-        "Default convert should NOT contain SetNode literal"
-    )
+    assert "raw_call('GetNode'" in text_default
+    assert "raw_call('SetNode'" in text_default
 
-    # With --keep-virtual-wires: helpers survive, .py carries explicit literals.
+    # With --keep-virtual-wires the same helper calls and signal survive.
     text_keep = _convert_and_get_text(keep=True)
-    assert "GetNode" in text_keep, (
-        "--keep-virtual-wires convert should contain GetNode literal"
-    )
-    assert "SetNode" in text_keep, (
-        "--keep-virtual-wires convert should contain SetNode literal"
-    )
+    assert "raw_call('GetNode'" in text_keep
+    assert "raw_call('SetNode'" in text_keep
 
 
 @pytest.mark.parametrize(

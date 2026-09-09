@@ -5,6 +5,8 @@ gaps that block `port check` from clearing before `port convert` can run.
 
 ## Overview
 
+Node reconciliation is a deterministic report over the candidate that will be loaded or converted. Run `vibecomfy nodes reconcile --workflow <workflow> --json` against the same local schema, pack, model, and runtime context; it reports evidence and remediation without mutating the workflow or treating raw API JSON as an execution source.
+
 `port check <workflow>` gates `port convert` — if the report has any `severity="error"`
 diagnostic, the emitter will not run. The four most common gate-blocking error codes and
 their fixes are:

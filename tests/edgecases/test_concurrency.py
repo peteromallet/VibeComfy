@@ -20,7 +20,7 @@ def _make_workflow(seed: int) -> VibeWorkflow:
     """Create a workflow with a unique identifier based on seed."""
     wf = VibeWorkflow(
         f"concurrent-{seed}",
-        WorkflowSource(f"source/concurrent_{seed}", source_type="api"),
+        WorkflowSource(f"concurrent-{seed}", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": f"img_{seed}.png"})
     wf.nodes["2"] = VibeNode(

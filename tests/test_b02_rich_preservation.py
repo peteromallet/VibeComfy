@@ -28,6 +28,56 @@ from vibecomfy.ingest import from_envelope
 
 
 MINI_CORPUS = Path(__file__).parent / "fixtures" / "b02_corpus_mini"
+_NATIVE_CARRIER_FIELDS = (
+    "native_input_asset_kinds",
+    "native_input_names",
+    "native_input_optional",
+    "native_input_types",
+    "native_output_names",
+    "native_output_slots",
+    "native_output_types",
+)
+
+def _seed_current_native_carriers(corpus: Path) -> dict[str, dict[str, dict[str, Any]]]:
+    """Materialize the current typed carrier schema before migration assertions.
+
+    These are exact values derived by the real deserializer/serializer pair; the
+    helper never invents names, slots, or types. It makes the legacy mini corpus
+    a current-schema fixture so idempotence tests exercise preservation.
+    """
+    expected: dict[str, dict[str, dict[str, Any]]] = {}
+    for path in sorted(corpus.glob("*.json")):
+        if path.name.endswith(".layout.json"):
+            continue
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        workflow = from_envelope(raw)
+        workflow.metadata = deepcopy(raw.get("metadata") or {})
+        for node_id, node in workflow.nodes.items():
+            node.metadata = deepcopy(raw["nodes"][node_id].get("metadata") or {})
+        for node_id, node in workflow.nodes.items():
+            ui = (raw["nodes"][node_id].get("metadata") or {}).get("_ui") or {}
+            ui_inputs = ui.get("inputs") or []
+            ui_outputs = ui.get("outputs") or []
+            input_names = [item.get("name") for item in ui_inputs if isinstance(item, dict) and item.get("name")]
+            output_names = [item.get("name") for item in ui_outputs if isinstance(item, dict) and item.get("name")]
+            output_types = [item.get("type") for item in ui_outputs if isinstance(item, dict) and item.get("name")]
+            node.native_input_names = input_names or None
+            node.native_input_types = [item.get("type") for item in ui_inputs if isinstance(item, dict) and item.get("name")] or None
+            node.native_input_optional = [item.get("shape") == 7 for item in ui_inputs if isinstance(item, dict) and item.get("name")] or None
+            # The mini corpus has no authored asset-kind carrier; preserve that absence.
+            node.native_input_asset_kinds = None
+            node.native_output_names = output_names or None
+            node.native_output_types = output_types or None
+            node.native_output_slots = [item.get("slot_index", index) for index, item in enumerate(ui_outputs) if isinstance(item, dict) and item.get("name")] or None
+        current = workflow.to_envelope()
+        by_node: dict[str, dict[str, Any]] = {}
+        for node_id, node in current["nodes"].items():
+            carriers = {field: node.get(field) for field in _NATIVE_CARRIER_FIELDS}
+            raw["nodes"][node_id].update(carriers)
+            by_node[node_id] = carriers
+        path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        expected[path.name] = by_node
+    return expected
 
 
 # ---------------------------------------------------------------------------
@@ -128,13 +178,20 @@ def test_migrator_rejects_missing_empty_and_explicit_sidecar(tmp_path: Path) -> 
 
 
 def test_migrator_check_is_idempotent_on_mini_corpus(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    shutil.copytree(MINI_CORPUS, corpus)
+    expected_carriers = _seed_current_native_carriers(corpus)
     report_path = tmp_path / "delta.json"
     report = migrate.migrate_corpus(
-        MINI_CORPUS,
+        corpus,
         write=False,
         report_path=report_path,
         expected_count=3,
     )
+    for filename, nodes in expected_carriers.items():
+        raw = json.loads((corpus / filename).read_text(encoding="utf-8"))
+        for node_id, carriers in nodes.items():
+            assert {field: raw["nodes"][node_id].get(field) for field in _NATIVE_CARRIER_FIELDS} == carriers
     assert report["summary"]["files_would_change"] == 0
     assert report["summary"]["node_modes_after"] == 20
     assert sum(report["summary"]["node_mode_values_after"].values()) == 20
@@ -145,6 +202,7 @@ def test_migrator_check_is_idempotent_on_mini_corpus(tmp_path: Path) -> None:
 def test_migrator_write_preserves_metadata_sidecar_and_is_idempotent(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     shutil.copytree(MINI_CORPUS, corpus)
+    expected_carriers = _seed_current_native_carriers(corpus)
     envelope_path = corpus / "90a1d5ff9044902e.json"
     raw = json.loads(envelope_path.read_text(encoding="utf-8"))
     metadata_before = deepcopy(raw["metadata"])
@@ -164,6 +222,8 @@ def test_migrator_write_preserves_metadata_sidecar_and_is_idempotent(tmp_path: P
     assert first["summary"]["files_would_change"] == 1
     written = json.loads(envelope_path.read_text(encoding="utf-8"))
     assert "compiled_api" not in written
+    for node_id, carriers in expected_carriers[envelope_path.name].items():
+        assert {field: written["nodes"][node_id].get(field) for field in _NATIVE_CARRIER_FIELDS} == carriers
     assert written["groups"] == []
     assert written["metadata"] == metadata_before
     assert {

@@ -8,9 +8,8 @@ from vibecomfy.analysis.fields import trace_public_field
 from vibecomfy.contracts import build_contract
 from vibecomfy.contracts.surface import build_contract_surface
 from vibecomfy.commands._output import emit
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.patches.registry import find_applicable
-from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import ValidationReport
 
@@ -26,11 +25,13 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     field_name = getattr(args, "field", None)
     if field_name:
         try:
-            loaded = load_port_source(args.workflow, schema_provider=get_schema_provider("local"))
+            bundle = load_bundle(args.workflow, schema_provider=get_schema_provider("local"))
+            bundle.require_canonical_authority("workflow inspection")
         except Exception as exc:
             print(f"Failed to load workflow: {type(exc).__name__}: {exc}", __import__("sys").stderr)
             return 1
-        result = trace_public_field(loaded.workflow, field_name, source_file=loaded.source_path)
+        source_file = bundle.python_path or getattr(bundle.workflow.source, "path", None)
+        result = trace_public_field(bundle.workflow, field_name, source_file=source_file)
         if result.get("error"):
             if args.json:
                 print(json.dumps(result, indent=2, sort_keys=True))
@@ -43,13 +44,19 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
             print(_render_tracefield(result))
         return 0
 
-    workflow = load_workflow_any(args.workflow)
     shape = "api"
     # Inspect is a read-only/schema-only command.  Never boot a managed
     # ComfyUI server just because one happens to be installed: an occupied
     # default port must not make static inspection nondeterministic.
     schema_provider = get_schema_provider("local")
-    report = workflow.validate(schema_provider=schema_provider)
+    try:
+        bundle = load_bundle(args.workflow, schema_provider=schema_provider)
+        bundle.require_canonical_authority("workflow inspection")
+        workflow = bundle.workflow
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+    except Exception as exc:
+        print(f"inspect failed: {type(exc).__name__}: {exc}", file=__import__("sys").stderr)
+        return 1
     applicable_patches = [
         {"name": patch.name, "rationale": patch.rationale(workflow)}
         for patch in find_applicable(workflow)
@@ -65,7 +72,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         "outputs": [asdict(output) for output in workflow.outputs],
         "models": workflow.requirements.models,
         "custom_nodes": workflow.requirements.custom_nodes,
-        "status": _status_from_report(report),
+        "status": "runnable",
         "applicable_patches": applicable_patches,
         "contract": contract,
         **surface,

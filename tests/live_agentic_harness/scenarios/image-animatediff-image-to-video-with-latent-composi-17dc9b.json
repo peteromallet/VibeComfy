@@ -1,7 +1,7 @@
 {
   "id": "image-animatediff-image-to-video-with-latent-composi-17dc9b",
   "query": "How does the latent compositing approach here compare to using an init image directly in the video latent space? Which gives better temporal coherence?",
-  "workflow_path": "external_workflows/corpus/17dc9bc3ed806c24.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/17dc9bc3ed806c24.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -34,7 +34,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/17dc9bc3ed806c24.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/17dc9bc3ed806c24.json",
     "required_node_evidence": [
       "LatentComposite",
       "VAEEncode",

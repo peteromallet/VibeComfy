@@ -7,18 +7,11 @@ from pathlib import Path
 
 import pytest
 
-import vibecomfy.runtime.session as runtime_session
 from vibecomfy.runtime.model_policy import resolve_model_preflight_policy, shared_models_root
 from vibecomfy.runtime.session import ServerSession
-from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from tests._runtime_session_helpers import _approved, _workflow
 
 runtime_run = importlib.import_module("vibecomfy.runtime.run")
-
-
-def _workflow() -> VibeWorkflow:
-    workflow = VibeWorkflow("policy", WorkflowSource("policy"))
-    workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "out"})
-    return workflow
 
 
 def test_explicit_remote_ensure_models_requires_matching_shared_root(tmp_path: Path) -> None:
@@ -80,7 +73,7 @@ def test_runtime_remote_policy_blocks_before_queue(monkeypatch: pytest.MonkeyPat
     with pytest.raises(RuntimeError, match="requires shared models root to match"):
         asyncio.run(
             runtime_run.run(
-                _workflow(),
+                *_approved(_workflow()),
                 server_url="http://remote.test",
                 ensure_models=True,
                 shared_models_root=tmp_path / "different",
@@ -90,20 +83,18 @@ def test_runtime_remote_policy_blocks_before_queue(monkeypatch: pytest.MonkeyPat
     assert queued == []
 
 
-def test_server_session_run_uses_shared_model_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_server_session_run_forwards_shared_model_preflight_request(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    def fake_apply(workflow: VibeWorkflow, policy) -> None:
-        calls.append(f"{policy.mode}:{policy.ensure_models}")
-
-    async def fake_run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False, **kwargs):
-        calls.append("queue")
+    async def fake_run_untracked(self, record, bundle, *, backend: str = "api", strict_drift: bool = False, **kwargs):
+        assert kwargs["ensure_models"] is True
+        assert record.api_projection == bundle.workflow.compile("api")
+        calls.append("preflight-request-forwarded")
         return object()
 
-    monkeypatch.setattr(runtime_session, "apply_model_preflight", fake_apply)
     monkeypatch.setattr(ServerSession, "_run_untracked", fake_run_untracked)
 
-    result = asyncio.run(ServerSession().run(_workflow(), ensure_models=True))
+    result = asyncio.run(ServerSession().run(*_approved(_workflow()), ensure_models=True))
 
     assert result is not None
-    assert calls == ["managed_local_server:True", "queue"]
+    assert calls == ["preflight-request-forwarded"]

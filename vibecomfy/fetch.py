@@ -386,8 +386,8 @@ def download_many(
     failures = 0
     for entry in entries:
         name = str(entry.get("name", "<unknown>"))
-        was_present = is_present(entry, root=root) and not force
         try:
+            was_present = is_present(entry, root=root) and not force
             path = download(entry, force=force, force_verify=force_verify, root=root)
         except Exception as exc:
             failures += 1

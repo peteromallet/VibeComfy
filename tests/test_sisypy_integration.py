@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("sisypy")
 
 
-def test_vibecomfy_loads_sibling_sisypy_package_layout():
+def test_vibecomfy_loads_installed_sisypy_public_package():
     import sisypy
     from sisypy import Boulder, Push, cli, compare
     from sisypy.runner import load_scenario, render_brief, run_all
@@ -21,7 +21,7 @@ def test_vibecomfy_loads_sibling_sisypy_package_layout():
     package_file = Path(sisypy.__file__).resolve()
 
     assert package_file.parent.name == "sisypy"
-    assert package_file.parent.parent.name == "sisypy"
+    assert package_file.name == "__init__.py"
     assert cli is sisypy.cli
     assert compare is sisypy.compare
     assert Boulder is sisypy.Scenario

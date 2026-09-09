@@ -13,6 +13,7 @@ import sys
 import types
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +21,8 @@ import vibecomfy.runtime.session as session_module
 import vibecomfy.runtime.client as client_module
 from vibecomfy.schema import InputSpec, NodeSchema
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow_bundle import load_bundle
+from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
 
 
 class FakeConfiguration(dict):
@@ -83,9 +86,63 @@ def _workflow(ckpt: str = "model-a.safetensors", *, seed: int = 1) -> VibeWorkfl
         "1",
         "CheckpointLoaderSimple",
         inputs={"ckpt_name": ckpt},
+        uid="runtime-1",
     )
-    workflow.nodes["2"] = VibeNode("2", "KSampler", inputs={"seed": seed})
+    workflow.nodes["2"] = VibeNode("2", "KSampler", inputs={"seed": seed}, uid="runtime-2")
     return workflow
+
+
+def _approved(workflow: VibeWorkflow, *, schema_provider: Any | None = None):
+    """Build a real approved record/bundle pair from retained fixture evidence."""
+    bundle = load_bundle(workflow)
+
+    if schema_provider is None:
+        class FixtureProvider:
+            def get_schema(self, class_type: str):
+                return {
+                    "CheckpointLoaderSimple": NodeSchema(
+                        "CheckpointLoaderSimple",
+                        None,
+                        {"ckpt_name": InputSpec("STRING")},
+                        [],
+                    ),
+                    "KSampler": NodeSchema(
+                        "KSampler", None, {"seed": InputSpec("INT")}, []
+                    ),
+                }.get(class_type)
+
+        schema_provider = FixtureProvider()
+
+    model_names = {
+        value
+        for node in workflow.nodes.values()
+        for field, value in node.inputs.items()
+        if field in {"ckpt_name", "model_name"} and isinstance(value, str)
+    }
+    model_names.update(workflow.requirements.models)
+    entries = tuple(
+        ModelEntry(
+            name,
+            ModelSource("local"),
+            0,
+            (ModelTarget("comfy_core", f"checkpoints/{name}"),),
+            canonical_name=name,
+        )
+        for name in sorted(model_names)
+    )
+
+    def resolve_fixture_model(value: str, **_kwargs):
+        return next(
+            (entry for entry in entries if value in {entry.id, entry.canonical_name}),
+            None,
+        )
+
+    with (
+        patch("vibecomfy.registry.models_loader.load_registry", return_value=entries),
+        patch("vibecomfy.registry.models_loader.resolve_model_entry", side_effect=resolve_fixture_model),
+        patch("vibecomfy.fetch.is_present", return_value=True),
+    ):
+        return bundle.compile(schema_provider=schema_provider), bundle
 
 
 class WarmProvider:
@@ -219,8 +276,8 @@ def fake_server(monkeypatch: pytest.MonkeyPatch):
 
 
 def _patch_fast_runtime_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_prepare(workflow, *, backend, schema_provider, on_unavailable, cache_only=False):
-        return workflow.compile(backend=backend)
+    async def fake_prepare(record, bundle, *, backend, schema_provider, on_unavailable, cache_only=False):
+        return record.to_dict()["api_projection"]
 
     async def fake_maybe_flush(_session, _fp):
         return None

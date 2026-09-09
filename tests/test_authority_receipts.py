@@ -31,7 +31,9 @@ _OBJECT_INFO_ROOT = (
 )
 
 
-def _frozen_provider(class_types: tuple[str, ...]) -> FrozenSchemaSnapshotProvider:
+def _frozen_provider(
+    class_types: tuple[str, ...], graph: dict | None = None
+) -> FrozenSchemaSnapshotProvider:
     """Frozen admission authority over whichever *class_types* resolve locally."""
     prov = ObjectInfoIndexSchemaProvider(str(_OBJECT_INFO_ROOT))
     payloads = {}
@@ -39,6 +41,17 @@ def _frozen_provider(class_types: tuple[str, ...]) -> FrozenSchemaSnapshotProvid
         schema = prov.get_schema(class_type)
         if schema is not None:
             payloads[class_type] = schema_payload_from_node_schema(class_type, schema)
+    node_classes: dict[str, str] = {}
+    if graph is not None:
+        for node in graph.get("nodes", []):
+            if not isinstance(node, dict) or not node.get("type"):
+                continue
+            class_type = str(node["type"])
+            node_id = str(node.get("id"))
+            node_classes[node_id] = class_type
+            properties = node.get("properties")
+            if isinstance(properties, dict) and properties.get("vibecomfy_uid"):
+                node_classes[str(properties["vibecomfy_uid"])] = class_type
     snap = capture_schema_snapshot(
         class_types=sorted(payloads),
         request_snapshot={
@@ -46,9 +59,33 @@ def _frozen_provider(class_types: tuple[str, ...]) -> FrozenSchemaSnapshotProvid
             "schemas": payloads,
             "missing_classes": [],
         },
-        node_classes={str(i + 1): ct for i, ct in enumerate(sorted(payloads))},
+        node_classes=node_classes,
     )
     return FrozenSchemaSnapshotProvider(snap)
+
+
+def _fixture_provider(graph: dict) -> FrozenSchemaSnapshotProvider:
+    return _frozen_provider(
+        (
+            "CheckpointLoaderSimple",
+            "CLIPTextEncode",
+            "EmptyLatentImage",
+            "KSampler",
+            "VAEDecode",
+            "SaveImage",
+        ),
+        graph,
+    )
+
+
+def _freeze_provider(provider: object, graph: dict) -> FrozenSchemaSnapshotProvider:
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        capture_ingress_schema_snapshot,
+    )
+
+    return FrozenSchemaSnapshotProvider(
+        capture_ingress_schema_snapshot(schema_provider=provider, graph=graph)
+    )
 
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
@@ -68,6 +105,7 @@ def _submit_graph() -> dict:
 
 def test_nonempty_canonical_v2_envelope_replays_all_operations() -> None:
     submit_graph = _submit_graph()
+    provider = _fixture_provider(submit_graph)
     envelope = {
         "schema_version": "2.0.0",
         "ops": [
@@ -78,11 +116,15 @@ def test_nonempty_canonical_v2_envelope_replays_all_operations() -> None:
             }
         ],
     }
-    ok, candidate, error, _ = recompute_apply(submit_graph, envelope)
+    ok, candidate, error, _ = recompute_apply(
+        submit_graph, envelope, schema_provider=provider
+    )
     assert ok is True, error
     assert candidate is not None
 
-    receipt = verify_replay(submit_graph, envelope, candidate)
+    receipt = verify_replay(
+        submit_graph, envelope, candidate, schema_provider=provider
+    )
 
     assert receipt.replay_ok is True
     assert receipt.candidate_matches is True
@@ -114,6 +156,7 @@ def test_malformed_nonempty_v2_envelope_fails_closed() -> None:
 
 def test_layout_only_candidate_uses_structural_noop_authority() -> None:
     submit_graph = _submit_graph()
+    provider = _fixture_provider(submit_graph)
     candidate = json.loads(json.dumps(submit_graph))
     candidate["nodes"][0]["pos"] = [1234, 567]
     candidate["groups"] = [
@@ -140,6 +183,7 @@ def test_layout_only_candidate_uses_structural_noop_authority() -> None:
         candidate=candidate,
         response=response,
         schema_version="2.0.0",
+        schema_provider=provider,
     )
 
     assert receipt.is_applyable is True
@@ -151,6 +195,7 @@ def test_layout_only_candidate_uses_structural_noop_authority() -> None:
 
 def test_layout_authority_rejects_semantic_change_despite_forged_layout_evidence() -> None:
     submit_graph = _submit_graph()
+    provider = _fixture_provider(submit_graph)
     candidate = json.loads(json.dumps(submit_graph))
     candidate["nodes"][0]["widgets_values"] = ["semantic mutation"]
     response = {
@@ -174,6 +219,7 @@ def test_layout_authority_rejects_semantic_change_despite_forged_layout_evidence
         candidate=candidate,
         response=response,
         schema_version="2.0.0",
+        schema_provider=provider,
     )
 
     assert receipt.is_applyable is False
@@ -192,6 +238,7 @@ def test_authority_receipt_schema_covers_every_serialized_v2_field() -> None:
         candidate=submit_graph,
         response={"outcome": {"kind": "candidate"}},
         schema_version="2.0.0",
+        schema_provider=_fixture_provider(submit_graph),
     )
     schema_path = (
         Path(__file__).parents[1]
@@ -217,6 +264,7 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
     tmp_path: Path,
 ) -> None:
     submit_graph = _submit_graph()
+    provider = _fixture_provider(submit_graph)
     envelope = {
         "schema_version": "2.0.0",
         "ops": [
@@ -227,7 +275,9 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
             }
         ],
     }
-    ok, candidate, error, _ = recompute_apply(submit_graph, envelope)
+    ok, candidate, error, _ = recompute_apply(
+        submit_graph, envelope, schema_provider=provider
+    )
     assert ok is True, error
     assert candidate is not None
     receipt = build_authority_receipt(
@@ -238,6 +288,7 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
         candidate=candidate,
         response={"outcome": {"kind": "candidate"}},
         schema_version="2.0.0",
+        schema_provider=provider,
     )
 
     turn_dir = tmp_path / "turns" / "0001"
@@ -269,6 +320,7 @@ def test_missing_or_unknown_receipt_contract_and_delta_schema_fail_closed(
         candidate=submit_graph,
         response={"outcome": {"kind": "candidate"}},
         schema_version="2.0.0",
+        schema_provider=_fixture_provider(submit_graph),
     )
     raw = receipt.to_dict()
     assert receipt.is_applyable is True
@@ -299,6 +351,9 @@ class _Provider:
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         return self._schemas.get(class_type)
+
+    def schemas(self) -> dict[str, NodeSchema]:
+        return dict(self._schemas)
 
 
 def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -> None:
@@ -426,10 +481,11 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
             )
         }
     )
+    frozen_provider = _freeze_provider(provider, submit_graph)
     ok, candidate, error, _ = recompute_apply(
         submit_graph,
         envelope,
-        schema_provider=provider,
+        schema_provider=frozen_provider,
     )
     assert ok is True, error
     assert candidate is not None
@@ -438,7 +494,7 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
         submit_graph,
         envelope,
         candidate,
-        schema_provider=provider,
+        schema_provider=frozen_provider,
     )
 
     assert receipt.replay_ok is True
@@ -670,6 +726,7 @@ def test_crash_after_receipt_before_projection_recovers_applied_deterministicall
     }
     turn_dir = tmp_path / "sessions" / "crash-b" / "turns" / "0001"
     turn_dir.mkdir(parents=True)
+    provider = _freeze_provider(_Provider({"KSampler": _ksampler_schema()}), submit)
     receipt = build_authority_receipt(
         session_id="crash-b",
         turn_id="0001",
@@ -678,7 +735,7 @@ def test_crash_after_receipt_before_projection_recovers_applied_deterministicall
         candidate=candidate,
         response=response,
         schema_version="2.0.0",
-        schema_provider=_Provider({"KSampler": _ksampler_schema()}),
+        schema_provider=provider,
     )
     assert receipt.is_applyable
     write_authority_receipt(turn_dir, receipt)
@@ -763,10 +820,14 @@ def test_mint_still_applies_when_frozen_name_table_derives() -> None:
         turn_id="t",
         submit_graph=submit_graph,
         cumulative_delta_envelope=envelope,
-        candidate=recompute_apply(submit_graph, envelope)[1],
+        candidate=recompute_apply(
+            submit_graph,
+            envelope,
+            schema_provider=_frozen_provider(("CLIPTextEncode",), submit_graph),
+        )[1],
         response={},
         schema_version="2.0.0",
-        schema_provider=_frozen_provider(("CLIPTextEncode",)),
+        schema_provider=_frozen_provider(("CLIPTextEncode",), submit_graph),
     )
 
     assert receipt.is_applyable is True
@@ -804,7 +865,10 @@ def test_mint_applies_with_explicit_empty_roster_row_for_widgetless_node() -> No
             }
         ],
     }
-    candidate = recompute_apply(submit_graph, envelope)[1]
+    provider = _frozen_provider(("PreviewImage",), submit_graph)
+    candidate = recompute_apply(
+        submit_graph, envelope, schema_provider=provider
+    )[1]
 
     receipt = build_authority_receipt(
         session_id="s",
@@ -814,7 +878,7 @@ def test_mint_applies_with_explicit_empty_roster_row_for_widgetless_node() -> No
         candidate=candidate,
         response={},
         schema_version="2.0.0",
-        schema_provider=_frozen_provider(("PreviewImage",)),
+        schema_provider=provider,
     )
 
     assert receipt.is_applyable is True

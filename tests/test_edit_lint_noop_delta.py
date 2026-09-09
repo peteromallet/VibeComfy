@@ -35,6 +35,12 @@ from vibecomfy.comfy_nodes.agent._frag_response_contract import (
 )
 from vibecomfy.comfy_nodes.agent._frag_state import derived_accepted_delta_envelope
 from vibecomfy.comfy_nodes.agent.authority_receipts import recompute_apply
+from vibecomfy.schema import InputSpec, NodeSchema
+from vibecomfy.schema.types import (
+    FrozenSchemaSnapshotProvider,
+    capture_schema_snapshot,
+    schema_payload_from_node_schema,
+)
 
 
 # ── fixtures: the persisted f65774 turn record, byte-shape identical ─────────
@@ -194,6 +200,97 @@ def test_non_set_field_kinds_are_never_dropped_by_field_keys() -> None:
     )
 
 
+def test_occurrence_specific_noop_record_drops_only_that_repeated_write() -> None:
+    """Same-field writes remain distinct when the transition report supplies indexes."""
+    first = {
+        "statement_index": 0,
+        "ok": True,
+        "landed": True,
+        "status": "applied",
+        "source": "node.pbr = False",
+        "op_kind": "set_node_field",
+        "touched_uids": ["26"],
+        "op": {
+            "op": "set_node_field",
+            "target": ["", "26", "pbr"],
+            "value": False,
+        },
+    }
+    repeated_noop = dict(first)
+    repeated_noop["statement_index"] = 1
+    repeated_noop["source"] = "node.pbr = False  # repeated"
+    later_change = dict(first)
+    later_change["statement_index"] = 2
+    later_change["source"] = "node.pbr = True"
+    later_change["op"] = dict(first["op"], value=True)
+    turn = {
+        "turn_number": 0,
+        "batch_ok": True,
+        "noop_occurrences": [{"statement_index": 1}],
+        "statements": [first, repeated_noop, later_change],
+    }
+    state = SimpleNamespace(batch_turns=[turn])
+
+    assert _statement_is_lint_noop(
+        repeated_noop, frozenset(), frozenset({1})
+    )
+    assert not _statement_is_lint_noop(first, frozenset(), frozenset({1}))
+    accepted = _effective_accepted_batch_statements(state)
+    assert [entry["source"] for entry in accepted] == [
+        "node.pbr = False", "node.pbr = True"
+    ]
+
+
+def test_noop_occurrence_maps_source_statement_index_after_done_and_stays_out_of_history() -> None:
+    """A leading done() must not shift the durable no-op occurrence identity."""
+    done = {
+        "statement_index": 1,
+        "ok": True,
+        "landed": False,
+        "status": "skipped",
+        "source": "done()",
+        "op_kind": "done",
+        "touched_uids": [],
+    }
+    first = {
+        "statement_index": 2,
+        "ok": True,
+        "landed": True,
+        "status": "applied",
+        "source": "node.pbr = False",
+        "op_kind": "set_node_field",
+        "touched_uids": ["26"],
+        "op": {
+            "op": "set_node_field",
+            "target": ["", "26", "pbr"],
+            "value": False,
+        },
+    }
+    repeated = dict(first)
+    repeated["statement_index"] = 3
+    repeated["source"] = "node.pbr = False  # repeated"
+    later = dict(first)
+    later["statement_index"] = 4
+    later["source"] = "node.pbr = True"
+    later["op"] = {
+        "op": "set_node_field",
+        "target": ["", "26", "pbr"],
+        "value": True,
+    }
+    turn = {
+        "turn_number": 0,
+        "batch_ok": True,
+        "noop_occurrences": [{"statement_index": 3}],
+        "statements": [done, first, repeated, later],
+    }
+    accepted = _effective_accepted_batch_statements(SimpleNamespace(batch_turns=[turn]))
+
+    assert [entry["source"] for entry in accepted] == [
+        "node.pbr = False", "node.pbr = True"
+    ]
+    assert all(entry.get("op_kind") != "done" for entry in accepted)
+
+
 # ── replay semantics on a minimal graph pair reproducing the receipt ────────
 
 
@@ -224,6 +321,34 @@ _REAL_OP = {
 }
 
 
+def _probe_schema_provider() -> FrozenSchemaSnapshotProvider:
+    """Capture the ProbeNode ABI independently of the replay UI payload."""
+    schema = NodeSchema(
+        class_type="ProbeNode",
+        pack="fixture",
+        inputs={
+            "pbr": InputSpec(type="BOOLEAN"),
+            "texture_quality": InputSpec(type="STRING"),
+        },
+        outputs=[],
+        widget_input_order=("pbr", "texture_quality"),
+        source_provider="fixture",
+        confidence=1.0,
+    )
+    snapshot = capture_schema_snapshot(
+        class_types=("ProbeNode",),
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {
+                "ProbeNode": schema_payload_from_node_schema("ProbeNode", schema),
+            },
+            "missing_classes": [],
+        },
+        node_classes={"26": "ProbeNode"},
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
+
+
 def test_redundant_write_in_delta_fails_replay_closed() -> None:
     """The persisted receipt mechanism: replaying the unfiltered Δ raises the
     typed ``no_op`` rejection — why no-op statements must never be minted."""
@@ -231,6 +356,7 @@ def test_redundant_write_in_delta_fails_replay_closed() -> None:
         _SUBMIT_UI,
         {"schema_version": "2.0.0", "ops": [_REAL_OP, _NOOP_OP]},
         name_authority=_FROZEN_NAMES,
+        schema_provider=_probe_schema_provider(),
     )
     assert ok is False
     assert error == "no_op"
@@ -245,6 +371,7 @@ def test_effective_delta_replays_and_lands_exactly_the_real_change() -> None:
         _SUBMIT_UI,
         envelope,
         name_authority=_FROZEN_NAMES,
+        schema_provider=_probe_schema_provider(),
     )
     assert ok is True
     assert error is None

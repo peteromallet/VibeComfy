@@ -1,5 +1,12 @@
-# GENERATED FILE — do not hand-edit; regenerate via `python -m tools.generate_node_shims`.
-"""Type stubs for generated ComfyUI node wrappers."""
+# vibecomfy:generated
+# pack: gimm_vfi
+# source: object_info cache ComfyUI-GIMM-VFI@stub.json sha256:572169109f6d
+# source_sha256: 81ce75bd508fc803c2dd56e862d9d743bc99cb517f8d9b74b0152f361ce9cdfa
+# generator_version: 2.0.0
+# generated_at: 1970-01-01T00:00:00+00:00
+# classes: 2
+
+"""Type stubs for generated public node wrappers."""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -20,12 +27,12 @@ def DownloadAndLoadGIMMVFIModel(
 def GIMMVFI_interpolate(
     *args: VibeWorkflow,
     _id: str | None = ...,
-    model: Any | _Omitted = ...,
     images: Any | _Omitted = ...,
+    model: Any | _Omitted = ...,
     multiplier: int | _Omitted = ...,
     scale: float | _Omitted = ...,
     pass_raw: bool = ...,
     **_extras: Any,
 ) -> Any: ...
 
-__all__: list[str]
+__all__ = ['DownloadAndLoadGIMMVFIModel', 'GIMMVFI_interpolate']

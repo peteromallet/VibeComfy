@@ -31,6 +31,18 @@
   ],
   [
     "EmptyHunyuanLatentVideo",
+    "batch_size",
+    "1",
+    1
+  ],
+  [
+    "EmptyHunyuanLatentVideo",
+    "height",
+    "480",
+    1
+  ],
+  [
+    "EmptyHunyuanLatentVideo",
     "length",
     "33",
     1
@@ -55,6 +67,12 @@
   ],
   [
     "KSampler",
+    "scheduler",
+    "'simple'",
+    1
+  ],
+  [
+    "KSampler",
     "seed",
     "82628696717253",
     1
@@ -75,6 +93,12 @@
     "UNETLoader",
     "unet_name",
     "'wan2.1_t2v_1.3B_fp16.safetensors'",
+    1
+  ],
+  [
+    "UNETLoader",
+    "weight_dtype",
+    "'default'",
     1
   ],
   [

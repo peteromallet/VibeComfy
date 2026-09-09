@@ -182,6 +182,9 @@ def test_ensure_custom_nodes_appends_without_duplicates() -> None:
 def test_ltx_lowvram_rewrites_supported_graph() -> None:
     positive = _supported_ltx_workflow()
     positive.metadata["ready_template"] = "video/ltx2_3_t2v"
+    positive.nodes["3940"].native_input_names = ["ckpt_name"]
+    positive.nodes["3940"].native_input_types = ["CHOICE"]
+    positive.nodes["3940"].native_input_optional = [False]
 
     assert ltx_lowvram.applies_to(positive)
 
@@ -197,6 +200,9 @@ def test_ltx_lowvram_rewrites_supported_graph() -> None:
     assert positive.nodes["3940"].inputs["ckpt_name"] == FP8_CHECKPOINT
     assert "dependencies" not in positive.nodes["3940"].inputs
     assert VibeEdge("4960", "0", "3940", "dependencies") in positive.edges
+    assert positive.nodes["3940"].native_input_names == ["ckpt_name", "dependencies"]
+    assert positive.nodes["3940"].native_input_types == ["CHOICE", None]
+    assert positive.nodes["3940"].native_input_optional is None
     assert "ComfyUI-LTXVideo" in positive.requirements.custom_nodes
     assert "ComfyUI-KJNodes" in positive.requirements.custom_nodes
 

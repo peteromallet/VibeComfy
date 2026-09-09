@@ -1,7 +1,7 @@
 {
   "id": "image-llama-cpp-instruct-image-preview-and-save-5b54bf",
   "query": "Adjust the LLaMA instruct parameters: set temperature to 0.8 and max tokens to 512.",
-  "workflow_path": "external_workflows/corpus/5b54bf476f4234aa.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/5b54bf476f4234aa.json",
   "network": true,
   "timeout": 160,
   "apply": true,

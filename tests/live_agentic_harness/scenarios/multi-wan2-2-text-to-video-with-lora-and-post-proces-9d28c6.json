@@ -1,7 +1,7 @@
 {
   "id": "multi-wan2-2-text-to-video-with-lora-and-post-proces-9d28c6",
   "query": "The generated video has a visible, frame\u2011varying flicker in the film grain overlay, giving it a disjointed look. Which part of the post\u2011processing stack is introducing this temporal inconsistency?",
-  "workflow_path": "external_workflows/corpus/9d28c679b594d9c4.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/9d28c679b594d9c4.json",
   "network": true,
   "timeout": 360,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/9d28c679b594d9c4.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/9d28c679b594d9c4.json",
     "required_node_evidence": [
       "VAEDecode",
       "FastUnsharpSharpen",

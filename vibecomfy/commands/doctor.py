@@ -11,7 +11,8 @@ import subprocess
 from typing import Any
 
 from vibecomfy._git_utils import git_head
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
+from vibecomfy.workflow_bundle import WorkflowReconciliationError
 from vibecomfy.commands._model_entries import model_entries_for_workflow
 from vibecomfy.commands._output import emit
 from vibecomfy.contracts import build_contract
@@ -24,13 +25,10 @@ from vibecomfy.diagnostics import (
     patch_suggestions_payload,
 )
 from vibecomfy.environment_diagnostics import metadata_environment_warnings
-from vibecomfy.ingest.loader import load_workflow_json
-from vibecomfy.model_assets import extract_from_raw_workflow
 from vibecomfy.node_packs import LockEntry, read_lockfile
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.validate import format_issue
 from vibecomfy.workflow import VibeEdge, VibeWorkflow
-from vibecomfy.node_packs import resolve_node_packs, unresolved_class_types
 from vibecomfy.patches.registry import find_applicable
 
 _RAW_REF_RE = re.compile(r"^\w+\.\w+$")
@@ -50,12 +48,17 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # server here makes the command depend on the ambient port 8188 state.
     schema_provider = get_schema_provider("local")
     try:
-        workflow = load_workflow_any(args.path)
+        bundle = load_bundle(args.path)
+        bundle.require_canonical_authority("workflow diagnosis")
+        workflow = bundle.workflow
     except Exception as exc:
-        print("Layer: Python scratchpad import/build")
-        print(f"Error: {type(exc).__name__}: {exc}")
-        print("Next: fix the Python file until build() returns a VibeWorkflow.")
-        print(f"Port preflight: vibecomfy port check {args.path} --json")
+        payload = {
+            "status": "error",
+            "layer": "Python scratchpad import/build",
+            "errors": [f"{type(exc).__name__}: {exc}"],
+            "recommended_command": f"vibecomfy port check {args.path} --json",
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
     helper_issues = workflow.helper_diagnostics()
     helper_blockers = [issue for issue in helper_issues if issue.severity != "info"]
@@ -96,62 +99,6 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("Nodepack lockfile warnings:")
         for warning in drift_warnings:
             print(f"- {warning}")
-    report = workflow.validate(schema_provider=schema_provider)
-    if not report.ok:
-        validation_findings = _validation_findings(report)
-        validation_issues = finding_messages(validation_findings)
-        missing_classes = {
-            str(issue.detail.get("class_type"))
-            for issue in report.issues
-            if issue.code == "unknown_class_type" and issue.detail.get("class_type")
-        }
-        # Batch E: shared helpers for actionable commands (no clone/extract)
-        ensure_command = None
-        manifest_hint = None
-        if missing_classes:
-            try:
-                from vibecomfy.schema.ensure_capture import format_template_gap
-
-                ensure_command = format_template_gap(args.path, missing_classes)
-                manifest_hint = "vibecomfy schemas ensure --manifest <comparison.json>"
-            except Exception:
-                ensure_command = f"vibecomfy schemas ensure {args.path}"
-        payload = {
-            "status": "error",
-            "layer": "VibeWorkflow validation",
-            "errors": validation_issues,
-            "nodepack_warnings": drift_warnings,
-            "suggested_patches": suggested_patches,
-        }
-        if missing_classes:
-            payload["missing_classes"] = sorted(missing_classes)
-            if ensure_command:
-                payload["ensure_command"] = ensure_command
-                payload["ensure_manifest_hint"] = manifest_hint
-        if json_output:
-            emit(payload, json=True, text_renderer=_render_doctor_error)
-            return 1
-        print("Layer: VibeWorkflow validation")
-        for issue in validation_issues:
-            print(f"- {issue}")
-        print(f"Next: vibecomfy port check {args.path} --json")
-        if missing_classes:
-            packs = resolve_node_packs(missing_classes)
-            if packs:
-                print("Suggested custom node packs:")
-                for pack in packs:
-                    packages = f" (pip: {', '.join(pack.pip_packages)})" if pack.pip_packages else ""
-                    print(f"- {pack.name}: {pack.repo}{packages}")
-            unresolved = unresolved_class_types(missing_classes)
-            if unresolved:
-                print("Unmapped node classes:")
-                for class_type in unresolved:
-                    print(f"- {class_type}")
-            if ensure_command:
-                print(ensure_command)
-                if manifest_hint:
-                    print(f"Or for a comparison manifest: {manifest_hint}")
-        return 1
     if check_models and "VIBECOMFY_MODELS_ROOT" not in os.environ:
         payload = {
             "status": "error",
@@ -166,6 +113,39 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if missing_models:
         payload = {"status": "error", "missing_models": missing_models, "nodepack_warnings": drift_warnings, "suggested_patches": suggested_patches}
         emit(payload, json=json_output, text_renderer=lambda data: _render_list_section("Missing models", data["missing_models"], data))
+        return 1
+    # Compilation is an execution-readiness gate.  Run source-backed model
+    # diagnostics first so a missing local asset is reported with its exact
+    # path and source URL instead of being collapsed into a generic compile
+    # failure.  Raw/UI imports have already failed the canonical-authority
+    # check above and cannot reach this diagnostic path.
+    try:
+        _approved_record = bundle.compile(schema_provider=schema_provider)
+    except WorkflowReconciliationError as exc:
+        from vibecomfy.schema.ensure_capture import format_template_gap
+
+        payload = {
+            "status": "error",
+            "layer": "Schema reconciliation",
+            "errors": [str(exc)],
+            "missing_classes": list(exc.missing_classes),
+            "recommended_command": format_template_gap(args.path, exc.missing_classes),
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
+        return 1
+    except Exception as exc:
+        if not workflow.nodes:
+            errors = ["[empty_workflow] workflow contains no nodes"]
+        else:
+            errors = [f"{type(exc).__name__}: {exc}"]
+        payload = {
+            "status": "error",
+            "layer": "VibeWorkflow validation",
+            "errors": errors,
+            "nodepack_warnings": drift_warnings,
+            "suggested_patches": suggested_patches,
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
     warnings = _doctor_warnings(workflow)
     if warnings:

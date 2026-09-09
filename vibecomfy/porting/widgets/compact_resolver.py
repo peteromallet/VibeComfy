@@ -228,7 +228,17 @@ def compact_widget_names_for_node(
                         # widget_N mapped to a real value is also suspicious if alternative exists
                         # but less penalized than named->None
                         pass
-        score = (mismatch, warning_count, 1 if has_widget else 0, 0 if candidate.complete else 1)
+        # A linked socket removed from a full-input-order roster is stronger
+        # evidence than a curated class-name guess: the remaining compact
+        # slot is intentionally positional (widget_N), not the guessed
+        # semantic field from WIDGET_SCHEMA.
+        linked_compaction = source in _FULL_INPUT_ORDER_SOURCES and bool(linked)
+        score = (
+            -1 if linked_compaction else mismatch,
+            warning_count,
+            1 if has_widget else 0,
+            0 if candidate.complete else 1,
+        )
         if best is None or score < best_score:  # type: ignore[operator]
             best = candidate
             best_score = score
@@ -339,7 +349,22 @@ def _candidate_name_sources(
     if semantic_names:
         sources.append(("semantic_widget_names", semantic_names))
 
-    if not _object_info_entry_is_workflow_stub(class_type):
+    if schema_provider is not None:
+        # A supplied provider is the retained authority for this resolution.
+        # Classifying it through the process-global object-info reader would
+        # both mix generations and make frozen replay depend on cache IO.
+        from vibecomfy.schema.provider import (  # noqa: PLC0415
+            is_workflow_stub_schema,
+            schema_for,
+        )
+
+        provider_schema = schema_for(schema_provider, class_type)
+        is_workflow_stub = is_workflow_stub_schema(provider_schema)
+    else:
+        # Providerless legacy resolution retains its historical ambient seam.
+        is_workflow_stub = _object_info_entry_is_workflow_stub(class_type)
+
+    if not is_workflow_stub:
         provider_names = _provider_compact_aliases(schema_provider, class_type)
         if provider_names:
             padded = _leading_null_padded_names(node, provider_names, value_count)

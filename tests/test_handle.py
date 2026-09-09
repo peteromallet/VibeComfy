@@ -111,9 +111,12 @@ def test_strict_types_does_not_warn_for_compatible_or_unknown_types() -> None:
     assert caught == []
 
 
-def test_named_output_requires_mp6_schema_integration() -> None:
+def test_named_output_uses_retained_schema_and_unknown_name_fails_closed() -> None:
     workflow = VibeWorkflow("handle-test", WorkflowSource("handle-test"))
 
-    with pytest.raises(NotImplementedError, match="MP-6"):
-        workflow.node("CLIPTextEncode", text="hello").out("CONDITIONING")
+    conditioning = workflow.node("CLIPTextEncode", text="hello").out("CONDITIONING")
+    assert conditioning.output_slot == 0
+    assert conditioning.output_type == "CONDITIONING"
 
+    with pytest.raises(NotImplementedError, match="Named output"):
+        workflow.node("CLIPTextEncode", text="hello").out("NOT_A_REAL_OUTPUT")

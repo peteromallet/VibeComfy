@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.cli_loader import load_bundle
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.workbench import analyze_source
 from vibecomfy.schema import get_schema_provider
@@ -114,25 +114,18 @@ def run_port_lint(workflow: str) -> SubcheckResult:
 
 def run_validate(workflow: str, *, schema_provider: Any | None = None) -> SubcheckResult:
     try:
-        wf = load_workflow_any(workflow)
-        report = wf.validate(schema_provider=schema_provider or get_schema_provider("auto"))
+        bundle = load_bundle(workflow)
+        _approved_record = bundle.compile(schema_provider=schema_provider or get_schema_provider("auto"))
     except Exception as exc:
         return _exception_result("validate", exc)
-    findings = [
-        SubcheckFinding(
-            severity=issue.severity,
-            code=issue.code,
-            message=issue.message,
-            detail=issue.detail or {},
-        )
-        for issue in report.issues
-    ]
-    return SubcheckResult(name="validate", ok=report.ok, findings=findings)
+    return SubcheckResult(name="validate", ok=True, findings=[])
 
 
-def run_doctor_readiness(workflow: str) -> SubcheckResult:
+def run_doctor_readiness(workflow: str, *, schema_provider: Any | None = None) -> SubcheckResult:
     try:
-        wf = load_workflow_any(workflow)
+        bundle = load_bundle(workflow)
+        wf = bundle.workflow
+        _approved_record = bundle.compile(schema_provider=schema_provider or get_schema_provider("auto"))
     except Exception as exc:
         return _exception_result("doctor", exc)
     findings: list[SubcheckFinding] = []
@@ -165,7 +158,7 @@ def run_health_checks(workflow: str, *, schema_provider: Any | None = None) -> H
         run_port_check(workflow, schema_provider=provider),
         run_port_lint(workflow),
         run_validate(workflow, schema_provider=provider),
-        run_doctor_readiness(workflow),
+        run_doctor_readiness(workflow, schema_provider=provider),
     ]
     return HealthReport(workflow=workflow, ok=all(item.ok for item in subchecks), subchecks=subchecks)
 

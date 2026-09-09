@@ -24,6 +24,7 @@ from vibecomfy.porting.object_info.consume import (
     object_info_widget_value_order,
 )
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+from vibecomfy.schema.types import FrozenSchemaSnapshotProvider, capture_schema_snapshot, schema_payload_from_node_schema
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 OBJECT_INFO_ROOT = "vibecomfy/porting/cache/object_info"
@@ -39,8 +40,20 @@ _KSAMPLER_DOMAIN = (
 )
 
 
-def _provider() -> ObjectInfoIndexSchemaProvider:
-    return ObjectInfoIndexSchemaProvider(OBJECT_INFO_ROOT)
+def _provider() -> FrozenSchemaSnapshotProvider:
+    provider = ObjectInfoIndexSchemaProvider(OBJECT_INFO_ROOT)
+    schema = provider.get_schema("KSampler")
+    assert schema is not None
+    snapshot = capture_schema_snapshot(
+        class_types=["KSampler"],
+        request_snapshot={
+            "contract_version": "schema_snapshot_v1",
+            "schemas": {"KSampler": schema_payload_from_node_schema("KSampler", schema)},
+            "missing_classes": [],
+        },
+        node_classes={"3": "KSampler"},
+    )
+    return FrozenSchemaSnapshotProvider(snapshot)
 
 
 def _ksampler_ui() -> dict:
@@ -56,13 +69,13 @@ def _ksampler_ui() -> dict:
                 "order": 0,
                 "properties": {"Node name for S&R": "KSampler"},
                 "inputs": [
-                    {"name": "model", "type": "MODEL", "link": 1},
-                    {"name": "positive", "type": "CONDITIONING", "link": 2},
-                    {"name": "negative", "type": "CONDITIONING", "link": 3},
-                    {"name": "latent_image", "type": "LATENT", "link": 4},
+                    {"name": "model", "type": "MODEL", "link": None},
+                    {"name": "positive", "type": "CONDITIONING", "link": None},
+                    {"name": "negative", "type": "CONDITIONING", "link": None},
+                    {"name": "latent_image", "type": "LATENT", "link": None},
                 ],
                 "outputs": [
-                    {"name": "LATENT", "type": "LATENT", "links": [5], "slot_index": 0}
+                    {"name": "LATENT", "type": "LATENT", "links": [], "slot_index": 0}
                 ],
                 "widgets_values": [123, "fixed", 20, 8.0, "euler", "normal", 1.0],
             }
@@ -158,9 +171,14 @@ def test_idempotent_writes_are_pruned_not_fatal() -> None:
         }
     )
     empty = interpret(workflow, vacuous, schema_provider=provider)
-    assert empty.ok is False
+    # Interpretation records an informational dropped no-op; admission still
+    # rejects the vacuous batch below, so no authority can be minted for it.
+    assert empty.ok is True
     assert empty.landed_ops == ()
-    assert any(item.code == "no_op" for item in empty.diagnostics)
+    assert empty.workflow.compile("api") == workflow.compile("api")
+    assert len(empty.statements) == 1
+    assert empty.statements[0].status == "skipped"
+    assert empty.statements[0].reason == "no_op"
 
     rejected = admit_operations(
         admission_snapshot_for(workflow, provider),

@@ -1,7 +1,7 @@
 {
   "id": "multi-svd-image-to-video-with-webp-and-png-output-bd3afb",
   "query": "Can you make the static PNG output save the first frame of the generated video instead of a separate placeholder image?",
-  "workflow_path": "external_workflows/corpus/bd3afbc96b77409e.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/bd3afbc96b77409e.json",
   "network": true,
   "timeout": 320,
   "apply": true,

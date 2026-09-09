@@ -45,7 +45,7 @@ def test_invalid_ready_id_format_caught() -> None:
     """Invalid ready_id formats should be caught during conversion."""
     wf = VibeWorkflow(
         "bad-id",
-        WorkflowSource("source/bad_id", source_type="api"),
+        WorkflowSource("bad-id", source_type="api"),
     )
     wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "test.png"})
     wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/test"})
@@ -61,7 +61,7 @@ def test_node_with_no_class_type() -> None:
     """Node missing class_type should not cause a hard crash."""
     wf = VibeWorkflow(
         "no-class",
-        WorkflowSource("source/no_class", source_type="api"),
+        WorkflowSource("no-class", source_type="api"),
     )
     # VibeNode requires class_type in constructor, but we can test
     # that empty/unknown is handled gracefully

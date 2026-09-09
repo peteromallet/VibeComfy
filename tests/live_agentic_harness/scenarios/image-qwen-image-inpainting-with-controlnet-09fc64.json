@@ -1,7 +1,7 @@
 {
   "id": "image-qwen-image-inpainting-with-controlnet-09fc64",
   "query": "For this Qwen Image inpainting workflow, I frequently get color mismatches between the inpainted area and the original image. Before editing anything, research the best techniques to improve color consistency specifically for ControlNet-based inpainting with Qwen-Image-Lightning. Also explore if there's a better method for mask feathering or blending that could reduce the mismatch.",
-  "workflow_path": "external_workflows/corpus/09fc64f94ce5ed26.json",
+  "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/09fc64f94ce5ed26.json",
   "network": true,
   "timeout": 200,
   "apply": false,
@@ -37,7 +37,7 @@
   },
   "answer_rubric": {
     "judge": "semantic_answer",
-    "workflow_path": "external_workflows/corpus/09fc64f94ce5ed26.json",
+    "workflow_path": "tests/fixtures/live_agentic_corpus/corpus/09fc64f94ce5ed26.json",
     "required_node_evidence": [
       "ControlNetInpaintingAliMamaApply",
       "ImagePadForOutpaint",

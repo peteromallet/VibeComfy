@@ -111,6 +111,10 @@ class NodeSchema:
     pack: str | None
     inputs: dict[str, InputSpec]
     outputs: list[OutputSpec]
+    # Provider-only authoring evidence used to reject implicit coercion of a
+    # list output. Frozen edit snapshots and compiled graphs never perform that
+    # coercion, so this is intentionally outside their serialized schema ABI.
+    output_is_list: tuple[bool, ...] = ()
     # Explicit compact widget-slot order: literal widget inputs in UI
     # ``widgets_values`` order, including named UI-only slots such as
     # ``control_after_generate``. Provenance-preserving — populated only
@@ -734,6 +738,7 @@ class ObjectInfoIndexSchemaProvider:
             pack=schema.pack,
             inputs=schema.inputs,
             outputs=schema.outputs,
+            output_is_list=schema.output_is_list,
             widget_input_order=tuple(literal_order) if literal_order else (),
             source_provider="object_info_index",
             source_cache_path=str(self._active_root / filename),
@@ -1360,6 +1365,7 @@ class ConversionSchemaProvider:
             pack=schema.pack,
             inputs=schema.inputs,
             outputs=schema.outputs,
+            output_is_list=schema.output_is_list,
             widget_input_order=schema.widget_input_order,
             source_provider=info.provider_name,
             source_path=info.source_path,
@@ -1562,6 +1568,7 @@ def _schema_from_object_info(class_type: str, info: dict[str, Any]) -> NodeSchem
         pack=pack,
         inputs=inputs,
         outputs=outputs,
+        output_is_list=_parse_output_is_list(info, len(outputs)),
         widget_input_order=widget_input_order,
     )
 
@@ -1713,7 +1720,14 @@ def _schema_from_index_row(row: dict[str, Any]) -> NodeSchema | None:
                 inputs[item] = InputSpec(required=False)
             elif isinstance(item, dict) and isinstance(item.get("name"), str):
                 inputs[item["name"]] = _parse_input_spec(item, required=bool(item.get("required", False)))
-    return NodeSchema(class_type=class_type, pack=pack, inputs=inputs, outputs=_parse_index_outputs(row))
+    outputs = _parse_index_outputs(row)
+    return NodeSchema(
+        class_type=class_type,
+        pack=pack,
+        inputs=inputs,
+        outputs=outputs,
+        output_is_list=_parse_output_is_list(row, len(outputs)),
+    )
 
 
 def _parse_index_outputs(row: dict[str, Any]) -> list[OutputSpec]:
@@ -1725,7 +1739,10 @@ def _parse_index_outputs(row: dict[str, Any]) -> list[OutputSpec]:
         outputs: list[OutputSpec] = []
         for item in output_types:
             if isinstance(item, dict):
-                outputs.append(OutputSpec(type=_first_string(item, "type"), name=_first_string(item, "name")))
+                outputs.append(OutputSpec(
+                    type=_first_string(item, "type"),
+                    name=_first_string(item, "name"),
+                ))
             elif item is not None:
                 outputs.append(OutputSpec(type=str(item)))
         return outputs
@@ -1750,14 +1767,26 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
             choices = list(raw["choices"])
     elif isinstance(raw, str):
         typ = raw
+
+    # Object-info is an external, weakly typed boundary.  Keep only bounds
+    # whose JSON value already has the schema contract's numeric type.  In
+    # particular, ComfyUI's ``BIGMAX`` sentinel is not a number and must not
+    # be guessed/coerced into one: the producer should emit ``null`` so the
+    # admission validator can remain strict without rejecting the whole row.
+    def typed_bound(value: Any) -> int | float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value
+
     return InputSpec(
         type=str(typ) if typ is not None else None,
         required=required,
         default=attrs.get("default"),
         choices=choices,
-        min=attrs.get("min"),
-        max=attrs.get("max"),
+        min=typed_bound(attrs.get("min")),
+        max=typed_bound(attrs.get("max")),
         unresolved_choices=attrs.get("unresolved_choices") is True,
+        asset_kind="image" if attrs.get("image_upload") is True else None,
     )
 
 def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
@@ -1782,8 +1811,27 @@ def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
     if isinstance(raw_outputs, (list, tuple)):
         for index, raw in enumerate(raw_outputs):
             name = names[index] if isinstance(names, (list, tuple)) and index < len(names) else None
-            outputs.append(OutputSpec(type=str(raw) if raw is not None else None, name=str(name) if name else None))
+            outputs.append(OutputSpec(
+                type=str(raw) if raw is not None else None,
+                name=str(name) if name else None,
+            ))
     return outputs
+
+
+def _parse_output_is_list(info: Mapping[str, Any], output_count: int) -> tuple[bool, ...]:
+    """Read provider list-output evidence without changing snapshot schema ABI."""
+    normalized = info.get("outputs")
+    if isinstance(normalized, list):
+        return tuple(
+            isinstance(item, Mapping) and item.get("is_list") is True
+            for item in normalized[:output_count]
+        ) + (False,) * max(0, output_count - len(normalized))
+    raw = info.get("output_is_list")
+    if isinstance(raw, (list, tuple)):
+        return tuple(raw[index] is True for index in range(min(output_count, len(raw)))) + (
+            False,
+        ) * max(0, output_count - len(raw))
+    return (False,) * output_count
 
 
 def _default_source_roots() -> list[Path]:
