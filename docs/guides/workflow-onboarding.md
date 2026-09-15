@@ -1,5 +1,10 @@
 # Import and edit a ComfyUI workflow
 
+For ordinary Python functions that should appear as editable executable graph
+nodes, see [Custom Python workflow nodes](custom-python-workflows.md). That
+guide covers inline functions, complete source capsules, installed packages,
+the CLI, and runtime validation.
+
 Import turns a saved ComfyUI JSON workflow into a canonical bundle that you or
 a coding agent can inspect and edit. Start in the directory where you want to
 keep your workflows. These examples assume VibeComfy is installed; in an

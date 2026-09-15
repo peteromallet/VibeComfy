@@ -13,6 +13,8 @@ PUBLIC_EXPORT_SNAPSHOTS = {
         "load_workflow_json", "load_template",
         "find_repo_root", "ensure_plugins_loaded", "image", "video", "blocks", "patches",
         "router", "run", "run_sync", "run_embedded", "run_embedded_sync",
+        "python_node", "from_source", "from_installed", "SourceCapsule", "PythonSourceError",
+        "inspect_dependency_readiness",
     ],
     "vibecomfy.workflow": [
         "OPAQUE_COMPONENT_CLASS_RE", "RawWidgetPayload", "ValidationIssue", "ValidationReport", "VibeEdge",

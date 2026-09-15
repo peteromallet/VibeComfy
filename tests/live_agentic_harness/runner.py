@@ -1027,10 +1027,15 @@ def run_single(
         if out_file is not None:
             _write_json_atomic(out_file, baseline)
         return baseline
-    summary = run_headless_scenario(
-        scenario, output_base=output_base, tag=tag, transport=transport,
-        pipeline_mode=pipeline_mode or scenario.get("pipeline_mode"),
-    )
+    headless_kwargs = {
+        "output_base": output_base,
+        "tag": tag,
+        "transport": transport,
+    }
+    effective_pipeline_mode = pipeline_mode or scenario.get("pipeline_mode")
+    if effective_pipeline_mode is not None:
+        headless_kwargs["pipeline_mode"] = effective_pipeline_mode
+    summary = run_headless_scenario(scenario, **headless_kwargs)
     if summary.get("lane") == "baseline":
         # Baseline has no graph artifacts; write the canonical summary file the
         # runner's aggregation reads (agentic_summary.json) directly.

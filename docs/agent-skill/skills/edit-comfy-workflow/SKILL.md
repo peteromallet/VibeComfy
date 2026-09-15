@@ -101,6 +101,45 @@ Then edit the Python recipe, scratchpad, or template.
 
 ## Edit Shape
 
+### Custom Python node
+
+For a readable executable function, declare it once and call it with the
+workflow as the first argument:
+
+```python
+from vibecomfy import python_node
+
+@python_node(inputs={"value": "INT"}, outputs={"value": "INT"})
+def increment(value):
+    return {"value": value + 1}
+
+first = increment(wf, value=1)
+second = increment(wf, value=first.value)
+```
+
+Each call is a distinct `vibecomfy.exec` node. The function body is inert
+while building, `io` names the typed semantic ports, and the existing graph
+edges carry physical `in_N` sockets. Use `python_node.from_source(...)` for
+a full module/project and `python_node.from_installed(...)` for an
+environment-bound package. Snapshot entrypoints are package-relative;
+installed entrypoints are fully qualified. A shared source identity can be
+updated for all calls, while an explicitly selected call can be copied on
+edit. Preserve helper files by capturing the project root rather than
+extracting one function from its module.
+
+The CLI convenience form uses the same canonical session and atomic bundle
+publisher:
+
+```bash
+vibecomfy edit BUNDLE exec add --source-body "return {'value': value + 1}" --ports ports.json
+vibecomfy edit BUNDLE exec inspect TARGET --json
+vibecomfy edit BUNDLE exec export TARGET --destination exported_source
+```
+
+Validate source syntax, IO names, bindings, revision identity, and the exact
+Python/companion pair. A successful edit is not runtime evidence; queue it
+through `run-comfy-workflow` for that.
+
 Use the lightest public API that fits:
 
 ```python

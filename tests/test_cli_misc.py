@@ -21,6 +21,8 @@ def test_cli_command_registry_is_explicit_and_ordered() -> None:
     assert [spec.name for spec in COMMANDS] == [
         "sources",
         "import",
+        "edit",
+        "recover",
         "workflows",
         "nodes",
         "node",

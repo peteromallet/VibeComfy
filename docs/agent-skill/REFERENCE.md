@@ -2,6 +2,49 @@
 
 This is the dense reference behind the `vibecomfy` umbrella skill. Do not start here for ordinary work; use it when the focused skills need exact API names, command surfaces, or package constraints.
 
+## Custom Python nodes
+
+`from vibecomfy import python_node` provides a static decorator/proxy. Calling
+the proxy as `fn(workflow, image=handle)` creates an ordinary
+`vibecomfy.exec` node and returns `Handles` keyed by the declared outputs.
+The proxy never calls the function body during graph construction.
+
+```python
+@python_node(inputs={"image": "IMAGE"}, outputs={"image": "IMAGE"})
+def transform(image):
+    return {"image": image}
+```
+
+`python_node.from_source(path_or_project, entrypoint="module:function", ...)`
+captures a complete file/project as a deterministic
+`vibecomfy.python_capsule/v1` payload. Snapshot entrypoints are relative to
+the captured package root. `python_node.from_installed(entrypoint="pkg.mod:fn", ...)`
+keeps the ordinary worker import namespace and is the mode for absolute
+self-imports. Both helpers are inert until the existing `vibecomfy.exec`
+runtime executes them.
+
+The source capsule verifies member paths, byte counts, per-file hashes, a
+canonical manifest digest, archive digest, and bounded sizes (4 MiB encoded,
+16 MiB expanded, 512 files). The worker checks declared distributions before
+importing. No setup, import, or source execution occurs during inspect,
+validate, or static edit preparation.
+
+The CLI convenience surface is:
+
+```text
+vibecomfy edit BUNDLE exec add --source-body BODY --ports PORTS.json [--bindings BINDINGS.json]
+vibecomfy edit BUNDLE exec update TARGET --source-body BODY --ports PORTS.json
+vibecomfy edit BUNDLE exec inspect TARGET --json
+vibecomfy edit BUNDLE exec export TARGET --destination DIRECTORY
+```
+
+All changes enter the existing typed `EditSession`/bundle transaction. Use
+`--dry-run` for a no-write preview. `in_N`/`out_N` are physical Comfy
+sockets; the `io` widget and returned handles carry semantic names and types.
+Use an explicit mapping, `single`, `tuple`, or `list` result adapter; do
+not infer unpacking from the Python value type. See
+[custom Python workflow nodes](../guides/custom-python-workflows.md).
+
 ## Public Import Surface
 
 The authoritative source for import claims is `docs/api/m6-public-api.md`. Use `VibeWorkflow.compile("api")` to export a workflow to the ComfyUI API JSON shape accepted by runtime execution.

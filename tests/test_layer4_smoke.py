@@ -203,12 +203,14 @@ const LitegraphNodeSchema = z.object({
     widgets_values: z.array(z.unknown()).optional(),
     inputs: z.array(z.object({
         name: z.string(),
-        type: z.number().int(),
+            // LiteGraph accepts either numeric type ids or Comfy's named type
+            // strings; the installed ComfyUI converter emits the latter.
+            type: z.union([z.number().int(), z.string()]),
         link: z.number().int().nullable().optional(),
     }).passthrough()).optional(),
     outputs: z.array(z.object({
         name: z.string(),
-        type: z.number().int(),
+            type: z.union([z.number().int(), z.string()]),
         links: z.array(z.number().int()).nullable().optional(),
     }).passthrough()).optional(),
     properties: z.object({}).passthrough().optional(),

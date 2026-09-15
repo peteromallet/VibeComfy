@@ -25,6 +25,13 @@ vibecomfy port convert <workflow.json> --out out/scratchpads/<name>.py --json
 
 ## Embedded Runtime
 
+`@python_node` and source capsules execute through the existing ordinary
+`vibecomfy.exec` node. They run in process with the selected ComfyUI worker's
+files, imports, network, credentials, and GPU privileges; there is no reliable
+timeout or sandbox. Snapshot capsules are materialized in a digest-qualified
+cache, while installed entrypoints use their normal package namespace. A
+worker dependency check happens before source import.
+
 Use embedded when local ComfyUI is discoverable in the active environment:
 
 ```bash

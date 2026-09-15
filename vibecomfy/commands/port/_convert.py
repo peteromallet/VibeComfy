@@ -64,6 +64,11 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         args.ready_id or getattr(args, "strict_ready_template", False)
     )
     try:
+        # A draft is allowed to retain source-backed ambiguity.  Do not let a
+        # cache-backed alias promotion rewrite that source before the draft
+        # preservation path sees it; the schema provider still supplies the
+        # diagnostic analysis immediately below.  Ready promotion remains
+        # provider-backed and fail-closed.
         loaded = load_port_source(
             args.workflow,
             schema_provider=schema_provider if hard_preflight else None,

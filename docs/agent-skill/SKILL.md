@@ -26,6 +26,16 @@ The operating path is:
 discover -> load_bundle -> edit/compose -> validate -> compile("api") -> run -> collect outputs
 ```
 
+Custom Python functions use `@python_node` and lower to visible, executable
+`vibecomfy.exec` nodes. Complete modules/projects use
+`python_node.from_source` with a bounded source capsule; worker-installed
+packages use `python_node.from_installed`. Route authoring and source edits
+to `edit-comfy-workflow`, execution and queue evidence to
+`run-comfy-workflow`, and dependency/import failures to
+`vibecomfy-setup` or `debug-comfy-workflow`. Read
+[custom Python workflow nodes](../guides/custom-python-workflows.md) for the
+canonical syntax and validation boundaries.
+
 For a reusable source-to-Python onboarding path, including provenance and honest
 import/runtime blockers, see [workflow onboarding](../guides/workflow-onboarding.md).
 

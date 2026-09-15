@@ -1804,20 +1804,56 @@ def _adapter_registered(agent_id: str) -> bool:
     return agent_id in _registered_agent_ids()
 
 
-def _arnold_worker_importable() -> bool:
+def _arnold_worker_importable(*, isolated: bool = False) -> bool:
     """True when this interpreter can import the worker backend.
 
     OpenRouter readiness used to green-light on ``OPENROUTER_API_KEY`` alone.
     The Hermes worker then died on ``No module named 'arnold'`` after the
     parent had already claimed ``ready: true``. Probe the backend the worker
     actually loads, not a sibling VibeComfy adapter module.
+
+    ``isolated=True`` performs the same probe in a child interpreter. Headless
+    readiness must not import Arnold into the parent process because Arnold's
+    optional dependency graph includes route-facing modules such as aiohttp.
     """
+    if isolated:
+        probe = (
+            "import importlib\n"
+            "importlib.import_module('arnold.pipelines.megaplan.agent.run_agent')\n"
+        )
+        try:
+            with _preserve_parent_credentials():
+                result = subprocess.run(
+                    [sys.executable, "-c", probe],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=15,
+                )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0
     try:
         with _preserve_parent_credentials():
             importlib.import_module("arnold.pipelines.megaplan.agent.run_agent")
     except ImportError:
         return False
     return True
+
+
+_DEFAULT_ARNOLD_WORKER_IMPORTABLE = _arnold_worker_importable
+
+
+def _readiness_worker_importable() -> bool:
+    """Probe worker importability without polluting a headless parent."""
+    if (
+        os.environ.get("VIBECOMFY_HEADLESS") == "1"
+        and _arnold_worker_importable is _DEFAULT_ARNOLD_WORKER_IMPORTABLE
+    ):
+        return _arnold_worker_importable(isolated=True)
+    # Keep the small internal seam easy to monkeypatch in focused tests and
+    # embedders that provide their own worker probe.
+    return _arnold_worker_importable()
 
 
 def _auth_json_has_token(path: Path) -> bool:
@@ -1912,7 +1948,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
         # credential is absent.  Besides avoiding needless startup work, this
         # keeps a headless readiness probe from pulling network-only optional
         # modules such as aiohttp into the process.
-        worker_importable = bool(key) and _arnold_worker_importable()
+        worker_importable = bool(key) and _readiness_worker_importable()
         ready = bool(key) and worker_importable
         if not key:
             reason = f"No {credential_name} in environment or ~/.hermes/.env."
@@ -2036,7 +2072,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
             if transport == "native"
             else _resolve_openrouter_key()
         )
-        if _adapter_registered("hermes") and key and _arnold_worker_importable():
+        if _adapter_registered("hermes") and key and _readiness_worker_importable():
             resolved_model = _runtime_model_for_route("openrouter", model) or _OPENROUTER_MODEL
             base_url = _base_url_for_route(route, transport=transport)
             if transport == "native":

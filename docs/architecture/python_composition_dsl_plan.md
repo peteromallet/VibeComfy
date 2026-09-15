@@ -1,5 +1,12 @@
 # Python Composition DSL Plan
 
+> Superseded implementation note (2026-09-15): `@python_node` and the
+> existing `vibecomfy.exec` runtime now provide the in-graph Python boundary.
+> `VibeWorkflow` remains canonical, `vibecomfy.code` remains separate, and
+> the historical `ExternalPythonNode` planning name is not a current class.
+> See [the as-built exec note](vibecomfy_exec_node_design.md) and [the custom
+> Python guide](../guides/custom-python-workflows.md).
+
 ## Settled Decisions
 
 - **SD-001** - Keep `VibeWorkflow` as the canonical editable IR. _load_bearing: true_
@@ -10,7 +17,7 @@
   Rationale: the plan needs VibeComfy-native Python that can be edited, linted, and traced without depending on live ComfyScript generation.
 - **SD-004** - Make multi-stage Python orchestration the default model for mixing Comfy and ordinary Python. _load_bearing: true_
   Rationale: graph output -> Python transform -> next graph is clearer and safer than injecting arbitrary Python into an active Comfy graph.
-- **SD-005** - Keep arbitrary Python outside active Comfy graph execution unless it is wrapped as a runtime node. _load_bearing: true_
+- **SD-005** - Keep arbitrary Python outside active Comfy graph execution unless it is wrapped by the existing `vibecomfy.exec` runtime node. _load_bearing: true_
   Rationale: Comfy graph execution has serialization and runtime boundaries that ordinary Python objects do not satisfy.
 - **SD-006** - Pin custom nodepacks by repository and immutable `git_commit_sha` when specified, with lockfile capture when defaulting to newest. _load_bearing: true_
   Rationale: custom node behavior is part of workflow reproducibility.

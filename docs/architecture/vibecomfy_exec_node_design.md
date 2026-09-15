@@ -1,4 +1,16 @@
-# `vibecomfy.exec` — full-power in-graph code node (design, v3.1)
+# `vibecomfy.exec` — full-power in-graph code node (as built)
+
+This document is now an as-built note for the shipped node. The current
+runtime is `vibecomfy.exec` in `vibecomfy/comfy_nodes/exec_node.py`; it is a
+normal Comfy node with typed semantic IO carried in its `io` widget and fixed
+physical `in_N`/`out_N` sockets. `vibecomfy.code` remains the separate
+sandboxed/policy-controlled subprocess mode. The Python authoring surface is
+`@python_node` plus `from_source`/`from_installed`, and the complete
+source contract lives in [custom Python workflow nodes](../guides/custom-python-workflows.md).
+
+The historical design discussion below is retained as rationale; statements
+that call `ExternalPythonNode` the only current runtime boundary are
+superseded by the implementation above.
 
 **Status:** design draft, hardened by a second 6-agent implementation pre-mortem
 (Codex build-risk + 5 DeepSeek slices: frontend / backend / agent-emission /

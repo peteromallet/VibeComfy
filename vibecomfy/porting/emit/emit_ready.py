@@ -35,6 +35,7 @@ import ast
 import copy
 import json
 import keyword as _keyword
+import textwrap
 import unicodedata
 from dataclasses import replace
 from dataclasses import dataclass
@@ -914,6 +915,14 @@ def _emit_ready_template_python_inner(
     edges_in = prepared["edges_in"]
     ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
     var_names = prepared["var_names"]
+    python_definition_lines, python_authoring_aliases = _python_authoring_definitions(workflow_nodes)
+    python_source_lines, python_source_aliases, python_source_outputs = _python_source_declarations(
+        workflow_nodes,
+        reserved_names=set(python_authoring_aliases.values()),
+    )
+    prepared["python_authoring_aliases"] = python_authoring_aliases
+    prepared["python_source_aliases"] = python_source_aliases
+    prepared["python_source_outputs"] = python_source_outputs
 
     # Hoist constants and build section groups
     constant_lines, constant_map = _hoist_constants(
@@ -982,11 +991,30 @@ def _emit_ready_template_python_inner(
         "from vibecomfy.templates import InputSpec, ModelAsset, OutputSpec, ReadyMetadata, authored_channel, finalize, new_workflow, node as raw_call, recursive_definition_scope, ref"
     )
     out_lines.append("from vibecomfy.workflow import VibeWorkflow")
+    if python_definition_lines or python_source_lines:
+        out_lines.append("from vibecomfy import python_node")
+    def _has_capsule_source(node: Any) -> bool:
+        metadata = getattr(node, "metadata", {})
+        payload = metadata.get("python_source") if isinstance(metadata, Mapping) else None
+        return isinstance(payload, Mapping) and payload.get("format") == "vibecomfy.python_capsule/v1"
+
+    if python_source_lines and any(_has_capsule_source(node) for node in workflow_nodes.values()):
+        out_lines.append("from vibecomfy import SourceCapsule")
+    if python_source_lines and any(
+        "result=" in line or "outputs=outputs(" in line for line in python_source_lines
+    ):
+        out_lines.append("from vibecomfy.python_authoring import outputs")
     for module_name, names in sorted(wrapper_imports.items()):
         out_lines.append(f"from vibecomfy.nodes.{module_name} import {', '.join(names)}")
     if has_ltx_tail:
         out_lines.extend(LTX2_3_TAIL_PATCHES)
     out_lines.append("")
+    if python_definition_lines:
+        out_lines.extend(python_definition_lines)
+        out_lines.append("")
+    if python_source_lines:
+        out_lines.extend(python_source_lines)
+        out_lines.append("")
     # -- constants section ----------------------------------------------------
     if constant_lines:
         out_lines.append("")
@@ -2545,6 +2573,214 @@ def _all_nodes_for_imports(workflow_nodes: dict[str, Any], subgraphs: dict[str, 
     return nodes
 
 
+def _python_authoring_definitions(
+    workflow_nodes: Mapping[str, Any],
+) -> tuple[list[str], dict[str, str]]:
+    """Collect readable function definitions for first-class exec nodes.
+
+    The lowered graph remains the execution authority. This is only the
+    reverse source projection for nodes created by the python_node decorator;
+    legacy hand-authored exec bodies continue through the explicit raw-body
+    escape hatch.
+    """
+    definitions: list[str] = []
+    aliases: dict[str, str] = {}
+    emitted: dict[tuple[str, str], str] = {}
+    used_names: set[str] = set()
+
+    def safe_name(value: str) -> str:
+        candidate = "".join(
+            ch if (ch.isalnum() or ch == "_") else "_" for ch in value
+        )
+        if not candidate or candidate[0].isdigit() or _keyword.iskeyword(candidate):
+            candidate = f"python_node_{candidate}"
+        return candidate
+
+    for node_id, node in sorted(workflow_nodes.items(), key=lambda item: str(item[0])):
+        metadata = getattr(node, "metadata", {})
+        info = metadata.get("python_authoring") if isinstance(metadata, Mapping) else None
+        if not isinstance(info, Mapping):
+            continue
+        source = info.get("source")
+        identity = str(info.get("identity") or "")
+        if not isinstance(source, str) or not source.strip() or not identity:
+            continue
+        try:
+            source_text = textwrap.dedent(source)
+            tree = ast.parse(source_text)
+            function = next(
+                item for item in tree.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+            function_source = ast.get_source_segment(source_text, function)
+        except (SyntaxError, StopIteration, TypeError):
+            continue
+        if not isinstance(function_source, str) or not function_source.strip():
+            continue
+        key = (identity, source)
+        alias = emitted.get(key)
+        if alias is None:
+            base = safe_name(str(function.name))
+            alias = base
+            suffix = 2
+            while alias in used_names:
+                alias = f"{base}_{suffix}"
+                suffix += 1
+            used_names.add(alias)
+            emitted[key] = alias
+            raw_inputs = info.get("inputs", ())
+            raw_outputs = info.get("outputs", ())
+            input_specs = {
+                str(item.get("name")): str(item.get("type") or "*")
+                for item in raw_inputs
+                if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+            }
+            output_specs = {
+                str(item.get("name")): str(item.get("type") or "*")
+                for item in raw_outputs
+                if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+            }
+            decorated = (
+                f"@python_node(inputs={input_specs!r}, outputs={output_specs!r})\n"
+                f"{function_source.strip()}"
+            )
+            definitions.extend([decorated, ""])
+        aliases[str(node_id)] = alias
+    while definitions and definitions[-1] == "":
+        definitions.pop()
+    return definitions, aliases
+
+
+def _python_source_declarations(
+    workflow_nodes: Mapping[str, Any],
+    *,
+    reserved_names: set[str] | None = None,
+) -> tuple[list[str], dict[str, str], dict[str, tuple[str, ...]]]:
+    """Emit readable declarations for complete source/installed exec nodes.
+
+    The capsule remains embedded in the ordinary exec payload for standalone
+    JSON/API transport.  In generated Python it is lifted into a named source
+    declaration so the graph-building calls stay short and editable.
+    """
+    import pprint
+
+    lines: list[str] = []
+    aliases: dict[str, str] = {}
+    output_names: dict[str, tuple[str, ...]] = {}
+    used = set(reserved_names or ())
+    emitted: dict[str, str] = {}
+
+    def safe_name(value: str) -> str:
+        candidate = "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in value)
+        if not candidate or candidate[0].isdigit() or _keyword.iskeyword(candidate):
+            candidate = f"python_source_{candidate}"
+        return candidate
+
+    def io_mapping(node: Any) -> tuple[dict[str, str], dict[str, str]]:
+        raw = getattr(node, "inputs", {}).get("io")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (TypeError, ValueError):
+                raw = {}
+        if not isinstance(raw, Mapping):
+            raw = {}
+
+        def normalize(value: Any) -> dict[str, str]:
+            if isinstance(value, Mapping):
+                return {str(name): str(type_name or "*") for name, type_name in value.items()}
+            if isinstance(value, (list, tuple)):
+                return {
+                    str(item[0]): str(item[1] or "*")
+                    for item in value
+                    if isinstance(item, (list, tuple)) and item and isinstance(item[0], str)
+                }
+            return {}
+
+        return normalize(raw.get("inputs")), normalize(raw.get("outputs"))
+
+    for node_id, node in sorted(workflow_nodes.items(), key=lambda item: str(item[0])):
+        metadata = getattr(node, "metadata", {})
+        payload = metadata.get("python_source") if isinstance(metadata, Mapping) else None
+        if not isinstance(payload, Mapping):
+            continue
+        fmt = payload.get("format")
+        if fmt not in {"vibecomfy.python_capsule/v1", "vibecomfy.python_installed/v1"}:
+            continue
+        inputs, outputs_map = io_mapping(node)
+        result = payload.get("result") if isinstance(payload.get("result"), Mapping) else {}
+        if not outputs_map:
+            raw_result_outputs = result.get("outputs")
+            outputs_map = normalize_result_outputs(raw_result_outputs)
+        names = tuple(outputs_map)
+        identity = json.dumps(
+            {"payload": payload, "inputs": inputs, "outputs": outputs_map},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        alias = emitted.get(identity)
+        if alias is None:
+            source_id = str(payload.get("source_id") or payload.get("entrypoint") or "source")
+            base = "source_" + safe_name(source_id)
+            alias = base
+            suffix = 2
+            while alias in used:
+                alias = f"{base}_{suffix}"
+                suffix += 1
+            used.add(alias)
+            emitted[identity] = alias
+            if fmt == "vibecomfy.python_capsule/v1":
+                capsule_payload = {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "result"
+                }
+                capsule_name = f"{alias}_capsule"
+                lines.extend([
+                    f"{capsule_name} = SourceCapsule.from_payload(",
+                    pprint.pformat(capsule_payload, sort_dicts=True, width=88),
+                    ")",
+                ])
+                source_call = "python_node.from_source"
+                source_args = [f"source={capsule_name}"]
+            else:
+                source_call = "python_node.from_installed"
+                source_args = []
+                dependencies = payload.get("dependencies")
+                source_args.append(f"entrypoint={str(payload.get('entrypoint') or '')!r}")
+                if isinstance(payload.get("revision"), str):
+                    source_args.append(f"revision={payload['revision']!r}")
+                if isinstance(dependencies, list) and dependencies:
+                    source_args.append(f"dependencies={dependencies!r}")
+            source_args.extend([f"entrypoint={str(payload.get('entrypoint') or '')!r}"] if fmt == "vibecomfy.python_capsule/v1" else [])
+            source_args.append(f"inputs={inputs!r}")
+            mode = str(result.get("mode", "mapping"))
+            if mode == "mapping":
+                source_args.append(f"outputs={outputs_map!r}")
+            else:
+                output_expr = ", ".join(repr(name) for name in names)
+                if len(names) == 1:
+                    output_expr += ","
+                source_args.append(f"outputs=outputs({output_expr}, mode={mode!r})")
+            lines.append(f"{alias} = {source_call}(")
+            lines.extend(f"    {argument}," for argument in source_args)
+            lines.extend([")", ""])
+        aliases[str(node_id)] = alias
+        output_names[str(node_id)] = names
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines, aliases, output_names
+
+
+def normalize_result_outputs(value: Any) -> dict[str, str]:
+    if isinstance(value, Mapping):
+        return {str(name): str(type_name or "*") for name, type_name in value.items()}
+    if isinstance(value, (list, tuple)):
+        return {str(name): "*" for name in value if isinstance(name, str)}
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # _emit_build_function — shared by ready-template and scratchpad backends
 # ---------------------------------------------------------------------------
@@ -2703,6 +2939,117 @@ def _emit_build_function(
                 out_lines.append("")
             out_lines.append(f"{body_indent}# {section}")
             emitted_sections.add(section)
+
+        python_alias = None
+        source_alias = None
+        if use_shared_helpers:
+            python_alias = prepared.get("python_authoring_aliases", {}).get(str(nid))
+            source_alias = prepared.get("python_source_aliases", {}).get(str(nid))
+        if python_alias or source_alias:
+            authoring = getattr(node, "metadata", {}).get("python_authoring", {})
+            if isinstance(authoring, Mapping):
+                raw_inputs = authoring.get("inputs", ())
+            else:
+                raw_inputs = ()
+            if not raw_inputs and source_alias:
+                raw_io = getattr(node, "inputs", {}).get("io")
+                if isinstance(raw_io, str):
+                    try:
+                        raw_io = json.loads(raw_io)
+                    except (TypeError, ValueError):
+                        raw_io = {}
+                raw_inputs = raw_io.get("inputs", ()) if isinstance(raw_io, Mapping) else ()
+            input_names = [
+                str(item.get("name"))
+                for item in raw_inputs
+                if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+            ]
+            if not input_names and isinstance(raw_inputs, Mapping):
+                input_names = [str(name) for name in raw_inputs]
+            incoming_by_slot = {
+                str(getattr(edge, "to_input", "")): edge
+                for edge in edges_in.get(nid, ())
+            }
+            call_args: list[str] = []
+            for index, input_name in enumerate(input_names):
+                edge = incoming_by_slot.get(f"in_{index}")
+                if edge is not None:
+                    from_slot = getattr(edge, "from_output", 0)
+                    try:
+                        from_slot = int(from_slot)
+                    except (TypeError, ValueError):
+                        from_slot = 0
+                    source_node_id = str(edge.from_node)
+                    source_node_alias = (
+                        prepared.get("python_authoring_aliases", {}).get(source_node_id)
+                        if use_shared_helpers
+                        else None
+                    )
+                    if not source_node_alias and use_shared_helpers:
+                        source_node_alias = prepared.get("python_source_aliases", {}).get(source_node_id)
+                    if source_node_alias:
+                        source_info = getattr(
+                            workflow_nodes[source_node_id], "metadata", {}
+                        ).get("python_authoring", {})
+                        source_outputs = (
+                            source_info.get("outputs", ())
+                            if isinstance(source_info, Mapping)
+                            else prepared.get("python_source_outputs", {}).get(source_node_id, ())
+                        )
+                        if not source_outputs and source_node_alias:
+                            source_outputs = prepared.get("python_source_outputs", {}).get(source_node_id, ())
+                        output_name = (
+                            source_outputs[from_slot].get("name")
+                            if from_slot < len(source_outputs)
+                            and isinstance(source_outputs[from_slot], Mapping)
+                            else None
+                        )
+                        if output_name is None and from_slot < len(source_outputs):
+                            output_name = source_outputs[from_slot]
+                        if isinstance(output_name, str) and output_name.isidentifier():
+                            value_expr = f"{var_names[source_node_id]}.{output_name}"
+                        else:
+                            value_expr = (
+                                f"{var_names[source_node_id]}.values[{output_name!r}]"
+                            )
+                    else:
+                        value_expr = _edge_ref_expr(
+                            workflow_nodes,
+                            var_names,
+                            output_var_names,
+                            source_node_id,
+                            from_slot,
+                            bare_single_output_refs=False,
+                            diagnostics=diagnostics,
+                            target_node=node,
+                            target_input=f"in_{index}",
+                        )
+                else:
+                    value_expr = _format_value(node.inputs.get(f"in_{index}"))
+                call_args.append(f"{input_name}={value_expr}")
+            if emit_all_ids:
+                call_args.extend([
+                    f"_id={str(nid)!r}",
+                    f"_uid={str(getattr(node, 'uid', ''))!r}",
+                ])
+            call_expr = f"{python_alias or source_alias}(wf"
+            if call_args:
+                call_expr += ", " + ", ".join(call_args)
+            call_expr += ")"
+            single_line = f"{body_indent}{var} = {call_expr}"
+            if len(single_line) > 88 or len(call_args) > 3:
+                out_lines.append("")
+                out_lines.append(f"{body_indent}{var} = {python_alias}(")
+                out_lines.append(f"{continuation_indent}wf,")
+                out_lines.extend(
+                    f"{continuation_indent}{item},"
+                    for item in call_args
+                )
+                out_lines.append(f"{body_indent})")
+                out_lines.append("")
+            else:
+                out_lines.append(single_line)
+            continue
 
         wrapper_module = _wrapper_module_for_class(str(node.class_type)) if use_shared_helpers else None
         preserve_fields = {

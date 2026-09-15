@@ -24,6 +24,7 @@ dev = [
   "pytest-asyncio>=0.23",
   "pytest-cov>=4",
   "pytest-rerunfailures>=14",
+  "pytest-timeout>=2.3",
   "pytest-xdist>=3.6",
 ]
 comfy = [
