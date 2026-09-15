@@ -664,6 +664,26 @@
       "ready_template": true,
       "approach": "Wan 2.2 14B VACE high/high/low cocktail with first/last frame and optional control-video conditioning",
       "runtime_note": "Matches Reigh Wan2GP VACE baseline shape: 81 frames, 6 Euler steps, CFG 3/1/1, flow shift 5."
+    },
+    {
+      "id": "minimax_h3_av_extension",
+      "path": "ready_templates/sources/custom_nodes/ComfyUI-H3-Motion-Context-MultiRef/seitanism/minimax_h3_av_extension.json",
+      "source": "seitanism/ComfyUI-H3-Motion-Context-MultiRef Update 9",
+      "model_family": "minimax-h3",
+      "task": "video_continuation_latent_masking",
+      "media": "video",
+      "coverage_tier": "supplemental",
+      "source_only": true,
+      "ready_template": false,
+      "approach": "Native MiniMax H3 audiovisual latent masking with generated-latent continuation",
+      "runtime_note": "Imported from the community Update 9 AV Extension example. Draft conversion succeeds; strict-ready promotion waits for committed schemas for the H3 custom nodes and URL-bearing model registry entries.",
+      "provenance": {
+        "repository": "https://github.com/seitanism/ComfyUI-H3-Motion-Context-MultiRef",
+        "commit": "361624fb406b63eb6694442eac6c895fc1533a70",
+        "source_workflow": "example_workflows/NEW - AV Extension.json",
+        "hivemind_workflow_id": "3743",
+        "hivemind_search_workflow_id": "4018"
+      }
     }
   ]
 }
