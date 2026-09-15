@@ -56,7 +56,7 @@ Public loaders and helpers:
 | `load_bundle(path_or_id)` | Canonical bundle loader for ready ids and Python candidates; preserves workflow identity and bundle metadata. |
 | `load_workflow_any(path_or_id)` | Compatibility loader for ready ids, scratchpad paths, JSON files, and indexed references; raw JSON is import input, not an execution instruction. |
 | `workflow_from_ready(id)` | Loads a ready template by id, such as `image/z_image`. |
-| `workflow_from_id(id)` | Loads any workflow id, checking ready templates before the indexed corpus. |
+| `workflow_from_id(id)` | Loads a ready template or an explicitly imported local workflow bundle. Community workflows must be fetched from Hivemind first. |
 | `workflow_from_file(path)` | Loads a JSON workflow from a path. |
 | `load_workflow_json(path)` | Low-level JSON read/validate only, no normalization. |
 | `ready_template_ids` | Lists ready template ids. |

@@ -66,12 +66,19 @@ vibecomfy validate workflows/workflow --json
 vibecomfy doctor workflows/workflow --json
 ```
 
+For a community workflow, obtain `workflow.json` by searching Hivemind through
+the deployed Astrid pack and fetching the selected accepted revision. Pull it
+only when needed, then import it into `workflows/`. Do not bulk-download or
+maintain a second local copy of Hivemind's workflow catalogue.
+
 `import` creates an editable folder with `workflow.py`,
 `workflow.vibe.json`, and a byte-identical `source.json`; provenance stays in
 the bundle metadata. Use `--out <directory>`, `--dry-run`, or `--json` as
 needed. This prepares authoring files but does not install dependencies or run
 the workflow. Keep `port check` and `port convert` for advanced preflight,
-standalone scratchpad generation, and intentional ready-template conversion.
+standalone scratchpad generation, and intentional ready-template conversion. A
+`ready_templates/` entry is a curated executable adapter, not a replacement for
+the Hivemind source or the local `workflows/` ingestion bundle.
 This standalone route is local and untracked by default. Add `--project <name>`
 to `import` and `edit` to opt those transitions into an existing Astrid
 project. If the workflow is already being handled by Astrid, use its native
@@ -127,7 +134,7 @@ Keep ComfyUI's terms precise: a **workflow** is any graph; a **template** is a c
 - Treat raw UI/API JSON as import evidence. Use `vibecomfy import <workflow.json>` for a local bundle, then load the folder through `load_bundle()` before editing or running. The folder is accepted by `inspect`, `analyze info`, `validate`, `doctor`, and `run`.
 - Treat the worktree as shared. Do not revert, overwrite, or clean up edits you did not make.
 - Keep changes scoped to the requested workflow, command, template, or doc surface.
-- Do not change runtime behavior, workflow corpus files, generated snapshots, or template manifests unless the task explicitly covers them.
+- Do not bulk-create a workflow corpus. Local workflow files belong in the ignored `workflows/` ingestion store; generated snapshots and template manifests change only during an explicit ready-template promotion.
 - Never invent node class names, sockets, widget fields, or model layouts. Use `inspect`, `analyze info`, `node <ClassType>`, local precedents, or `search-comfy-workflows`.
 - Sync indexes only when needed: `vibecomfy sources sync`.
 - Add focused tests when changing command routing, parser behavior, conversion, validation, search, runtime-facing code, or template coverage.

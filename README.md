@@ -167,7 +167,12 @@ The canonical agent skill lives in `docs/agent-skill/SKILL.md`; there are no roo
 agent bootstrap copies. Run `python scripts/sync_agent_skill.py --apply` to check
 it, or `python scripts/sync_agent_skill.py --install-user` to install it globally.
 That installer uses SkillSinker: it symlinks the VibeComfy skill into detected Claude, Codex, and Hermes skill directories without overwriting existing entries, and it updates Codex's `AGENTS.md` with an idempotent fenced VibeComfy block.
-If I already have ComfyUI workflows or custom nodes, index them with `python -m vibecomfy.cli sources sync --official <official_workflow_dir> --external <my_workflow_dir> --custom-nodes <ComfyUI/custom_nodes> --json`, then use `workflows list`, `search`, `nodes list`, and `node <ClassType>` against that local context.
+For community workflows, search the canonical Hivemind catalogue through the
+deployed Astrid pack (`python3 -m astrid hivemind search "..." --kinds
+workflow`). Pull only the selected workflow into `workflows/<source-id>/` when
+you are ready to inspect or edit it. Do not bulk-mirror Hivemind into a local
+external-workflow corpus. Use `sources sync --official ... --custom-nodes ...`
+only for local ComfyUI examples and installed node schemas.
 List ready templates with `python -m vibecomfy.cli workflows list --ready`.
 Inspect `image/z_image` with `python -m vibecomfy.cli inspect image/z_image`.
 Copy it to `recipes/my_z_image.py` with `python -m vibecomfy.cli copy-to-recipe image/z_image --out recipes/my_z_image.py`.
@@ -260,7 +265,7 @@ The authoring, sidecar, browser transaction, and no-GPU boundaries are defined i
 |---|---|
 | `vibecomfy/` | Package, CLI, workflow IR, porting code, runtime helpers, and ComfyUI nodes. |
 | `ready_templates/` | Curated Python templates intended as starting points. |
-| `ready_templates/sources/` | Source ComfyUI workflows used for indexing, conversion, and coverage. |
+| `ready_templates/sources/` | Generated/pinned source snapshots shipped with curated ready-template adapters; not the community catalogue. |
 | `tests/structural_harness/` | Deterministic structural contract harness: adapter, runner, builders, scenarios, and briefs. |
 | `tests/live_agentic_harness/` | True live-agentic harness placeholder; no fake builders or scripted scenarios. |
 | `docs/` | Authoring, porting, runtime, testing, architecture, and migration docs. |

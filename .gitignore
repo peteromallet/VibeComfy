@@ -22,6 +22,7 @@ temp/
 
 # Large local runtime/vendor checkouts
 /recipes/
+/workflows/
 /vendor/ComfyUI/
 /vendor/workflow_templates/
 /vendor/external_workflows/
