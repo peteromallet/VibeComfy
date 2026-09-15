@@ -9,6 +9,7 @@ from vibecomfy.security import GateContext, set_gate_context
 from vibecomfy.security.provenance import Provenance
 from vibecomfy.workflow_bundle import load_bundle
 from tests.test_edit_bundle_service import _bundle, _provider
+from vibecomfy.porting.custom_python_service import _BuiltinAwareProvider
 
 
 def _invoke(argv: list[str]) -> int:
@@ -71,6 +72,37 @@ def test_edit_cli_dry_run_does_not_change_bundle(
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "preview"
+    assert python_path.read_bytes() == before_python
+    assert python_path.with_suffix(".vibe.json").read_bytes() == before_companion
+
+
+def test_edit_cli_exec_add_uses_source_service_and_dry_run_is_atomic(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    python_path, _source_bytes, base_provider = _bundle(tmp_path / "workflow")
+    provider = _BuiltinAwareProvider(base_provider)
+    monkeypatch.setattr("vibecomfy.schema.get_authoring_schema_provider", lambda **_kwargs: provider)
+    ports_path = tmp_path / "ports.json"
+    ports_path.write_text(json.dumps({
+        "inputs": {"value": "INT"},
+        "outputs": {"value": "INT"},
+    }), encoding="utf-8")
+    bindings_path = tmp_path / "bindings.json"
+    bindings_path.write_text(json.dumps({"value": 4}), encoding="utf-8")
+    before_python = python_path.read_bytes()
+    before_companion = python_path.with_suffix(".vibe.json").read_bytes()
+    set_gate_context(GateContext(non_interactive=True, assume_yes=True))
+
+    code = _invoke([
+        "edit", str(python_path), "--yes", "--dry-run", "--json", "exec", "add",
+        "--source-body", "return {'value': value + 1}",
+        "--ports", str(ports_path), "--bindings", str(bindings_path), "--uid", "increment",
+    ])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "preview"
+    assert payload["operations"][0]["class_type"] == "vibecomfy.exec"
     assert python_path.read_bytes() == before_python
     assert python_path.with_suffix(".vibe.json").read_bytes() == before_companion
 

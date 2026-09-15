@@ -58,4 +58,12 @@ Answer in plain language with a compact evidence trail:
 - relevant knobs or dependencies
 - uncertainties or next proof step, if any
 
+For a `vibecomfy.exec` node, identify the source mode (inline function,
+snapshot capsule, or installed entrypoint), the declared semantic IO, the
+physical `in_N`/`out_N` mapping, bindings, result adapter, source digest,
+and declared worker dependencies. Inspecting a capsule is inert; only
+queue-time execution imports it. Link users to the [custom Python workflow
+guide](../../../guides/custom-python-workflows.md) when they want to edit or
+export the source.
+
 If the answer is based on a run, cite the `RunResult` fields or `out/runs/<run_id>/metadata.json`. If it is based on an edit candidate, say it is a candidate graph, not an executed result.

@@ -950,7 +950,9 @@ test("VibeComfy candidate graph preparation trims stale exec port pools before p
     assert.equal(execNode.outputs[0].label, "image: IMAGE");
     assert.equal(execNode.outputs[0].type, "IMAGE");
     assert.deepEqual(execNode.outputs[0].links, [2]);
-    assert.equal(execNode.properties.vibecomfy_intent_badge, "sandboxed_loose");
+    // ``vibecomfy.exec`` is the in-process Python runtime.  The sandboxed
+    // default belongs to ``vibecomfy.code`` and must not be inferred here.
+    assert.equal(execNode.properties.vibecomfy_intent_badge, "Python · in process");
     assert.deepEqual(execNode.properties.vibecomfy.io, {
       inputs: [["image", "IMAGE"]],
       outputs: [["image", "IMAGE"]],

@@ -13,6 +13,7 @@ export function createRoundtripExtension({
   registerDefaultExecutionModeSetting,
   registerOnDemandSchemasSetting,
   installGraphConfigureIntentFallback,
+  installGraphToPromptExecSerialization,
   installIntentNodeFallback,
   installAgentPreviewOverlay,
   repairLiveIntentNodesFromCandidate,
@@ -49,6 +50,7 @@ export function createRoundtripExtension({
       registerDefaultExecutionModeSetting();
       registerOnDemandSchemasSetting();
       installGraphConfigureIntentFallback();
+      installGraphToPromptExecSerialization();
       installIntentNodeFallback();
       installAgentPreviewOverlay();
       repairLiveIntentNodesFromCandidate();

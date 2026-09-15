@@ -596,4 +596,99 @@ test.describe("Dynamic Exec Refresh", () => {
       outputs: [["result", "IMAGE"], ["preview", "IMAGE"]],
     });
   });
+
+  test("frontend graphToPrompt queues a Python node through Comfy and records its output", async ({ page }) => {
+    await navigateToComfyUI(page);
+    await dismissTemplatesDialog(page);
+    await page.waitForTimeout(500);
+
+    const source = "return {\"image\": torch.zeros((1, 2, 2, 3))}";
+    const typedIo = {
+      inputs: [],
+      outputs: [["image", "IMAGE"]],
+    };
+    const fixtureGraph = {
+      nodes: [
+        {
+          id: 1,
+          type: "vibecomfy.exec",
+          inputs: Array.from({ length: 16 }, (_, i) => ({
+            name: `in_${i}`,
+            type: "*",
+            link: null,
+          })),
+          outputs: Array.from({ length: 16 }, (_, i) => ({
+            name: `out_${i}`,
+            type: "*",
+            links: i === 0 ? [20] : null,
+          })),
+          widgets_values: [source, typedIo],
+          properties: {
+            "Node name for S&R": "vibecomfy.exec",
+            vibecomfy_uid: "exec-queue-1",
+          },
+        },
+        {
+          id: 2,
+          type: "SaveImage",
+          inputs: [{ name: "images", type: "IMAGE", link: 20 }],
+          outputs: [],
+          widgets_values: ["hands-on-browser-queue"],
+          properties: { "Node name for S&R": "SaveImage" },
+        },
+      ],
+      links: [[20, 1, 0, 2, 0, "IMAGE"]],
+    };
+
+    await loadGraphPayload(page, fixtureGraph);
+    await page.waitForTimeout(1_000);
+
+    const queued = await page.evaluate(async () => {
+      const app = window.app;
+      if (!app?.graph || typeof app.graphToPrompt !== "function") {
+        throw new Error("Comfy graphToPrompt is unavailable.");
+      }
+      const converted = await app.graphToPrompt(app.graph);
+      const response = await fetch("/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: converted.output,
+          client_id: window.name || undefined,
+        }),
+      });
+      return {
+        status: response.status,
+        body: await response.json(),
+        prompt: converted.output,
+      };
+    });
+
+    expect(queued.status).toBe(200);
+    expect(queued.body.prompt_id).toBeTruthy();
+    expect(queued.prompt["1"].class_type).toBe("vibecomfy.exec");
+    expect(queued.prompt["2"].class_type).toBe("SaveImage");
+    expect(queued.prompt["2"].inputs.images).toEqual(["1", 0]);
+
+    const readHistory = () => page.evaluate(async (promptId) => {
+      const response = await fetch(`/history/${encodeURIComponent(promptId)}`);
+      return response.ok ? response.json() : {};
+    }, queued.body.prompt_id);
+    await expect.poll(readHistory, {
+      timeout: 30_000,
+      intervals: [250, 500, 1_000],
+    }).toMatchObject({
+      [queued.body.prompt_id]: {
+        outputs: {
+          "2": {
+            images: expect.arrayContaining([
+              expect.objectContaining({ filename: expect.stringContaining("hands-on-browser-queue") }),
+            ]),
+          },
+        },
+      },
+    });
+    const history = await readHistory();
+    expect(history[queued.body.prompt_id].outputs["2"].images.length).toBeGreaterThan(0);
+  });
 });

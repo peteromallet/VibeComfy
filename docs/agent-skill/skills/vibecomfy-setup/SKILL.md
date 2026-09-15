@@ -88,6 +88,14 @@ Python workflows work here: VibeComfy imports `build()`, compiles the returned `
 
 ## Custom Nodes
 
+For `python_node.from_installed(...)`, prepare the actual selected ComfyUI
+worker and its Python distributions explicitly. Inspection and validation only
+report readiness; they never install or import the package. Use a complete
+`from_source(...)` capsule when the implementation should travel with the
+workflow, observing its bounded file/archive limits and relative-entrypoint
+rule. The worker still needs any declared third-party distributions in either
+mode.
+
 Reuse an existing library:
 
 ```bash

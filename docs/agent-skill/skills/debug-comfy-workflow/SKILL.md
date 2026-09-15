@@ -43,6 +43,17 @@ vibecomfy models stage --select-phase core --dry-run
 
 Install or download only after the evidence supports it and the user agrees.
 
+For custom Python failures, separate these cases:
+
+- malformed `io`, unknown bindings, or an invalid result shape: fix the node
+  declaration or explicit adapter;
+- missing declared distribution: prepare the selected worker with setup tools;
+- missing snapshot member, archive/member digest mismatch, unsafe path, or
+  absolute snapshot self-import: recapture with relative imports or use the
+  installed-entrypoint mode;
+- source traceback: inspect the reported source entrypoint and runtime line;
+- changed bundle/source revision: reload and retry the canonical transaction.
+
 ## Discipline
 
 - Keep graph errors separate from environment errors.

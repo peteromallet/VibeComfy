@@ -1106,6 +1106,89 @@ function normalizeLiveExecNodesForSerialization() {
   }
 }
 
+function installGraphToPromptExecSerialization() {
+  const runtime = getAgentPanelRuntime();
+  if (runtime.graphToPromptHook?.installed) {
+    try {
+      if (app.graphToPrompt === runtime.graphToPromptHook.wrapper) {
+        return true;
+      }
+    } catch (_error) {
+      // Reinstall only when the hook can no longer be verified.
+    }
+    runtime.graphToPromptHook = null;
+  }
+
+  let original;
+  try {
+    original = app?.graphToPrompt;
+  } catch (_error) {
+    original = null;
+  }
+  if (typeof original !== "function") {
+    runtime.graphToPromptHook = { installed: false, original: null, wrapper: null };
+    return false;
+  }
+
+  const wrapper = async function vibecomfyGraphToPrompt(...args) {
+    const result = await original.apply(this, args);
+    const graph = args[0] || app?.canvas?.graph;
+    const prompt = result?.output;
+    if (!prompt || typeof prompt !== "object") {
+      return result;
+    }
+    const nodes = getLiveGraphNodes(graph);
+    for (const node of nodes) {
+      if (getIntentClassType(node) !== "vibecomfy.exec") {
+        continue;
+      }
+      const apiNode = prompt[String(node.id)];
+      if (!apiNode || !apiNode.inputs || typeof apiNode.inputs !== "object") {
+        continue;
+      }
+      const io = normalizeExecIoObject(readExecWidgetValue(node, "io"))
+        || readExecIoFromMetadata(node)
+        || deriveExecIoFromSocketLabels(node);
+      if (io) {
+        // ComfyUI 1.45.x has no native JSON widget, so its graphToPrompt
+        // projection omits this required exec input. Restore the canonical
+        // value at the API boundary without adding a second graph authority.
+        apiNode.inputs.io = io;
+      }
+      const source = readExecWidgetValue(node, "source");
+      if (source !== undefined) {
+        apiNode.inputs.source = source;
+      }
+    }
+    return result;
+  };
+
+  try {
+    app.graphToPrompt = wrapper;
+    if (app.graphToPrompt !== wrapper) {
+      throw new Error("app.graphToPrompt assignment was not retained");
+    }
+  } catch (_error) {
+    runtime.graphToPromptHook = { installed: false, original: null, wrapper: null };
+    return false;
+  }
+  runtime.graphToPromptHook = {
+    installed: true,
+    original,
+    wrapper,
+    cleanup() {
+      try {
+        if (app.graphToPrompt === wrapper) {
+          app.graphToPrompt = original;
+        }
+      } catch (_error) {
+        // Best-effort teardown for test harnesses and hot reload.
+      }
+    },
+  };
+  return true;
+}
+
 export function ensureAgentNodeIdentities(nodes) {
   const workflowId = resolveActiveWorkflowUuid();
   if (!workflowId) {
@@ -1241,7 +1324,12 @@ function readIntentMetadata(node, fallbackClassType = null) {
   const runtimeExecMode = typeof payload?.runtime?.execution_mode === "string" && payload.runtime.execution_mode
     ? payload.runtime.execution_mode
     : "";
-  const executionMode = widgetExecMode || vibecomfyExecMode || runtimeExecMode || "sandboxed_loose";
+  // ``vibecomfy.exec`` is the existing full-power in-process runtime.  The
+  // sandboxed modes belong to ``vibecomfy.code`` and must never be inferred
+  // for an exec node from stale generic properties.
+  const executionMode = classType === "vibecomfy.exec"
+    ? "Python · in process"
+    : (widgetExecMode || vibecomfyExecMode || runtimeExecMode || "sandboxed_loose");
   return {
     classType,
     kind,
@@ -11632,6 +11720,7 @@ registerRoundtripExtension(app, {
   registerDefaultExecutionModeSetting,
   registerOnDemandSchemasSetting,
   installGraphConfigureIntentFallback,
+  installGraphToPromptExecSerialization,
   installIntentNodeFallback,
   installAgentPreviewOverlay,
   repairLiveIntentNodesFromCandidate,

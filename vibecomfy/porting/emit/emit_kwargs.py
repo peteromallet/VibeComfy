@@ -291,9 +291,18 @@ def _node_output_names(node: Any) -> list[str]:
     # metadata may expose a localized display label (for example ``Audio VAE``)
     # while the authored link names the actual socket ``VAE``.  Prefer the
     # native roster so registry enrichment cannot make a valid link ambiguous.
+    metadata = getattr(node, "metadata", {})
+    # The exec node's native Comfy sockets are the fixed physical ``out_N``
+    # pool, while its declared Python outputs are semantic names.  Once the
+    # latter are present they are the only readable authority for Python
+    # source emission; UI materialization still retains the physical roster.
+    if str(getattr(node, "class_type", "")) == "vibecomfy.exec":
+        semantic_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
+        if isinstance(semantic_names, (list, tuple)) and semantic_names:
+            return [name if isinstance(name, str) else "" for name in semantic_names]
     output_names = getattr(node, "native_output_names", None)
     if not isinstance(output_names, (list, tuple)):
-        output_names = getattr(node, "metadata", {}).get("output_names")
+        output_names = metadata.get("output_names") if isinstance(metadata, Mapping) else None
     if not isinstance(output_names, (list, tuple)):
         return []
     result: list[str] = []
@@ -834,6 +843,18 @@ def _edge_ref_expr(
             return var_names[from_node_str]
         safe_name = _safe_output_name(workflow_nodes, from_node_str, from_slot)
         if safe_name is not None:
+            source_node = workflow_nodes.get(from_node_str) if workflow_nodes is not None else None
+            source_metadata = getattr(source_node, "metadata", {}) if source_node is not None else {}
+            # First-class Python declarations return ``Handles`` keyed by
+            # semantic output name. They intentionally do not expose the
+            # native builder's ``.out(...)`` method, so preserve the named
+            # handle when a generated downstream call consumes one.
+            if isinstance(source_metadata, Mapping) and (
+                "python_authoring" in source_metadata or "python_source" in source_metadata
+            ):
+                if safe_name.isidentifier():
+                    return f"{var_names[from_node_str]}.{safe_name}"
+                return f"{var_names[from_node_str]}[{safe_name!r}]"
             return f"{var_names[from_node_str]}.out({safe_name!r})"
         if diagnostics is not None and workflow_nodes is not None:
             _output_fallback_diagnostic(

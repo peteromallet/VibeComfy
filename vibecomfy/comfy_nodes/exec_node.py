@@ -241,6 +241,23 @@ class VibeComfyExec:
     def execute(self, source: str = "", io: Any = None, **kwargs: Any) -> tuple[Any, ...]:
         io_spec = parse_io(io)
         semantic_inputs = semantic_inputs_from_slots(io_spec, kwargs)
+        # A source capsule is transport data in the existing exec node's
+        # source field. It is intentionally distinguished from the legacy
+        # inline body: parsing/validation/rendering never calls this branch;
+        # only queue-time execution does.
+        if isinstance(source, str):
+            try:
+                source_payload = json.loads(source)
+            except (TypeError, ValueError):
+                source_payload = None
+            if (
+                isinstance(source_payload, dict)
+                and str(source_payload.get("format", "")).startswith("vibecomfy.python_")
+            ):
+                from vibecomfy.runtime.python_source import execute_source_payload
+
+                result = execute_source_payload(source_payload, semantic_inputs)
+                return validate_exec_result(result, io_spec)
         runner = compile_source_body(
             source,
             [name for name, _type_name in io_spec["inputs"]],

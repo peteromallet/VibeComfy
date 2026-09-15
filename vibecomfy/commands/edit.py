@@ -101,6 +101,188 @@ def _operation(args: argparse.Namespace) -> dict[str, Any] | None:
     return None
 
 
+def _load_json_file(path_value: str, *, label: str) -> Any:
+    try:
+        value = json.loads(Path(path_value).expanduser().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read {label} JSON: {exc}") from exc
+    return value
+
+
+def _exec_ports(args: argparse.Namespace) -> dict[str, Any]:
+    if not args.ports:
+        raise ValueError("exec add/update requires --ports PORTS.json")
+    value = _load_json_file(args.ports, label="ports")
+    if not isinstance(value, Mapping):
+        raise ValueError("ports must be a JSON object")
+    inputs = value.get("inputs", {})
+    outputs = value.get("outputs", {})
+    if not isinstance(inputs, Mapping) or not isinstance(outputs, Mapping):
+        raise ValueError("ports.inputs and ports.outputs must be JSON objects")
+    return {
+        "inputs": {str(name): str(type_name) for name, type_name in inputs.items()},
+        "outputs": {str(name): str(type_name) for name, type_name in outputs.items()},
+    }
+
+
+def _exec_source_payload(args: argparse.Namespace) -> tuple[str, dict[str, Any], str]:
+    """Build source/IO fields without importing a source module."""
+    from vibecomfy.runtime.python_source import capture_source, installed_entrypoint
+
+    io = _exec_ports(args)
+    if args.installed_entrypoint:
+        reference = installed_entrypoint(args.installed_entrypoint, revision=args.revision)
+        payload: Any = reference.to_payload()
+        mode = "installed"
+    elif args.project_root or args.file:
+        root = args.project_root or args.file
+        entrypoint = args.entrypoint
+        if args.file and args.function:
+            entrypoint = f"{Path(args.file).stem}:{args.function}"
+        if not entrypoint:
+            raise ValueError("a source file/project requires --function or --entrypoint")
+        capsule = capture_source(root, entrypoint=entrypoint)
+        payload = capsule.to_payload()
+        mode = "snapshot"
+    elif args.source_body is not None:
+        return args.source_body, io, "inline"
+    else:
+        raise ValueError("exec add/update requires --file, --project-root, --installed-entrypoint, or --source-body")
+    result_mode = args.result_mode or "mapping"
+    payload["result"] = {"mode": result_mode, "outputs": io["outputs"]}
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")), io, mode
+
+
+def _exec_bindings(args: argparse.Namespace, io: Mapping[str, Any]) -> dict[str, Any]:
+    if not args.bindings:
+        return {}
+    value = _load_json_file(args.bindings, label="bindings")
+    if not isinstance(value, Mapping):
+        raise ValueError("bindings must be a JSON object")
+    names = list((io.get("inputs") or {}).keys())
+    return {f"in_{index}": value[name] for index, name in enumerate(names) if name in value}
+
+
+def _exec_tool_call(args: argparse.Namespace) -> dict[str, Any]:
+    if args.exec_action == "add":
+        source, io, _mode = _exec_source_payload(args)
+        uid = args.uid or "exec-" + hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+        bindings = _exec_bindings(args, io)
+        fields: dict[str, Any] = {"source": source, "io": io}
+        links: dict[str, Any] = {}
+        for name, value in bindings.items():
+            if (
+                isinstance(value, str)
+                or isinstance(value, (list, tuple))
+                or (isinstance(value, Mapping) and "source" in value)
+            ):
+                links[name] = value
+            elif isinstance(value, Mapping) and set(value) == {"literal"}:
+                fields[name] = value["literal"]
+            else:
+                fields[name] = value
+        return {
+            "tool": "add_node",
+            "args": {
+                "class_type": "vibecomfy.exec",
+                "fields": fields,
+                "inputs": links,
+                "uid": uid,
+            },
+        }
+    if args.exec_action == "update":
+        source, io, _mode = _exec_source_payload(args)
+        operations = [
+            {"op": "edit_node", "target": args.target, "field": "source", "value": source},
+            {"op": "edit_node", "target": args.target, "field": "io", "value": io},
+        ]
+        return {"tool": "edit_batch", "args": {"ops": operations}}
+    raise ValueError(f"unsupported exec edit action {args.exec_action!r}")
+
+
+def _exec_inspect(args: argparse.Namespace) -> int:
+    from vibecomfy.cli_loader import load_bundle
+    from vibecomfy.porting.custom_python_service import inspect_exec_source_node
+    from vibecomfy.schema import get_authoring_schema_provider
+    from vibecomfy.ingest.snapshot import snapshot_of
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+    bundle = load_bundle(args.workflow, schema_provider=provider)
+    session = EditSession(
+        bundle.materialize_ui(schema_provider=provider, strict=True),
+        initial_workflow=bundle.workflow,
+        workflow_snapshot=snapshot_of(bundle.workflow),
+        schema_provider=provider,
+    )
+    inspected = inspect_exec_source_node(session, args.target)
+    payload = {
+        "status": "ok",
+        "target": args.target,
+        "uid": inspected.descriptor.uid,
+        "source_digest": inspected.metadata.source_digest,
+        "mode": inspected.metadata.mode,
+        "entrypoint": inspected.metadata.entrypoint,
+        "io": {
+            "inputs": [[name, type_name] for name, type_name in inspected.metadata.io["inputs"]],
+            "outputs": [[name, type_name] for name, type_name in inspected.metadata.io["outputs"]],
+        },
+        "source": inspected.metadata.source,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+    else:
+        print(f"{payload['mode']} exec node {payload['target']} ({payload['uid']})")
+        print(f"  source digest: {payload['source_digest']}")
+        if payload["entrypoint"]:
+            print(f"  entrypoint: {payload['entrypoint']}")
+        print(f"  inputs: {', '.join(name for name, _ in payload['io']['inputs']) or '(none)'}")
+        print(f"  outputs: {', '.join(name for name, _ in payload['io']['outputs']) or '(none)'}")
+    return 0
+
+
+def _exec_export(args: argparse.Namespace) -> int:
+    from vibecomfy.cli_loader import load_bundle
+    from vibecomfy.porting.custom_python_service import inspect_exec_source_node
+    from vibecomfy.schema import get_authoring_schema_provider
+    from vibecomfy.ingest.snapshot import snapshot_of
+    from vibecomfy.porting.edit.session import EditSession
+    from vibecomfy.runtime.python_source import SourceCapsule
+
+    provider = get_authoring_schema_provider(on_demand_schemas=False)
+    bundle = load_bundle(args.workflow, schema_provider=provider)
+    session = EditSession(
+        bundle.materialize_ui(schema_provider=provider, strict=True),
+        initial_workflow=bundle.workflow,
+        workflow_snapshot=snapshot_of(bundle.workflow),
+        schema_provider=provider,
+    )
+    inspected = inspect_exec_source_node(session, args.target)
+    destination = Path(args.destination).expanduser().resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        source_payload = json.loads(inspected.metadata.source)
+    except (TypeError, ValueError):
+        source_payload = None
+    if isinstance(source_payload, Mapping) and source_payload.get("format") == "vibecomfy.python_capsule/v1":
+        capsule = SourceCapsule.from_payload(source_payload)
+        for member in capsule.members:
+            target = destination / member.path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(member.content)
+    else:
+        (destination / "source.py").write_text(inspected.metadata.source, encoding="utf-8")
+    (destination / "manifest.json").write_text(
+        json.dumps({"entrypoint": inspected.metadata.entrypoint, "io": inspected.metadata.io}, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    if args.json:
+        print(json.dumps({"status": "saved", "destination": str(destination)}, sort_keys=True))
+    else:
+        print(f"Exported exec source to {destination}")
+    return 0
+
+
 def _targets(path: str, *, json_output: bool) -> int:
     from vibecomfy.cli_loader import load_bundle
     from vibecomfy.porting.edit.session import EditSession
@@ -518,6 +700,10 @@ def _tracked_edit(args: argparse.Namespace) -> dict[str, Any]:
 def _cmd_edit(args: argparse.Namespace) -> int:
     if args.action == "targets":
         return _targets(args.workflow, json_output=args.json)
+    if args.action == "exec" and args.exec_action == "inspect":
+        return _exec_inspect(args)
+    if args.action == "exec" and args.exec_action == "export":
+        return _exec_export(args)
 
     try:
         result = None
@@ -534,6 +720,8 @@ def _cmd_edit(args: argparse.Namespace) -> int:
                 capture_graph = json.loads(Path(args.ui).expanduser().read_text(encoding="utf-8"))
                 if not isinstance(capture_graph, dict):
                     raise ValueError("UI capture source must be a JSON object")
+            elif args.action == "exec":
+                tool_calls = [_exec_tool_call(args)]
             else:
                 operation = _operation(args)
                 if operation is not None:
@@ -745,6 +933,41 @@ def register(subparsers) -> None:
     capture = actions.add_parser("capture", help="Capture direct Python changes or a UI graph as one revision.")
     capture.add_argument("--ui", help="Capture a ComfyUI JSON graph instead of edited Python.")
     capture.set_defaults(func=_cmd_edit)
+
+    exec_parser = actions.add_parser(
+        "exec",
+        help="Add, update, inspect, or export a Python-backed vibecomfy.exec node.",
+    )
+    exec_parser.set_defaults(func=_cmd_edit)
+    exec_actions = exec_parser.add_subparsers(dest="exec_action", required=True)
+
+    def source_args(parser, *, update: bool = False) -> None:
+        if update:
+            parser.add_argument("target", help="Stable exec binding or UID.")
+        parser.add_argument("--file", help="Python module file to snapshot.")
+        parser.add_argument("--function", help="Entrypoint function in --file.")
+        parser.add_argument("--project-root", help="Python project/package root to snapshot.")
+        parser.add_argument("--entrypoint", help="Snapshot-relative module:function entrypoint.")
+        parser.add_argument("--installed-entrypoint", help="Worker-installed fully qualified module:function.")
+        parser.add_argument("--source-body", help="Inline exec body returning the declared output mapping.")
+        parser.add_argument("--ports", required=True, help="JSON file containing inputs and outputs mappings.")
+        parser.add_argument("--bindings", help="JSON object of semantic input values or existing bindings.")
+        parser.add_argument("--uid", help="Stable UID for a new node.")
+        parser.add_argument("--revision", help="Optional installed-package revision/cache token.")
+        parser.add_argument("--result-mode", choices=("mapping", "single", "tuple", "list"), default="mapping")
+
+    add_exec = exec_actions.add_parser("add", help="Add one source-backed exec node atomically.")
+    source_args(add_exec)
+
+    update_exec = exec_actions.add_parser("update", help="Update one exec node's source and interface atomically.")
+    source_args(update_exec, update=True)
+
+    inspect_exec = exec_actions.add_parser("inspect", help="Inspect one exec node's source, mode, and ports.")
+    inspect_exec.add_argument("target")
+
+    export_exec = exec_actions.add_parser("export", help="Export one embedded source capsule or inline body.")
+    export_exec.add_argument("target")
+    export_exec.add_argument("--destination", required=True)
 
     targets = actions.add_parser("targets", help="List edit targets, stable UIDs, classes, and fields.")
     targets.set_defaults(func=_cmd_edit)

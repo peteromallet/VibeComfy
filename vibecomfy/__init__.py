@@ -42,6 +42,12 @@ _LAZY_EXPORTS = {
     "run_sync": ("vibecomfy.runtime.run", "run_sync"),
     "run_embedded": ("vibecomfy.runtime.run", "run_embedded"),
     "run_embedded_sync": ("vibecomfy.runtime.run", "run_embedded_sync"),
+    "python_node": ("vibecomfy.python_authoring", "python_node"),
+    "from_source": ("vibecomfy.python_authoring", "from_source"),
+    "from_installed": ("vibecomfy.python_authoring", "from_installed"),
+    "SourceCapsule": ("vibecomfy.runtime.python_source", "SourceCapsule"),
+    "PythonSourceError": ("vibecomfy.runtime.python_source", "PythonSourceError"),
+    "inspect_dependency_readiness": ("vibecomfy.runtime.python_source", "inspect_dependency_readiness"),
 }
 
 __all__ = [
@@ -83,6 +89,12 @@ __all__ = [
     "run_sync",
     "run_embedded",
     "run_embedded_sync",
+    "python_node",
+    "from_source",
+    "from_installed",
+    "SourceCapsule",
+    "PythonSourceError",
+    "inspect_dependency_readiness",
 ]
 
 

@@ -222,6 +222,18 @@ def _reset_workflow_context_var() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_gate_context_var() -> None:
+    """Prevent a test's ``--yes`` gate context from leaking to later tests."""
+    from vibecomfy.security.gate import _gate_context_var, _safe_default_context
+
+    token = _gate_context_var.set(_safe_default_context())
+    try:
+        yield
+    finally:
+        _gate_context_var.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_comfyui_import_state() -> None:
     """Keep optional live-ComfyUI imports from leaking across tests."""
     sys_path_before = list(sys.path)
