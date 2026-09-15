@@ -95,6 +95,37 @@ _SAMPLE_OBJECT_INFO: dict = {
 }
 
 
+@pytest.mark.parametrize("mutation", ["manifest", "same_mtime", "symlink"])
+def test_generation_validation_cache_rechecks_changed_artifacts(tmp_path, monkeypatch, mutation):
+    import os
+    from vibecomfy.errors import ObjectInfoCacheCorruptError
+    from vibecomfy.porting.object_info import generation
+
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps(_SAMPLE_OBJECT_INFO))
+    cache = tmp_path / "cache"
+    build_cache(str(source), version="test", cache_dir=str(cache), full_pack_refresh=True)
+    generation._VALIDATED_GENERATIONS.clear()
+    with mock.patch.object(generation, "validate_generation", wraps=generation.validate_generation) as validate:
+        root = generation.active_cache_root(cache)
+        assert generation.active_cache_root(cache) == root
+        assert validate.call_count == 1
+        artifact = root / ("manifest.json" if mutation == "manifest" else "index.json")
+        if mutation == "symlink":
+            outside = tmp_path / "outside.json"
+            outside.write_bytes(artifact.read_bytes())
+            artifact.unlink()
+            artifact.symlink_to(outside)
+        else:
+            before = artifact.stat()
+            data = artifact.read_bytes()
+            artifact.write_bytes(b"!" + data[1:])
+            os.utime(artifact, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with pytest.raises(ObjectInfoCacheCorruptError):
+            generation.active_cache_root(cache)
+        assert validate.call_count == 2
+
+
 def _object_info_entry(
     *,
     python_module: str,

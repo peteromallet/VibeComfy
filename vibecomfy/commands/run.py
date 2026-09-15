@@ -9,7 +9,7 @@ from vibecomfy.cli_loader import load_bundle
 from vibecomfy.workflow_bundle import WorkflowAuthorityError
 from vibecomfy.runtime.run import run_embedded_sync, run_sync
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
-from vibecomfy.schema import get_schema_provider
+from vibecomfy.schema import get_authoring_schema_provider
 
 
 _OVERRIDE_HINTS = {
@@ -66,7 +66,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         ):
             print("run failed: --ensure-packs is only supported for embedded runtime", file=sys.stderr)
             return 2
-        schema_provider = get_schema_provider("local")
+        # Runtime execution must use the target-witnessed authoring schemas.
+        # The static local node index can lag a freshly captured ComfyUI
+        # object-info cache, which makes valid custom/core nodes look
+        # unresolved at the final compile gate.
+        schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
         try:
             bundle = load_bundle(
                 args.path,

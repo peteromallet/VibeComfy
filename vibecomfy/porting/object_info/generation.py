@@ -23,6 +23,50 @@ MANIFEST_FILE = "manifest.json"
 GENERATION_FORMAT_VERSION = 1
 RESERVED_FILES = frozenset({CURRENT_FILE, MANIFEST_FILE, "index.json", "provenance.json"})
 
+# A committed generation is immutable for the lifetime of a reader in normal
+# operation.  Re-validating and re-hashing every provider pack on every node
+# schema lookup made graph construction scale with ``packs × node fields`` and
+# could read tens of gigabytes before a prompt was queued.  Keep the successful
+# validation witness and use cheap stat checks on subsequent lookups; any file
+# replacement or metadata change falls back to the full content validation.
+_VALIDATED_GENERATIONS: dict[Path, tuple[tuple[str, int, int, int, int, int, int], ...]] = {}
+
+
+def _stat_fingerprint(path: Path) -> tuple[str, int, int, int, int, int, int]:
+    file_stat = path.lstat()
+    return (
+        path.name,
+        int(file_stat.st_dev),
+        int(file_stat.st_ino),
+        int(file_stat.st_size),
+        int(file_stat.st_mtime_ns),
+        int(file_stat.st_ctime_ns),
+        int(file_stat.st_mode),
+    )
+
+
+def _generation_validation_cached(root: Path) -> bool:
+    cached = _VALIDATED_GENERATIONS.get(root)
+    if cached is None:
+        return False
+    try:
+        return tuple(_stat_fingerprint(root / filename) for filename, *_ in cached) == cached
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def _remember_generation_validation(root: Path, manifest: dict[str, Any]) -> None:
+    files = manifest.get("files", {})
+    if not isinstance(files, dict):
+        return
+    try:
+        _VALIDATED_GENERATIONS[root] = tuple(
+            _stat_fingerprint(root / filename)
+            for filename in sorted({MANIFEST_FILE, *files})
+        )
+    except (FileNotFoundError, OSError):
+        _VALIDATED_GENERATIONS.pop(root, None)
+
 
 def safe_cache_filename(filename: str) -> bool:
     """Return whether *filename* is a single provider-owned JSON filename."""
@@ -90,7 +134,9 @@ def active_cache_root(cache_root: str | Path) -> Path:
         raise ObjectInfoCacheCorruptError(
             f"object_info cache marker points to missing generation {generation!r}"
         )
-    validate_generation(generation_root)
+    if not _generation_validation_cached(generation_root):
+        manifest = validate_generation(generation_root)
+        _remember_generation_validation(generation_root, manifest)
     return generation_root
 
 
