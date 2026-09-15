@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import asdict, dataclass, field, replace
@@ -1738,8 +1739,12 @@ def _session_ready(session_dir: Path) -> bool:
     except OSError:
         return False
 
-    if launch_marker is not None and not _session_ownership_verified(session_dir, pid):
-        return False
+    if launch_marker is not None:
+        if launch_marker.get("comfy_pid") is not None:
+            if not _session_composite_ownership_verified(session_dir, pid):
+                return False
+        elif not _session_ownership_verified(session_dir, pid):
+            return False
     return _session_url_healthy(url)
 
 
@@ -1941,6 +1946,78 @@ def _session_ownership_verified(session_dir: Path, pid: int) -> bool:
     return commandline is not None and _launch_token_is_exactly_paired(commandline, token)
 
 
+def _listener_owner_pid(url: str) -> int | None:
+    """Return the sole local TCP listener owner for *url*, or fail closed."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.port is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-t", "-a", "-iTCP:" + str(parsed.port), "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    owners: set[int] = set()
+    for line in result.stdout.splitlines():
+        try:
+            owners.add(int(line.strip()))
+        except ValueError:
+            return None
+    return next(iter(owners)) if len(owners) == 1 else None
+
+
+def _process_parent_pid(pid: int) -> int | None:
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[-1].split()
+        if len(fields) >= 2:
+            return int(fields[1])
+    except (OSError, ValueError):
+        pass
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "ppid="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=1,
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _session_composite_ownership_verified(session_dir: Path, daemon_pid: int) -> bool:
+    """Verify the daemon, its Comfy child, and the listener as one custody unit."""
+    marker = _read_launch_marker(session_dir)
+    if marker is None or not _session_ownership_verified(session_dir, daemon_pid):
+        return False
+    try:
+        child_pid = int((session_dir / "comfy_pid").read_text(encoding="utf-8").strip())
+        child_identity = (session_dir / "comfy_process_start_identity").read_text(encoding="utf-8").strip()
+        marker_child_pid = int(marker["comfy_pid"])
+        marker_child_identity = marker["comfy_process_start_identity"]
+        marker_url = (session_dir / "url").read_text(encoding="utf-8").strip()
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+    return bool(
+        child_pid > 0
+        and child_identity
+        and marker_child_pid == child_pid
+        and marker_child_identity == child_identity
+        and _process_start_identity(child_pid) == child_identity
+        and _process_parent_pid(child_pid) == daemon_pid
+        and _listener_owner_pid(marker_url) == child_pid
+    )
+
+
 def _terminate_session_pid(pid: int, *, session_dir: Path) -> bool:
     if not _session_ownership_verified(session_dir, pid):
         return False
@@ -1951,11 +2028,23 @@ def _terminate_session_pid(pid: int, *, session_dir: Path) -> bool:
     return True
 
 
+def _checkout_git_environment() -> dict[str, str]:
+    """Return an environment that cannot redirect Git away from this checkout."""
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
+
+
 def current_source_revision() -> str | None:
-    """Return the current source revision as advisory diagnostic metadata when available."""
-    env_revision = os.environ.get("VIBECOMFY_SOURCE_REVISION")
-    if env_revision:
-        return env_revision.strip() or None
+    """Return the checkout's actual git revision.
+
+    This identity is deliberately derived from the checkout, never from an
+    environment variable supplied by a launcher.  Managed-session admission
+    treats an unavailable revision as a failed attestation rather than as
+    "unknown" metadata.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -1965,6 +2054,7 @@ def current_source_revision() -> str | None:
             stderr=subprocess.DEVNULL,
             text=True,
             timeout=5,
+            env=_checkout_git_environment(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1974,8 +2064,54 @@ def current_source_revision() -> str | None:
     return revision or None
 
 
+def current_source_content_digest() -> str | None:
+    """Digest the effective tracked and non-ignored checkout contents.
+
+    A commit id alone does not attest a dirty working tree.  The managed
+    Worker and the Astrid adapter both compute this digest from the bytes that
+    are actually importable, so a reviewed checkout cannot be replaced by a
+    same-revision but modified worktree between launch and admission.
+    """
+    try:
+        root = find_repo_root()
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "-c", "-o", "--exclude-standard"],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            env=_checkout_git_environment(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    digest = hashlib.sha256()
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        try:
+            relative = os.fsdecode(raw_path)
+            candidate = root / relative
+            if candidate.is_symlink() or not candidate.is_file():
+                return None
+            path = candidate.resolve(strict=True)
+            path.relative_to(root.resolve())
+            data = path.read_bytes()
+        except (OSError, UnicodeError, ValueError):
+            return None
+        digest.update(raw_path)
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(data).digest())
+    return "sha256:" + digest.hexdigest()
+
+
 def _cleanup_session_files(session_dir: Path) -> None:
-    for name in ("pid", "url", "config.json", "source_revision", "launch.json"):
+    for name in (
+        "pid", "comfy_pid", "comfy_process_start_identity", "url",
+        "config.json", "source_revision", "source_content_digest", "launch.json",
+    ):
         try:
             (session_dir / name).unlink()
         except FileNotFoundError:
@@ -1988,15 +2124,23 @@ def _write_launch_marker(
     pid: int,
     url: str,
     launch_token: str,
+    comfy_pid: int | None = None,
+    comfy_process_start_identity: str | None = None,
 ) -> None:
+    marker = {
+        "launch_token": launch_token,
+        "pid": pid,
+        "process_start_identity": _process_start_identity(pid),
+        "url": url,
+    }
+    if comfy_pid is not None and comfy_process_start_identity is not None:
+        marker.update({
+            "comfy_pid": comfy_pid,
+            "comfy_process_start_identity": comfy_process_start_identity,
+        })
     atomic_write_json(
         session_dir / "launch.json",
-        {
-            "launch_token": launch_token,
-            "pid": pid,
-            "process_start_identity": _process_start_identity(pid),
-            "url": url,
-        },
+        marker,
     )
 
 
@@ -2901,6 +3045,20 @@ def _embedded_configuration_for_session(
     values.update(runtime_configuration.values)
     if runtime_configuration.use_sage_attention:
         values["use_sage_attention"] = True
+    # Authored S1 configuration binding: when the embedded client is selected,
+    # derive the ComfyUI root and its model-path file from the same explicit
+    # checkout instead of silently falling back to the worker cwd.  Explicit
+    # SessionConfig/configuration values remain authoritative.
+    comfyui_path = os.environ.get("COMFYUI_PATH")
+    if comfyui_path:
+        root = Path(comfyui_path).expanduser()
+        if root.is_dir():
+            values.setdefault("base_directory", str(root.resolve()))
+            extra_from_root = root / "extra_model_paths.yaml"
+            if extra_from_root.is_file():
+                values.setdefault(
+                    "extra_model_paths_config", [str(extra_from_root.resolve())]
+                )
     extra_model_paths = runtime_configuration.cwd / "extra_model_paths.yaml"
     if extra_model_paths.is_file():
         values.setdefault("extra_model_paths_config", [str(extra_model_paths)])
@@ -2949,6 +3107,16 @@ def _comfy_server_argv(
         argv.extend(["--cache-lru", config.cache_policy.split(":", 1)[1]])
     if runtime_configuration.use_sage_attention:
         argv.append("--use-sage-attention")
+    base_directory = values.get("base_directory")
+    if base_directory:
+        argv.extend(["--base-directory", str(base_directory)])
+    extra_model_paths = values.get("extra_model_paths_config")
+    if isinstance(extra_model_paths, str):
+        extra_model_paths = [extra_model_paths]
+    if isinstance(extra_model_paths, list):
+        for path in extra_model_paths:
+            if path:
+                argv.extend(["--extra-model-paths-config", str(path)])
     for key, flag in (
         ("input_directory", "--input-directory"),
         ("output_directory", "--output-directory"),

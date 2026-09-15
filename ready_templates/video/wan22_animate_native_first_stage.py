@@ -43,12 +43,15 @@ MODELS = {
 
 PUBLIC_INPUT_METADATA = {
     'image': InputSpec(node='4', field='image', default='', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+    'driving_video': InputSpec(node='7', field='file', default='motion_video.mp4', type='COMBO', required=True, media_semantics='video'),
     'width': InputSpec(node='15', field='width', default=832, type='INT'),
     'height': InputSpec(node='15', field='height', default=480, type='INT'),
     'frames': InputSpec(node='24', field='length', default=DEFAULT_FRAMES, type='INT'),
     'seed': InputSpec(node='25', field='seed', default=DEFAULT_SEED, type='INT'),
+    'steps': InputSpec(node='25', field='steps', default=6, type='INT'),
     'fps': InputSpec(node='29', field='fps', default=DEFAULT_FPS, type='FLOAT'),
-    'prompt': InputSpec(node='8', field='text', default='low quality, blurry, distorted', type='STRING', required=True, media_semantics='text'),
+    'negative_prompt': InputSpec(node='8', field='text', default='low quality, blurry, distorted', type='STRING', media_semantics='text'),
+    'prompt': InputSpec(node='11', field='text', default=DEFAULT_PROMPT, type='STRING', required=True, media_semantics='text'),
 }
 
 READY_METADATA = ReadyMetadata.build(
@@ -58,7 +61,7 @@ READY_METADATA = ReadyMetadata.build(
     requirements={'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-segment-anything-2', 'comfyui_controlnet_aux'], 'custom_node_refs': [{'slug': 'ComfyUI-KJNodes', 'source': 'git', 'version': 'unknown', 'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git'}, {'slug': 'ComfyUI-segment-anything-2', 'source': 'git', 'version': 'unknown', 'commit': '0c35fff5f382803e2310103357b5e985f5437f32', 'url': 'https://github.com/kijai/ComfyUI-segment-anything-2.git'}, {'slug': 'comfyui_controlnet_aux', 'source': 'git', 'version': 'unknown', 'commit': 'e8b689a513c3e6b63edc44066560ca5919c0576e', 'url': 'https://github.com/Fannovel16/comfyui_controlnet_aux.git'}]},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['BlockifyMask', 'DrawMaskOnImage', 'PointsEditor'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-segment-anything-2': {'commit': '0c35fff5f382803e2310103357b5e985f5437f32', 'url': 'https://github.com/kijai/ComfyUI-segment-anything-2.git', 'class_schema_sha256': 'e3640990ce145928d9404234721b4f23fd02717c7f07af03b3d0be0f8a150e9c', 'classes_used': ['DownloadAndLoadSAM2Model', 'Sam2Segmentation'], 'pip_packages': ['opencv-python-headless'], 'status': 'pinned'}, 'comfyui_controlnet_aux': {'commit': 'e8b689a513c3e6b63edc44066560ca5919c0576e', 'url': 'https://github.com/Fannovel16/comfyui_controlnet_aux.git', 'class_schema_sha256': 'e485b148824d72ef7af7e90f711eefb511ffe73b25cd1c6053e1e5c7bd3bbd62', 'classes_used': ['DWPreprocessor'], 'pip_packages': ['onnxruntime', 'opencv-python-headless'], 'status': 'pinned'}},
     approach='Native ComfyUI Wan 2.2 Animate first-stage replacement workflow using DWPose, SAM2 masking, and native WanAnimateToVideo.',
-    runtime_note='Worker scratchpads patch reference image, motion video, prompt, negative prompt, seed, steps, width, height, frame count, and output options.',
+    runtime_note='Worker scratchpads patch reference image, motion video, prompt, negative prompt, seed, steps, width, height, frame count, and output options. The current typed route admits mode=animate; replacement mode is not represented by this graph.',
     source_url='https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_14B_animate.json',
     provenance={'source_workflow': 'ready_templates/video/wan22_animate_native_first_stage.py'},
 )
@@ -199,6 +202,7 @@ def build() -> VibeWorkflow:
     ksampler = KSampler(
         _id='25',
         seed=DEFAULT_SEED,
+        steps=6,
         cfg=GUIDE_STRENGTH,
         sampler_name='euler',
         latent_image=latent,
@@ -234,4 +238,3 @@ def build() -> VibeWorkflow:
     savevideo = SaveVideo(_id='30', video=createvideo)
 
     return wf.finalize(PUBLIC_INPUT_METADATA, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-

@@ -226,6 +226,27 @@ def test_embedded_configuration_loads_extra_model_paths_from_cwd(
     assert embedded_config.extra_model_paths_config == [str(extra_model_paths)]
 
 
+def test_embedded_configuration_binds_explicit_comfy_root_and_known_model_policy(
+    fake_comfy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    comfy_root = tmp_path / "comfyui"
+    comfy_root.mkdir()
+    extra_model_paths = comfy_root / "extra_model_paths.yaml"
+    extra_model_paths.write_text("reigh_shared:\n  base_path: /models\n", encoding="utf-8")
+    monkeypatch.setenv("COMFYUI_PATH", str(comfy_root))
+    monkeypatch.delenv("VIBECOMFY_COMFY_CONFIGURATION", raising=False)
+
+    config = SessionConfig.from_dict(
+        {"base_directory": str(comfy_root), "disable_known_models": True}
+    )
+    embedded_config = _embedded_configuration_for_session(config)
+
+    assert embedded_config is not None
+    assert embedded_config.base_directory == str(comfy_root.resolve())
+    assert embedded_config.extra_model_paths_config == [str(extra_model_paths.resolve())]
+    assert embedded_config.disable_known_models is True
+
+
 def test_embedded_configuration_preserves_explicit_extra_model_paths(
     fake_comfy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -445,6 +466,8 @@ def test_server_argv_includes_configured_io_directories() -> None:
             "input_directory": "/tmp/vibe-input",
             "output_directory": "/tmp/vibe-output",
             "temp_directory": "/tmp/vibe-temp",
+            "base_directory": "/tmp/comfy-root",
+            "extra_model_paths_config": ["/tmp/comfy-root/extra_model_paths.yaml"],
         }
     )
 
@@ -453,6 +476,10 @@ def test_server_argv_includes_configured_io_directories() -> None:
     assert argv[argv.index("--input-directory") + 1] == "/tmp/vibe-input"
     assert argv[argv.index("--output-directory") + 1] == "/tmp/vibe-output"
     assert argv[argv.index("--temp-directory") + 1] == "/tmp/vibe-temp"
+    assert argv[argv.index("--base-directory") + 1] == "/tmp/comfy-root"
+    assert argv[argv.index("--extra-model-paths-config") + 1] == (
+        "/tmp/comfy-root/extra_model_paths.yaml"
+    )
     assert argv[argv.index("--port") + 1] == "8200"
 
 

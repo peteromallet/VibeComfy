@@ -1350,6 +1350,16 @@ def filter_provenance(
         raise WorkflowBundleError(f"unsupported provenance operation {operation!r}")
 
     result: dict[str, Any] = {"operation": operation}
+    artifact_class = raw.get("artifact_class")
+    if artifact_class is not None:
+        if artifact_class not in {"open_draft", "execution_ready_candidate"}:
+            raise WorkflowBundleError(f"unsupported provenance artifact_class {artifact_class!r}")
+        result["artifact_class"] = artifact_class
+    execution_ready = raw.get("execution_ready")
+    if execution_ready is not None:
+        if type(execution_ready) is not bool:
+            raise WorkflowBundleError("provenance execution_ready must be a boolean")
+        result["execution_ready"] = execution_ready
     origin = raw.get("origin")
     if isinstance(origin, Mapping):
         origin_kind = _first(origin, "kind", "origin_kind")
@@ -1452,6 +1462,7 @@ def _canonicalize_for_v2_pair(
     provenance: Any,
     operation: str,
     parent_revision: str,
+    preserve_authored_graph: bool = False,
 ) -> tuple[VibeWorkflow, Mapping[str, Any] | None]:
     """Materialize the clean Python identity before publishing its companion.
 
@@ -1470,6 +1481,7 @@ def _canonicalize_for_v2_pair(
         provenance=provenance,
         operation=operation,
         parent_revision=parent_revision,
+        preserve_authored_graph=preserve_authored_graph,
     )
     # Establish the semantic expectation before asking the generated source to
     # rebuild it.  The staged load is a publication preflight, not an
@@ -1569,6 +1581,7 @@ def _canonicalize_for_v2_pair(
         source_path=str(logical_path),
         provenance=provenance_payload,
         external_custody=True,
+        preserve_authored_graph=preserve_authored_graph,
     )
     with tempfile.TemporaryDirectory(prefix="vibecomfy-v2-canonicalize-") as temp_dir:
         staged_path = Path(temp_dir) / path.name
@@ -1632,11 +1645,12 @@ def _build_v2_sidecar(
     provenance: Any,
     operation: str,
     parent_revision: str,
+    preserve_authored_graph: bool = False,
 ) -> dict[str, Any]:
     """Build one deterministic publication capsule around Python semantics."""
     from vibecomfy.porting.emit.emit_ready import canonical_v2_custody
 
-    custody = canonical_v2_custody(workflow)
+    custody = canonical_v2_custody(workflow, preserve_authored_graph=preserve_authored_graph)
     custody_digest = canonical_digest(custody)
     presentation = _presentation_payload(workflow, candidate)
     generation_id = canonical_digest(
@@ -3086,6 +3100,7 @@ def emit_bundle_with_candidate(
     expected_members: Mapping[str | Path, str | None] | None = None,
     extra_members: Mapping[str | Path, bytes] | None = None,
     preserved_python_source: bytes | None = None,
+    preserve_authored_graph: bool = False,
 ) -> WorkflowBundle:
     """Internal shared writer for emit/capture candidate bundles.
 
@@ -3114,6 +3129,7 @@ def emit_bundle_with_candidate(
         provenance=provenance,
         operation=operation,
         parent_revision=parent_revision,
+        preserve_authored_graph=preserve_authored_graph,
     )
     sidecar = _build_v2_sidecar(
         workflow,
@@ -3121,6 +3137,7 @@ def emit_bundle_with_candidate(
         provenance=provenance,
         operation=operation,
         parent_revision=parent_revision,
+        preserve_authored_graph=preserve_authored_graph,
     )
     bundle = _make_bundle(
         workflow,
@@ -3180,6 +3197,8 @@ def emit_bundle_with_candidate(
                 for name, item in emitted_workflow.inputs.items()
             },
             external_custody=True,
+            preserve_node_ids=preserve_authored_graph,
+            preserve_authored_graph=preserve_authored_graph,
         )
     else:
         source = emit_scratchpad_python(
@@ -3188,6 +3207,8 @@ def emit_bundle_with_candidate(
             source_path=str(path),
             provenance=_source_provenance(source_provenance or bundle.provenance),
             external_custody=True,
+            preserve_node_ids=preserve_authored_graph,
+            preserve_authored_graph=preserve_authored_graph,
         )
     if preserved_python_source is not None:
         source = _preserve_python_source_with_marker(preserved_python_source, source)

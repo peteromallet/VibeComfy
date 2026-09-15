@@ -165,3 +165,30 @@ minimum completion outcome is 16 positive corpus pairs and three contextual,
 atomic refusals, or 17 positives if case 14 is source-proven recoverable. All
 positives require full lifecycle and source-backed value/edge/identity proof;
 all refusals require source-specific diagnostics and unchanged destinations.
+
+## Openability/refusal amendment — 2026-09-14
+
+The latest user direction changes the treatment of source-level refusals: a
+parseable ComfyUI-origin document should produce a complete, explicitly marked
+draft/open artifact whenever its authored graph can be preserved, even when it
+cannot be promoted to an executable-ready workflow. This does not authorize
+inventing edges, choosing among ambiguous bypass sources, deleting repeated
+widget values, or putting raw graph replay into canonical Python.
+
+Astra's adjudication is recorded in
+`.otto/runs/unified-workflow-integrity-20260909/receipts/astra-openability-refusal-plan-20260914.md`.
+The three captured `source.json` files are VibeComfy envelopes with ComfyUI
+provenance and retained UI records, not literal original ComfyUI canvas JSON;
+therefore the plan must not claim live frontend opening until a pinned official
+frontend load/serialize experiment proves it. Reconstructed UI output must be
+labelled reconstructed and preserve the source envelope as evidence.
+
+The smallest implementation extends the existing owners and task IDs: E0/T3
+freezes the three envelopes and frontend fixture; E1 separates draft
+preservation from execution projection; T1/T2 carries artifact kind through the
+existing bundle/export publication path; T3 adds syntax/openability,
+duplicate-slot, bypass, identity, provenance, rollback and deterministic tests;
+and E2/T4 replays the exact 30 cases. All 27 existing complete pairs must remain
+unchanged. All follow-up actions use the normal Luna route. If faithful draft
+support would require a second semantic authority or raw-source replay, stop at
+the source-draft boundary and return for adjudication.

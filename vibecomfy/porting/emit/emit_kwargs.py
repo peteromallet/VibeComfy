@@ -639,6 +639,12 @@ def _safe_output_name(
         )
     name = output_names[from_slot]
     if not isinstance(name, str) or not name.strip():
+        # ComfyUI's built-in Reroute sockets are deliberately unnamed.  The
+        # slot itself is the authored identity, so preserve the edge with a
+        # positional reference instead of treating this known virtual node as
+        # malformed user-authored schema.
+        if str(getattr(src_node, "class_type", "")) == "Reroute":
+            return None
         raise ValueError(
             f"malformed_named_output_schema: {src_node.class_type} has a blank output name at slot {from_slot}"
         )

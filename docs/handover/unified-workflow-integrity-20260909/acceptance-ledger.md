@@ -312,3 +312,56 @@ The validated implementation branch is published to the authorized fork
 open PR [#157](https://github.com/peteromallet/VibeComfy/pull/157) targeting
 `main`. Publication is complete; merge, deployment and production cutover
 remain outside scope.
+
+## Openability/refusal acceptance amendment — 2026-09-14
+
+The current user direction and Astra adjudication add this bounded behavioral
+distinction to I1/I2/I3/I7/I8/I9/I10 without changing their IDs:
+
+1. JSON syntax-invalid input must refuse before any output is written.
+2. Parseable ComfyUI-origin or retained-UI source that can be preserved must
+   yield a complete, explicitly classified open/draft artifact, even if its
+   executable projection remains unresolved.
+3. Execution promotion must remain refused for a missing or ambiguous bypass
+   source, duplicate labels whose semantics are not proven, dangling endpoint,
+   missing node definition, or other source-specific unresolved condition.
+4. Draft support must preserve authored nodes, modes, edges, positional widget
+   values, identity and provenance; it must not invent connections, drop
+   widgets, or add raw graph replay to canonical Python.
+5. A reconstructed UI artifact must be labelled reconstructed and must retain
+   the source envelope; it cannot claim byte-identical original ComfyUI-file
+   fidelity.
+
+The exact 30-case replay is the required regression corpus. Its three current
+refusals are `bypass_no_match`, duplicate `seed_override`, and
+`bypass_ambiguous`. Amended evidence must report per-case syntax/shape/UI/
+execution classification, frontend load/serialize result, artifact kind,
+graph/UID/provenance preservation, atomicity and deterministic repeat outcome.
+The existing 27 complete pairs are a regression floor, not optional coverage.
+The local browser harness is not sufficient by itself because it substitutes
+`loadGraphData`; the frontend experiment must use the pinned official loader or
+an exact source-backed fixture without GPU/model execution.
+
+## Openability amendment execution result — 2026-09-14
+
+The amendment is implemented and validated. The final deterministic full suite
+exited `0` with **10,609 passed, 195 skipped, 35 deselected, 1 xfailed, 0
+failed**. The new authored-graph draft regression passed independently
+(`1 passed`).
+
+The exact 30-case replay now produces **30 complete Python/companion pairs, 30
+open drafts, 27 compile-clean drafts, 3 explicitly compile-unresolved drafts,
+and 0 partial outputs**. All 30 Python files parse, all 30 companions parse,
+and all 30 pairs reload through `load_bundle`. The three formerly refused cases
+preserve node IDs, authored UIDs, modes, and edges exactly (`3/3`). Their
+execution diagnostics remain narrow and source-specific: `bypass_no_match`
+for `0eb67659bfc4dc63`, and provider-free preserved-draft `bypass_dangling`
+for `4eebf3dc07942c52` and `506ebdde037e22d8`; no connection or widget value
+was invented or removed.
+
+The complete receipt is
+`.otto/runs/unified-workflow-integrity-20260909/receipts/openability-30-final-20260914.md`.
+The result proves VibeComfy draft opening/reload, not official ComfyUI
+frontend load/serialize: the captured inputs are VibeComfy envelopes with
+ComfyUI provenance, not original LiteGraph files, and the local harness is not
+an official frontend loader.

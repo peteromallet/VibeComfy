@@ -259,6 +259,58 @@ def test_port_convert_does_not_mutate_caller_owned_workflow_or_raw_evidence():
     assert raw == raw_before
 
 
+def test_open_draft_conversion_keeps_authored_graph_when_projection_is_unresolved(
+    tmp_path,
+) -> None:
+    """A refused execution projection still has a parseable Python draft."""
+    wf = _wf("unresolved-draft")
+    bypass = _regular_node("bypass", "Filter")
+    bypass.mode = "bypassed"
+    bypass.native_output_names = ["image"]
+    bypass.native_output_types = ["IMAGE"]
+    bypass.metadata["output_types"] = ["IMAGE"]
+    sink = _regular_node("sink", "Sink")
+    sink.native_input_names = ["image"]
+    sink.native_input_types = ["IMAGE"]
+    sink.native_input_optional = [False]
+    sink.metadata["input_types"] = {"image": "IMAGE"}
+    wf.nodes.update({"bypass": bypass, "sink": sink})
+    wf.edges = [VibeEdge("bypass", "image", "sink", "image")]
+
+    result = port_convert_workflow(
+        wf,
+        validate=True,
+        preserve_authored_graph=True,
+    )
+
+    assert result.text
+    assert result.validation is not None
+    assert result.validation.ok is True
+    assert result.validation.compile_ok is False
+    assert "Filter" in result.text
+
+    from vibecomfy.porting.convert import _build_emitted_workflow_from_text
+    from vibecomfy.workflow_bundle import emit_bundle_with_candidate, load_bundle
+    from vibecomfy.security.provenance import Provenance
+
+    staged = _build_emitted_workflow_from_text(result.text)
+    bundle = emit_bundle_with_candidate(
+        staged,
+        tmp_path / "unresolved-draft.py",
+        {"operation": "captured", "artifact_class": "open_draft", "execution_ready": False},
+        None,
+        preserve_authored_graph=True,
+    )
+    assert bundle.provenance["artifact_class"] == "open_draft"
+    assert bundle.provenance["execution_ready"] is False
+    reloaded = load_bundle(tmp_path / "unresolved-draft.py", trust=Provenance.USER_CONFIRMED)
+    assert set(reloaded.workflow.nodes) == set(staged.nodes)
+    assert reloaded.workflow.edges == staged.edges
+    assert {
+        node_id: node.uid for node_id, node in reloaded.workflow.nodes.items()
+    } == {node_id: node.uid for node_id, node in staged.nodes.items()}
+
+
 def _passing_write_result(text: str) -> PortConvertResult:
     return PortConvertResult(
         mode="scratchpad",

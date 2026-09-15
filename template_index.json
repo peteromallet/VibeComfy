@@ -2020,7 +2020,62 @@
         "ComfyUI-VideoHelperSuite"
       ],
       "model_count": 0,
-      "public_inputs": [],
+      "public_inputs": [
+        {
+          "name": "video_ref",
+          "target": {
+            "node_id": "1",
+            "field": "video"
+          },
+          "node_id": "1",
+          "field": "video",
+          "value": "video_enhance_input.mp4",
+          "type": "CHOICE",
+          "default": "video_enhance_input.mp4",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "video",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "scale",
+          "target": {
+            "node_id": "2",
+            "field": "scale_by"
+          },
+          "node_id": "2",
+          "field": "scale_by",
+          "value": 2.0,
+          "type": "FLOAT",
+          "default": 2.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "upscale_method",
+          "target": {
+            "node_id": "2",
+            "field": "upscale_method"
+          },
+          "node_id": "2",
+          "field": "upscale_method",
+          "value": "lanczos",
+          "type": "CHOICE",
+          "default": "lanczos",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        }
+      ],
       "public_outputs": [
         {
           "name": "video",
@@ -2055,7 +2110,7 @@
           "message": "finalize has dynamic 'output_node'"
         }
       ],
-      "public_input_status": "partial",
+      "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 1,
       "strict_ready_diagnostic_counts": {},
@@ -6559,6 +6614,24 @@
           "source": "InputSpec"
         },
         {
+          "name": "driving_video",
+          "target": {
+            "node_id": "7",
+            "field": "file"
+          },
+          "node_id": "7",
+          "field": "file",
+          "value": "motion_video.mp4",
+          "type": "COMBO",
+          "default": "motion_video.mp4",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "video",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "width",
           "target": {
             "node_id": "15",
@@ -6631,6 +6704,24 @@
           "source": "InputSpec"
         },
         {
+          "name": "steps",
+          "target": {
+            "node_id": "25",
+            "field": "steps"
+          },
+          "node_id": "25",
+          "field": "steps",
+          "value": 6,
+          "type": "INT",
+          "default": 6,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "fps",
           "target": {
             "node_id": "29",
@@ -6649,7 +6740,7 @@
           "source": "InputSpec"
         },
         {
-          "name": "prompt",
+          "name": "negative_prompt",
           "target": {
             "node_id": "8",
             "field": "text"
@@ -6659,6 +6750,24 @@
           "value": "low quality, blurry, distorted",
           "type": "STRING",
           "default": "low quality, blurry, distorted",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "11",
+            "field": "text"
+          },
+          "node_id": "11",
+          "field": "text",
+          "value": "a person moving naturally, cinematic motion",
+          "type": "STRING",
+          "default": "a person moving naturally, cinematic motion",
           "required": true,
           "range": null,
           "aliases": [],

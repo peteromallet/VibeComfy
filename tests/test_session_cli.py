@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import ctypes
 import json
+import os
 import signal
 import struct
 import subprocess
@@ -111,6 +112,7 @@ def test_session_cli_start_list_flush_stop_flow(
         memory_profile=None,
     )
     assert session_cmd._cmd_session_start(start_args) == 0
+    assert "--require-source-attestation" in FakePopen.started[0]
     assert (tmp_path / "out/sessions/default/pid").exists()
     assert (tmp_path / "out/sessions/default/url").read_text(encoding="utf-8") == "http://127.0.0.1:8200"
     config = json.loads((tmp_path / "out/sessions/default/config.json").read_text(encoding="utf-8"))
@@ -968,6 +970,7 @@ def test_daemon_config_carry_through_typed_and_raw_hiddenswitch(
         def __init__(self, config: SessionConfig) -> None:
             self.config = config
             self.url = "http://127.0.0.1:8200"
+            self.process = SimpleNamespace(pid=os.getpid())
             captured.append(config)
 
         async def start(self) -> None:
