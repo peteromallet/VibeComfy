@@ -15,12 +15,13 @@ vibecomfy validate <workflow>
 vibecomfy doctor <workflow> --json
 ```
 
-For raw JSON, treat the file as import evidence and convert the positional source before running:
+For raw JSON or a selected Hivemind revision, use the one importer first; run
+the resulting local bundle:
 
 ```bash
-vibecomfy port check <workflow.json> --json
-vibecomfy nodes reconcile --workflow <workflow.json> --json
-vibecomfy port convert <workflow.json> --out out/scratchpads/<name>.py --json
+vibecomfy import <workflow.json-or-hivemind-reference>
+vibecomfy validate workflows/<name> --json
+vibecomfy run workflows/<name> --runtime embedded
 ```
 
 ## Embedded Runtime
@@ -85,7 +86,7 @@ VIBECOMFY_MATRIX_SCOPE=<family> uv run python scripts/runpod_corpus_matrix.py  #
 pytest --runpod -m runpod tests/smoke/test_layer2_runpod_ops.py
 ```
 
-Use `runpod_validate.py` for the cheapest live launch/runtime sanity check. Use `runpod_corpus_matrix.py` only for model-family or corpus coverage after the smoke is green, starting with the smallest scope that answers the question. These are GPU/network checks and do not replace the no-GPU structural gates. Use `port check` and `port convert` for import conversion; use the offline approved-record transport to check record bytes and queue payloads.
+Use `runpod_validate.py` for the cheapest live launch/runtime sanity check. Use `runpod_corpus_matrix.py` only for model-family or corpus coverage after the smoke is green, starting with the smallest scope that answers the question. These are GPU/network checks and do not replace the no-GPU structural gates. Use `vibecomfy import` followed by `validate` and `doctor` for source onboarding; use the offline approved-record transport to check record bytes and queue payloads.
 
 ## Report Outputs
 

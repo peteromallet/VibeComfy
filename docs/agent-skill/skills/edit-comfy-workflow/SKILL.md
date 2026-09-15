@@ -87,9 +87,10 @@ represent, VibeComfy refuses the rewrite and leaves all three bundle files
 unchanged. Continue editing Python and capture it, or restore canonical
 generated source before switching back to typed edits.
 
-Use `vibecomfy port check` and `vibecomfy port convert` when you need advanced
-preflight, a standalone scratchpad, or the intentional ready-template
-conversion path; import does not promote a template.
+Use `vibecomfy validate` and `vibecomfy doctor` for preflight. Use
+`vibecomfy templates create` when intentionally promoting an imported,
+reviewed bundle to a ready template; `import` remains the single onboarding
+path.
 
 If the target is a ready template and the edit is user-specific:
 

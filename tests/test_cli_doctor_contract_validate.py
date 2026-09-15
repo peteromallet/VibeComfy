@@ -200,7 +200,7 @@ def build():
 
     captured = capsys.readouterr()
     assert "Porting helper diagnostics" in captured.out
-    assert f"vibecomfy port check {scratchpad} --json" in captured.out
+    assert f"vibecomfy doctor {scratchpad} --json" in captured.out
 
 
 @pytest.mark.parametrize(
@@ -233,8 +233,8 @@ def test_doctor_rejects_raw_import_evidence_before_helper_diagnosis(
     ) == 1
     output = capsys.readouterr().out
     assert "import evidence only" in output
-    assert "vibecomfy port check" in output
-    assert "vibecomfy port convert" in output
+    assert "vibecomfy import" in output
+    assert "vibecomfy validate" in output
 
 
 def test_inspect_json_exposes_canonical_public_contract_fields(

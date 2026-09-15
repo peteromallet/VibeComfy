@@ -241,7 +241,7 @@ def _canonicalize_broadcast_widget_keys(workflow: Any) -> None:
 
 
 def _emit_from_source_json(template_path: Path, template_id: str) -> tuple[str | None, str | None]:
-    """Run the standard ``port convert`` pipeline against the source JSON.
+    """Run the internal conversion stage used by canonical import tooling.
 
     Returns ``(emitted_text, error_note)``. On success ``error_note`` is None.
     """

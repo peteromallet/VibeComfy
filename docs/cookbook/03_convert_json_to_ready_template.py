@@ -1,9 +1,9 @@
 """
-03_convert_json_to_ready_template.py — Convert ComfyUI JSON to a ready template
+03_convert_json_to_ready_template.py — Import ComfyUI JSON and create a ready template
 ================================================================================
 
 Take a ComfyUI API-format JSON file and convert it into a Python ready template
-using the ``port check`` / ``port convert`` pipeline.
+using the canonical ``import`` / ``validate`` / ``doctor`` / ``templates create`` pipeline.
 
 All work is build-only by default.  The actual conversion CLI commands are
 shown in ``if __name__ == '__main__'``.
@@ -18,26 +18,23 @@ from __future__ import annotations
 
 # --- Concept: what the CLI does ---
 #
-#   1. vibecomfy port check workflow.json
-#      Validates the JSON structure, detects custom nodes, model references,
-#      widget aliases, and other portability issues.
+#   1. vibecomfy import workflow.json
+#      Creates the canonical editable workflow bundle and preserves source evidence.
 #
-#   2. vibecomfy port convert workflow.json
-#      Produces a Python scratchpad (importable .py file) that builds the
-#      same workflow using vibecomfy APIs.
+#   2. vibecomfy validate workflows/workflow
+#      Checks the authored Python graph and reports structural/schema issues.
 #
-#   3. vibecomfy port convert workflow.json --ready-id image/my_template
-#      Produces a ready-template candidate with public inputs, model assets,
-#      and metadata — suitable for the ready_templates/ directory.
+#   3. vibecomfy templates create workflows/workflow --id image/my_template --out ready_templates/image/my_template.py
+#      Produces a candidate from the edited bundle; it does not regenerate source.json.
 
 
 def explain_pipeline() -> None:
     """Print the conversion pipeline steps (no filesystem or network access)."""
     steps = [
-        ("1. Validate", "vibecomfy port check my_workflow.json"),
-        ("2. Convert (scratchpad)", "vibecomfy port convert my_workflow.json"),
-        ("3. Convert (ready template)", "vibecomfy port convert my_workflow.json --ready-id image/my_template"),
-        ("4. Doctor check", "vibecomfy port doctor-all my_workflow.json --json"),
+        ("1. Import", "vibecomfy import my_workflow.json"),
+        ("2. Validate", "vibecomfy validate workflows/my_workflow --json"),
+        ("3. Doctor", "vibecomfy doctor workflows/my_workflow --json"),
+        ("4. Create candidate", "vibecomfy templates create workflows/my_workflow --id image/my_template --out ready_templates/image/my_template.py"),
         ("5. Copy for hand-editing", "python -m vibecomfy.cli copy-to-recipe image/my_template --out my_recipe.py --strip-markers"),
     ]
     print("Port conversion pipeline:")

@@ -36,7 +36,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             if drift:
                 raise SubgraphFreshnessError(
                     f"Subgraph freshness check failed for {args.path}",
-                    next_action="vibecomfy port --reconvert <template>",
+                    next_action="vibecomfy import <source> and re-validate the canonical bundle",
                 )
     except SubgraphFreshnessError:
         raise
@@ -95,7 +95,7 @@ def build_validate_payload(path: str, *, no_schema: bool = False, check_freshnes
         if drift:
             raise SubgraphFreshnessError(
                 f"Subgraph freshness check failed for {path}",
-                next_action="vibecomfy port --reconvert <template>",
+                next_action="vibecomfy import <source> and re-validate the canonical bundle",
             )
     return {"status": "ok", "path": path, "issues": issues}
 

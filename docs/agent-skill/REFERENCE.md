@@ -112,13 +112,13 @@ vibecomfy inspect image/z_image
 vibecomfy analyze info <workflow>
 ```
 
-Load/fork/convert:
+Load/fork/promote:
 
 ```bash
+vibecomfy import <workflow.json-or-hivemind-reference>
 vibecomfy copy-to-recipe <ready_id> --out recipes/<name>.py
-vibecomfy port check <workflow.json> --json
-vibecomfy nodes reconcile --workflow <workflow.json> --json
-vibecomfy port convert <workflow.json> --out out/scratchpads/<name>.py --json
+vibecomfy validate workflows/<id> --json
+vibecomfy nodes reconcile --workflow workflows/<id> --json
 ```
 
 Validate:
@@ -157,14 +157,19 @@ Prompt/seed/steps CLI overrides work only when the workflow exposes matching pub
 
 ## Canonical boundaries
 
-Use `load_bundle(<path-or-ready-id>)` for canonical loading. Raw UI/API JSON is import evidence; `python -m vibecomfy.cli port check <source> --json` and `python -m vibecomfy.cli nodes reconcile --workflow <source> --json` are the preflight gates, followed by the positional-source migration command:
+Use `load_bundle(<path-or-ready-id>)` for canonical loading. Raw UI/API JSON and
+Hivemind workflow records enter through the single `vibecomfy import` command;
+`validate`, `doctor`, and `nodes reconcile` are preflight stages on the
+imported bundle. Maintainers promote a reviewed bundle explicitly:
 
 ```bash
-python -m vibecomfy.cli port convert <source> --out out/scratchpads/<name>.py --json
-python -m vibecomfy.cli port convert <source> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json
+python -m vibecomfy.cli templates create <source> --id <kind>/<name> --out ready_templates/<kind>/<name>.py --json
 ```
 
-The first form is the normal scratchpad path. The `--ready-id` form is only for an intentional ready-template candidate. A hard `port check` error blocks conversion; remediate the diagnostic with the named reconcile/install-plan/schema action before rerunning. Legacy `.layout.json` files are presentation evidence and are not an alternate semantic source.
+`templates create` consumes the canonical Python bundle and writes the
+ready-template Python/companion pair. Validate and diagnose it before
+promotion; legacy `.layout.json` files are presentation evidence and are not
+an alternate semantic source.
 
 For the browser transaction, `/vibecomfy/agent-edit` captures a candidate, then canonical V2 Apply uses `/vibecomfy/agent-edit/prepare` followed by `/vibecomfy/agent-edit/finalize`. `/vibecomfy/agent-edit/accept` is a temporary compatibility bridge to finalize with the same revision/API digest and transaction guards; it has no independent authority-bypass path. `/vibecomfy/agent-edit/rollback` or `/vibecomfy/agent-edit/reconcile` handles recovery and resynchronization. `/agent/edit` is a deprecated compatibility alias through the same adapter and must not bypass the gates. Queue only a finalized approved revision: the queue gate checks revision identity plus the fresh API digest and blocks stale, unapproved, or mismatched candidates. An optional `.vibe.json` sidecar binds presentation metadata to the Python workflow identity and semantic digest; it cannot alter graph semantics.
 
@@ -211,7 +216,7 @@ pytest --runpod-full -m runpod_full tests/smoke/test_layer2_runpod_matrix.py
 vibecomfy runpod list|status|terminate|gpu-types|corpus-matrix
 ```
 
-`runpod_validate.py` launches a remote smoke pod, installs dependencies, runs one embedded ready-template smoke, and collects artifacts. `runpod_corpus_matrix.py` launches a remote corpus job, installs dependencies and optional model/runtime packages, and runs the selected matrix. Neither command is a no-GPU proof. The fail-closed acceptance placeholder does not perform setup inspection, API queueing, conversion, execution, or artifact collection; use `prepare_runpod_transport(record, bundle)` and `queue_runpod_stub(record, bundle, queue=...)` to check approved bytes and queue payloads offline. Import conversion remains `port check` followed by `port convert`.
+`runpod_validate.py` launches a remote smoke pod, installs dependencies, runs one embedded ready-template smoke, and collects artifacts. `runpod_corpus_matrix.py` launches a remote corpus job, installs dependencies and optional model/runtime packages, and runs the selected matrix. Neither command is a no-GPU proof. The fail-closed acceptance placeholder does not perform setup inspection, API queueing, conversion, execution, or artifact collection; use `prepare_runpod_transport(record, bundle)` and `queue_runpod_stub(record, bundle, queue=...)` to check approved bytes and queue payloads offline. Source onboarding remains `vibecomfy import`, followed by bundle validation.
 
 Relevant env vars:
 
@@ -292,9 +297,8 @@ ready_templates/sources/custom_nodes/<pack>/<source>/<id>.json
 6. Preflight and convert:
 
 ```bash
-vibecomfy port check ready_templates/sources/.../<id>.json --json
-vibecomfy port convert ready_templates/sources/.../<id>.json \
-  --ready-id <media>/<id> \
+vibecomfy import ready_templates/sources/.../<id>.json
+vibecomfy templates create workflows/<id> --id <media>/<id> \
   --out ready_templates/<media>/<id>.py \
   --json
 ```

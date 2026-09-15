@@ -17,7 +17,9 @@ import vibecomfy.commands.port._convert as port_convert_module
 import vibecomfy.commands.port._export as port_export_cmd
 import vibecomfy.commands.port._simulate as port_simulate_cmd
 from vibecomfy.cli import build_parser
-from vibecomfy.commands.port import _cmd_port_check, _cmd_port_convert, _cmd_port_doctor_all, _cmd_port_export, _cmd_port_lint, _cmd_port_rules, _cmd_port_simulate, _cmd_port_validate_call, _cmd_port_widgets
+from vibecomfy.commands.port._check import _cmd_port_check
+from vibecomfy.commands.port._convert import _cmd_port_convert
+from vibecomfy.commands.port import _cmd_port_doctor_all, _cmd_port_export, _cmd_port_lint, _cmd_port_rules, _cmd_port_simulate, _cmd_port_validate_call, _cmd_port_widgets
 from vibecomfy.porting import simulate
 
 from tests._cli_helpers import (
@@ -86,7 +88,7 @@ _requires_comfy_oracle = pytest.mark.skipif(
 )
 
 
-def test_port_help_explains_check_convert_and_related_commands(capsys: pytest.CaptureFixture[str]) -> None:
+def test_port_help_explains_canonical_import_and_expert_commands(capsys: pytest.CaptureFixture[str]) -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit) as exc_info:
@@ -95,51 +97,33 @@ def test_port_help_explains_check_convert_and_related_commands(capsys: pytest.Ca
     assert exc_info.value.code == 0
     help_text = capsys.readouterr().out
     for text in [
-        "port check",
-        "port convert",
+        "vibecomfy import",
+        "no separate public port-check or port-convert",
         "doctor",
         "validate",
-        "nodes install-plan",
-        "fetch",
-        "--head-check-models",
-        "RunPod",
+        "export",
+        "inventory",
     ]:
         assert text in help_text
 
 
-def test_port_subcommand_help_is_discoverable(capsys: pytest.CaptureFixture[str]) -> None:
+def test_removed_port_subcommands_fail_with_usage_error() -> None:
     parser = build_parser()
-
-    with pytest.raises(SystemExit) as check_help:
-        parser.parse_args(["port", "check", "--help"])
-    check_text = capsys.readouterr().out
-
-    with pytest.raises(SystemExit) as convert_help:
-        parser.parse_args(["port", "convert", "--help"])
-    convert_text = capsys.readouterr().out
-
-    assert check_help.value.code == 0
-    assert convert_help.value.code == 0
-    assert "before manual template editing or expensive RunPod validation" in check_text
-    assert "--head-check-models" in check_text
-    assert "--runtime-object-info" in check_text
-    assert "--resolve-on-demand" in check_text
-    assert "turn source workflows into Python scratchpads" in convert_text
-    assert "--ready-id" in convert_text
-    assert "--head-check-models" in convert_text
-    assert "--runtime-object-info" in convert_text
-    assert "--resolve-on-demand" in convert_text
-    assert "Human output is best-effort" in convert_text
-    assert "per-template failures" in convert_text
-    assert "--json exits nonzero" in convert_text
-    assert "row fails" in convert_text
+    for command in ("check", "convert"):
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["port", command, "--help"])
+        assert exc_info.value.code == 2
 
 
-def test_port_convert_all_parser_accepts_omitted_workflow() -> None:
-    args = build_parser().parse_args(["port", "convert", "--all", "--dry-run", "--json"])
+def test_templates_create_parser_accepts_candidate_options() -> None:
+    args = build_parser().parse_args([
+        "templates", "create", "workflows/demo", "--id", "image/demo",
+        "--out", "out/demo.py", "--dry-run", "--json",
+    ])
 
-    assert args.workflow is None
-    assert args.all is True
+    assert args.bundle == "workflows/demo"
+    assert args.template_id == "image/demo"
+    assert args.out == "out/demo.py"
     assert args.dry_run is True
     assert args.json is True
 
@@ -2752,18 +2736,17 @@ def test_port_export_help_lists_all_flags() -> None:
         assert flag in stdout, f"Missing flag '{flag}' in port export --help output"
 
 
-def test_port_convert_help_lists_keep_virtual_wires() -> None:
-    """``port convert --help`` must list ``--keep-virtual-wires``."""
+def test_templates_create_help_explains_candidate_creation() -> None:
+    """The canonical promotion command documents its source-of-truth rule."""
     result = subprocess.run(
-        [sys.executable, "-m", "vibecomfy.cli", "port", "convert", "--help"],
+        [sys.executable, "-m", "vibecomfy.cli", "templates", "create", "--help"],
         text=True,
         capture_output=True,
         check=False,
     )
-    assert result.returncode == 0, f"port convert --help failed: {result.stderr}"
-    assert "--keep-virtual-wires" in result.stdout, (
-        "Missing --keep-virtual-wires in port convert --help output"
-    )
+    assert result.returncode == 0, f"templates create --help failed: {result.stderr}"
+    assert "does not read" in result.stdout and "regenerate source.json" in result.stdout
+    assert "--id" in result.stdout
 
 
 def test_port_convert_keep_virtual_wires_integration(tmp_path: Path) -> None:

@@ -705,7 +705,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 print(
                     f"port export refused: editor is ahead — {len(editor_only)} node(s) "
                     f"exist in the prior UI JSON but not in the Python IR: {uid_list}. "
-                    f"Re-run `port convert <prior.json>` to import them, "
+                    f"Re-run `vibecomfy import <prior.json>` to import them, "
                     f"or pass --force-drop to discard explicitly.",
                     file=sys.stderr,
                 )

@@ -45,7 +45,7 @@ _OPAQUE_COMPONENT_CLASS_RE = re.compile(
 
 _KNOWN_RUNTIME_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     # VideoHelperSuite validates these at Comfy queue time. Keep this local
-    # contract so port checks fail even when object_info/node_index is missing.
+    # contract so import diagnostics fail even when object_info/node_index is missing.
     "VHS_VideoCombine": frozenset(
         {
             "filename_prefix",
@@ -850,7 +850,7 @@ def _recommendations(source: str, loaded: LoadedPortSource) -> list[str]:
     return [
         f"Run `vibecomfy validate {source}` after port fixes.",
         f"Run `vibecomfy nodes install-plan {source}` before installing custom nodes.",
-        f"Use `vibecomfy port convert {source} --out out/scratchpads/<name>.py` for Python scratchpad materialization.",
+        f"Import with `vibecomfy import {source}` before editing or running the workflow.",
     ]
 
 
@@ -1027,11 +1027,11 @@ def _readability_diagnostics(
     *,
     api_prompt: dict[str, Any] | None = None,
 ) -> list[PortIssue]:
-    """Generate readability diagnostics for port check reports.
+    """Generate readability diagnostics for import reports.
 
     Reuses the readability warning codes from `EmissionDiagnostic` to
     surface the same issues that the emitter would flag during conversion,
-    but without actually running the emitter.  This lets `port check`
+    but without actually running the emitter.  This keeps import diagnostics
     warn about avoidable positional outputs, unresolved widget aliases, and
     hidden model filenames before conversion.
     """

@@ -20,6 +20,7 @@ from vibecomfy.porting.convert import (
     port_convert_workflow,
 )
 from vibecomfy.porting.workbench import analyze_source, load_port_source
+from vibecomfy.porting.provenance import extract_provenance
 from vibecomfy.schema import ConversionSchemaProvider
 from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 from vibecomfy.workflow_bundle import emit_bundle_with_candidate, load_bundle
@@ -41,7 +42,7 @@ def _sha256(payload: bytes) -> str:
 
 
 def _conversion_provider() -> ConversionSchemaProvider:
-    """Build the same bounded, offline provider used by ``port convert``."""
+    """Build the bounded, offline provider used by the import service."""
     package_root = Path(__file__).resolve().parents[1]
     repository_root = package_root.parent
     local_node_index = Path.cwd() / "node_index.json"
@@ -66,13 +67,16 @@ def import_workflow_bytes(
     *,
     workflow_id: str,
     schema_provider: Any | None = None,
+    source_provenance: Mapping[str, Any] | None = None,
 ) -> ImportArtifacts:
     """Convert source JSON bytes into an inspectable canonical workflow pair.
 
     The original input is returned without decoding/re-encoding.  Conversion
     is performed against a temporary ``source.json`` path so generated Python
     and its companion refer to the stable bundle member name rather than a
-    temporary directory.  The caller owns publication of all returned files.
+    temporary directory. ``source_provenance`` carries the external origin
+    (for example a Hivemind evidence ID and revision) into the bundle's closed
+    provenance. The caller owns publication of all returned files.
     """
     if not isinstance(source_bytes, bytes):
         raise TypeError("source_bytes must be bytes")
@@ -110,6 +114,40 @@ def import_workflow_bytes(
             schema_provider=provider,
             loaded_source=loaded,
         )
+        # ``source.json`` is the local bundle member; these fields preserve
+        # where that member came from (for example a pinned Hivemind record).
+        # They are closed by the bundle writer and do not put local paths into
+        # generated Python.
+        if source_provenance:
+            # External callers may annotate the source origin, but this
+            # boundary owns the digest of the bytes it actually imported.
+            allowed_origin_fields = {
+                "origin_kind",
+                "origin_uri",
+                "origin_pin",
+                "origin_revision",
+                "source_digest",
+                "title",
+            }
+            unknown_fields = set(source_provenance) - allowed_origin_fields
+            if unknown_fields:
+                raise ValueError(
+                    "unsupported source provenance fields: "
+                    + ", ".join(sorted(str(field) for field in unknown_fields))
+                )
+            supplied_digest = source_provenance.get("source_digest")
+            actual_digest = _sha256(source_bytes)
+            if supplied_digest is not None and supplied_digest != actual_digest:
+                raise ValueError(
+                    "source provenance digest does not match the admitted source bytes"
+                )
+            analysis.provenance.update(dict(source_provenance))
+            analysis.provenance["source_digest"] = actual_digest
+        # Preserve authored node evidence independently from runtime pins.
+        # Mixed/conflicting versions must remain observable after re-emission.
+        embedded_source_provenance = extract_provenance(loaded.raw_workflow or decoded).to_json()
+        conversion_provenance = dict(analysis.provenance)
+        conversion_provenance["source_provenance"] = embedded_source_provenance
         registered_inputs = {
             str(name): (str(item.node_id), str(item.field))
             for name, item in loaded.workflow.inputs.items()
@@ -117,10 +155,12 @@ def import_workflow_bytes(
         converted = port_convert_workflow(
             loaded.workflow,
             source_path="source.json",
-            provenance=analysis.provenance,
+            provenance=conversion_provenance,
             source_hash=analysis.source_hash,
             workflow_shape=analysis.workflow_shape,
             registered_inputs=registered_inputs,
+            # Source evidence is carried above. Do not re-enter native
+            # boundary normalization with raw JSON after load_port_source.
             # Draft imports retain unresolved-schema evidence. Runtime schema
             # access remains opt-in and is never booted by origin creation.
             schema_provider=None,
@@ -141,7 +181,7 @@ def import_workflow_bytes(
         bundle = emit_bundle_with_candidate(
             emitted_workflow,
             python_path,
-            analysis.provenance,
+            conversion_provenance,
             candidate,
             operation="imported",
             source_provenance={
@@ -157,6 +197,7 @@ def import_workflow_bytes(
                 "workflow_shape": analysis.workflow_shape,
                 "output_mode": "scratchpad",
                 "source_type": str(loaded.workflow.source.source_type),
+                "source_provenance": embedded_source_provenance,
             },
             source_format="scratchpad",
         )
@@ -207,7 +248,7 @@ def import_workflow_bytes(
             },
             "readiness": readiness,
             "diagnostics": diagnostics,
-            "provenance": analysis.provenance,
+            "provenance": conversion_provenance,
         }
         # Assert the service's byte-level custody promise before returning.
         if members["source.json"] != _sha256(source_bytes):

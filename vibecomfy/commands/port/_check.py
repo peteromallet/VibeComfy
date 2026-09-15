@@ -27,8 +27,8 @@ def _cmd_port_check(args: argparse.Namespace) -> int:
             return 1
         if recovery is not None:
             print(
-                f"port check blocked by {recovery['code']}: {recovery['message']}\n"
-                "Resolve the ComfyUI subgraph boundary first, then rerun port check/convert.\n"
+                f"import blocked by {recovery['code']}: {recovery['message']}\n"
+                "Resolve the ComfyUI subgraph boundary first, then rerun the canonical import.\n"
                 f"- inspect: {recovery['recovery']['inspect_source']}\n"
                 f"- convert: {recovery['recovery']['materialize_after_resolution']}\n"
                 f"- validate: {recovery['recovery']['validate_candidate']}",

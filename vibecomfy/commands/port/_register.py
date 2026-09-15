@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 
 from ._shared import PORT_HELP
-from ._check import _cmd_port_check
-from ._convert import _cmd_port_convert
 from ._widgets import _cmd_port_widgets
 from ._export import _cmd_port_export
 from ._validate_call import _cmd_port_validate_call
@@ -24,108 +22,6 @@ def register(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     port_subparsers = port.add_subparsers(dest="port_cmd", required=True)
-
-    check = port_subparsers.add_parser(
-        "check",
-        help="Preflight a workflow before manual editing or RunPod validation.",
-        description=PORT_HELP,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    check.add_argument("workflow")
-    check.add_argument("--json", action="store_true")
-    check.add_argument("--head-check-models", action="store_true", help="Opt in to non-downloading HEAD checks for model URLs.")
-    check.add_argument(
-        "--strict-ready-template",
-        action="store_true",
-        help="Escalate unresolved positional widget aliases to errors before promotion or RunPod validation.",
-    )
-    check.add_argument(
-        "--runtime-object-info",
-        action="store_true",
-        help="Opt in to live /object_info schema evidence from a running ComfyUI server.",
-    )
-    check.add_argument(
-        "--object-info-cache",
-        help="Use a captured ComfyUI /object_info JSON file as offline schema evidence. Defaults to the newest out/cache/object_info*.json when present.",
-    )
-    check.add_argument(
-        "--no-object-info-cache",
-        action="store_true",
-        help="Do not use cached /object_info schema evidence.",
-    )
-    check.add_argument(
-        "--server-url",
-        help="ComfyUI server URL for live /object_info (requires --runtime-object-info).",
-    )
-    check.add_argument(
-        "--resolve-on-demand",
-        action="store_true",
-        help=(
-            "Resolve schemas for classes absent from the static cache via the on-demand "
-            "escalation ladder (corpus cache + static AST parse of the pack's cloned source). "
-            "Equivalent to setting VIBECOMFY_ON_DEMAND_SCHEMAS=1; runtime boot stays gated on "
-            "VIBECOMFY_ON_DEMAND_BOOT=1."
-        ),
-    )
-    check.set_defaults(func=_cmd_port_check)
-
-    convert = port_subparsers.add_parser(
-        "convert",
-        help="Materialize supported native subgraphs into a Python draft, or emit a strict-ready candidate with --ready-id.",
-        description=PORT_HELP,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    convert.add_argument(
-        "workflow",
-        nargs="?",
-        help="Workflow path or ready-template id (omit when using --all).",
-    )
-    convert.add_argument("--out", required=False, help="Destination file path (required for writes; optional with --dry-run)")
-    convert.add_argument("--all", action="store_true", help="Run across all ready templates (dry-run diff mode only). Human output is best-effort and exits 0 despite per-template failures; --json exits nonzero when any row fails.")
-    convert.add_argument("--ready-id", help="Emit ready-template candidate mode; must have kind/name shape.")
-    convert.add_argument("--json", action="store_true")
-    convert.add_argument("--dry-run", action="store_true", help="Emit conversion payload and evidence without writing target file.")
-    convert.add_argument("--diff", action="store_true", help="Produce unified diff + JSON diff metadata (implies dry-run).")
-    convert.add_argument("--head-check-models", action="store_true", help="Opt in to non-downloading HEAD checks for model URLs.")
-    convert.add_argument(
-        "--strict-ready-template",
-        action="store_true",
-        help="Escalate unresolved positional widget aliases to errors. Ready-template conversion enables this by default.",
-    )
-    convert.add_argument(
-        "--runtime-object-info",
-        action="store_true",
-        help="Opt in to live /object_info schema evidence from a running ComfyUI server.",
-    )
-    convert.add_argument(
-        "--object-info-cache",
-        help="Use a captured ComfyUI /object_info JSON file as offline schema evidence. Defaults to the newest out/cache/object_info*.json when present.",
-    )
-    convert.add_argument(
-        "--no-object-info-cache",
-        action="store_true",
-        help="Do not use cached /object_info schema evidence.",
-    )
-    convert.add_argument(
-        "--server-url",
-        help="ComfyUI server URL for live /object_info (requires --runtime-object-info).",
-    )
-    convert.add_argument(
-        "--resolve-on-demand",
-        action="store_true",
-        help=(
-            "Resolve schemas for classes absent from the static cache via the on-demand "
-            "escalation ladder (corpus cache + static AST parse of the pack's cloned source). "
-            "Equivalent to setting VIBECOMFY_ON_DEMAND_SCHEMAS=1; runtime boot stays gated on "
-            "VIBECOMFY_ON_DEMAND_BOOT=1."
-        ),
-    )
-    convert.add_argument(
-        "--keep-virtual-wires",
-        action="store_true",
-        help="Emit GetNode/SetNode/Reroute as explicit wf.node(...) calls instead of resolving them.",
-    )
-    convert.set_defaults(func=_cmd_port_convert)
 
     widgets = port_subparsers.add_parser(
         "widgets",

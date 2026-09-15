@@ -17,7 +17,8 @@ vibecomfy analyze info <workflow>
 If the target is raw JSON, inspect it as import evidence and use the positional-source conversion path when a Python explanation is needed:
 
 ```bash
-vibecomfy port check <workflow.json> --json
+vibecomfy import <workflow.json>
+vibecomfy validate workflows/<source-stem> --json
 ```
 
 If the question depends on class behavior, sockets, or widgets:

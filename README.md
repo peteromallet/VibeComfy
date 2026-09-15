@@ -169,16 +169,18 @@ it, or `python scripts/sync_agent_skill.py --install-user` to install it globall
 That installer uses SkillSinker: it symlinks the VibeComfy skill into detected Claude, Codex, and Hermes skill directories without overwriting existing entries, and it updates Codex's `AGENTS.md` with an idempotent fenced VibeComfy block.
 For community workflows, search the canonical Hivemind catalogue through the
 deployed Astrid pack (`python3 -m astrid hivemind search "..." --kinds
-workflow`). Pull only the selected workflow into `workflows/<source-id>/` when
-you are ready to inspect or edit it. Do not bulk-mirror Hivemind into a local
-external-workflow corpus. Use `sources sync --official ... --custom-nodes ...`
-only for local ComfyUI examples and installed node schemas.
+workflow`). Pull the selected resource directly through the same importer when
+you are ready to inspect or edit it: `python -m vibecomfy.cli import
+hivemind:external_resources:<id>`. This creates one local bundle under
+`workflows/<source-id>/`; it does not bulk-mirror Hivemind. Use `sources sync
+--official ... --custom-nodes ...` only for local ComfyUI examples and
+installed node schemas.
 List ready templates with `python -m vibecomfy.cli workflows list --ready`.
 Inspect `image/z_image` with `python -m vibecomfy.cli inspect image/z_image`.
 Copy it to `recipes/my_z_image.py` with `python -m vibecomfy.cli copy-to-recipe image/z_image --out recipes/my_z_image.py`.
-If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, import it with `python -m vibecomfy.cli import <workflow.json>`. This creates `workflows/<source-stem>/` with editable `workflow.py`, its `workflow.vibe.json` bundle companion, and the byte-identical `source.json`. Use `--out <directory>` to choose another destination, `--dry-run` to preview, or `--json` for machine-readable output. Import preserves provenance in the existing bundle metadata; it does not install nodes or models, configure a runtime, or run the graph.
+If I give you an unfamiliar ComfyUI JSON workflow instead of a ready template, import it with `python -m vibecomfy.cli import <workflow.json>`; the same command also accepts a public `https://...` URL, `hivemind:external_resources:<id>`, or `hivemind://resource/<id>`. All sources create `workflows/<source-id>/` with editable `workflow.py`, its `workflow.vibe.json` bundle companion, and the exact local source representation. URL imports retain the URL and a content snapshot pin; Hivemind imports retain the evidence ID, any provider revision, and a content digest (used as the snapshot pin when no revision is exposed) in bundle provenance. Use `--out <directory>` to choose another destination, `--dry-run` to preview, or `--json` for machine-readable output. Import preserves provenance; it does not install nodes or models, configure a runtime, or run the graph.
 Inspect the imported folder with `python -m vibecomfy.cli inspect workflows/<source-stem> --json` and `python -m vibecomfy.cli analyze info workflows/<source-stem>`. Edit `workflow.py` at the existing node call/value you want to change, using `node <ClassType> --inputs` to confirm unfamiliar sockets or widgets. For recipes using public handles, `VibeWorkflow` supports `set_prompt`, `set_seed`, `set_steps`, and `set_input`; check `inspect --field <name>` before calling a setter.
-Validate and diagnose the imported folder with `python -m vibecomfy.cli validate workflows/<source-stem> --json` and `python -m vibecomfy.cli doctor workflows/<source-stem> --json`. Existing `port check` and `port convert` remain available for advanced preflight, standalone scratchpad generation, and intentional ready-template conversion.
+Validate and diagnose the imported folder with `python -m vibecomfy.cli validate workflows/<source-stem> --json` and `python -m vibecomfy.cli doctor workflows/<source-stem> --json`. The imported bundle is the single local authoring surface.
 Edit the copied, imported, or converted Python itself: change prompts, seeds, steps, model choices, wiring, and output prefixes in the Python authoring surface, not by editing compiled API JSON.
 Validate the artifact you actually edited: the imported folder for a direct edit, or `python -m vibecomfy.cli validate recipes/my_z_image.py` for the copied recipe. A separate variation must be validated at its own path, not at the source folder it loads.
 Export that same edited artifact with `python -m vibecomfy.cli port export <edited-folder-or-python-path> --to json --json`.
@@ -232,15 +234,15 @@ Inspect likely candidates with `python -m vibecomfy.cli inspect <template_id>` a
 Pick the smallest ready template that already has the needed media type, model family, and output contract.
 ```
 
-Porting converts a raw ComfyUI JSON workflow into a Python scratchpad or ready
-template. Give this to an agent when starting from raw JSON:
+For maintainers promoting an imported workflow into a curated ready template,
+use the expert porting commands only after the normal import path:
 
 ```text
-Run `python -m vibecomfy.cli port check <workflow.json> --json` before editing or GPU time.
+Run `python -m vibecomfy.cli validate workflows/<source-id> --json` and `python -m vibecomfy.cli doctor workflows/<source-id> --json` before editing or GPU time.
 Run `python -m vibecomfy.cli nodes install-plan <workflow.json>` against the same custom-node context, then use `nodes ensure`, `nodes lock`, or `nodes restore` when the workflow needs packs that are missing or unpinned.
-Run `python -m vibecomfy.cli nodes reconcile --workflow <workflow.json> --json`, then convert the positional source with `python -m vibecomfy.cli port convert <workflow.json> --out out/scratchpads/<name>.py --json`.
-Validate the emitted Python with `python -m vibecomfy.cli validate out/scratchpads/<name>.py`.
-If the workflow should become reusable, promote it with the same positional source: `python -m vibecomfy.cli port convert <workflow.json> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json`.
+Run `python -m vibecomfy.cli nodes reconcile --workflow workflows/<source-id> --json` when the imported workflow needs node-pack reconciliation.
+Validate the imported bundle with `python -m vibecomfy.cli validate workflows/<source-id>`.
+If the workflow should become reusable, promote the validated bundle with `python -m vibecomfy.cli templates create workflows/<source-id> --id <kind>/<name> --out ready_templates/<kind>/<name>.py --json`.
 ```
 
 Promote durable workflows to Python ready templates. Keep raw JSON as source

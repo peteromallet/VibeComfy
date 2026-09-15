@@ -4,7 +4,7 @@
 
 Demonstrate bidirectional conversion:
   - Python → API JSON (``wf.export_to_json()`` / ``wf.compile('api')``)
-  - API JSON → Python (``port check`` / ``port convert``)
+  - API JSON → Python (``vibecomfy import``)
 
 Also shows ``wf.lookup_id()`` for node introspection, ``wf.strict_types`` for
 type-safe connections, and the inherent limitations of roundtripping.
@@ -89,7 +89,7 @@ Roundtrip limitations (v2.7):
   - Widget aliases, custom node pack pins, and subgraph materialization
     are preserved on Python→API export but may shift during API→Python import
     if the source JSON uses legacy widget_N keys.
-  - Use ``vibecomfy port doctor-all`` to audit roundtrip fidelity.
+  - Use ``vibecomfy validate`` and ``vibecomfy doctor`` to audit the imported bundle.
   - Hand-authored templates may not survive auto-conversion unchanged;
     use ``python -m vibecomfy.cli copy-to-recipe <id>`` for editable copies.
 """

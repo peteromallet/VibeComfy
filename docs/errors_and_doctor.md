@@ -9,13 +9,14 @@
 - Comfy runtime errors.
 - Device or VRAM profile errors.
 
-For template porting failures, start with the cheaper porting preflight:
+For imported workflow failures, start with the canonical bundle diagnostics:
 
 ```bash
-python -m vibecomfy.cli port check <workflow> --json
+python -m vibecomfy.cli validate <workflow> --json
+python -m vibecomfy.cli doctor <workflow> --json
 ```
 
-Use `port check` before manual template editing or RunPod validation when you see:
+Use `validate` and `doctor` before manual template editing or RunPod validation when you see:
 
 - unknown or missing runtime classes;
 - missing required inputs, invalid link shapes, or schema type mismatches;
@@ -23,12 +24,6 @@ Use `port check` before manual template editing or RunPod validation when you se
 - model asset warnings, missing URLs, duplicate URL targets, 404s, or license-gated URLs;
 - positional `widget_N` aliases that need a real widget name.
 
-`doctor` remains the runtime-readiness command for authored scratchpads and ready templates. It may point you back to `port check` when a failure is better explained by the port report. Use `validate` for schema/structure checks, `nodes install-plan` for custom-node pack plans, and `fetch` for declared model downloads.
+`doctor` is the runtime-readiness command for authored bundles and ready templates. Use `validate` for schema/structure checks, `nodes install-plan` for custom-node pack plans, and `fetch` for declared model downloads.
 
-Model URL HEAD checks are opt-in:
-
-```bash
-python -m vibecomfy.cli port check <workflow> --head-check-models --json
-```
-
-That command records status, redirects, timeouts, and likely gated or missing URLs without downloading model bodies. Normal `doctor`, `validate`, `fetch`, and `run` behavior stays offline unless you explicitly request network checks.
+Normal `doctor`, `validate`, `fetch`, and `run` behavior stays offline unless you explicitly request network checks through the relevant dependency tooling.

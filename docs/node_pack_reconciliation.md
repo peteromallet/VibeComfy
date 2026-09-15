@@ -1,14 +1,14 @@
 # Node Pack Reconciliation
 
 Agent workflow for resolving unresolved class types, widget aliases, and model registry
-gaps that block `port check` from clearing before `port convert` can run.
+gaps that block an imported bundle from validating before it can run.
 
 ## Overview
 
 Node reconciliation is a deterministic report over the candidate that will be loaded or converted. Run `vibecomfy nodes reconcile --workflow <workflow> --json` against the same local schema, pack, model, and runtime context; it reports evidence and remediation without mutating the workflow or treating raw API JSON as an execution source.
 
-`port check <workflow>` gates `port convert` — if the report has any `severity="error"`
-diagnostic, the emitter will not run. The four most common gate-blocking error codes and
+`validate <workflow>` gates promotion — if the report has any `severity="error"`
+diagnostic, template creation should stop. The four most common gate-blocking error codes and
 their fixes are:
 
 | Code | Root cause | Fix location |
@@ -152,12 +152,12 @@ static schema only shows the base set; `image_3` is created at runtime when
 
 ### 7. Remaining blockers — emitter family issues
 
-Once all pack/schema/alias fixes are applied, remaining `port check` errors fall into
+Once all pack/schema/alias fixes are applied, remaining validation errors fall into
 emitter family categories:
 
 | Family | Symptom | Resolution |
 |---|---|---|
-| **C** | `UnboundLocalError` in `port convert` | Fix subgraph function name collision |
+| **C** | `UnboundLocalError` during import | Fix subgraph function name collision |
 | **E** | Missing required inputs in generated code | Fix widget assignment in emitter |
 | **F** | `SetNode`/`GetNode`/`Reroute` in emitted output | Fix helper resolver pre-pass |
 | **I** | UUID-class component not materialized | Apply materialize-as-inline-function policy |

@@ -54,5 +54,5 @@ def test_no_helper_raw_call_in_ready_template(template_path: Path) -> None:
             f"{template_path.relative_to(template_path.parent.parent.parent)} "
             f"contains raw_call to helper class(es): {found}. "
             "Helpers must be stripped by the resolver before emission — "
-            "regenerate this template via port convert."
+            "recreate this template from its canonical bundle with templates create."
         )

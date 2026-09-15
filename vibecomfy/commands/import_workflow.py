@@ -19,6 +19,23 @@ def _folder_name(source: Path) -> str:
     return name or "workflow"
 
 
+def _folder_name_from_reference(reference: str) -> str:
+    """Derive a local bundle name from a Hivemind evidence reference."""
+    from vibecomfy.porting.hivemind_source import evidence_id_for_reference
+
+    evidence_id = evidence_id_for_reference(reference)
+    if evidence_id is None:
+        return "workflow"
+    return _folder_name(Path(evidence_id.rsplit(":", 1)[-1]))
+
+
+def _folder_name_from_url(url: str) -> str:
+    from urllib.parse import urlparse
+
+    path = urlparse(url).path.rstrip("/")
+    return _folder_name(Path(path)) if path else "workflow"
+
+
 def _next_commands(folder: str | Path, *, project: str | None = None) -> dict[str, str]:
     quoted_folder = shlex.quote(str(folder))
     project_option = f" --project {shlex.quote(project)}" if project else ""
@@ -88,15 +105,40 @@ def _emit(payload: dict[str, Any], *, json_output: bool) -> None:
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
-    source = Path(args.source).expanduser()
-    if not source.is_file():
+    source_reference = str(args.source)
+    from vibecomfy.porting.hivemind_source import (
+        evidence_id_for_reference,
+        fetch_hivemind_source,
+    )
+    from vibecomfy.porting.remote_source import is_http_url, fetch_remote_source
+
+    hivemind_reference = evidence_id_for_reference(source_reference)
+    remote_url = source_reference if is_http_url(source_reference) else None
+    source = None if hivemind_reference or remote_url else Path(args.source).expanduser()
+    if source is not None and not source.is_file():
         _emit({"status": "error", "message": f"Source workflow is not a file: {source}"}, json_output=args.json)
         return 1
+    if (hivemind_reference or remote_url) and args.project:
+        _emit(
+            {
+                "status": "error",
+                "message": "--project is currently supported for local files; pull the Hivemind source first, then track the local bundle.",
+            },
+            json_output=args.json,
+        )
+        return 1
+
+    if source is not None:
+        workflow_id = _folder_name(source)
+    elif hivemind_reference:
+        workflow_id = _folder_name_from_reference(source_reference)
+    else:
+        workflow_id = _folder_name_from_url(source_reference)
 
     destination = (
         Path(args.out).expanduser()
         if args.out
-        else Path.cwd() / "workflows" / _folder_name(source)
+        else Path.cwd() / "workflows" / workflow_id
     )
     if destination.is_symlink():
         _emit({"status": "error", "folder": str(destination), "message": f"Destination is a symbolic link: {destination}. Choose another directory with --out."}, json_output=args.json)
@@ -106,11 +148,35 @@ def _cmd_import(args: argparse.Namespace) -> int:
         _emit({"status": "error", "folder": str(destination), "message": f"Destination already exists: {destination}. Choose another directory with --out."}, json_output=args.json)
         return 1
 
-    try:
-        source_bytes = source.read_bytes()
-    except OSError as exc:
-        _emit({"status": "error", "folder": str(destination), "message": str(exc)}, json_output=args.json)
-        return 1
+    source_provenance: dict[str, Any] | None = None
+    if hivemind_reference:
+        try:
+            resolved = fetch_hivemind_source(source_reference)
+            source_bytes = resolved.source_bytes
+            source_provenance = resolved.provenance
+        except Exception as exc:
+            _emit(
+                {"status": "error", "folder": str(destination), "source": source_reference, "message": f"{type(exc).__name__}: {exc}"},
+                json_output=args.json,
+            )
+            return 1
+    elif remote_url:
+        try:
+            resolved = fetch_remote_source(remote_url)
+            source_bytes = resolved.source_bytes
+            source_provenance = resolved.provenance
+        except Exception as exc:
+            _emit(
+                {"status": "error", "folder": str(destination), "source": source_reference, "message": f"{type(exc).__name__}: {exc}"},
+                json_output=args.json,
+            )
+            return 1
+    else:
+        try:
+            source_bytes = source.read_bytes()
+        except OSError as exc:
+            _emit({"status": "error", "folder": str(destination), "message": str(exc)}, json_output=args.json)
+            return 1
 
     if args.project and not args.dry_run:
         try:
@@ -131,7 +197,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
     try:
         from vibecomfy.porting.import_service import import_workflow_bytes
 
-        artifacts = import_workflow_bytes(source_bytes, workflow_id=_folder_name(source))
+        artifacts = import_workflow_bytes(
+            source_bytes,
+            workflow_id=workflow_id,
+            source_provenance=source_provenance,
+        )
     except Exception as exc:
         _emit({"status": "error", "folder": str(destination), "message": f"{type(exc).__name__}: {exc}"}, json_output=args.json)
         return 1
@@ -149,7 +219,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
     payload = {
         "status": "preview" if args.dry_run else "ok",
         "tracking": tracking_mode,
-        "source": str(source.resolve()),
+        "source": str(source.resolve()) if source is not None else source_reference,
         "folder": str(destination),
         "python": str(python_path),
         "companion": str(companion_path),
@@ -169,6 +239,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         ),
         },
     }
+    if hivemind_reference:
+        payload["source_reference"] = hivemind_reference
+    elif remote_url:
+        payload["source_reference"] = remote_url
     if args.dry_run:
         _emit(payload, json_output=args.json)
         return 0
@@ -334,18 +408,25 @@ def register(subparsers) -> None:
         "import",
         help="Import a ComfyUI workflow into an editable, inspectable folder.",
         description=(
-            "Import a ComfyUI workflow into ./workflows/<name>/ with an editable Python\n"
-            "workflow, VibeComfy companion, and exact source copy. The origin report is\n"
-            "returned on stdout/JSON; tracked imports also retain the immutable Astrid task report."
+            "Import a local ComfyUI JSON file, public HTTP(S) URL, or one Hivemind workflow reference into\n"
+            "./workflows/<name>/ with an editable Python workflow, VibeComfy companion,\n"
+            "and exact source copy. The origin report is returned on stdout/JSON; tracked\n"
+            "local imports also retain the immutable Astrid task report."
         ),
         epilog=(
             "Edit workflow.py directly or use `vibecomfy edit`; inspect node definitions with\n"
             "`vibecomfy node <ClassType>` and validate changes with `vibecomfy validate <folder>`.\n"
-            "Imports are local and untracked unless you explicitly pass --project."
+            "Use a public `https://...` URL or `hivemind:external_resources:<id>` (or `hivemind://resource/<id>`;\n"
+            "append `/revisions/<revision>` when the returned row exposes one) to\n"
+            "pull one public workflow on demand. Imports are local and untracked unless\n"
+            "you explicitly pass --project for a local file."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("source", help="Source ComfyUI workflow JSON file.")
+    parser.add_argument(
+        "source",
+        help="Source local JSON file, public HTTP(S) URL, or Hivemind reference (optionally /revisions/<revision>).",
+    )
     parser.add_argument("--out", help="Destination directory (defaults to ./workflows/<source-name>/).")
     parser.add_argument("--project", help="Opt into recording this import as an Astrid workflow origin.")
     parser.add_argument("--dry-run", action="store_true", help="Build a preview without writing files or contacting Astrid.")

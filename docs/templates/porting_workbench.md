@@ -1,6 +1,6 @@
 # Template Porting Workbench
 
-For a first import, start with [`vibecomfy import`](../guides/workflow-onboarding.md): it creates an editable workflow folder and shows the next commands. This workbench covers advanced conversion, template promotion, and diagnosis of missing custom nodes, schema errors, model asset problems, helper nodes, or positional `widget_N` ambiguity.
+For a first import, start with [`vibecomfy import`](../guides/workflow-onboarding.md): it accepts a local JSON file or one Hivemind reference, creates an editable workflow folder, and shows the next commands. This workbench covers expert promotion and diagnosis of missing custom nodes, schema errors, model asset problems, helper nodes, or positional `widget_N` ambiguity.
 
 The steady-state output should be Python: an editable scratchpad or a ready-template candidate. Raw JSON is source material, not the long-term authoring surface.
 
@@ -9,40 +9,61 @@ The converter writes atomically: emitted text goes to a temp file in the target 
 ## Quick Start
 
 ```bash
-python -m vibecomfy.cli port check <workflow> --json
-python -m vibecomfy.cli port convert <workflow> --out out/scratchpads/<id>.py --json
-python -m vibecomfy.cli port convert <workflow> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json
+vibecomfy import <workflow.json-or-hivemind-reference>
+python -m vibecomfy.cli validate workflows/<id> --json
+python -m vibecomfy.cli doctor workflows/<id> --json
+python -m vibecomfy.cli templates create workflows/<id> --id <kind>/<name> --out ready_templates/<kind>/<name>.py --json
 python -m vibecomfy.cli port inventory --ready --json
 ```
 
-Use `<workflow>` as a ready id, scratchpad path, raw JSON path, or indexed workflow reference. `port check` is offline by default and cheap enough to run before every manual template edit and before every RunPod validation attempt.
+The imported bundle is the editable scratchpad. Diagnose it with the normal
+validation commands:
 
-There is one promotion path for durable templates: source workflow -> `port check` -> scratchpad when investigation is needed -> `port convert --ready-id <kind>/<name>` or hand-authored Python -> static index refresh -> local validation and strict-ready gates. Raw JSON is retained as source evidence; compiled API JSON is runtime output, not the template source of truth.
+```bash
+python -m vibecomfy.cli validate <workflow> --json
+python -m vibecomfy.cli doctor <workflow> --json
+```
+
+Use `<workflow>` as an imported bundle, Python workflow, or ready id. `validate`
+and `doctor` are offline by default and cheap enough to run before every manual
+template edit and before every RunPod validation attempt.
+
+There is one promotion path for durable templates: Hivemind or local source ->
+`vibecomfy import` -> inspect/edit/validate/doctor ->
+`templates create --id <kind>/<name>` or
+hand-authored Python -> static index refresh -> local validation and
+strict-ready gates. Raw JSON is retained as source evidence; compiled API JSON
+is runtime output, not the template source of truth.
 
 ## When To Use Each Command
 
 | Need | Command |
 | --- | --- |
-| Import a ComfyUI JSON file into a local editable folder | `vibecomfy import <workflow.json>` |
-| Preflight a source workflow before editing or RunPod | `python -m vibecomfy.cli port check <workflow> --json` |
-| Turn raw JSON or an indexed workflow into editable Python | `python -m vibecomfy.cli port convert <workflow> --out out/scratchpads/<id>.py --json` |
-| Produce a ready-template candidate | `python -m vibecomfy.cli port convert <workflow> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json` |
+| Import local JSON or one Hivemind revision into a local editable folder | `vibecomfy import <workflow.json-or-hivemind-reference>` |
+| Validate an imported workflow before editing or RunPod | `python -m vibecomfy.cli validate <workflow> --json` |
+| Diagnose runtime readiness and suggested fixes | `python -m vibecomfy.cli doctor <workflow> --json` |
+| Produce a ready-template candidate | `python -m vibecomfy.cli templates create <workflow> --id <kind>/<name> --out ready_templates/<kind>/<name>.py --json` |
 | Validate an authored scratchpad or ready template | `python -m vibecomfy.cli validate <scratchpad-or-template.py>` |
 | Diagnose runtime readiness and suggested fixes | `python -m vibecomfy.cli doctor <workflow>` |
 | See custom-node packs to install | `python -m vibecomfy.cli nodes install-plan <workflow>` |
 | Reconcile and fetch final runtime model assets | `python -m vibecomfy.cli run <workflow> --runtime embedded` |
 | Fetch authored model asset metadata only | `python -m vibecomfy.cli fetch <workflow>` |
-| Check model URLs without downloading bodies | `python -m vibecomfy.cli port check <workflow> --head-check-models --json` |
+| Check model URLs without downloading bodies | `python -m vibecomfy.cli doctor <workflow> --json` |
 
-`--head-check-models` is opt-in. It performs HEAD requests only, follows redirects, records status codes, and does not download model bodies. Keep normal `run`, `doctor`, `validate`, and `fetch` behavior offline unless you intentionally ask for URL checks.
+Model URL and asset diagnostics belong to `doctor` and `fetch`; keep normal
+`run`, `doctor`, `validate`, and `fetch` behavior offline unless you
+intentionally stage or inspect remote assets.
 
 Embedded `run` reconciles model assets by default. It inspects the final built workflow after scratchpad patches, resolves model-picker values such as `ckpt_name`, `vae_name`, `unet_name`, and `lora_name` through authored `model_assets` and `vibecomfy/registry/models.yaml`, downloads/stages resolved files, and fails before queueing if a referenced asset cannot be resolved. Use `--no-ensure-models` only for compile-only work where downloads are intentionally disabled.
 
-## What `port check` Reports
+## Validation and diagnosis
 
-The report is a stable JSON object with provenance, source hash, workflow shape, node counts, diagnostics, custom-node pack suggestions, model asset candidates, optional URL check results, artifacts, and recommendations.
+`validate --json` returns a stable structural report. `doctor --json` adds
+runtime readiness, custom-node, model-asset, provenance, and recommendation
+details.
 
-It catches the failure classes that previously surfaced only after conversion or on a GPU:
+Together they catch failure classes that previously surfaced only after import
+or on a GPU:
 
 - helper and UI-only nodes such as `Note`, `MarkdownNote`, `SetNode`, and `GetNode`;
 - unresolved helper broadcasts before compile can silently drop them;
@@ -54,26 +75,20 @@ It catches the failure classes that previously surfaced only after conversion or
 
 Helper/UI classes are never treated as installable missing packs. They produce helper diagnostics. Real unresolved runtime classes remain hard porting errors.
 
-## Convert Modes
+## Template promotion
 
-Scratchpad mode is the default and is the right choice while investigating a workflow:
-
-```bash
-python -m vibecomfy.cli port convert ready_templates/sources/community/example.json \
-  --out out/scratchpads/example.py \
-  --json
-```
-
-Ready-template mode is explicit because it creates a curated candidate with template identity:
+The imported bundle is the editable scratchpad. Once it has been reviewed and
+validated, promote it explicitly:
 
 ```bash
-python -m vibecomfy.cli port convert ready_templates/sources/community/example.json \
-  --ready-id image/example \
+python -m vibecomfy.cli templates create workflows/example --id image/example \
   --out ready_templates/image/example.py \
   --json
 ```
 
-The converter validates emitted Python by importing the module, calling `build()`, compiling API output, and running schema validation when a provider is available. Ready-template output uses the v2.6 context-bound form:
+`templates create` validates the canonical bundle and writes only the ready
+template Python/companion pair. Ready-template output uses the v2.6
+context-bound form:
 
 ```python
 def build():
@@ -89,22 +104,14 @@ use the zero-positional context form.
 
 Ready-template candidates also run strict-ready validation with the target `ready_id` context before writing. Unexcepted strict-ready errors stop replacement before the target path is touched; JSON output includes `conversion.validation.strict_ready_ok`, `conversion.validation.strict_ready_diagnostics`, and top-level strict-ready fields for automation.
 
-### Dry-Run And Diff Modes
+### Dry-Run
 
-Use `--dry-run` to inspect conversion output and parity evidence without touching the filesystem:
+Use `--dry-run` to inspect promotion output without touching the filesystem:
 
 ```bash
-python -m vibecomfy.cli port convert ready_templates/sources/community/example.json \
-  --out out/scratchpads/example.py \
+python -m vibecomfy.cli templates create workflows/example --id image/example \
+  --out ready_templates/image/example.py \
   --dry-run --json
-```
-
-Use `--diff` to get a unified diff and JSON diff metadata alongside the write:
-
-```bash
-python -m vibecomfy.cli port convert ready_templates/sources/community/example.json \
-  --out out/scratchpads/example.py \
-  --diff --json
 ```
 
 ### Manual Template Refusal
@@ -135,9 +142,9 @@ paths. The JSON output is deterministic and versioned.
 Use this path for workflows that should become reusable templates:
 
 1. Keep the raw JSON in `ready_templates/sources/.../<id>.json` when it is useful source material.
-2. Run `port check <json> --json` and resolve hard diagnostics before conversion.
-3. Convert to an editable scratchpad first when the graph needs investigation.
-4. Convert with `--ready-id <kind>/<id>` or hand-author `ready_templates/<kind>/<id>.py` when the workflow becomes reusable.
+2. Import the source with `vibecomfy import <json>` and resolve diagnostics with `validate` and `doctor`.
+3. Edit the generated Python bundle while investigating the graph.
+4. Run `templates create workflows/<id> --id <kind>/<id> --out ready_templates/<kind>/<id>.py` or hand-author the ready template when the workflow becomes reusable.
 5. Add or update the `ready_templates/sources/manifests/coverage.json` row with `id`, `path`, `media`, `task`, `coverage_tier`, and `ready_template: true`.
 6. Refresh the static discovery index:
 
@@ -150,7 +157,7 @@ Then validate the Python template:
 
 ```bash
 python -m vibecomfy.cli validate ready_templates/<kind>/<id>.py
-python -m vibecomfy.cli port check ready_templates/<kind>/<id>.py --strict-ready-template --json
+python -m vibecomfy.cli doctor ready_templates/<kind>/<id>.py --json
 python -m pytest -q tests/test_ready_templates.py tests/test_runpod_matrix.py tests/test_cli_misc.py tests/test_cli_sources_workflows_nodes.py
 ```
 
@@ -166,30 +173,36 @@ renaming, or removing a ready template must update `coverage.json` and
 
 Run this order while porting:
 
-1. `port check <workflow> --json`
+1. `vibecomfy validate <workflow> --json`
 2. `nodes install-plan <workflow>` when unresolved runtime classes appear
 3. `fetch <workflow>` when declared models are missing
-4. `port convert <workflow> --out out/scratchpads/<id>.py --json`
-5. `validate out/scratchpads/<id>.py`
-6. `doctor out/scratchpads/<id>.py`
-7. focused RunPod validation only after the local report has no hard porting errors
+4. Edit the canonical `workflow.py` produced by import.
+5. `validate <workflow> --json`
+6. `doctor <workflow> --json`
+7. focused RunPod validation only after local checks report no hard errors
 
-The RunPod corpus matrix writes an offline port report and a port-convert preview next to existing logs so GPU failures can be traced back to cheap local preflight results. Those reports are advisory artifacts; they do not make network checks mandatory.
+The RunPod corpus matrix writes validation and diagnosis reports next to
+existing logs so GPU failures can be traced back to cheap local checks. Those
+reports are advisory artifacts; they do not make network checks mandatory.
 
 ## Battle Targets
 
 Use a small source workflow first to verify the path quickly, then run the current production-parity target:
 
 ```bash
-python -m vibecomfy.cli port check image/z_image --json
-python -m vibecomfy.cli port check video/wanvideo_wrapper_22_wan_animate_preprocess_kijai --json
+python -m vibecomfy.cli validate image/z_image --json
+python -m vibecomfy.cli validate video/wanvideo_wrapper_22_wan_animate_preprocess_kijai --json
 ```
 
-Add `--head-check-models` only when you specifically need URL reachability diagnostics.
+Use `fetch` only when you specifically need authored model asset metadata or
+staging diagnostics.
 
 ## Roadmap
 
-The first useful slice is intentionally pragmatic: source loading, helper stripping, custom-node pack inference, model asset analysis, opt-in URL HEAD checks, widget alias diagnostics, Python emission, CLI preflights, doctor guidance, and RunPod report artifacts.
+The first useful slice is intentionally pragmatic: source loading, helper
+stripping, custom-node pack inference, model asset analysis, widget alias
+diagnostics, Python emission, CLI preflights, doctor guidance, and RunPod
+report artifacts.
 
 Remaining work belongs in later batches:
 
@@ -221,13 +234,13 @@ The round-trip operates in three states:
 3. **Editor-ahead (REFUSE).** The prior UI JSON has nodes the Python IR does not (someone edited in ComfyUI after the last `port export`). VibeComfy refuses with:
 
   ```
-  port export refused: editor is ahead — N node(s) exist in the prior UI JSON but not in the Python IR: uid=<uid> class=<class>[, uid=<uid> class=<class>]. Re-run `port convert <prior.json>` to import them, or pass --force-drop to discard explicitly.
+  port export refused: editor is ahead — N node(s) exist in the prior UI JSON but not in the Python IR: uid=<uid> class=<class>[, uid=<uid> class=<class>]. Re-run `vibecomfy import <prior.json>` to import them, or pass --force-drop to discard explicitly.
   ```
 
 The canonical loop:
 
 ```
-editor .json → port convert → Python (.py + uid=) → edit structure → port export --to ui → editor
+editor .json → vibecomfy import → Python bundle → edit structure → port export --to ui → editor
 ```
 
 The K3 plane-separation rule: the editor owns layout (positions, groups, notes, reroutes); Python owns structure (nodes, edges, widgets). The round-trip preserves layout plane data across structure edits and re-lays out cleanly when no prior layout exists.
@@ -235,7 +248,7 @@ The K3 plane-separation rule: the editor owns layout (positions, groups, notes, 
 Divergence rules: when a uid is present in the prior store but absent from the IR, VibeComfy checks whether the uid was authored by a prior VibeComfy emit (via the breadcrumb `extra.vibecomfy.prior_path`). If yes, the node was deleted in Python — it appears in the change report's `removed` list. If no (the prior_path differs or is absent), the node is conservatively treated as editor-added, and `EditorAheadError` is raised.
 
 Two escape hatches for the editor-ahead state:
-- `port convert <prior.json>` — import the editor-only nodes into Python, then re-export.
+- `vibecomfy import <prior.json>` — import the editor-only nodes into a canonical bundle, then re-export.
 - `--force-drop` — explicitly discard the editor-only nodes and proceed with emission. The dropped nodes appear in the change report's `removed_named` list with their class types.
 
 ## Covered vs deferred (v1)
@@ -252,11 +265,11 @@ Two escape hatches for the editor-ahead state:
 - Simultaneous conflicting edits beyond the three documented states (in-sync, Python-ahead, editor-ahead).
 - Workflows hand-edited outside ComfyUI that stripped the `vibecomfy_uid` from `properties` — M5 legacy-hash matching provides best-effort recovery only.
 
-## `port convert --keep-virtual-wires`
+## Virtual wires
 
-By default, `port convert` resolves GetNode/SetNode/Reroute helpers into direct edges, producing clean Python with only execution nodes. This is the right choice for most authored code — the Python representation stays minimal and the editor view is reconstructed from the layout sidecar at emit time.
-
-Pass `--keep-virtual-wires` to emit explicit `wf.node("GetNode"…)` / `wf.node("SetNode"…)` / `wf.node("Reroute"…)` calls in the generated `.py`. Use this when editor-faithfulness requires those nodes to survive in the Python source (e.g., for collaborative workflows where the Python representation must stay structurally identical to the editor view). The trade-off: the Python source becomes larger and carries UI-only nodes, but the IR-level round-trip is invariant — the flat execution graph emitted from both paths is structurally equivalent.
+The importer resolves GetNode/SetNode/Reroute helpers into the canonical bundle
+and preserves editor furniture in the `.vibe.json` companion. Use `port export`
+when you need to inspect or re-emit the UI representation.
 
 ## Loud preserve
 

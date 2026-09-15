@@ -140,11 +140,18 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             str(name): (str(item.node_id), str(item.field))
             for name, item in loaded.workflow.inputs.items()
         }
+        # Keep raw source as provenance evidence without feeding it back into
+        # native-boundary normalization or the executable graph emitter.
+        conversion_provenance = dict(report.provenance)
+        if loaded.raw_workflow is not None:
+            from vibecomfy.porting.provenance import extract_provenance
+
+            conversion_provenance["source_provenance"] = extract_provenance(loaded.raw_workflow).to_json()
         result = port_convert_workflow(
             loaded.workflow,
             ready_id=args.ready_id,
             source_path=loaded.source_path,
-            provenance=report.provenance,
+            provenance=conversion_provenance,
             source_hash=report.source_hash,
             workflow_shape=report.workflow_shape,
             registered_inputs=registered_inputs,
@@ -234,11 +241,19 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
                 and is_litegraph_candidate(loaded.raw_workflow)
                 else None
             )
+            # port_convert_workflow carries the source-authored extractor
+            # report into the emitted workflow metadata. Reuse that exact
+            # witness for the bundle receipt instead of the analysis summary
+            # (which intentionally omits the detailed node records).
+            bundle_provenance = dict(report.provenance)
+            source_report = bundle_workflow.metadata.get("source_provenance")
+            if isinstance(source_report, Mapping):
+                bundle_provenance["source_provenance"] = source_report
 
             bundle = emit_bundle_with_candidate(
                 bundle_workflow,
                 out,
-                report.provenance,
+                bundle_provenance,
                 ui_candidate,
                 operation="captured" if ui_candidate is not None else "authored",
                 source_provenance={
@@ -256,6 +271,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
                     "workflow_shape": report.workflow_shape,
                     "output_mode": "ready_template" if args.ready_id else "scratchpad",
                     "source_type": str(loaded.workflow.source.source_type),
+                    **({"source_provenance": source_report} if isinstance(source_report, Mapping) else {}),
                 },
                 source_format="ready_template" if args.ready_id else "scratchpad",
                 preserve_authored_graph=preserve_authored_graph,

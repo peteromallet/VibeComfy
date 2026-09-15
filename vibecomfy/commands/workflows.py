@@ -356,13 +356,14 @@ def build_onboarding_plan(
     """Build the sequenced workflow-onboarding runbook.
 
     This keeps the human/agent handoff explicit: description enrichment happens
-    after conversion/validation has produced a readable Python workflow, but
+    after import/validation has produced a readable Python workflow, but
     before any Hivemind upload envelope is built.
     """
     description = " ".join(str(description or "").split())
     description_file = str(description_file or "").strip()
     has_description = bool(description or description_file)
     template_filter = ready_id
+    bundle = f"workflows/{ready_id.replace('/', '_')}"
     stages: list[dict[str, Any]] = []
 
     def command(parts: list[str]) -> str:
@@ -370,9 +371,9 @@ def build_onboarding_plan(
 
     stages.append(
         {
-            "id": "preflight",
-            "label": "Preflight source workflow",
-            "command": command(["vibecomfy", "port", "check", source, "--json"]),
+            "id": "import",
+            "label": "Import source workflow into the canonical bundle",
+            "command": command(["vibecomfy", "import", source, "--out", bundle, "--json"]),
             "blocks_upload": True,
         }
     )
@@ -386,15 +387,15 @@ def build_onboarding_plan(
     )
     stages.append(
         {
-            "id": "convert",
-            "label": "Convert to readable Python ready template",
+            "id": "templates_create",
+            "label": "Create a ready-template candidate from the edited bundle",
             "command": command(
                 [
                     "vibecomfy",
-                    "port",
-                    "convert",
-                    source,
-                    "--ready-id",
+                    "templates",
+                    "create",
+                    bundle,
+                    "--id",
                     ready_id,
                     "--out",
                     out,
@@ -407,7 +408,7 @@ def build_onboarding_plan(
     stages.append(
         {
             "id": "refresh_index",
-            "label": "Refresh template index so upload metadata knows the converted workflow",
+            "label": "Refresh template index so upload metadata knows the candidate",
             "command": command(["python", "tools/refresh_template_index.py"]),
             "blocks_upload": True,
         }
@@ -415,7 +416,7 @@ def build_onboarding_plan(
     stages.append(
         {
             "id": "validate",
-            "label": "Validate converted Python workflow",
+            "label": "Validate the authored candidate",
             "command": command(["vibecomfy", "validate", out]),
             "blocks_upload": True,
         }
@@ -471,6 +472,7 @@ def build_onboarding_plan(
         "source": source,
         "ready_id": ready_id,
         "out": out,
+        "bundle": bundle,
         "public_source": public_source,
         "description_ready": has_description,
         "upload_requested": upload,
@@ -823,7 +825,7 @@ def register(subparsers) -> None:
     # onboard
     onboard = workflows_sub.add_parser(
         "onboard",
-        help="Plan the conversion, validation, description, and optional Hivemind upload sequence.",
+        help="Plan the import, validation, promotion, description, and optional Hivemind upload sequence.",
     )
     onboard.add_argument("source", help="Source ComfyUI workflow JSON or existing workflow path")
     onboard.add_argument("--ready-id", required=True, help="Ready template id to produce, e.g. video/my_flow")
