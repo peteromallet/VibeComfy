@@ -12,7 +12,7 @@ installation must not be inferred from this review artifact.
 from __future__ import annotations
 
 from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
-from vibecomfy.workflow import VibeWorkflow
+from vibecomfy.workflow import VibeWorkflow, is_canonical_api_link
 from vibecomfy.nodes.core import BasicGuider, BasicScheduler, CLIPLoader, ComfyMathExpression, KSamplerSelect, PrimitiveFloat, PrimitiveInt, RandomNoise, ResolutionSelector, SaveVideo, UNETLoader, VAELoader
 
 
@@ -60,6 +60,16 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
         video=['105::168', 0],
         _uid='92',
         _native_ports={'native_input_names': ['video'], 'native_output_names': ['video'], 'native_input_types': ['VIDEO'], 'native_output_types': ['VIDEO'], 'native_input_optional': [False], 'native_input_asset_kinds': None, 'native_output_slots': None},
+    )
+
+    # SaveVideo accepts VIDEO only.  LanPaint_AVDecode also returns the
+    # reconstructed audio on slot 1; persist that stream as a paired FLAC
+    # artifact so Astrid can place it alongside the video during assembly.
+    saveaudio = raw_call('SaveAudio', '93',
+        audio=['105::168', 1],
+        filename_prefix='audio/MiniMax_H3',
+        _uid='93',
+        _native_ports={'native_input_names': ['audio', 'filename_prefix'], 'native_output_names': ['audio'], 'native_input_types': ['AUDIO', 'STRING'], 'native_output_types': ['AUDIO'], 'native_input_optional': [False, False], 'native_input_asset_kinds': None, 'native_output_slots': None},
     )
 
     width, height = ResolutionSelector(
@@ -233,6 +243,11 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
     wf.connect('164.0', '105::168.video')
     wf.connect('164.1', '105::168.mask')
     wf.connect('164.2', '105::168.audio_mask')
+    # Keep the duration primitive in the executable API projection.  The
+    # native export stores this link in the node input payload, but the
+    # projection compiler traverses explicit workflow edges when deciding
+    # which source nodes to emit.
+    wf.connect('105::111.0', '105::107.values.a')
     wf = wf.finalize(PUBLIC_INPUT_METADATA, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video/MiniMax_H3')
     wf.nodes['105::104'].inputs = {'clip': ['105::13', 0], 'vae': ['105::11', 0], 'length': ['105::107', 1], 'prompt': 'PRIESTESS OF THE BLUE HOUR — Dance Music Video\n\nHigh-end 2D anime cinematic look, dance music-video style — delicate, refined hand-drawn animation: fine precise linework with elegant variation in line weight, soft watercolor and airbrush shading instead of hard cel shadows, subtle gradient tints across skin and fabric, gentle film grain, volumetric haze, anamorphic framing, shallow depth of field. The palette is restrained and premium: deep blue-hour dusk, muted neon accents, and the dancer\'s warm white-and-gold as the only saturated warmth. Evoking the delicate hand-drawn elegance of Makoto Shinkai\'s character work and KyoAni\'s refined, graceful linework — never crude, never exaggerated. This is the centerpiece dance sequence of an anime music video: each motion is emotional, fluid, alive.\n\nScene overview: at blue-hour dusk on an empty rain-wet plaza between glowing towers, the dancer moves alone, choreography building from stillness to explosive, every move landing on the musical beats. Her long blonde hair catches the wind; her white-and-gold priestess vestments — layered robes with gold trim, church embroidery, a small pendant at her neck — flare and settle with each motion. Beside her, a cute toy bear — soft plush, glass-button eyes, stitched paws — floats gently, emitting a faint golden glow and a trail of tiny twinkling stars and light particles that drift and spin in the air, catching the neon light like miniature fireflies, reweaving into a halo orbit as she moves. No transformation, no destruction — just her, her dance, the bear, and the city\'s glow.\n\nCharacter design: slender, graceful proportions; a refined, gentle face with soft features and a serene, slightly devout expression — eyes half-lidded, calm; long blonde hair rendered strand by strand, flowing and luminous; her signature white-and-gold priestess outfit drawn with fine elegant lines, layers of cloth that lift and settle beautifully in motion.\n\n0s–1.5s Shot 1 — The Stillness — wide shot: the dancer stands motionless at the center of the plaza, eyes closed, wind catching her hair and the hem of her robes, city lights and mist behind her. The toy bear floats at her side, its button eyes glowing softly, a warm radiance pulsing from its little chest, and a ring of golden sparkles circles it slowly. Behind her, the towers shimmer with neon; the wet pavement mirrors the sky. She breathes — the bear\'s glow flickers gently.\n\n1s–2.5s Shot 2 — The Unfolding — she begins to move: a slow arm extension turning into a spin, long hair sweeping through the air. Her robes flare with the rotation, white cloth catching the blue light, gold trim tracing glowing arcs; the floating sparkles and starlight spiral with her like a comet of tiny lights, one cluster passing close to the camera, its warm glints reflecting in the bear\'s glassy eyes. She opens her eyes — serene, focused — as she completes the turn. Neon light trails and passing cars streak softly behind her, a slight slow-motion feel.\n\n2.5s–4s Shot 3 — The Leap — fast footwork into a leaping turn, body stretching mid-air, robes and hair streaming upward like wings, the halo of golden particles exploding outward and reforming as she twists, the toy bear tumbling playfully through the air alongside her. Wet pavement reflections flash below, softly blurred; the city\'s glow blooms around her silhouette as she soars through the frame. The motion is fluid, weightless, precise — every beat landing.\n\n4s–5s Shot 4 — The Landing — freeze: she lands softly, the momentum settling through her body, robes settling around her, the sparkling lights returning to the bear, which floats down and nestles gently at her side. She strikes the final pose — one arm extended, palm open, head tilted, eyes lowered, a quiet smile. Her lips part and she whispers, "I am the hour." — silhouette against the glowing city, the last tiny star drifting down past her face, holding. Only the shimmer of heat and city light in the air, and the bear\'s soft glow fading.\n\nCamera: each shot its own angle, cuts clean and hard, no dissolves — precise cuts on the beat with a slight, elegant frame jitter on each accent hit; soft lens bloom where the sparkles catch the light; the golden glow of the bear as a secondary light source alongside the blue-hour dusk, warm highlights tracing her profile and the edges of her robes.\n\nAudio: a restrained, atmospheric score — wind, distant city ambience, footsteps on wet pavement, a soft tinkling chime accompanying the bear\'s sparkles on each accent beat, low strings and piano underneath, an accent hit on each beat, the score bursting at 4s as she lands, closing the final 1s in near-silence with only the wind, her breathing, her soft whisper fading, and the faint rustle of plush fur settling.\n\nNo text, subtitles, logos or watermarks of any kind, no 3D-CG or cel-shaded video-game look, no photorealism, no rough or crude linework — keep the delicate hand-drawn 2D anime texture with fine, elegant lines throughout.'}
     wf.nodes['105::104'].widgets = {}
@@ -344,7 +359,16 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
     wf.nodes['105::166'].native_input_optional = [False, False, False, False, False]
     wf.nodes['105::166'].native_input_asset_kinds = None
     wf.nodes['105::166'].native_output_slots = None
-    wf.nodes['105::168'].inputs = {'samples': ['105::159', 0], 'vae': ['105::146', 0], 'audio_vae': ['105::148', 0]}
+    # LanPaint's current target schema requires these decode controls.  The
+    # native export's initial constructor carried them, but the generated
+    # input reset below used to drop them before compilation.
+    wf.nodes['105::168'].inputs = {
+        'samples': ['105::159', 0],
+        'vae': ['105::146', 0],
+        'audio_vae': ['105::148', 0],
+        'blend_overlap': 7,
+        'audio_crossfade': 0.02,
+    }
     wf.nodes['105::168'].widgets = {}
     wf.nodes['105::168'].metadata = {'schema_source': {'provider': 'LanPaint source', 'path': 'https://github.com/scraed/LanPaint/blob/master/src/LanPaint/nodes.py', 'cache_path': None, 'server_url': None, 'package': 'LanPaint', 'version': 'master', 'hash': None, 'confidence': 0.95}, 'provenance': 'official_source', 'keep_defaults': ['blend_overlap', 'audio_crossfade']}
     wf.nodes['105::168'].native_input_names = ['samples', 'video', 'vae', 'audio_vae', 'mask', 'audio_mask']
@@ -439,7 +463,8 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
     wf.inputs['model'].default = None
     wf.register_input('steps', '105::9', 'steps', 20, type=None, default=None, required=False, range=None, aliases=(), media_semantics=None, allow_missing_target=False)
     wf.inputs['steps'].default = None
-    public_output_0 = wf.outputs[0]
+    public_output_0 = next(output for output in wf.outputs if output.node_id == '92')
+    public_output_audio = next(output for output in wf.outputs if output.node_id == '93')
     wf.outputs.clear()
     public_output_0.output_type = 'SaveVideo'
     public_output_0.name = None
@@ -448,12 +473,34 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
     public_output_0.filename_prefix = None
     public_output_0.expected_cardinality = None
     wf.outputs.append(public_output_0)
+    wf.outputs.append(public_output_audio)
     wf.requirements.models = ['minimax_h3_audio_vae_fp32.safetensors', 'minimax_h3_fl2va_pruned_fp8_scaled.safetensors', 'minimax_h3_video_vae_fp16.safetensors', 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors']
     wf.requirements.custom_nodes = []
     wf.requirements.missing_models = []
-    wf.requirements.missing_nodes = ['BasicGuider', 'BasicScheduler', 'CLIPLoader', 'ComfyMathExpression', 'KSamplerSelect', 'LanPaint_AVDecode', 'LanPaint_AVEncode', 'LanPaint_SamplerCustomAdvanced', 'LanPaint_VideoMaskEditor', 'MarkdownNote', 'MiniMaxH3ImageToVideo', 'PrimitiveFloat', 'PrimitiveInt', 'RandomNoise', 'Reroute', 'ResolutionSelector', 'SaveVideo', 'UNETLoader', 'VAELoader']
+    # These classes were authored before a live target schema was available.
+    # The RunPod ComfyUI 0.32.0 + LanPaint capture now witnesses every emitted
+    # class, so the generated requirement record must not preserve that stale
+    # missing-node diagnostic.
+    wf.requirements.missing_nodes = []
     wf.requirements.unsupported = []
     wf.strict_types = False
+    # These two Reroute nodes are pure passthroughs used only to feed the
+    # encode/decode VAE sockets.  They come from the old exported graph and
+    # have no stable object-info identity in the target ComfyUI build.  Wire
+    # the sockets directly to the same VAE sources and drop the no-op nodes;
+    # this preserves runtime behaviour while keeping the approved graph
+    # composed entirely of target-witnessed nodes.
+    wf.nodes['105::166'].inputs['vae'] = ['105::11', 0]
+    wf.nodes['105::166'].inputs['audio_vae'] = ['105::24', 0]
+    wf.nodes['105::168'].inputs['vae'] = ['105::11', 0]
+    wf.nodes['105::168'].inputs['audio_vae'] = ['105::24', 0]
+    wf.nodes.pop('105::146', None)
+    wf.nodes.pop('105::148', None)
+    wf.edges = [
+        edge for edge in wf.edges
+        if edge.from_node not in {'105::146', '105::148'}
+        and edge.to_node not in {'105::146', '105::148'}
+    ]
     # The emitter restores source semantics above. Apply the public controls
     # last so changing a build argument cannot be silently overwritten.
     wf.nodes['105::6'].inputs['unet_name'] = model
@@ -477,4 +524,30 @@ def build(*, model=UNET_NAME, steps=20, prompt=DEFAULT_PROMPT, duration=5,
         wf.register_input(name, node_id, field, value, type=None, default=value,
                           required=False, range=None, aliases=(), media_semantics=None,
                           allow_missing_target=False)
+    audio_output = next(output for output in wf.outputs if output.node_id == '93')
+    audio_output.name = 'audio'
+    audio_output.artifact_kind = 'audio'
+    audio_output.mime_type = 'audio/flac'
+    audio_output.filename_prefix = 'audio/MiniMax_H3'
+    audio_output.expected_cardinality = 'one'
+
+    # The native graph projection above still stores several imported links
+    # inline in node inputs.  VibeWorkflow treats VibeEdge as the sole source
+    # of connectivity, so promote the final link values after all of the
+    # source-specific rewrites and remove their embedded copies.  Replacing
+    # any earlier edge for that socket also avoids retaining stale Reroute
+    # links after the two passthrough nodes are removed.
+    for node_id, node in wf.nodes.items():
+        for fields in (node.inputs, node.widgets):
+            for input_name, value in list(fields.items()):
+                if not is_canonical_api_link(value):
+                    continue
+                source_id, output_slot = value
+                wf.edges = [
+                    edge for edge in wf.edges
+                    if not (edge.to_node == node_id and edge.to_input == input_name)
+                ]
+                wf.connect(f'{source_id}.{output_slot}', f'{node_id}.{input_name}')
+                del fields[input_name]
+
     return wf

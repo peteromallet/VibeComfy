@@ -156,8 +156,8 @@ def _stub_run(monkeypatch: pytest.MonkeyPatch, workflow: VibeWorkflow) -> list[t
     from vibecomfy.cli_loader import load_bundle
     provider = _ImageSchemaProvider()
     monkeypatch.setattr(
-        "vibecomfy.commands.run.get_schema_provider",
-        lambda prefer, *, server_url=None: provider,
+        "vibecomfy.commands.run.get_authoring_schema_provider",
+        lambda *, on_demand_schemas: provider if on_demand_schemas is False else None,
     )
     entry = ModelEntry(
         "fixture.safetensors", ModelSource("local"), 0,
