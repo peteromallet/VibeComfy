@@ -23,25 +23,43 @@ Run `vibecomfy sources sync` only when indexes are stale and generated index upd
 
 ## Hivemind
 
-Use Hivemind for current ComfyUI practice, Banodoco workflows, Kijai/Ablejones node usage, settings, model notes, and workflow examples that are not in the local corpus.
+Use Hivemind for current ComfyUI practice, Banodoco workflows, Kijai/Ablejones node usage, settings, model notes, and community workflow examples. Local search is for the selected imports and curated adapters already present in this checkout.
 
-Preferred when the Astrid executor is available:
-
-```bash
-python3 -m astrid executors run hivemind.search \
-  --input 'query=wan animate workflow openpose' \
-  --input 'limit=10'
-```
-
-Fallback raw HTTP:
+Use the deployed Hivemind pack through Astrid. This is the single supported
+route; it pins the installed pack and applies the runtime's retry/error
+handling:
 
 ```bash
-curl -sS \
-  -H 'apikey: sb_publishable_O38oPBafrBoFrpi_rlWJvA_UJrulFsx' \
-  'https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1/unified_feed?select=kind,item_id,title,body,context,url,created_at&or=(title.ilike.*wan%20animate*,body.ilike.*wan%20animate*)&order=created_at.desc&limit=20'
+python3 -m astrid hivemind search "wan animate workflow openpose" \
+  --kinds workflow --limit 10 --json
 ```
 
-URL-encode spaces as `%20`. Favor topic-specific sources such as `wan_comfyui`, `wan_resources`, `ltx_chatter`, `ltx_resources`, `comfyui`, `resources`, and `daily_summaries`.
+Fetch the exact accepted resource/revision through the Astrid Hivemind SDK
+(`hivemind.get_item`) after search. Do not call Hivemind's PostgREST tables or
+the retired `unified_feed`/`contribute-resource` paths directly from a
+workflow task.
+
+Favor topic-specific sources such as `wan_comfyui`, `wan_resources`,
+`ltx_chatter`, `ltx_resources`, `comfyui`, `resources`, and `daily_summaries`.
+
+## One workflow lifecycle
+
+Hivemind is the discovery and provenance layer. VibeComfy owns the local
+workflow artifacts:
+
+1. Search Hivemind and pin the accepted resource/revision.
+2. Pull that one workflow on demand into `workflows/<source-id>/`; retain its
+   bytes, Hivemind revision, and hash in the bundle metadata.
+3. Edit, validate, and run that local bundle (or copy it to `recipes/`).
+4. Use `port convert --ready-id ...` only when deliberately promoting a
+   validated workflow into a curated `ready_templates/` adapter. Any source
+   snapshot shipped with that adapter is generated from the pinned Hivemind
+   input; it is not a second source of truth.
+
+Do not bulk-mirror Hivemind into `external_workflows/`. Hivemind is the
+canonical shared workflow catalogue; `workflows/` is the single local
+on-demand ingestion/cache location. `ready_templates/` contains only curated
+executable adapters.
 
 ## Evidence Standard
 

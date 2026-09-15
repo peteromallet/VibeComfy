@@ -1,16 +1,22 @@
-# Ready Template Sources
+# Ready Template Build Inputs
 
-This directory stores source ComfyUI workflow JSON. These files are import
-material for indexing, conversion, coverage analysis, and ready-template
-regeneration. They are workflows, not curated Python templates.
+Hivemind is the canonical public workflow store. This directory contains only
+the pinned source snapshots needed to build and verify the curated Python
+adapters in `ready_templates/`. A snapshot is generated from a pinned
+Hivemind or upstream revision; it is not an independently maintained workflow
+catalogue and must not be used for bulk discovery.
+
+For ordinary community work, search Hivemind and pull the selected revision
+into the local `workflows/` ingestion store. Add a snapshot here only as part
+of an explicit ready-template promotion.
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `official/` | Source workflows grouped by media kind (`audio/`, `edit/`, `image/`, `video/`). |
-| `custom_nodes/` | Source workflows grouped by the custom-node pack or community source they exercise. |
-| `input/` | Small media fixtures referenced by corpus workflows. Keep paths stable because JSON workflows may refer to them directly. |
+| `official/` | Generated snapshots of pinned official sources used by adapters. |
+| `custom_nodes/` | Generated snapshots of pinned custom-node/community sources used by adapters. |
+| `input/` | Small media fixtures referenced by adapter build/verification runs. Keep paths stable because pinned source JSON may refer to them directly. |
 | `manifests/` | Corpus metadata such as coverage tiers and ready-template regeneration provenance. |
 
 ## Path Contracts
