@@ -20,11 +20,9 @@ def native_boundary_recovery(exc: BaseException, source: str) -> dict[str, Any] 
                 "Open the graph in ComfyUI and export it with recursive component boundaries resolved, "
                 "or author explicit Python-owned interfaces and boundary_ports."
             ),
-            "port_after_resolution": f"vibecomfy port check {source} --json",
-            "materialize_after_resolution": (
-                f"vibecomfy port convert {source} --out out/scratchpads/<name>.py --json"
-            ),
-            "validate_candidate": "vibecomfy validate out/scratchpads/<name>.py",
+            "port_after_resolution": f"vibecomfy import {source}",
+            "materialize_after_resolution": f"vibecomfy import {source}",
+            "validate_candidate": "vibecomfy validate workflows/<name> --json",
         },
         "candidate_status": "not_materialized",
     }

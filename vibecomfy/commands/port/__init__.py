@@ -35,8 +35,9 @@ from vibecomfy.porting.emit.ui import default_output_path, emit_ui_json
 from vibecomfy.porting.layout import evaluate_felt_delta
 
 # --- Command handlers ---
-from ._check import _cmd_port_check, build_port_check_payload
-from ._convert import _cmd_port_convert, _run_convert_all
+# ``_check`` and ``_convert`` remain importable from their implementation
+# modules for internal diagnostics and maintainer tooling, but are not exposed
+# through this package or registered as public subcommands.
 from ._widgets import _cmd_port_widgets, _render_widgets
 from ._export import (
     _artifact_payload,
@@ -77,8 +78,6 @@ from ._register import register
 
 __all__ = [
     "register",
-    "_cmd_port_check",
-    "_cmd_port_convert",
     "_cmd_port_export",
     "_cmd_port_inventory",
     "_cmd_port_repair",

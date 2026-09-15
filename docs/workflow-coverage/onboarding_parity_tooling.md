@@ -22,7 +22,7 @@ VibeComfy already has most of the low-level machinery:
   Converts UI/API workflow JSON into `VibeWorkflow`.
 
 - `vibecomfy.porting.workbench`
-  Performs source-level port checks: workflow shape, helper/component diagnostics, custom-node suggestions, model asset analysis, widget alias checks, known runtime-required inputs, and schema validation.
+  Performs import diagnostics: workflow shape, helper/component diagnostics, custom-node suggestions, model asset analysis, widget alias checks, known runtime-required inputs, and schema validation.
 
 - `vibecomfy.porting.emitter`
   Emits pure Python ready templates from `VibeWorkflow`.
@@ -39,8 +39,8 @@ VibeComfy already has most of the low-level machinery:
 - `vibecomfy.schema.cache` and `ConversionSchemaProvider`
   Reuse captured ComfyUI `/object_info` JSON as offline runtime schema evidence.
   This is the primary way to resolve installed custom nodes whose source parser
-  misses dynamic inputs/outputs. `port check` and `port convert` default to the
-  newest `out/cache/object_info*.json` when present, with
+  misses dynamic inputs/outputs. Import diagnostics use the newest
+  `out/cache/object_info*.json` when present, with
   `--object-info-cache` / `--no-object-info-cache` overrides.
 
 - `vibecomfy.patches`
@@ -147,7 +147,7 @@ vibecomfy workflows source-info <template-or-path>
 vibecomfy workflows enrich-targets <template-or-path> [--hires-fix] [--resolution WxH]
 ```
 
-The old `port check`, `port convert`, and `validate` commands remain available for porting workflows.
+Import, validate, and doctor are the canonical workflow lifecycle commands.
 
 ## Missing / Proposed Pieces
 
@@ -222,21 +222,18 @@ vibecomfy workflows contract-validate <template-or-path> --type ltx-first-last-t
 # 3. Schema validation (runtime materialization)
 vibecomfy validate <template-or-path>
 
-# 4. Port check (source-level diagnostics)
-vibecomfy port check <template-or-path> --strict-ready-template
-
-# 4a. Optional: force a specific captured runtime schema
-vibecomfy port check <template-or-path> --strict-ready-template --object-info-cache out/cache/object_info.<runtime>.json
-
-# 5. Doctor (model/assets/runtime readiness)
+# 4. Import diagnostics and promotion
 vibecomfy doctor <template-or-path> --json
+
+# 4a. Promote only after validation and review
+vibecomfy templates create <bundle> --id <media>/<name> --out ready_templates/<media>/<name>.py --json
 ```
 
 Agent checklist:
 1. Identify the source and record provenance.
 2. Run `vibecomfy workflows lens` for graph diagnostics.
-3. Run `vibecomfy port check` for source-level issues.
-4. Convert or author the workflow as pure Python.
+3. Import the source into a canonical bundle.
+4. Validate and author the workflow as pure Python.
 5. Register named app patch points.
 6. Attach or update a semantic contract.
 7. Run `vibecomfy workflows contract-validate`.

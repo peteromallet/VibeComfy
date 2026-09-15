@@ -1330,3 +1330,10 @@ Keep human review for:
   which must remain explicit reviewed edits?
 - What exact legacy `vibecomfy convert` behaviors, if any, must be migrated
   before the command is removed?
+# Superseded
+
+This historical plan predates the canonical import hard cut. Its command
+examples describe the retired `port check`/`port convert` surface and are kept
+only as historical context. Current workflows use `vibecomfy import`,
+`validate`, `doctor`, and `templates create`; see `docs/authoring.md` and
+`docs/templates/adding_templates_models.md`.

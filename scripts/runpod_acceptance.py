@@ -9,8 +9,8 @@ import sys
 _FAILURE_TEXT = (
     "scripts/runpod_acceptance.py cannot execute raw API, UI, scratchpad, or bare-workflow payloads "
     "and does not provision a RunPod machine.\n"
-    "Next: vibecomfy port check <source> --json\n"
-    "Then: vibecomfy port convert <source> --out out/scratchpads/<name>.py\n"
+    "Next: vibecomfy import <source> --json\n"
+    "Then: vibecomfy validate workflows/<source-stem> --json\n"
     "Then: load the canonical bundle, compile an ApprovedProjectionRecord, and call "
     "vibecomfy.runtime.runpod_adapter.prepare_runpod_transport / queue_runpod_stub offline."
 )

@@ -373,4 +373,4 @@ another project.
 - **Run the edited workflow:** follow the [run-workflow skill](../agent-skill/skills/run-comfy-workflow/SKILL.md) to choose a runtime and check its dependencies.
 - **Export back to ComfyUI:** see [Emitting a UI view](../authoring.md#emitting-a-ui-view).
 - **Add a reusable library template:** follow [Adding templates and models](../templates/adding_templates_models.md).
-- **Use advanced conversion controls:** the [porting workbench](../templates/porting_workbench.md) documents `port check`, `port convert`, and strict-ready promotion. `workflows onboard` prints a multi-step plan; it does not execute an import.
+- **Use advanced promotion controls:** the [porting workbench](../templates/porting_workbench.md) documents `validate`, `doctor`, and `templates create`. `workflows onboard` prints a multi-step plan; it does not execute an import.

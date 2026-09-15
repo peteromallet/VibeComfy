@@ -315,10 +315,7 @@ def test_raw_json_is_bound_import_evidence_and_cannot_be_rebundled_as_authority(
     assert bundle.provenance["operation"] == "imported"
     with pytest.raises(WorkflowBundleError, match="raw UI/API JSON is import evidence only") as error:
         bundle.compile()
-    assert f"vibecomfy port check {source} --json" in str(error.value)
-    assert f"vibecomfy port convert {source} --out out/scratchpads/{source.stem}.py" in str(
-        error.value
-    )
+    assert f"vibecomfy import {source}" in str(error.value)
     with pytest.raises(WorkflowBundleError, match="import evidence only"):
         bundle.materialize_ui()
     from vibecomfy.workflow_bundle import materialize_ui_json
@@ -568,8 +565,7 @@ def test_raw_run_failure_prints_safe_port_actions(
 
     assert code == 1
     output = capsys.readouterr().err
-    assert "vibecomfy port check '/tmp/a workflow.json' --json" in output
-    assert "vibecomfy port convert '/tmp/a workflow.json' --out 'out/scratchpads/a workflow.py'" in output
+    assert "vibecomfy import '/tmp/a workflow.json'" in output
 
 
 @pytest.mark.parametrize(
@@ -626,13 +622,8 @@ def test_real_raw_run_rejects_before_runtime(
     assert reached == []
     output = capsys.readouterr().err
     assert "raw UI/API JSON is import evidence only" in output
-    assert output.count("vibecomfy port check") == 1
-    assert output.count("vibecomfy port convert") == 1
-    assert f"vibecomfy port check '{source}' --json" in output
-    assert (
-        f"vibecomfy port convert '{source}' --out "
-        "'out/scratchpads/raw workflow.py'"
-    ) in output
+    assert output.count("vibecomfy import") == 1
+    assert f"vibecomfy import '{source}'" in output
 
 
 @pytest.mark.parametrize(

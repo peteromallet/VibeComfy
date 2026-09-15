@@ -75,8 +75,8 @@ maintain a second local copy of Hivemind's workflow catalogue.
 `workflow.vibe.json`, and a byte-identical `source.json`; provenance stays in
 the bundle metadata. Use `--out <directory>`, `--dry-run`, or `--json` as
 needed. This prepares authoring files but does not install dependencies or run
-the workflow. Keep `port check` and `port convert` for advanced preflight,
-standalone scratchpad generation, and intentional ready-template conversion. A
+the workflow. Use `validate` and `doctor` for checks, and
+`templates create` for intentional ready-template promotion. A
 `ready_templates/` entry is a curated executable adapter, not a replacement for
 the Hivemind source or the local `workflows/` ingestion bundle.
 This standalone route is local and untracked by default. Add `--project <name>`

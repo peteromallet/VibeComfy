@@ -56,7 +56,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "status": "error",
             "layer": "Python scratchpad import/build",
             "errors": [f"{type(exc).__name__}: {exc}"],
-            "recommended_command": f"vibecomfy port check {args.path} --json",
+            "recommended_command": f"vibecomfy doctor {args.path} --json",
         }
         emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
@@ -67,7 +67,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "status": "error",
             "layer": "Porting helper diagnostics",
             "errors": [issue.message for issue in helper_blockers],
-            "recommended_command": f"vibecomfy port check {args.path} --json",
+            "recommended_command": f"vibecomfy doctor {args.path} --json",
         }
         if json_output:
             emit(payload, json=True, text_renderer=_render_doctor_error)

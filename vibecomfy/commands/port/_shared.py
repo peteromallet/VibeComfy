@@ -23,18 +23,13 @@ from vibecomfy.schema import ConversionSchemaProvider, get_authoring_schema_prov
 from vibecomfy.schema.cache import latest_object_info_cache_path
 
 
-PORT_HELP = """Cheap preflight and Python materialization for ComfyUI workflow ports.
+PORT_HELP = """Expert workflow inspection and export tools.
 
-Use `port check` before manual template editing or expensive RunPod validation.
-Complete native inputNode/outputNode subgraphs are materialized into the shared
-canonical path; malformed or unsupported boundaries fail closed with an
-`unsupported_boundary_encoding` diagnostic. Unresolved schemas may remain in
-draft conversion reports, while strict-ready promotion still gates on them.
-Use `port convert` to turn source workflows into Python scratchpads; pass
-`--ready-id kind/name` only when intentionally producing a ready-template
-candidate. Use `doctor`/`validate` after conversion, `nodes install-plan` for
-custom node install planning, and `fetch` for URL-backed models. Use
-`--head-check-models` only when you want network HEAD checks for model URLs.
+Use `vibecomfy import` for every new local, URL, or Hivemind workflow. Then use
+`vibecomfy validate` or `vibecomfy doctor` for diagnostics and this command
+group for distinct expert tools such as export, widgets, inventory, repair,
+rules, lint, and simulation. Source conversion is an internal import stage;
+there is no separate public port-check or port-convert onboarding path.
 """
 
 
@@ -127,7 +122,7 @@ def _emit_strict_ready_load_failure(
     if operation == "convert":
         convert_payload = {
             "status": "error",
-            "message": "port convert stopped because strict-ready source loading failed.",
+            "message": "internal conversion stage stopped because strict-ready source loading failed.",
             "report": payload,
             "strict_ready_ok": False,
             "strict_ready_diagnostics": [issue.to_json()],
@@ -216,7 +211,7 @@ def _render_check(report: Any) -> str:
     for issue in report.diagnostics:
         counts[issue.severity] = counts.get(issue.severity, 0) + 1
     lines = [
-        f"port check: {'ok' if report.ok else 'errors found'}",
+        f"port diagnostics: {'ok' if report.ok else 'errors found'}",
         f"source: {report.source}",
         f"nodes: {report.workflow_shape.get('runtime_nodes', 0)} runtime, {report.workflow_shape.get('helper_nodes', 0)} helper",
         f"diagnostics: {counts['error']} error, {counts['warning']} warning, {counts['info']} info",
@@ -264,8 +259,8 @@ def _build_authoring_provider(args: argparse.Namespace):
     # Opt-in on-demand schema resolution: when the CLI flag is set, mirror the
     # VIBECOMFY_ON_DEMAND_SCHEMAS=1 env var so AuthoringSchemaProvider._build_providers
     # appends the on-demand escalation ladder (corpus cache + static AST parse; runtime
-    # boot stays separately gated on VIBECOMFY_ON_DEMAND_BOOT=1). This lets `port check`
-    # and `port convert` resolve non-installed custom-node classes offline.
+    # boot stays separately gated on VIBECOMFY_ON_DEMAND_BOOT=1). This lets the
+    # import diagnostics resolve non-installed custom-node classes offline.
     if getattr(args, "resolve_on_demand", False):
         os.environ["VIBECOMFY_ON_DEMAND_SCHEMAS"] = "1"
     return get_authoring_schema_provider(
@@ -344,7 +339,7 @@ def _emit_convert_payload(payload: dict[str, Any], *, json_output: bool) -> None
                 if isinstance(unified, str) and unified:
                     print(unified, end="" if unified.endswith("\n") else "\n")
         return
-    print(payload.get("message", "port convert failed"), file=sys.stderr)
+    print(payload.get("message", "internal conversion stage failed"), file=sys.stderr)
     report = payload.get("report") or {}
     for issue in (report.get("diagnostics") or [])[:12]:
         print(f"- {issue['severity']}: {issue['code']}: {issue['message']}", file=sys.stderr)

@@ -156,7 +156,7 @@ def test_doctor_rejects_raw_json_before_canonical_conversion(
     assert _cmd_doctor(argparse.Namespace(path=str(workflow))) == 1
     output = capsys.readouterr().out.lower()
     assert "workflow diagnosis requires canonical python" in output
-    assert "port check" in output
+    assert "vibecomfy validate" in output
 
     assert _cmd_doctor(
         argparse.Namespace(path=str(workflow), json=True)

@@ -300,7 +300,7 @@ class UnknownNodeSchemaError(SchemaValidationError):
 class CanonicalParityFailure(ConversionParityError):
     """Emitted code lost parity with the canonical source workflow."""
 
-    default_next_action = "vibecomfy port --reconvert <template>"
+    default_next_action = "vibecomfy import <source> and re-validate the canonical bundle"
 
 
 __all__ = [

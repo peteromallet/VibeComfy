@@ -72,8 +72,11 @@ run_case() {{
   fi
 
   start=$(date +%s)
-  convert_log="out/model_matrix/${{id}}.convert.log"
-  if python3 -m vibecomfy.cli convert "$wf" --out "out/scratchpads/$id.py" >"$convert_log" 2>&1; then
+  convert_log="out/model_matrix/${{id}}.import.log"
+  imported_workflow="out/model_matrix/imported/$id"
+  mkdir -p out/model_matrix/imported
+  rm -rf "$imported_workflow"
+  if python3 -m vibecomfy.cli import "$wf" --out "$imported_workflow" --json >"$convert_log" 2>&1; then
     convert_seconds=$(( $(date +%s) - start ))
   else
     convert_seconds=$(( $(date +%s) - start ))
@@ -84,7 +87,7 @@ run_case() {{
 
   start=$(date +%s)
   vibe_log="out/model_matrix/${{id}}.vibecomfy.log"
-  if timeout 1800 python3 -m vibecomfy.cli run "out/scratchpads/$id.py" --runtime embedded --backend api --steps 1 --seed 123 --prompt "a compact red cube on a neutral background" >"$vibe_log" 2>&1; then
+  if timeout 1800 python3 -m vibecomfy.cli run "$imported_workflow" --runtime embedded --backend api --steps 1 --seed 123 --prompt "a compact red cube on a neutral background" >"$vibe_log" 2>&1; then
     vibecomfy_seconds=$(( $(date +%s) - start ))
   else
     vibecomfy_seconds=$(( $(date +%s) - start ))

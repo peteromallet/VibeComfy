@@ -94,7 +94,7 @@ def _validate_json_to_template(result: dict[str, Any]) -> tuple[bool, str]:
 
 
 def _validate_doctor_all(result: dict[str, Any]) -> tuple[bool, str]:
-    """Check that port doctor-all ran and produced diagnostics."""
+    """Check that doctor-all ran and produced diagnostics."""
     findings = result.get("findings", [])
     status = result.get("status", "unknown")
     sections = result.get("sections", [])
@@ -141,9 +141,9 @@ TASKS: list[TaskConfig] = [
         description="Create a workflow from a ComfyUI API JSON file",
         prompt=(
             "You have access to the vibecomfy CLI.  "
-            "Run 'vibecomfy port check ready_templates/sources/official/video/wan_i2v.json' "
-            "to validate the JSON, then use the port convert workflow to create "
-            "a Python scratchpad.  Return a JSON object with key 'workflow' "
+            "Run 'vibecomfy import ready_templates/sources/official/video/wan_i2v.json' "
+            "to create a canonical workflow bundle, then validate it and inspect "
+            "the editable Python workflow. Return a JSON object with key 'workflow' "
             "(containing node_count and class_types) and 'source' (the path used)."
         ),
         success_metric="JSON validated and workflow object created from file",
@@ -311,7 +311,7 @@ def _dry_run_dummy_result(task: TaskConfig) -> dict[str, Any]:
         return {
             "status": "ok",
             "findings": [],
-            "sections": [{"name": "port_check", "status": "ok"}],
+            "sections": [{"name": "import_diagnostics", "status": "ok"}],
         }
     elif task.id == "node_splice":
         return {

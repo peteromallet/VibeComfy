@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.commands.port import _cmd_port_convert, _cmd_port_export
+from vibecomfy.commands.port._convert import _cmd_port_convert
+from vibecomfy.commands.port import _cmd_port_export
 from vibecomfy.porting.emit.ui import structural_validate
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "walking_skeleton" / "flat.json"

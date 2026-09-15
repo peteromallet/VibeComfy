@@ -16,8 +16,8 @@ def test_native_boundary_recovery_is_actionable_without_materializing_candidate(
     assert result is not None
     assert result["candidate_status"] == "not_materialized"
     assert "ComfyUI" in result["recovery"]["inspect_source"]
-    assert "port check workflow.json" in result["recovery"]["port_after_resolution"]
-    assert "port convert workflow.json" in result["recovery"]["materialize_after_resolution"]
+    assert "vibecomfy import workflow.json" in result["recovery"]["port_after_resolution"]
+    assert "vibecomfy import workflow.json" in result["recovery"]["materialize_after_resolution"]
 
 
 def test_import_errors_does_not_relabel_unrelated_failures() -> None:

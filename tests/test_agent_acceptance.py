@@ -9,7 +9,7 @@ import pytest
 import vibecomfy.commands.workflows as workflows_cmd
 from vibecomfy.commands.contract import _cmd_contract_doctor, _cmd_contract_inspect
 from vibecomfy.commands.inspect import _cmd_inspect
-from vibecomfy.commands.port import _cmd_port_convert
+from vibecomfy.commands.port._convert import _cmd_port_convert
 from vibecomfy.commands.workflows import _cmd_workflows_list
 from vibecomfy.registry.ready import workflow_from_ready
 from vibecomfy.registry.ready_template import bind_output

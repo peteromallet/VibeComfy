@@ -27,11 +27,11 @@ The exact author name “cyclism” did not occur in the live search; the matchi
 
 ## VibeComfy status
 
-The source has been port-checked and draft-converted to a VibeComfy Python scratchpad. It remains `source_only` because this checkout has no committed object-info captures for the Update 9 custom classes and no URL-bearing registry entries for the third-party H3 weights. Run:
+The source is preserved as import evidence. It remains `source_only` because this checkout has no committed object-info captures for the Update 9 custom classes and no URL-bearing registry entries for the third-party H3 weights. Import it into the canonical editable bundle with:
 
 ```bash
-vibecomfy port convert ready_templates/sources/custom_nodes/ComfyUI-H3-Motion-Context-MultiRef/seitanism/minimax_h3_av_extension.json \
-  --out out/scratchpads/minimax_h3_av_extension.py --json
+vibecomfy import ready_templates/sources/custom_nodes/ComfyUI-H3-Motion-Context-MultiRef/seitanism/minimax_h3_av_extension.json \
+  --out workflows/minimax_h3_av_extension --json
 ```
 
 Strict-ready promotion should happen after those schemas and model provenance are captured; the raw graph is already preserved and reproducible from the pinned upstream commit.

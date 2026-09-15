@@ -41,7 +41,7 @@ def _cmd_port_doctor_all(args: argparse.Namespace) -> int:
             "finding_count": len(findings),
         },
         "findings": findings,
-        "next_action": _first_next_action(findings) or f"vibecomfy port check {args.workflow} --json",
+        "next_action": _first_next_action(findings) or f"vibecomfy doctor {args.workflow} --json",
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 1 if payload["status"] == "error" else 0

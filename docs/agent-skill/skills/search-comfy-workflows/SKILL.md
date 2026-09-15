@@ -48,10 +48,15 @@ Hivemind is the discovery and provenance layer. VibeComfy owns the local
 workflow artifacts:
 
 1. Search Hivemind and pin the accepted resource/revision.
-2. Pull that one workflow on demand into `workflows/<source-id>/`; retain its
-   bytes, Hivemind revision, and hash in the bundle metadata.
+2. Pull that one workflow on demand with the normal importer, for example
+   `vibecomfy import hivemind:external_resources:<id>` or
+   `vibecomfy import hivemind://resource/<id>[/revisions/<revision>]`. The importer writes the single
+   local bundle under `workflows/<source-id>/` and retains the Hivemind
+   evidence ID, any provider revision, and hash in bundle metadata; when the
+   provider exposes no revision, the hash is recorded as the local snapshot
+   pin.
 3. Edit, validate, and run that local bundle (or copy it to `recipes/`).
-4. Use `port convert --ready-id ...` only when deliberately promoting a
+4. Use `vibecomfy templates create ... --id ...` only when deliberately promoting a
    validated workflow into a curated `ready_templates/` adapter. Any source
    snapshot shipped with that adapter is generated from the pinned Hivemind
    input; it is not a second source of truth.

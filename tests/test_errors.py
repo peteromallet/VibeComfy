@@ -209,10 +209,10 @@ def test_subgraph_freshness_error_raise_includes_next_action() -> None:
     """SubgraphFreshnessError includes reconvert next_action."""
     exc = SubgraphFreshnessError(
         "Subgraph freshness check failed for template.py",
-        next_action="vibecomfy port --reconvert <template>",
+        next_action="vibecomfy import <source>",
     )
-    assert exc.next_action == "vibecomfy port --reconvert <template>"
-    assert "next action: vibecomfy port --reconvert <template>" in str(exc)
+    assert exc.next_action == "vibecomfy import <source>"
+    assert "next action: vibecomfy import <source>" in str(exc)
 
 
 def test_conversion_write_error_carries_next_action() -> None:

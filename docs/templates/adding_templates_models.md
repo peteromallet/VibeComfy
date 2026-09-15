@@ -6,7 +6,7 @@ This is the operating path for adding, fixing, forking, or promoting a model fam
 
 The same gates apply from four starting points:
 
-- **Raw Comfy JSON**: save the upstream source under `ready_templates/sources/...`, run `port check`, then convert or hand-author.
+- **Raw Comfy JSON**: import it into a canonical local bundle, then validate/doctor it before editing or promoting.
 - **Existing ready template**: inspect current metadata, requirements, outputs, and patch points before editing; rerun strict readiness before RunPod.
 - **Fork of a ready template**: use a recipe or patch for run-specific decoration; create a new ready template only when graph shape, model family, required inputs, output semantics, custom nodes, or app capability changes.
 - **From-scratch Python workflow**: author with `VibeWorkflow`, blocks, or patches, then promote only after the same model/node/output/index/test/live-evidence gates.
@@ -21,11 +21,10 @@ Every runnable template should move through this pipeline:
 
 ```text
 raw Comfy workflow JSON
-  -> ready_templates/sources/... source file
-  -> port check report
-  -> port-converted Python scratchpad
-  -> ready_templates/sources/manifests/coverage.json entry
-  -> port-converted or hand-authored ready_templates/<media>/<id>.py
+  -> vibecomfy import SOURCE
+  -> canonical workflows/<source-id>/ bundle
+  -> validate + doctor
+  -> templates create (or hand-authored ready_templates/<media>/<id>.py)
   -> tools.refresh_template_index
   -> local validate
   -> focused RunPod matrix scope
@@ -39,10 +38,11 @@ Default ready-template discovery is repo-only and index-backed. `workflows list 
 Run the porting workbench before manual edits and before RunPod validation:
 
 ```bash
-python -m vibecomfy.cli port check ready_templates/sources/.../<id>.json --json
-python -m vibecomfy.cli port convert ready_templates/sources/.../<id>.json --out out/scratchpads/<id>.py --json
-python -m vibecomfy.cli port convert ready_templates/sources/.../<id>.json --out ready_templates/<kind>/<id>.py --ready-id <kind>/<id> --json
-python -m vibecomfy.cli port check ready_templates/<media>/<id>.py --strict-ready-template --json
+python -m vibecomfy.cli import ready_templates/sources/.../<id>.json --json
+python -m vibecomfy.cli validate workflows/<id> --json
+python -m vibecomfy.cli doctor workflows/<id> --json
+python -m vibecomfy.cli templates create workflows/<id> --id <kind>/<id> --out ready_templates/<kind>/<id>.py --json
+python -m vibecomfy.cli validate ready_templates/<media>/<id>.py --strict-ready-template --json
 python -m vibecomfy.cli port inventory --ready --json
 ```
 
@@ -59,18 +59,18 @@ Validation also carries small runtime-compatibility gates for issues schema alon
 
 For LTX 2.3 templates that use `LTX2AttentionTunerPatch`, keep `triton_kernels=False` unless that acceleration path has been separately validated on the target RunPod image. The default RTX 4090 validation profile prioritizes portable execution over optional Triton speedups.
 
-Use `--head-check-models` only when you intentionally want model URL HEAD checks. Normal `port check`, `doctor`, `validate`, `fetch`, and `run` paths stay offline by default.
+Use `--head-check-models` only when you intentionally want model URL HEAD checks. Normal `doctor`, `validate`, `fetch`, and `run` paths stay offline by default.
 
 ## Checklist
 
 1. Pick a stable template id.
 2. Add the raw source workflow under `ready_templates/sources/`.
-3. Run `port check` and inspect the report before editing.
+3. Run `validate` and `doctor` and inspect the reports before editing.
 4. Add or update custom-node catalog entries.
 5. Add model registry entries or workflow metadata for model staging.
-6. Convert to a Python scratchpad, then decide whether a ready-template candidate is warranted.
+6. Edit the imported Python bundle, then decide whether a ready-template candidate is warranted.
 7. Add a manifest row.
-8. Create the ready template with `port convert --ready-id`, or hand-author it when the reusable template needs clearer runtime behavior.
+8. Create the ready template with `templates create`, or hand-author it when the reusable template needs clearer runtime behavior.
 9. Refresh the ready-template index.
 10. Run local validation, strict-ready gates, and tests.
 11. Add or update a focused RunPod scope.
@@ -138,7 +138,7 @@ Then update `custom_nodes.lock` when the pack should be pinned. Pinning by commi
 Run:
 
 ```bash
-uv run python -m vibecomfy.cli port check ready_templates/sources/custom_nodes/.../<id>.json --json
+uv run python -m vibecomfy.cli import ready_templates/sources/custom_nodes/.../<id>.json --json
 uv run python -m vibecomfy.cli nodes install-plan ready_templates/sources/custom_nodes/.../<id>.json
 uv run python -m vibecomfy.cli doctor ready_templates/sources/custom_nodes/.../<id>.json
 ```
@@ -193,10 +193,10 @@ hand-authoring a `VibeWorkflow` builder.
 Use conversion when the raw workflow is already close to executable:
 
 ```bash
-uv run python -m vibecomfy.cli port convert ready_templates/sources/.../<id>.json \
-  --ready-id <media>/<id> \
-  --out ready_templates/<media>/<id>.py \
-  --json
+uv run python -m vibecomfy.cli import ready_templates/sources/.../<id>.json \
+  --out workflows/<id> --json
+uv run python -m vibecomfy.cli templates create workflows/<id> \
+  --id <media>/<id> --out ready_templates/<media>/<id>.py --json
 ```
 
 Hand-author when the reusable template needs clearer parameters, loops,
@@ -222,18 +222,19 @@ uv run python -m tools.refresh_template_index --check
 
 ## 7. Local Validation
 
-First confirm the port report is clean enough to edit and convert:
+First import the source and confirm the canonical bundle is valid enough to promote:
 
 ```bash
-uv run python -m vibecomfy.cli port check ready_templates/sources/.../<id>.json --json
-uv run python -m vibecomfy.cli port convert ready_templates/sources/.../<id>.json --out out/scratchpads/<id>.py --json
+uv run python -m vibecomfy.cli import ready_templates/sources/.../<id>.json --out workflows/<id> --json
+uv run python -m vibecomfy.cli validate workflows/<id> --json
+uv run python -m vibecomfy.cli doctor workflows/<id> --json
 ```
 
 Run validation on the generated ready template:
 
 ```bash
 uv run python -m vibecomfy.cli validate ready_templates/<media>/<id>.py
-uv run python -m vibecomfy.cli port check ready_templates/<media>/<id>.py --strict-ready-template --json
+uv run python -m vibecomfy.cli validate ready_templates/<media>/<id>.py --strict-ready-template --json
 ```
 
 `--strict-ready-template` is the promotion gate for production/app-parity templates. It fails schema-backed unresolved positional widgets, missing or broken public input targets, missing or unnamed public outputs, hidden model filenames, and opaque UUID component classes locally, while still reporting unavailable-schema community widgets as porting warnings until object_info or committed widget aliases exist.
@@ -266,13 +267,13 @@ the source node/class and removal condition.
 Use focused scopes. Do not run the full matrix while iterating on one family:
 
 ```bash
-uv run python -m vibecomfy.cli port check video/wanvideo_wrapper_22_wan_animate_preprocess_kijai --json
+uv run python -m vibecomfy.cli doctor video/wanvideo_wrapper_22_wan_animate_preprocess_kijai --json
 VIBECOMFY_MATRIX_SCOPE=qwen_tts uv run python scripts/runpod_corpus_matrix.py
 VIBECOMFY_MATRIX_SCOPE=flux2_4b uv run python scripts/runpod_corpus_matrix.py
 VIBECOMFY_MATRIX_SCOPE=wan_creation_types uv run python scripts/runpod_corpus_matrix.py
 ```
 
-The matrix launches a fresh pod, uploads the checkout, installs VibeComfy and HiddenSwitch ComfyUI, syncs sources, installs selected custom nodes, stages models, executes baseline `comfyui run-workflow`, converts the workflow, runs the generated VibeComfy scratchpad, downloads artifacts, and terminates the launched pod in `finally`. It also writes an offline `port check --json` report and port-convert preview artifacts beside the existing logs so GPU failures can be compared with the cheap local preflight.
+The matrix launches a fresh pod, uploads the checkout, installs VibeComfy and HiddenSwitch ComfyUI, syncs sources, installs selected custom nodes, stages models, executes baseline `comfyui run-workflow`, imports the workflow into a canonical bundle, runs the authored VibeComfy workflow, downloads artifacts, and terminates the launched pod in `finally`. It also writes an offline import report beside the existing logs so GPU failures can be compared with the cheap local diagnostics.
 
 For Reigh app-active parity, prefer the prebuilt validation environment once it
 exists. Reigh selects the exact cases/routes/templates; VibeComfy enriches that
@@ -316,7 +317,7 @@ That means the machine should not require hand setup for a checked-in matrix sco
 - custom-node install: `vibecomfy/node_packs.py`, `custom_nodes.lock`, or `scripts/runpod_corpus_matrix.py`;
 - model staging: `vibecomfy/registry/models.yaml` and `vibecomfy.registry.models_loader`;
 - workflow patching: `scripts/runpod_matrix_remote.py`;
-- ready-template conversion: `python -m vibecomfy.cli port convert ... --ready-id ...`;
+- ready-template promotion: `python -m vibecomfy.cli templates create ... --id ... --out ...`;
 - ready-template index: `python -m tools.refresh_template_index`;
 - fixtures: `ready_templates/sources/input/` and `vibecomfy.testing.smoke_fixtures`;
 - override behavior: matrix scope policy or the family-aware override layer.

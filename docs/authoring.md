@@ -18,6 +18,9 @@ For the normal ComfyUI JSON onboarding path, create an editable workflow bundle:
 
 ```bash
 vibecomfy import <workflow.json>
+# or: vibecomfy import hivemind:external_resources:<id>
+# or: vibecomfy import hivemind://resource/<id>
+# or: vibecomfy import https://example.com/workflow.json
 vibecomfy inspect workflows/<source-stem> --json
 vibecomfy analyze info workflows/<source-stem>
 vibecomfy edit workflows/<source-stem> set sampler.steps 30
@@ -30,36 +33,39 @@ Import creates `workflows/<source-stem>/` by default, containing editable
 bytes as `source.json`. Use `--out <directory>` to choose the destination;
 existing destinations are refused. `--dry-run` previews without writing and
 `--json` returns machine-readable output. Provenance remains in the bundle
-metadata. Import prepares authoring files; it does not install dependencies,
+metadata, including the Hivemind evidence ID, any provider revision, and a
+content digest used as the local snapshot pin when no revision is exposed.
+Import prepares authoring files; it does not install dependencies,
 configure a runtime, run the graph, or promote it to a ready template.
 Standalone use is local and untracked by default. Pass `--project <name>` to
-`import` and `edit` when you want Astrid to record the origin and accepted
-revisions. For direct Python changes, run `vibecomfy edit <bundle> capture`
+`import` and `edit` for local-file imports when you want Astrid to record the
+origin and accepted revisions; Hivemind pulls can be tracked after materializing
+the local source file. For direct Python changes, run `vibecomfy edit <bundle> capture`
 to publish and record a capture. Astrid users already inside a project should
-use the native `vibecomfy.import` task route; the
-[workflow onboarding guide](guides/workflow-onboarding.md) describes all three
-paths and how to inspect their history.
+use the native `vibecomfy.import` task route; it calls the same VibeComfy import
+service with project/task context. There is one import contract, with Astrid
+providing tracking when requested.
 
-For advanced conversion and promotion work, the porting workbench remains
-available:
+For advanced promotion and diagnosis, use the imported bundle as the input:
 
 ```bash
-python -m vibecomfy.cli port check <workflow> --json
-python -m vibecomfy.cli port convert <workflow> --out out/scratchpads/<name>.py --json
+python -m vibecomfy.cli validate <workflow> --json
+python -m vibecomfy.cli doctor <workflow> --json
+python -m vibecomfy.cli templates create <workflow> --id <kind>/<name> \
+  --out ready_templates/<kind>/<name>.py --dry-run --json
 python -m vibecomfy.cli port inventory --ready --json
 ```
 
-`port check` reports helper/UI nodes, missing custom-node packs, missing
-required inputs, widget alias drift, and model asset problems. `port convert`
-creates standalone scratchpad Python by default; add `--ready-id <kind>/<name>`
-only when intentionally creating a ready-template candidate. It retains its
-existing dry-run/diff behavior and protects manual templates. `port inventory`
-reports readability issues and source provenance across checked-in templates.
+`validate` owns structural checks and `doctor` reports runtime readiness,
+custom-node, and model-asset problems. `templates create` consumes the
+validated Python bundle and writes the curated Python/companion pair; it does
+not regenerate or copy `source.json`. `port inventory` reports readability
+issues and source provenance across checked-in templates.
 
 See [templates/porting_workbench.md](templates/porting_workbench.md) for the full workflow and when to use `doctor`, `validate`, `nodes install-plan`, `fetch`, and `--head-check-models`.
 
-The canonical promotion path is raw workflow source -> inspect/import ->
-`port check` as needed -> intentional `port convert --ready-id` or
+The canonical promotion path is Hivemind or local source -> `vibecomfy import`
+-> inspect/edit/validate/doctor -> intentional `templates create` or
 hand-authored Python ready template -> `tools.refresh_template_index` ->
 `validate`/`doctor`/strict-ready checks. Import itself creates a local editable
 bundle, not a ready template. Raw JSON and compiled API dictionaries are
@@ -149,7 +155,7 @@ Deprecated for generated or newly authored templates:
 - `apply_ready_template_policy(...)`
 - direct `wf.register_input(...)` calls inside `build()`
 
-Those APIs remain for old templates and tests, but they emit `PendingDeprecationWarning`. Use `python -m tools.convert_ready_templates --all --write --include-manual` for the repository batch-migration path, `python -m vibecomfy.cli port convert <workflow> --ready-id <kind>/<id> --out ready_templates/<kind>/<id>.py --json` for individual sources, or `python -m vibecomfy.cli copy-to-recipe <id> --out recipes/<name>.py` to fork a generated template into `recipes/` for hand-editing. `tools.narrate_template` has been removed (M0 cleanup); use `vibecomfy.porting.emitter` instead.
+Those APIs remain for old templates and tests, but they emit `PendingDeprecationWarning`. Use `python -m tools.convert_ready_templates --all --write --include-manual` for the repository batch-migration path, `python -m vibecomfy.cli templates create <workflow> --id <kind>/<id> --out ready_templates/<kind>/<id>.py --json` for an individual imported bundle, or `python -m vibecomfy.cli copy-to-recipe <id> --out recipes/<name>.py` to fork a generated template into `recipes/` for hand-editing. `tools.narrate_template` has been removed (M0 cleanup); use `vibecomfy.porting.emitter` instead.
 
 ## Blocks
 
@@ -251,7 +257,7 @@ The block sets `metadata.subgraph_class_type` to the UUID class type. Wire its r
 
 ## Ready Templates and Recipes
 
-Ready templates should be hand-curated Python builders. For new work, use `python -m vibecomfy.cli port convert` instead of the old materializer approach, which hid authoring decisions inside copied API dictionaries.
+Ready templates should be hand-curated Python builders. For new work, import a source into a canonical bundle and use `vibecomfy templates create` after review; this keeps authoring decisions in the Python surface.
 
 `MarkdownNote`, `Note`, and `Label` text are presentation annotations, not
 execution inputs. Canonical conversion stores their exact text and
@@ -333,7 +339,7 @@ The UUID-opaque `flux2_klein_9b_gguf_t2i`, `qwen_image_edit`, and `flux2_klein_4
 
 ## JSON Output
 
-The commands `workflows list`, `nodes list`, `inspect`, `port check`, `port convert`, `doctor`, `sources sync`, `analyze info`, and `analyze diff` support `--json`. Text output remains the default compatibility surface. `inspect --json` includes `applicable_patches`; `doctor --json` includes `suggested_patches`; `port check --json` emits the full port report for preflight automation. For `analyze info` and `analyze diff`, `--json` is an alias for `--format json`, and an explicit `--format` wins.
+The commands `workflows list`, `nodes list`, `inspect`, `doctor`, `sources sync`, `analyze info`, and `analyze diff` support `--json`. Text output remains the default compatibility surface. `inspect --json` includes `applicable_patches`; `doctor --json` includes `suggested_patches`. For `analyze info` and `analyze diff`, `--json` is an alias for `--format json`, and an explicit `--format` wins.
 
 ## Escape Hatches
 

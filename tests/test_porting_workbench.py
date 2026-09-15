@@ -83,7 +83,7 @@ def test_analyze_source_reports_raw_json_provenance_assets_schema_and_widget_dat
     assert "widget_alias_unresolved" not in codes
     assert "missing_required_input" in codes
     assert "unknown_input" not in codes
-    assert any("port convert" in item for item in payload["recommendations"])
+    assert any("vibecomfy import" in item for item in payload["recommendations"])
 
 
 def test_analyze_source_reports_widget_schema_that_compile_did_not_apply(
@@ -499,7 +499,7 @@ def test_analyze_source_covers_simple_template_and_wan_animate_target() -> None:
     assert simple["workflow_id"] == "image/z_image"
     assert simple["workflow_shape"]["helper_nodes"] == 0
     assert "source_hash" in simple
-    assert any("port convert" in item for item in simple["recommendations"])
+    assert any("vibecomfy import" in item for item in simple["recommendations"])
 
     assert wan["ok"] is False
     assert wan["provenance"]["source_kind"] == "ready"

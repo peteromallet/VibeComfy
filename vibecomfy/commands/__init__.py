@@ -18,6 +18,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("edit", "vibecomfy.commands.edit"),
     CommandSpec("recover", "vibecomfy.commands.recover_workflow"),
     CommandSpec("workflows", "vibecomfy.commands.workflows"),
+    CommandSpec("templates", "vibecomfy.commands.templates"),
     CommandSpec("nodes", "vibecomfy.commands.nodes"),
     CommandSpec("node", "vibecomfy.commands.node"),
     CommandSpec("analyze", "vibecomfy.commands.analyze"),
