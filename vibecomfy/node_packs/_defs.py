@@ -91,6 +91,8 @@ _STATIC_NODE_PACKS: tuple[CustomNodePack, ...] = (
                 "MiniMaxH3MusicVideoController",
                 "MiniMaxH3ExtensionStartMode",
                 "MiniMaxH3OptionalStartFrame",
+                "MiniMaxH3ReferenceToVideo",
+                "MiniMaxH3SigmaShift",
                 "H3V2VGranularFractionalDenoise",
             }
         ),
