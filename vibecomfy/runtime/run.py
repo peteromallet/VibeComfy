@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -280,6 +282,203 @@ async def run_embedded(
         )
     finally:
         await session.stop()
+
+
+async def run_embedded_with_session(
+    session: EmbeddedSession,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+    *,
+    backend: str = "api",
+    ensure_packs: bool = False,
+    ensure_models: bool = False,
+    strict_drift: bool | None = None,
+    chain_id: str | None = None,
+    parent_run_id: str | None = None,
+) -> RunResult:
+    """Run one task on a caller-owned embedded session without stopping it.
+
+    The one-shot ``run_embedded`` API remains unchanged.  This explicit
+    session-scoped entry point is the production seam for a host that owns one
+    event loop and rebinds task output configuration between serial claims.
+    """
+    if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
+        raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
+    bundle.require_canonical_authority("runtime execution")
+    return await session.run(
+        record,
+        bundle,
+        backend=backend,
+        ensure_packs=ensure_packs,
+        ensure_models=ensure_models,
+        strict_drift=strict_drift,
+        chain_id=chain_id,
+        parent_run_id=parent_run_id,
+    )
+
+
+class EmbeddedSessionOwner:
+    """Host-owned serial ``EmbeddedSession`` with one persistent event loop.
+
+    A persistent async session cannot safely be driven by repeated
+    ``asyncio.run`` calls because its Comfy context belongs to one event loop.
+    This owner therefore keeps one private loop/thread, serializes all task
+    calls through it, and stops the session only at explicit owner shutdown.
+    ``EmbeddedSession`` remains the real runtime session class; this is only
+    its lifetime/loop owner.
+    """
+
+    def __init__(self, config: SessionConfig | None = None) -> None:
+        self._config = config or SessionConfig()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._ready = threading.Event()
+        self._thread_error: BaseException | None = None
+        self._session: EmbeddedSession | None = None
+        self._closed = False
+        self._operation_lock = threading.Lock()
+        self._incarnation_id = uuid.uuid4().hex
+        self._thread = threading.Thread(
+            target=self._thread_main,
+            name="vibecomfy-embedded-session-owner",
+            daemon=True,
+        )
+        self._thread.start()
+        self._ready.wait()
+        if self._thread_error is not None:
+            raise RuntimeError("embedded session owner event loop failed to start") from self._thread_error
+
+    @property
+    def incarnation_id(self) -> str:
+        return self._incarnation_id
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _thread_main(self) -> None:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+            self._ready.set()
+            loop.run_forever()
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+        except BaseException as exc:  # pragma: no cover - startup/runtime fatal path
+            self._thread_error = exc
+            self._ready.set()
+
+    def _submit(self, coroutine: Any) -> Any:
+        with self._operation_lock:
+            if self._closed:
+                coroutine.close()
+                raise RuntimeError("embedded session owner is closed")
+            if self._loop is None:
+                coroutine.close()
+                raise RuntimeError("embedded session owner event loop is unavailable")
+            future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+            try:
+                return future.result()
+            except concurrent.futures.CancelledError as exc:
+                raise RuntimeError("embedded session owner task was cancelled") from exc
+
+    @staticmethod
+    def _verify_rebound_output(session: EmbeddedSession, config: SessionConfig) -> None:
+        expected = config.extra.get("output_directory")
+        if expected is None:
+            return
+        snapshot = getattr(session, "_process_configuration", None)
+        if snapshot is None or "output_directory" not in snapshot.values:
+            raise RuntimeError("embedded output rebind was not independently observable")
+        expected_path = Path(expected).expanduser()
+        if not expected_path.is_absolute():
+            expected_path = Path(config.cwd) / expected_path
+        if Path(snapshot.values["output_directory"]).resolve() != expected_path.resolve():
+            raise RuntimeError("embedded output rebind did not match the requested spool")
+
+    async def _run(
+        self,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
+        *,
+        config: SessionConfig | None,
+        backend: str,
+        ensure_packs: bool,
+        ensure_models: bool,
+        strict_drift: bool | None,
+        chain_id: str | None,
+        parent_run_id: str | None,
+    ) -> RunResult:
+        selected = config or self._config
+        if self._session is None:
+            self._session = EmbeddedSession(selected)
+            await self._session.start()
+        elif config is not None:
+            await self._session.reconfigure(selected)
+        self._config = selected
+        self._verify_rebound_output(self._session, selected)
+        return await run_embedded_with_session(
+            self._session,
+            record,
+            bundle,
+            backend=backend,
+            ensure_packs=ensure_packs,
+            ensure_models=ensure_models,
+            strict_drift=strict_drift,
+            chain_id=chain_id,
+            parent_run_id=parent_run_id,
+        )
+
+    def run(
+        self,
+        record: ApprovedProjectionRecord,
+        bundle: WorkflowBundle,
+        *,
+        config: SessionConfig | None = None,
+        backend: str = "api",
+        ensure_packs: bool = False,
+        ensure_models: bool = False,
+        strict_drift: bool | None = None,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> RunResult:
+        return self._submit(
+            self._run(
+                record,
+                bundle,
+                config=config,
+                backend=backend,
+                ensure_packs=ensure_packs,
+                ensure_models=ensure_models,
+                strict_drift=strict_drift,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
+        )
+
+    async def _close(self) -> None:
+        if self._session is not None:
+            await self._session.stop()
+            self._session = None
+
+    def close(self) -> None:
+        with self._operation_lock:
+            if self._closed:
+                return
+            if self._loop is not None:
+                future = asyncio.run_coroutine_threadsafe(self._close(), self._loop)
+                future.result()
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                raise RuntimeError("embedded session owner event loop did not stop")
+            self._closed = True
+
+    def __enter__(self) -> "EmbeddedSessionOwner":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.close()
 
 
 def run_embedded_sync(

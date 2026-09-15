@@ -1609,6 +1609,24 @@ def _promote_ui_native_port_carriers(
     """
     if not isinstance(ui_node, Mapping):
         return
+    # Some ComfyUI nodes expose two physical widget slots with the same
+    # serialized label (for example two ``seed_override`` rows).  The raw UI
+    # row and ``_raw_widgets`` vector retain the exact positional evidence,
+    # but that label roster cannot be made a valid Python-name authority
+    # without inventing a distinction the source did not provide.  Leave the
+    # ambiguous input carriers absent; the emitter can still preserve the
+    # complete draft through the captured positional widget vector.
+    raw_inputs = ui_node.get("inputs")
+    duplicate_input_labels = False
+    if isinstance(raw_inputs, (list, tuple)):
+        labels = [
+            item.get("name")
+            for item in raw_inputs
+            if isinstance(item, Mapping)
+            and isinstance(item.get("name"), str)
+            and item.get("name").strip()
+        ]
+        duplicate_input_labels = len(labels) != len(set(labels))
     extractors = {
         "native_input_names": lambda: _native_port_names(ui_node, "inputs"),
         "native_output_names": lambda: _native_port_names(ui_node, "outputs"),
@@ -1618,6 +1636,13 @@ def _promote_ui_native_port_carriers(
     }
     for field_name, extract in extractors.items():
         if field_name not in node:
+            if duplicate_input_labels and field_name in {
+                "native_input_names",
+                "native_input_types",
+                "native_input_optional",
+                "native_input_asset_kinds",
+            }:
+                continue
             value = extract()
             if value is not None:
                 node[field_name] = value

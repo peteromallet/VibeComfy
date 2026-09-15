@@ -22,7 +22,9 @@ from vibecomfy.runtime.session import (
     _comfy_server_argv,
     _session_ownership_verified,
     _session_ready,
+    _process_start_identity,
     _write_launch_marker,
+    current_source_content_digest,
     current_source_revision,
     find_active_session,
 )
@@ -104,22 +106,45 @@ async def _daemon_main(args: argparse.Namespace) -> int:
 
     try:
         await session.start()
+        if session.process is None or session.process.pid <= 0:
+            raise RuntimeError("managed Comfy child did not expose a process identity")
+        comfy_pid = int(session.process.pid)
+        comfy_process_start_identity = _process_start_identity(comfy_pid)
+        if not comfy_process_start_identity:
+            raise RuntimeError("managed Comfy child process birth identity is unavailable")
         launch_token = getattr(args, "launch_token", None) or uuid.uuid4().hex
         _write_launch_marker(
             session_dir,
             pid=os.getpid(),
             url=str(session.url),
             launch_token=launch_token,
+            comfy_pid=comfy_pid,
+            comfy_process_start_identity=comfy_process_start_identity,
         )
         (session_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
+        (session_dir / "comfy_pid").write_text(str(comfy_pid), encoding="utf-8")
+        (session_dir / "comfy_process_start_identity").write_text(
+            comfy_process_start_identity, encoding="utf-8"
+        )
         (session_dir / "url").write_text(str(session.url), encoding="utf-8")
         (session_dir / "config.json").write_text(
             json.dumps(config_dict, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         revision = current_source_revision()
+        content_digest = current_source_content_digest()
+        if getattr(args, "require_source_attestation", False) and (
+            revision is None or content_digest is None
+        ):
+            raise RuntimeError(
+                "managed session source attestation is unavailable"
+            )
         if revision is not None:
             (session_dir / "source_revision").write_text(revision, encoding="utf-8")
+        if content_digest is not None:
+            (session_dir / "source_content_digest").write_text(
+                content_digest, encoding="utf-8"
+            )
         await stop_event.wait()
     finally:
         await session.stop()
@@ -148,6 +173,7 @@ def _cmd_session_start(args: argparse.Namespace) -> int:
         args.id,
         "--launch-token",
         launch_token,
+        "--require-source-attestation",
         "--config",
         json.dumps(config),
     ]
@@ -301,6 +327,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--daemon", action="store_true")
     parser.add_argument("--id", default="default")
     parser.add_argument("--launch-token")
+    parser.add_argument(
+        "--require-source-attestation",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--config", default="{}")
     args = parser.parse_args(argv)
     if not args.daemon:

@@ -260,3 +260,18 @@ pull request targets `peteromallet/VibeComfy:main`:
 
 This publication does not merge, deploy, cut over production, download model
 weights, or claim live GPU/frontend execution.
+
+## Openability amendment execution — 2026-09-14
+
+The Astra openability/refusal plan was implemented through the existing Luna
+normal path. The final deterministic full-suite recovery exited `0` with
+**10,609 passed, 195 skipped, 35 deselected, 1 xfailed, 0 failed**. The exact
+30-case replay produced **30/30 complete Python-plus-companion pairs**, with
+**0 partial outputs**; 27 compile cleanly and three remain explicitly
+execution-unresolved while still producing open/reloadable drafts. The three
+formerly refused cases preserve authored node IDs, UIDs, modes and edges.
+
+The durable receipt is
+`receipts/openability-30-final-20260914.md`. Official ComfyUI frontend
+load/serialize remains an explicit environment boundary because the captured
+inputs are VibeComfy envelopes rather than original LiteGraph files.

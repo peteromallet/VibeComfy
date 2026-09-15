@@ -241,3 +241,38 @@ The clean validated branch is pushed to `HannahSubmarine/VibeComfy` as
 `otto/unified-workflow-integrity-20260909`, and the requested PR is open at
 [peteromallet/VibeComfy#157](https://github.com/peteromallet/VibeComfy/pull/157).
 No merge, deployment or production cutover was performed.
+
+## Openability/refusal amendment — 2026-09-14
+
+The latest user instruction and Astra decision `ASTRA-OPENABILITY-20260914`
+extend the existing task IDs without adding a stage. The target is “source
+draft available; canonical execution unresolved” for parseable,
+graph-preservable inputs. Literal JSON syntax failures remain refusals. No
+action may guess a bypass edge, delete positional widget values, or replay raw
+graph data in canonical Python.
+
+| Existing task | Added outcome | Route | Required proof |
+| --- | --- | --- | --- |
+| E0/T3 | Freeze the three envelopes and distinguish JSON syntax, recognized workflow shape, retained UI data, reconstructed output and execution interpretation; add a pinned official frontend load/serialize experiment. | normal / Luna medium | Hashes, source/derived labels, node/slot/link inventories, frontend version and serialization delta; no simulated `loadGraphData` substituted for the official loader. |
+| E1 | Preserve authored nodes, modes, edges and positional widgets in the existing draft path while keeping ambiguous/unresolved execution promotion refused. | normal / Luna medium | Exact graph/UID/provenance preservation, explicit diagnostics, no guessed connections, no raw-source replay or blanket fallback. |
+| T1/T2 | Carry artifact kind through existing bundle/export owners and publish complete open drafts atomically, separately from ready pairs. | normal / Luna medium | Pair/draft atomicity, unchanged destinations on failure, CLI/SDK/canvas parity, sidecar behavior and draft reload/export. |
+| T3 | Add syntax-invalid, unsupported-object, frontend-open, duplicate-slot, bypass, missing-endpoint, identity, provenance, rollback and deterministic tests. | normal / Luna medium | Focused suites prove both open-draft success and ready/executable refusal; existing supported behavior remains green. |
+| E2/T4 | Replay the exact 30 captured cases and record complete pair, complete classified open draft or precise source obstruction. | normal / Luna medium | Preserve the 27 existing pairs; every refusal has a source-backed classification and zero partial outputs; repeat with fixed authority and compare artifacts. |
+
+No new XHARD assignment is warranted. A return to Astra is required only if
+faithful draft preservation needs a second semantic authority/raw replay, the
+original UI evidence contradicts the envelope, or pinned frontend behavior
+conflicts with the existing fidelity contract.
+
+## Openability amendment closure — 2026-09-14
+
+The exact 30-case replay was rerun after authored UID preservation was added to
+the draft-only path. It returned CLI success for all 30 cases, wrote 30 complete
+Python/companion pairs, and wrote no partial output. Python and companion parse,
+bundle reload, and source graph/UID/mode/edge checks passed for every formerly
+refused case. Twenty-seven drafts compile cleanly; three remain openable but
+explicitly execution-unresolved under the Astra ruling.
+
+The final full suite is green: `10,609 passed, 195 skipped, 35 deselected, 1
+xfailed, 0 failed`, exit `0`. Receipt:
+`.otto/runs/unified-workflow-integrity-20260909/receipts/openability-30-final-20260914.md`.

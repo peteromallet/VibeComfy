@@ -788,6 +788,7 @@ def emit_ready_template_python(
     keep_virtual_wires: bool = False,
     preserve_node_ids: bool = False,
     external_custody: bool = False,
+    preserve_authored_graph: bool = False,
 ) -> str:
     from vibecomfy.porting.emitter import _use_object_info_identities, _drain_lookup_warning_diagnostics  # noqa: PLC0415
     with _use_object_info_identities(object_info_identities):
@@ -804,6 +805,7 @@ def emit_ready_template_python(
             keep_virtual_wires=keep_virtual_wires,
             preserve_node_ids=preserve_node_ids,
             external_custody=external_custody,
+            preserve_authored_graph=preserve_authored_graph,
         )
         lookup_warnings = _drain_lookup_warning_diagnostics(diagnostics)
         if lookup_warnings:
@@ -828,6 +830,7 @@ def _emit_ready_template_python_inner(
     keep_virtual_wires: bool = False,
     preserve_node_ids: bool = False,
     external_custody: bool = False,
+    preserve_authored_graph: bool = False,
 ) -> str:
     from vibecomfy.porting.emit.emit_prepare import _prepare_workflow_for_emit  # noqa: PLC0415
     _preflight_object_info_identity_resolution(workflow)
@@ -891,7 +894,7 @@ def _emit_ready_template_python_inner(
         apply_overrides=apply_overrides,
         template_id=template_id,
         diagnostics=diagnostics,
-        project_execution_edges=True,
+        project_execution_edges=not preserve_authored_graph,
         omit_terminal_ui_only=omit_terminal_ui_only,
         keep_virtual_wires=keep_virtual_wires,
         prune_dead_branches=False,
@@ -1095,6 +1098,7 @@ def _emit_ready_template_python_inner(
             constant_map=constant_map,
             section_groups=section_groups,
             external_custody=external_custody,
+            preserve_authored_graph=preserve_authored_graph,
         )
     )
     out_lines.append("")
@@ -1219,7 +1223,11 @@ def _canonical_node_custody(
     return custody
 
 
-def canonical_v2_custody(workflow: Any) -> dict[str, Any]:
+def canonical_v2_custody(
+    workflow: Any,
+    *,
+    preserve_authored_graph: bool = False,
+) -> dict[str, Any]:
     """Project the emitted constructor roster into the closed v2 capsule.
 
     This deliberately reuses the canonical execution preparation and label
@@ -1233,7 +1241,7 @@ def canonical_v2_custody(workflow: Any) -> dict[str, Any]:
         apply_overrides=None,
         template_id=str(workflow.id),
         diagnostics=None,
-        project_execution_edges=True,
+        project_execution_edges=not preserve_authored_graph,
         omit_terminal_ui_only=False,
         keep_virtual_wires=True,
         prune_dead_branches=False,
@@ -2564,6 +2572,7 @@ def _emit_build_function(
     required_ids: set[str] | None = None,
     emit_all_ids: bool = False,
     external_custody: bool = False,
+    preserve_authored_graph: bool = False,
 ) -> list[str]:
     from vibecomfy.porting.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
@@ -2803,6 +2812,8 @@ def _emit_build_function(
                 all_args.extend((_wrapper_kwarg_name(key), expr) for key, expr in ready_kwargs)
                 if emit_all_ids:
                     all_args.append(("_id", repr(str(nid))))
+                    if preserve_authored_graph:
+                        all_args.append(("_uid", repr(str(node.uid))))
                 if node_mode_expr is not None:
                     all_args.append(("_mode", node_mode_expr))
                 # v2.6.4 Fix 3: drop _outputs= for schema-known typed wrappers.
@@ -2822,6 +2833,8 @@ def _emit_build_function(
                 if outputs_expr is not None:
                     all_args.append(("_outputs", outputs_expr))
                 all_args.extend(ready_kwargs)
+                if emit_all_ids and preserve_authored_graph:
+                    all_args.append(("_uid", repr(str(node.uid))))
                 if node_mode_expr is not None:
                     all_args.append(("_mode", node_mode_expr))
                 if extras_expr is not None:

@@ -60,8 +60,14 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         if getattr(args, "strict_ready_template", False)
         else "auto"
     )
+    hard_preflight = bool(
+        args.ready_id or getattr(args, "strict_ready_template", False)
+    )
     try:
-        loaded = load_port_source(args.workflow, schema_provider=schema_provider)
+        loaded = load_port_source(
+            args.workflow,
+            schema_provider=schema_provider if hard_preflight else None,
+        )
         logical_source_path = getattr(args, "_logical_source_path", None)
         if logical_source_path:
             # Internal callers may convert a staged snapshot while assigning
@@ -93,8 +99,16 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         # artifact can be written.  Promotion paths remain fail-closed at
         # preflight so --ready-id and strict-ready cannot turn unresolved
         # source evidence into a candidate.
-        hard_preflight = bool(
-            args.ready_id or getattr(args, "strict_ready_template", False)
+        if not hard_preflight:
+            report.provenance["artifact_class"] = "open_draft"
+            report.provenance["execution_ready"] = False
+        # Preserve the authored graph only when the source's own execution
+        # projection is unresolved.  Schema-only diagnostics (for example a
+        # locally unavailable model choice) should still take the normal
+        # semantic/UI-candidate path so a real canvas keeps its presentation.
+        preserve_authored_graph = (
+            not hard_preflight
+            and any(issue.code == "api_compile_failed" for issue in report.diagnostics)
         )
         if report.has_errors and hard_preflight:
             payload = {
@@ -135,6 +149,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             # captured UI nodes. Carry IDs only in this internal preflight;
             # emit_bundle_with_candidate renders the final clean source again.
             preserve_node_ids=True,
+            preserve_authored_graph=preserve_authored_graph,
         )
     except Exception as exc:
         recovery = native_boundary_recovery(exc, args.workflow)
@@ -226,6 +241,8 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
                     for key in (
                         "source_kind",
                         "ready_id",
+                        "artifact_class",
+                        "execution_ready",
                     )
                     if key in report.provenance
                 }
@@ -236,6 +253,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
                     "source_type": str(loaded.workflow.source.source_type),
                 },
                 source_format="ready_template" if args.ready_id else "scratchpad",
+                preserve_authored_graph=preserve_authored_graph,
             )
             write_result = {
                 "written": True,

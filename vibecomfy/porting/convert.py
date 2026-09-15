@@ -218,6 +218,7 @@ def port_convert_workflow(
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
     preserve_node_ids: bool = False,
+    preserve_authored_graph: bool = False,
 ) -> PortConvertResult:
     # Keep conversion as an import/emission surface. Helper semantics are
     # lowered only by the shared detached execution projection.
@@ -310,9 +311,10 @@ def port_convert_workflow(
             # Helper nodes remain authored source.  The shared execution
             # projection lowers them for runtime; emission must not require a
             # separate conversion-time resolver.
-            keep_virtual_wires=keep_virtual_wires,
+            keep_virtual_wires=keep_virtual_wires or preserve_authored_graph,
             prune_dead_branches=prune_dead_branches,
             preserve_node_ids=preserve_node_ids,
+            preserve_authored_graph=preserve_authored_graph,
         )
         mode: PortConvertMode = "scratchpad"
     else:
@@ -339,7 +341,11 @@ def port_convert_workflow(
         mode = "ready_template"
 
     # Compile the source workflow before emission for parity comparison.
-    source_api = workflow.compile("api") if validate else None
+    # Drafts intentionally remain openable even when their execution
+    # projection is unresolved.  The authored IR and the refusal diagnostic
+    # are still validated by the bundle writer; executable promotion keeps
+    # the existing compile/parity gate.
+    source_api = workflow.compile("api") if validate and not preserve_authored_graph else None
 
     # Build class_widget_aliases from source workflow node metadata for
     # parity canonicalization.  This uses schema-source evidence (from the
@@ -381,7 +387,11 @@ def port_convert_workflow(
 
     result = PortConvertResult(mode=mode, text=text, ready_id=ready_id)
     if validate:
-        result.validation = validate_emitted_module(text, schema_provider=schema_provider)
+        result.validation = validate_emitted_module(
+            text,
+            schema_provider=schema_provider,
+            allow_unresolved_projection=preserve_authored_graph,
+        )
         result.validation.emission_diagnostics = emission_diagnostics
         if ready_id is not None and result.validation is not None:
             _run_strict_ready_candidate_validation(
@@ -546,14 +556,28 @@ def _build_emitted_workflow_from_text(text: str) -> VibeWorkflow:
         return workflow
 
 
-def validate_emitted_module(text: str, *, schema_provider: Any | None = None) -> PortConvertValidation:
+def validate_emitted_module(
+    text: str,
+    *,
+    schema_provider: Any | None = None,
+    allow_unresolved_projection: bool = False,
+) -> PortConvertValidation:
     with tempfile.TemporaryDirectory(prefix="vibecomfy-port-convert-") as tmp:
         path = Path(tmp) / "emitted.py"
         path.write_text(text, encoding="utf-8")
-        return _validate_emitted_path(path, schema_provider=schema_provider)
+        return _validate_emitted_path(
+            path,
+            schema_provider=schema_provider,
+            allow_unresolved_projection=allow_unresolved_projection,
+        )
 
 
-def _validate_emitted_path(path: Path, *, schema_provider: Any | None) -> PortConvertValidation:
+def _validate_emitted_path(
+    path: Path,
+    *,
+    schema_provider: Any | None,
+    allow_unresolved_projection: bool = False,
+) -> PortConvertValidation:
     try:
         spec = importlib.util.spec_from_file_location(f"vibecomfy_port_convert_{path.stem}", path)
         if spec is None or spec.loader is None:
@@ -581,6 +605,21 @@ def _validate_emitted_path(path: Path, *, schema_provider: Any | None) -> PortCo
     try:
         api = workflow.compile("api")
     except Exception as exc:
+        if allow_unresolved_projection and getattr(exc, "code", None) in {
+            "bypass_no_match",
+            "bypass_ambiguous",
+            "unknown_virtual_wire_port",
+            "ambiguous_virtual_wire_port",
+            "dangling_endpoint",
+            "bypass_dangling",
+        }:
+            return PortConvertValidation(
+                ok=True,
+                import_ok=True,
+                build_ok=True,
+                compile_ok=False,
+                error=None,
+            )
         return PortConvertValidation(
             ok=False,
             import_ok=True,
@@ -630,6 +669,15 @@ def _conversion_provenance(
     if workflow_shape is not None:
         merged["workflow_shape"] = dict(workflow_shape)
     merged["output_mode"] = output_mode
+    if output_mode == "scratchpad":
+        # This is a source-preservation classification, not an execution
+        # approval.  It lets callers distinguish an open draft from a ready
+        # candidate without teaching the canonical Python another authority.
+        merged["artifact_class"] = "open_draft"
+        merged["execution_ready"] = False
+    else:
+        merged["artifact_class"] = "execution_ready_candidate"
+        merged["execution_ready"] = True
     if ready_id is not None:
         # A promoted ready artifact is identified by its namespaced ready id.
         # Preserve an upstream/source declaration for provenance, but never let

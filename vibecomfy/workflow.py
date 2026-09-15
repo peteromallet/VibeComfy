@@ -2736,7 +2736,16 @@ class _NodeBuilder:
                 else None
             )
             if isinstance(known_names, (list, tuple)):
-                if slot >= len(known_names) or known_names[slot] is None:
+                # ComfyUI's built-in Reroute node deliberately uses an
+                # unnamed wildcard socket.  Its witnessed numeric slot is
+                # still a valid authored handle; rejecting the ``None`` name
+                # here would make a preserved, openable canvas impossible to
+                # rebuild.  Ordinary nodes continue to treat holes as an
+                # invalid handle.
+                if (
+                    str(self.node.class_type) != "Reroute"
+                    and (slot >= len(known_names) or known_names[slot] is None)
+                ):
                     raise WorkflowCompileError(
                         "unknown_output_handle",
                         f"Output slot {slot} is outside or a hole in the native roster "
