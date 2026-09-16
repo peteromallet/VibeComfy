@@ -330,7 +330,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             log_path = getattr(result, "log_path", None)
-            log_line = f"log_path: {log_path}" if log_path else "log_path: unavailable (external server owns its logs)"
+            log_provenance = getattr(result, "log_provenance", {})
+            if log_path and isinstance(log_provenance, dict) and log_provenance.get("available") is True:
+                log_line = f"log_path: {log_path}"
+            elif isinstance(log_provenance, dict) and log_provenance.get("kind") == "external_server":
+                log_line = "log_path: unavailable (external server owns its logs)"
+            else:
+                log_line = "log_path: unavailable (captured process log is unavailable)"
             lines = [
                 f"status: {getattr(result, 'status', 'completed')}",
                 f"queue_status: {'accepted' if result.prompt_id else 'unknown'}",

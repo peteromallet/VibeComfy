@@ -1191,12 +1191,16 @@ class EmbeddedSession:
                 status_required=False,
                 allow_list_outputs=True,
             )
-            outputs = _collect_output_paths(
-                comfy_outputs,
-                output_directory=_configured_output_directory(
-                    self.config, runtime_configuration=self._process_configuration
-                ),
+            output_directory = _configured_output_directory(
+                self.config, runtime_configuration=self._process_configuration
             )
+            artifacts = _artifact_records(
+                comfy_outputs,
+                adapter_kind="embedded",
+                adapter_endpoint=ws_url,
+                output_directory=output_directory,
+            )
+            outputs = [artifact["reported_path"] for artifact in artifacts]
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
@@ -1217,6 +1221,7 @@ class EmbeddedSession:
                 normalization=normalization,
                 adapter_endpoint=ws_url,
                 log_path=log_path,
+                artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
@@ -1232,7 +1237,7 @@ class EmbeddedSession:
                 prompt_id=prompt_id,
                 outputs=outputs,
                 metadata_path=str(metadata_path),
-                log_path=str(log_path),
+                log_path=log_path,
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -1345,6 +1350,14 @@ class ServerSession:
         logger.log(level, "vibecomfy schema gate: %s", msg)
         self._schema_warning_emitted = True
 
+    def _captured_process_log_path(self) -> str | None:
+        """Return the persistent process log owned by this managed session."""
+        snapshot = self._process_configuration
+        configured = snapshot.values.get("server_log_path") if snapshot is not None else None
+        if configured and self.log_handle is not None and Path(configured).is_file():
+            return str(configured)
+        return None
+
     async def start(self) -> None:
         if self.process is not None and self.process.returncode is None:
             return
@@ -1411,7 +1424,7 @@ class ServerSession:
         timings["session_start_sec"] = round(time.monotonic() - phase_start, 3)
         assert self.url is not None
         run_id, run_dir = _allocate_request_root("run", config=self.config)
-        log_path = run_dir / "comfy.log"
+        log_path = self._captured_process_log_path()
         attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
             run_dir=run_dir,
             run_id=run_id,
@@ -1508,12 +1521,16 @@ class ServerSession:
             history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
             comfy_outputs = _outputs_from_server_history(history, prompt_id)
             phase = "output"
-            outputs = _collect_output_paths(
-                comfy_outputs,
-                output_directory=_configured_output_directory(
-                    self.config, runtime_configuration=self._process_configuration
-                ),
+            output_directory = _configured_output_directory(
+                self.config, runtime_configuration=self._process_configuration
             )
+            artifacts = _artifact_records(
+                comfy_outputs,
+                adapter_kind="managed",
+                adapter_endpoint=self.url,
+                output_directory=output_directory,
+            )
+            outputs = [artifact["reported_path"] for artifact in artifacts]
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
@@ -1534,6 +1551,7 @@ class ServerSession:
                 normalization=normalization,
                 adapter_endpoint=self.url,
                 log_path=log_path,
+                artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
@@ -1549,7 +1567,7 @@ class ServerSession:
                 prompt_id=prompt_id,
                 outputs=outputs,
                 metadata_path=str(metadata_path),
-                log_path=str(log_path),
+                log_path=log_path,
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -2609,6 +2627,7 @@ def _run_metadata(
     schema_provenance: Mapping[str, Any] | None = None,
     adapter_endpoint: str | None = None,
     log_path: str | Path | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
     normalization: Any | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
@@ -2619,13 +2638,17 @@ def _run_metadata(
     if comfy_outputs is None:
         comfy_outputs = _raw_comfy_outputs(queued)
     serialized = json.dumps(api_dict, sort_keys=True, default=str)
+    if artifacts is None:
+        artifacts = _artifact_records(
+            comfy_outputs,
+            adapter_kind=runtime,
+            adapter_endpoint=adapter_endpoint,
+            fallback_paths=outputs,
+        )
+    else:
+        artifacts = list(artifacts)
+    outputs = [artifact["reported_path"] for artifact in artifacts]
     artifact_manifest = _artifact_manifest(workflow, outputs)
-    artifacts = _artifact_records(
-        comfy_outputs,
-        outputs,
-        adapter_kind=runtime,
-        adapter_endpoint=adapter_endpoint,
-    )
     log_provenance = _log_provenance(log_path, runtime)
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
     shared = build_shared_fields(bundle, record, config=config)
@@ -3051,36 +3074,29 @@ def _git_sha() -> str | None:
 
 
 def _collect_output_paths(value: Any, *, output_directory: str | Path | None = None) -> list[str]:
-    paths: list[str] = []
+    return [path for _descriptor, path in _collect_output_entries(value, output_directory=output_directory)]
+
+
+def _collect_output_entries(
+    value: Any,
+    *,
+    output_directory: str | Path | None = None,
+) -> list[tuple[dict[str, Any] | None, str]]:
+    """Traverse history once, retaining each descriptor beside its path."""
+    entries: list[tuple[dict[str, Any] | None, str]] = []
     if isinstance(value, dict):
         filename = value.get("filename")
         if isinstance(filename, str):
-            paths.append(_resolve_comfy_output_filename(value, output_directory))
-            return paths
+            return [(dict(value), _resolve_comfy_output_filename(value, output_directory))]
         for key, item in value.items():
             if key in {"abs_path", "path", "fullpath", "filename"} and isinstance(item, str):
-                paths.append(item)
+                entries.append((None, item))
             else:
-                paths.extend(_collect_output_paths(item, output_directory=output_directory))
+                entries.extend(_collect_output_entries(item, output_directory=output_directory))
     elif isinstance(value, list):
         for item in value:
-            paths.extend(_collect_output_paths(item, output_directory=output_directory))
-    return paths
-
-
-def _collect_output_descriptors(value: Any) -> list[dict[str, Any]]:
-    """Flatten Comfy history output descriptors in the same order as paths."""
-    descriptors: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        if isinstance(value.get("filename"), str):
-            descriptors.append(dict(value))
-            return descriptors
-        for item in value.values():
-            descriptors.extend(_collect_output_descriptors(item))
-    elif isinstance(value, list):
-        for item in value:
-            descriptors.extend(_collect_output_descriptors(item))
-    return descriptors
+            entries.extend(_collect_output_entries(item, output_directory=output_directory))
+    return entries
 
 
 def _comfy_view_url(endpoint: str, descriptor: Mapping[str, Any]) -> str | None:
@@ -3098,26 +3114,34 @@ def _comfy_view_url(endpoint: str, descriptor: Mapping[str, Any]) -> str | None:
 
 def _artifact_records(
     comfy_outputs: Any,
-    outputs: list[str],
     *,
     adapter_kind: str,
     adapter_endpoint: str | None,
+    output_directory: str | Path | None = None,
+    fallback_paths: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Make output provenance explicit without pretending remote files are local."""
-    descriptors = _collect_output_descriptors(comfy_outputs)
+    entries = _collect_output_entries(comfy_outputs, output_directory=output_directory)
+    if not entries and fallback_paths:
+        entries = [(None, path) for path in fallback_paths]
     records: list[dict[str, Any]] = []
-    for index, output in enumerate(outputs):
-        descriptor = descriptors[index] if index < len(descriptors) else {}
+    for descriptor, output in entries:
+        descriptor = descriptor or {}
         record: dict[str, Any] = {
             "reported_path": output,
             "filename": descriptor.get("filename") or Path(output).name,
             "subfolder": descriptor.get("subfolder") or "",
             "type": descriptor.get("type") or "output",
+            "descriptor": dict(descriptor) if descriptor else None,
             "source": "external_comfy_server" if adapter_kind == "external" else "local_filesystem",
         }
-        if adapter_kind == "external" and adapter_endpoint:
+        if adapter_kind == "external" and adapter_endpoint and descriptor:
             record["location"] = _comfy_view_url(adapter_endpoint, descriptor)
             record["path"] = None
+        elif adapter_kind == "external":
+            record["location"] = None
+            record["path"] = None
+            record["location_reason"] = "Comfy history returned a path without a retrievable output descriptor."
         else:
             record["location"] = output
             record["path"] = output

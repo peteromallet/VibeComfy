@@ -25,7 +25,6 @@ from .session import (
     RunResult,
     SessionConfig,
     _build_schema_provider,
-    _collect_output_paths,
     _configured_output_directory,
     _embedded_configuration,
     _outputs_from_server_history,
@@ -33,6 +32,7 @@ from .session import (
     _begin_runtime_lifecycle,
     _commit_queue_witness,
     _complete_runtime_run,
+    _artifact_records,
     _persist_runtime_evidence,
     _persist_runtime_failure,
     _runtime_evidence,
@@ -175,10 +175,14 @@ async def run(
             history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
             comfy_outputs = _outputs_from_server_history(history, prompt_id)
             phase = "output"
-            outputs = _collect_output_paths(
+            output_directory = _configured_output_directory(resolved_config)
+            artifacts = _artifact_records(
                 comfy_outputs,
-                output_directory=_configured_output_directory(resolved_config),
+                adapter_kind=adapter_kind,
+                adapter_endpoint=active_url,
+                output_directory=output_directory,
             )
+            outputs = [artifact["reported_path"] for artifact in artifacts]
             phase = "metadata"
             metadata = _run_metadata(
                 run_id=run_id,
@@ -193,6 +197,7 @@ async def run(
                 schema_provenance=schema_provenance,
                 adapter_endpoint=active_url,
                 log_path=log_path,
+                artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )

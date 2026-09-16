@@ -349,7 +349,7 @@ def _run_one_shot_post_witness_failure(
 
     if failure_kind == "output":
         monkeypatch.setattr(
-            runtime_run_module, "_collect_output_paths",
+            runtime_run_module, "_artifact_records",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("output collection failed")),
         )
     elif failure_kind == "metadata":
@@ -655,6 +655,7 @@ def test_run_external_server_does_not_apply_workflow_session_config(
         "filename": "external.mp4",
         "subfolder": "",
         "type": "output",
+        "descriptor": {"filename": "external.mp4"},
         "source": "external_comfy_server",
         "location": "http://external.test/view?filename=external.mp4&subfolder=&type=output",
         "path": None,
@@ -665,6 +666,57 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     assert metadata["log_path"] is None
     assert metadata["log_provenance"] == result.log_provenance
     assert captured_configs == [None]
+
+
+def test_artifact_records_keep_mixed_descriptors_and_paths_paired() -> None:
+    descriptors_and_paths = {
+        "node_with_descriptor": {
+            "images": [{
+                "filename": "remote.mp4",
+                "subfolder": "clips",
+                "type": "output",
+            }],
+        },
+        "node_with_path_only": {"path": "/remote/second.png"},
+    }
+
+    artifacts = session_module._artifact_records(
+        descriptors_and_paths,
+        adapter_kind="external",
+        adapter_endpoint="http://external.test",
+    )
+
+    assert [artifact["reported_path"] for artifact in artifacts] == [
+        "remote.mp4",
+        "/remote/second.png",
+    ]
+    assert artifacts == [
+        {
+            "reported_path": "remote.mp4",
+            "filename": "remote.mp4",
+            "subfolder": "clips",
+            "type": "output",
+            "descriptor": {
+                "filename": "remote.mp4",
+                "subfolder": "clips",
+                "type": "output",
+            },
+            "source": "external_comfy_server",
+            "location": "http://external.test/view?filename=remote.mp4&subfolder=clips&type=output",
+            "path": None,
+        },
+        {
+            "reported_path": "/remote/second.png",
+            "filename": "second.png",
+            "subfolder": "",
+            "type": "output",
+            "descriptor": None,
+            "source": "external_comfy_server",
+            "location": None,
+            "path": None,
+            "location_reason": "Comfy history returned a path without a retrievable output descriptor.",
+        },
+    ]
 
 
 def test_embedded_configuration_uses_hiddenswitch_configuration_object(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1046,6 +1098,44 @@ def test_cmd_run_json_surfaces_outputs_and_external_log_provenance(
     assert payload["artifacts"] == [{"location": "http://external.test/view?filename=external.mp4"}]
     assert payload["log_path"] is None
     assert payload["log_provenance"]["kind"] == "external_server"
+
+
+def test_cmd_run_text_agrees_with_unavailable_log_provenance(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = argparse.Namespace(
+        path="edit/qwen_image_edit",
+        ready=True,
+        runtime="embedded",
+        server_url=None,
+        backend="api",
+        prompt=None,
+        seed=None,
+        steps=None,
+        json=False,
+    )
+
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.run_embedded_sync",
+        lambda *args, **kwargs: types.SimpleNamespace(
+            run_id="r",
+            prompt_id="p",
+            outputs=[],
+            artifacts=[],
+            metadata_path="m",
+            log_path=None,
+            log_provenance={"kind": "vibecomfy_captured_file", "available": False, "path": None},
+            status="completed",
+            media_validated=False,
+        ),
+    )
+
+    assert _cmd_run(args) == 0
+    output = capsys.readouterr().out
+    assert "log_path: unavailable (captured process log is unavailable)" in output
+    assert "external server owns its logs" not in output
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(
@@ -2051,6 +2141,64 @@ def test_server_session_dict_queue_result_sets_run_result_prompt_id(
     wf = _make_one_shot_run_wf()
     result = asyncio.run(session_module.ServerSession()._run_untracked(*_approved(wf)))
     assert result.prompt_id == "srv-dict-id"
+    assert result.log_path is None
+    assert result.log_provenance["available"] is False
+
+
+def test_server_session_reports_persistent_process_log_not_per_run_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    log_path = tmp_path / "out" / "sessions" / "default" / "comfy.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("managed Comfy log\n", encoding="utf-8")
+
+    class _FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def _post_prompt(self, api_dict: dict) -> dict:
+            return {"prompt_id": "srv-persistent-log"}
+
+    async def _fake_history(url: str, pid: str | None, *, config=None) -> dict:
+        return _successful_history(pid, {}) if pid else {}
+
+    async def _fake_start(self) -> None:
+        self.url = "http://fake-srv.test"
+        self.log_handle = object()
+        self._process_configuration = session_module._RuntimeConfigurationSnapshot(
+            values={"server_log_path": str(log_path)},
+            cwd=tmp_path,
+            use_sage_attention=False,
+        )
+
+    async def _fake_watchdog(*args, **kwargs):
+        return None
+
+    async def _fake_finalize_watchdog(*args, **kwargs):
+        pass
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(session_module.ServerSession, "start", _fake_start)
+    monkeypatch.setattr(session_module, "ComfyClient", _FakeClient)
+    monkeypatch.setattr(session_module, "_wait_for_server_history", _fake_history)
+    monkeypatch.setattr(session_module, "_start_watchdog", _fake_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", _fake_finalize_watchdog)
+    monkeypatch.setenv("VIBECOMFY_SCHEMA_VALIDATE", "0")
+
+    result = asyncio.run(
+        session_module.ServerSession()._run_untracked(*_approved(_make_one_shot_run_wf()))
+    )
+
+    assert result.log_path == str(log_path)
+    assert result.log_provenance == {
+        "available": True,
+        "kind": "vibecomfy_captured_file",
+        "path": str(log_path),
+    }
+    assert not Path(result.metadata_path).parent.joinpath("comfy.log").exists()
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    assert metadata["log_path"] == str(log_path)
+    assert metadata["log_provenance"] == result.log_provenance
 
 
 def test_server_session_object_queue_result_sets_run_result_prompt_id(
