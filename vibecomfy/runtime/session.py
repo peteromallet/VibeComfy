@@ -715,7 +715,11 @@ class RunResult:
     prompt_id: str | None
     outputs: list[str]
     metadata_path: str
-    log_path: str
+    log_path: str | None
+    status: str = "completed"
+    media_validated: bool = False
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    log_provenance: dict[str, Any] = field(default_factory=dict)
 
 
 class PreparedPrompt(dict):
@@ -1212,6 +1216,7 @@ class EmbeddedSession:
                 schema_provenance=schema_provenance,
                 normalization=normalization,
                 adapter_endpoint=ws_url,
+                log_path=log_path,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
@@ -1228,6 +1233,8 @@ class EmbeddedSession:
                 outputs=outputs,
                 metadata_path=str(metadata_path),
                 log_path=str(log_path),
+                artifacts=list(metadata.get("artifacts", [])),
+                log_provenance=dict(metadata.get("log_provenance", {})),
             )
         except asyncio.CancelledError as exc:
             stop_reason = "cancelled"
@@ -1526,6 +1533,7 @@ class ServerSession:
                 schema_provenance=schema_provenance,
                 normalization=normalization,
                 adapter_endpoint=self.url,
+                log_path=log_path,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
@@ -1542,6 +1550,8 @@ class ServerSession:
                 outputs=outputs,
                 metadata_path=str(metadata_path),
                 log_path=str(log_path),
+                artifacts=list(metadata.get("artifacts", [])),
+                log_provenance=dict(metadata.get("log_provenance", {})),
             )
         except asyncio.CancelledError as exc:
             stop_reason = "cancelled"
@@ -2598,6 +2608,7 @@ def _run_metadata(
     schema_validation_skipped: list[str] | None = None,
     schema_provenance: Mapping[str, Any] | None = None,
     adapter_endpoint: str | None = None,
+    log_path: str | Path | None = None,
     normalization: Any | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
@@ -2609,6 +2620,13 @@ def _run_metadata(
         comfy_outputs = _raw_comfy_outputs(queued)
     serialized = json.dumps(api_dict, sort_keys=True, default=str)
     artifact_manifest = _artifact_manifest(workflow, outputs)
+    artifacts = _artifact_records(
+        comfy_outputs,
+        outputs,
+        adapter_kind=runtime,
+        adapter_endpoint=adapter_endpoint,
+    )
+    log_provenance = _log_provenance(log_path, runtime)
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
     shared = build_shared_fields(bundle, record, config=config)
     metadata = {
@@ -2639,6 +2657,12 @@ def _run_metadata(
         "artifact_manifest": artifact_manifest,
         "artifact_paths": outputs,
         "outputs": outputs,
+        "artifacts": artifacts,
+        "status": "completed",
+        "media_validated": False,
+        "media_validation": "not_performed",
+        "log_path": log_provenance["path"],
+        "log_provenance": log_provenance,
         "runtime": runtime,
         "schema_validation_skipped": schema_validation_skipped or [],
     }
@@ -3042,6 +3066,80 @@ def _collect_output_paths(value: Any, *, output_directory: str | Path | None = N
         for item in value:
             paths.extend(_collect_output_paths(item, output_directory=output_directory))
     return paths
+
+
+def _collect_output_descriptors(value: Any) -> list[dict[str, Any]]:
+    """Flatten Comfy history output descriptors in the same order as paths."""
+    descriptors: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if isinstance(value.get("filename"), str):
+            descriptors.append(dict(value))
+            return descriptors
+        for item in value.values():
+            descriptors.extend(_collect_output_descriptors(item))
+    elif isinstance(value, list):
+        for item in value:
+            descriptors.extend(_collect_output_descriptors(item))
+    return descriptors
+
+
+def _comfy_view_url(endpoint: str, descriptor: Mapping[str, Any]) -> str | None:
+    """Return Comfy's retrievable view URL for a remote output descriptor."""
+    filename = descriptor.get("filename")
+    if not isinstance(filename, str) or not filename:
+        return None
+    params = {
+        "filename": filename,
+        "subfolder": str(descriptor.get("subfolder") or ""),
+        "type": str(descriptor.get("type") or "output"),
+    }
+    return f"{endpoint.rstrip('/')}/view?{urllib.parse.urlencode(params)}"
+
+
+def _artifact_records(
+    comfy_outputs: Any,
+    outputs: list[str],
+    *,
+    adapter_kind: str,
+    adapter_endpoint: str | None,
+) -> list[dict[str, Any]]:
+    """Make output provenance explicit without pretending remote files are local."""
+    descriptors = _collect_output_descriptors(comfy_outputs)
+    records: list[dict[str, Any]] = []
+    for index, output in enumerate(outputs):
+        descriptor = descriptors[index] if index < len(descriptors) else {}
+        record: dict[str, Any] = {
+            "reported_path": output,
+            "filename": descriptor.get("filename") or Path(output).name,
+            "subfolder": descriptor.get("subfolder") or "",
+            "type": descriptor.get("type") or "output",
+            "source": "external_comfy_server" if adapter_kind == "external" else "local_filesystem",
+        }
+        if adapter_kind == "external" and adapter_endpoint:
+            record["location"] = _comfy_view_url(adapter_endpoint, descriptor)
+            record["path"] = None
+        else:
+            record["location"] = output
+            record["path"] = output
+        records.append(record)
+    return records
+
+
+def _log_provenance(log_path: str | Path | None, adapter_kind: str) -> dict[str, Any]:
+    """Describe log ownership and availability without returning fake paths."""
+    if adapter_kind == "external":
+        return {
+            "available": False,
+            "kind": "external_server",
+            "path": None,
+            "reason": "Comfy server owns its logs; VibeComfy did not capture them.",
+        }
+    path = str(log_path) if log_path is not None else None
+    return {
+        "available": bool(path and Path(path).is_file()),
+        "kind": "vibecomfy_captured_file",
+        "path": path,
+    }
 
 
 def _resolve_comfy_output_filename(value: dict[str, Any], output_directory: str | Path | None) -> str:

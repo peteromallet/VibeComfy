@@ -83,7 +83,9 @@ async def run(
     workflow = bundle.workflow
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
     run_id, run_dir = _allocate_run_dir("run", runtime_root=resolved_config.runtime_root)
-    log_path = run_dir / "comfy.log"
+    # An explicit server owns its process and filesystem.  Do not hand callers
+    # a local path that this adapter never created.
+    log_path = run_dir / "comfy.log" if server_url is None else None
     managed_config = resolved_config if server_url is None else None
     policy = resolve_model_preflight_policy(
         mode="managed_local_server" if server_url is None else "explicit_remote_server_unverified",
@@ -190,6 +192,7 @@ async def run(
                 schema_validation_skipped=schema_validation_skipped,
                 schema_provenance=schema_provenance,
                 adapter_endpoint=active_url,
+                log_path=log_path,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
             )
@@ -205,7 +208,9 @@ async def run(
                 prompt_id=prompt_id,
                 outputs=outputs,
                 metadata_path=str(metadata_path),
-                log_path=str(log_path),
+                log_path=str(log_path) if log_path is not None else None,
+                artifacts=list(metadata.get("artifacts", [])),
+                log_provenance=dict(metadata.get("log_provenance", {})),
             )
         except asyncio.CancelledError as exc:
             _persist_runtime_failure(
@@ -516,7 +521,7 @@ def run_embedded_sync(
 
 async def smoke_runtime(*, server_url: str | None = None) -> dict[str, Any]:
     run_id, run_dir = _allocate_run_dir("smoke")
-    log_path = run_dir / "comfy.log"
+    log_path = run_dir / "comfy.log" if server_url is None else None
     async with comfy_server(server_url=server_url, log_path=log_path) as active_url:
         client = ComfyClient(active_url)
         objects = await client.object_info()
@@ -524,7 +529,7 @@ async def smoke_runtime(*, server_url: str | None = None) -> dict[str, Any]:
         "run_id": run_id,
         "server_url": server_url or "managed",
         "node_count": len(objects),
-        "log_path": str(log_path),
+        "log_path": str(log_path) if log_path is not None else None,
     }
 
 

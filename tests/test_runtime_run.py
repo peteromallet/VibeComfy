@@ -643,6 +643,27 @@ def test_run_external_server_does_not_apply_workflow_session_config(
 
     assert result.prompt_id == "prompt-external"
     assert result.outputs == ["external.mp4"]
+    assert result.log_path is None
+    assert result.log_provenance == {
+        "available": False,
+        "kind": "external_server",
+        "path": None,
+        "reason": "Comfy server owns its logs; VibeComfy did not capture them.",
+    }
+    assert result.artifacts == [{
+        "reported_path": "external.mp4",
+        "filename": "external.mp4",
+        "subfolder": "",
+        "type": "output",
+        "source": "external_comfy_server",
+        "location": "http://external.test/view?filename=external.mp4&subfolder=&type=output",
+        "path": None,
+    }]
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    assert metadata["outputs"] == ["external.mp4"]
+    assert metadata["artifacts"] == result.artifacts
+    assert metadata["log_path"] is None
+    assert metadata["log_provenance"] == result.log_provenance
     assert captured_configs == [None]
 
 
@@ -982,6 +1003,49 @@ def test_cmd_run_prints_clear_failure(monkeypatch: pytest.MonkeyPatch, capsys: p
     assert captured.err == ""
     assert len(handoff) == 1
     assert handoff[0][0].revision_id == handoff[0][1].revision_id
+
+
+def test_cmd_run_json_surfaces_outputs_and_external_log_provenance(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = argparse.Namespace(
+        path="edit/qwen_image_edit",
+        ready=True,
+        runtime="server",
+        server_url="http://external.test",
+        backend="api",
+        prompt=None,
+        seed=None,
+        steps=None,
+        json=True,
+    )
+
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.run_sync",
+        lambda *args, **kwargs: types.SimpleNamespace(
+            run_id="r",
+            prompt_id="p",
+            outputs=["external.mp4"],
+            artifacts=[{"location": "http://external.test/view?filename=external.mp4"}],
+            metadata_path="m",
+            log_path=None,
+            log_provenance={"kind": "external_server", "available": False, "path": None},
+            status="completed",
+            media_validated=False,
+        ),
+    )
+
+    assert _cmd_run(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "completed"
+    assert payload["queue_status"] == "accepted"
+    assert payload["media_validated"] is False
+    assert payload["outputs"] == ["external.mp4"]
+    assert payload["artifacts"] == [{"location": "http://external.test/view?filename=external.mp4"}]
+    assert payload["log_path"] is None
+    assert payload["log_provenance"]["kind"] == "external_server"
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(

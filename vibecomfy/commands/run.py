@@ -316,18 +316,41 @@ def _cmd_run(args: argparse.Namespace) -> int:
             payload = {
                 "run_id": result.run_id,
                 "prompt_id": result.prompt_id,
+                "queue_status": "accepted" if result.prompt_id else "unknown",
                 "metadata_path": result.metadata_path,
-                "log_path": result.log_path,
+                "log_path": getattr(result, "log_path", None),
+                "log_provenance": getattr(result, "log_provenance", {}),
+                "status": getattr(result, "status", "completed"),
+                "media_validated": getattr(result, "media_validated", False),
+                "outputs": list(getattr(result, "outputs", [])),
+                "artifacts": list(getattr(result, "artifacts", [])),
                 "session_id": lookup_session_id if session_url is not None else None,
                 "session_url": session_url,
             }
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
-            print(
-                f"run_id: {result.run_id}\n"
-                f"prompt_id: {result.prompt_id}\n"
-                f"metadata_path: {result.metadata_path}"
-            )
+            log_path = getattr(result, "log_path", None)
+            log_line = f"log_path: {log_path}" if log_path else "log_path: unavailable (external server owns its logs)"
+            lines = [
+                f"status: {getattr(result, 'status', 'completed')}",
+                f"queue_status: {'accepted' if result.prompt_id else 'unknown'}",
+                f"media_validated: {getattr(result, 'media_validated', False)}",
+                f"run_id: {result.run_id}",
+                f"prompt_id: {result.prompt_id}",
+                f"metadata_path: {result.metadata_path}",
+                log_line,
+            ]
+            outputs = list(getattr(result, "outputs", []))
+            if outputs:
+                lines.append("outputs:")
+                lines.extend(f"  - {path}" for path in outputs)
+            artifacts = list(getattr(result, "artifacts", []))
+            if artifacts:
+                lines.append("artifact_locations:")
+                for artifact in artifacts:
+                    location = artifact.get("location") if isinstance(artifact, dict) else artifact
+                    lines.append(f"  - {location}")
+            print("\n".join(lines))
         return 0
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"run failed: {exc}", file=sys.stderr)
