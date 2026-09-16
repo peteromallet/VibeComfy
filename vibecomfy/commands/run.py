@@ -134,8 +134,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         # Runtime execution must use the target-witnessed authoring schemas.
         # The static local node index can lag a freshly captured ComfyUI
         # object-info cache, which makes valid custom/core nodes look
-        # unresolved at the final compile gate.
-        schema_provider = get_schema_provider("local", server_url=server_url)
+        # unresolved at the final compile gate.  Use the effective URL so an
+        # already-running managed session gets the same target authority as
+        # the runtime queue.
+        schema_provider = get_schema_provider("auto", server_url=session_url)
         try:
             bundle = load_bundle(
                 args.path,
@@ -283,7 +285,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 bundle,
                 server_url=session_url,
                 backend=getattr(args, "backend", "api"),
-                schema_provider=schema_provider if server_url is not None else None,
+                schema_provider=schema_provider if session_url is not None else None,
                 ensure_models=False if preparation is not None else bool(getattr(args, "ensure_models", False)),
                 shared_models_root=getattr(args, "shared_models_root", None),
                 config=config,

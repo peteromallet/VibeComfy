@@ -73,16 +73,22 @@ def test_target_provider_fetch_and_validation_are_target_bound(
     monkeypatch.chdir(tmp_path)
     _target_server(monkeypatch, {"TargetPresentNode": {"input": {}}})
     provider = get_schema_provider("auto", server_url="http://target.test:8188")
+    write_object_info_cache(
+        provider.cache_path,
+        {"StaleCacheNode": {"input": {}}},
+        runtime_fingerprint=runtime_fingerprint("http://target.test:8188"),
+        server_url="http://target.test:8188",
+    )
 
     present = validate_api_against_schema(
         {"1": {"class_type": "TargetPresentNode", "inputs": {}}}, provider
     )
-    absent = validate_api_against_schema(
-        {"1": {"class_type": "TargetAbsentNode", "inputs": {}}}, provider
+    stale = validate_api_against_schema(
+        {"1": {"class_type": "StaleCacheNode", "inputs": {}}}, provider
     )
 
     assert present == []
-    assert [issue.code for issue in absent] == ["unknown_class_type"]
+    assert [issue.code for issue in stale] == ["unknown_class_type"]
     assert isinstance(provider, TargetSchemaProvider)
 
 
@@ -178,4 +184,79 @@ def test_external_run_command_reuses_target_provider_for_compile_and_run(
     )
 
     assert run_command._cmd_run(args) == 0
+    assert observed == {"compile_provider": provider, "run_provider": provider}
+
+
+def test_managed_session_run_reuses_effective_target_provider_for_compile_and_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.commands import run as run_command
+
+    provider = object()
+    observed: dict[str, object] = {}
+
+    class Workflow:
+        id = "managed-target-run"
+        inputs = {}
+
+    class Bundle:
+        workflow = Workflow()
+
+        def require_canonical_authority(self, _action: str) -> None:
+            return None
+
+        def compile(self, **kwargs):
+            observed["compile_provider"] = kwargs["schema_provider"]
+            return object()
+
+    monkeypatch.setattr(run_command, "active_session_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        run_command,
+        "find_active_session",
+        lambda _id: "http://managed-target.test:8188",
+    )
+    schema_calls: list[tuple[str, str | None]] = []
+
+    def fake_schema_provider(prefer: str, *, server_url: str | None = None):
+        schema_calls.append((prefer, server_url))
+        return provider
+
+    monkeypatch.setattr(run_command, "get_schema_provider", fake_schema_provider)
+    monkeypatch.setattr(run_command, "load_bundle", lambda *args, **kwargs: Bundle())
+    monkeypatch.setattr(
+        run_command,
+        "run_sync",
+        lambda record, bundle, **kwargs: (
+            observed.update(run_provider=kwargs["schema_provider"])
+            or argparse.Namespace(
+                run_id="run",
+                prompt_id="prompt",
+                metadata_path="metadata.json",
+                log_path="comfy.log",
+            )
+        ),
+    )
+
+    args = argparse.Namespace(
+        path="managed.py",
+        runtime="auto",
+        server_url=None,
+        backend="api",
+        prompt=None,
+        seed=None,
+        steps=None,
+        memory_profile=None,
+        ensure_packs=False,
+        ensure_models=None,
+        shared_models_root=None,
+        session=None,
+        runtime_root=None,
+        restart_session=False,
+        keep_warm=False,
+        json=False,
+        quiet_schema_degradation=False,
+    )
+
+    assert run_command._cmd_run(args) == 0
+    assert schema_calls == [("auto", "http://managed-target.test:8188")]
     assert observed == {"compile_provider": provider, "run_provider": provider}

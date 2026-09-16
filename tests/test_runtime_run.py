@@ -1027,7 +1027,7 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
     monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
     assert _cmd_run(args) == 0
 
-    assert schema_calls == [("local", None)]
+    assert schema_calls == [("auto", "http://warm.test")]
     assert not loaded_schema_providers
     assert len(run_calls) == 1
     record, bundle, route_url, route_backend = run_calls[0]
@@ -1072,7 +1072,7 @@ def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
     monkeypatch.setattr("vibecomfy.commands.run.run_embedded_sync", fake_run_embedded_sync)
     assert _cmd_run(args) == 0
 
-    assert schema_calls == [("local", None)]
+    assert schema_calls == [("auto", None)]
     assert len(embedded_calls) == 1
     assert embedded_calls[0][0].revision_id == embedded_calls[0][1].revision_id
     assert capsys.readouterr().err == ""
