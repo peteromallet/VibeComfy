@@ -480,10 +480,17 @@ def _complete_runtime_run(
         adapter=dict(evidence["adapter"]),
         schema_provenance=dict(evidence["schema_provenance"]),
     )
+    completion_path = run_dir / "completion.json"
+    metadata["completion_path"] = str(completion_path)
     try:
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
     except Exception as exc:
         raise QueueError("runtime metadata could not be persisted",
+                         next_action="vibecomfy runtime doctor") from exc
+    try:
+        atomic_write_json(completion_path, _completion_record(run_dir, metadata))
+    except Exception as exc:
+        raise QueueError("runtime completion record could not be persisted",
                          next_action="vibecomfy runtime doctor") from exc
     try:
         _journal_terminal(
@@ -491,9 +498,49 @@ def _complete_runtime_run(
             event_type="finalized",
         )
     except Exception as exc:
+        # Do not leave a completed-looking manifest behind when finalization
+        # itself failed to become durable.
+        try:
+            completion_path.unlink()
+        except OSError:
+            logger.warning("could not remove incomplete completion record %s", completion_path)
         raise QueueError("runtime finalized evidence could not be persisted",
                          next_action="vibecomfy runtime doctor") from exc
     return metadata_path
+
+
+def _completion_record(run_dir: Path, metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the concise, user-facing record for a completed run."""
+    artifacts = metadata.get("artifacts", [])
+    if not isinstance(artifacts, list):
+        artifacts = []
+    outputs = metadata.get("outputs", [])
+    if not isinstance(outputs, list):
+        outputs = []
+    locations: list[Any] = []
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            continue
+        location = artifact.get("location") or artifact.get("path") or artifact.get("reported_path")
+        if location is not None:
+            locations.append(location)
+    log_provenance = metadata.get("log_provenance", {})
+    if not isinstance(log_provenance, Mapping):
+        log_provenance = {}
+    return {
+        "schema_version": 1,
+        "record_type": "vibecomfy_completion",
+        "run_id": metadata.get("run_id"),
+        "prompt_id": metadata.get("prompt_id"),
+        "status": metadata.get("status", "completed"),
+        "runtime": metadata.get("runtime"),
+        "metadata_path": str(run_dir / "metadata.json"),
+        "outputs": outputs,
+        "artifacts": artifacts,
+        "artifact_locations": locations,
+        "log_path": metadata.get("log_path"),
+        "log_provenance": dict(log_provenance),
+    }
 
 
 def _begin_runtime_lifecycle(
@@ -716,6 +763,7 @@ class RunResult:
     outputs: list[str]
     metadata_path: str
     log_path: str | None
+    completion_path: str | None = None
     status: str = "completed"
     media_validated: bool = False
     artifacts: list[dict[str, Any]] = field(default_factory=list)
@@ -1238,6 +1286,7 @@ class EmbeddedSession:
                 outputs=outputs,
                 metadata_path=str(metadata_path),
                 log_path=log_path,
+                completion_path=str(Path(metadata_path).with_name("completion.json")),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -1568,6 +1617,7 @@ class ServerSession:
                 outputs=outputs,
                 metadata_path=str(metadata_path),
                 log_path=log_path,
+                completion_path=str(Path(metadata_path).with_name("completion.json")),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -2627,6 +2677,7 @@ def _run_metadata(
     schema_provenance: Mapping[str, Any] | None = None,
     adapter_endpoint: str | None = None,
     log_path: str | Path | None = None,
+    external_log_locator: str | Path | None = None,
     artifacts: list[dict[str, Any]] | None = None,
     normalization: Any | None = None,
     chain_id: str | None = None,
@@ -2649,7 +2700,11 @@ def _run_metadata(
         artifacts = list(artifacts)
     outputs = [artifact["reported_path"] for artifact in artifacts]
     artifact_manifest = _artifact_manifest(workflow, outputs)
-    log_provenance = _log_provenance(log_path, runtime)
+    log_provenance = _log_provenance(
+        log_path,
+        runtime,
+        external_log_locator=external_log_locator,
+    )
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
     shared = build_shared_fields(bundle, record, config=config)
     metadata = {
@@ -3149,21 +3204,43 @@ def _artifact_records(
     return records
 
 
-def _log_provenance(log_path: str | Path | None, adapter_kind: str) -> dict[str, Any]:
+def _log_provenance(
+    log_path: str | Path | None,
+    adapter_kind: str,
+    *,
+    external_log_locator: str | Path | None = None,
+) -> dict[str, Any]:
     """Describe log ownership and availability without returning fake paths."""
     if adapter_kind == "external":
-        return {
+        provenance: dict[str, Any] = {
             "available": False,
             "kind": "external_server",
             "path": None,
             "reason": "Comfy server owns its logs; VibeComfy did not capture them.",
         }
+        if external_log_locator is not None and str(external_log_locator).strip():
+            provenance["locator"] = str(external_log_locator)
+            provenance["locator_kind"] = "configured_external_log"
+            provenance["reason"] = (
+                "Comfy server owns its logs; VibeComfy did not capture them; "
+                "the configured locator is a reference only."
+            )
+        return provenance
     path = str(log_path) if log_path is not None else None
     return {
         "available": bool(path and Path(path).is_file()),
         "kind": "vibecomfy_captured_file",
         "path": path,
     }
+
+
+def _external_log_locator(config: SessionConfig | None) -> str | None:
+    """Return an operator-supplied reference for logs owned by an external server."""
+    configured = config.extra.get("external_log_locator") if config is not None else None
+    locator = configured if configured is not None else os.environ.get("VIBECOMFY_EXTERNAL_LOG_LOCATOR")
+    if locator is None or not str(locator).strip():
+        return None
+    return str(locator)
 
 
 def _resolve_comfy_output_filename(value: dict[str, Any], output_directory: str | Path | None) -> str:

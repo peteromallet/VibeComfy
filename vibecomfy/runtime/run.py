@@ -27,6 +27,7 @@ from .session import (
     _build_schema_provider,
     _configured_output_directory,
     _embedded_configuration,
+    _external_log_locator,
     _outputs_from_server_history,
     _prepare_prompt_async,
     _begin_runtime_lifecycle,
@@ -197,6 +198,11 @@ async def run(
                 schema_provenance=schema_provenance,
                 adapter_endpoint=active_url,
                 log_path=log_path,
+                external_log_locator=(
+                    _external_log_locator(resolved_config)
+                    if adapter_kind == "external"
+                    else None
+                ),
                 artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
@@ -214,6 +220,7 @@ async def run(
                 outputs=outputs,
                 metadata_path=str(metadata_path),
                 log_path=str(log_path) if log_path is not None else None,
+                completion_path=str(Path(metadata_path).with_name("completion.json")),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )

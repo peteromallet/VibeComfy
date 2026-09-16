@@ -20,6 +20,12 @@ servers report Comfy `/view` URLs and leave the artifact `path` as `null`.
 `RunResult.log_path` is a local captured file only for managed or embedded
 runs. It is `None` for an explicit external server, with
 `RunResult.log_provenance` explaining that the external Comfy process owns its
-logs. The same delivery, artifact, and log fields are persisted in the run's
-`metadata.json`, and `vibecomfy run` prints queue status, execution status,
-artifacts, and log provenance in both text and JSON modes.
+logs. An external run may supply `SessionConfig.extra["external_log_locator"]`
+or `--external-log-locator`; this is recorded as a reference only and never
+pretended to be a captured local path.
+
+Every completed run also writes a concise VibeComfy-owned `completion.json`
+beside `metadata.json`. It contains the run and prompt IDs, completion status,
+outputs, artifact locations, and log provenance. `RunResult.completion_path`,
+`vibecomfy run`, and `vibecomfy logs <run-id>` expose that record directly.
+`metadata.json` remains the full execution snapshot.

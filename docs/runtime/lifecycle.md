@@ -2,7 +2,7 @@
 
 CLI `vibecomfy run` defaults to `auto`: it reuses an active warm managed session when one is running, otherwise it falls back to embedded one-shot execution.
 
-Managed server mode starts `comfyui serve`, waits for readiness, queries `/object_info` or queues the workflow, captures logs under `out/runs/<run-id>/`, then stops the server.
+Managed server mode starts `comfyui serve`, waits for readiness, queries `/object_info` or queues the workflow, captures logs under the configured session log path, then stops the server. Each completed run also writes `out/runs/<run-id>/completion.json`, a concise durable handoff containing the prompt ID, outputs/artifact locations, and log provenance.
 
 `--runtime server --server-url ...` switches to an external server. External mode never stops the user's server.
 
@@ -75,6 +75,13 @@ Session configuration covers the model-memory and cache flags that Comfy already
 - `warm_policy`
 
 `SessionConfig.extra` is an escape hatch for raw HiddenSwitch configuration keys that VibeComfy does not type yet. Mixed dictionaries may include both typed field names and raw HiddenSwitch keys; raw keys are translated first, then typed field names win on conflicts.
+
+For `--runtime server --server-url ...`, Comfy owns the process log and
+VibeComfy does not invent a local per-run path. Set
+`SessionConfig.extra["external_log_locator"]` or pass
+`--external-log-locator <reference>` when an operator has a URL, SSH target,
+or other durable locator. The completion record labels it as a reference and
+keeps `log_path` null because the log was not captured by VibeComfy.
 
 ## Memory Profiles
 

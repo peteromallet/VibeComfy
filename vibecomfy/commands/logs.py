@@ -10,7 +10,7 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     if not run_dir.exists():
         print(f"run not found: {args.run_id}", file=sys.stderr)
         return 1
-    for name in ("metadata.json", "comfy.log"):
+    for name in ("completion.json", "metadata.json", "comfy.log"):
         path = run_dir / name
         if path.exists():
             print(f"== {path} ==")

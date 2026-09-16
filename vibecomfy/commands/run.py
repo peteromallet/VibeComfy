@@ -265,10 +265,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"run failed: {exc}", file=sys.stderr)
             return 1
+        config_extra = {
+            "quiet_schema_degradation": bool(getattr(args, "quiet_schema_degradation", False)),
+        }
+        external_log_locator = getattr(args, "external_log_locator", None)
+        if external_log_locator is not None:
+            config_extra["external_log_locator"] = external_log_locator
         config = SessionConfig(
             memory_profile=memory_profile,
             runtime_root=runtime_root,
-            extra={"quiet_schema_degradation": bool(getattr(args, "quiet_schema_degradation", False))},
+            extra=config_extra,
         )
 
         def execute_once():
@@ -318,6 +324,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 "prompt_id": result.prompt_id,
                 "queue_status": "accepted" if result.prompt_id else "unknown",
                 "metadata_path": result.metadata_path,
+                "completion_path": getattr(result, "completion_path", None),
                 "log_path": getattr(result, "log_path", None),
                 "log_provenance": getattr(result, "log_provenance", {}),
                 "status": getattr(result, "status", "completed"),
@@ -346,6 +353,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 f"metadata_path: {result.metadata_path}",
                 log_line,
             ]
+            completion_path = getattr(result, "completion_path", None)
+            if completion_path:
+                lines.insert(-1, f"completion_path: {completion_path}")
             outputs = list(getattr(result, "outputs", []))
             if outputs:
                 lines.append("outputs:")
@@ -393,6 +403,10 @@ def register(subparsers) -> None:
     run.add_argument("--ready", action="store_true")
     run.add_argument("--runtime", choices=["auto", "embedded", "server"], default="auto")
     run.add_argument("--server-url")
+    run.add_argument(
+        "--external-log-locator",
+        help="Reference for logs owned by an explicit external Comfy server; never treated as captured.",
+    )
     run.add_argument("--backend", default="api")
     run.add_argument("--prompt")
     run.add_argument("--seed", type=int)

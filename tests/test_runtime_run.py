@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from vibecomfy.errors import QueueError, RuntimeNodeError
 
+from vibecomfy.commands.logs import _cmd_logs
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
 from vibecomfy.artifacts import Artifact
@@ -665,7 +666,39 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     assert metadata["artifacts"] == result.artifacts
     assert metadata["log_path"] is None
     assert metadata["log_provenance"] == result.log_provenance
+    assert result.completion_path == str(Path(result.metadata_path).parent / "completion.json")
+    completion = json.loads(Path(result.completion_path).read_text(encoding="utf-8"))
+    assert completion["run_id"] == result.run_id
+    assert completion["prompt_id"] == result.prompt_id
+    assert completion["status"] == "completed"
+    assert completion["outputs"] == ["external.mp4"]
+    assert completion["artifacts"] == result.artifacts
+    assert completion["artifact_locations"] == [
+        "http://external.test/view?filename=external.mp4&subfolder=&type=output"
+    ]
+    assert completion["log_path"] is None
+    assert completion["log_provenance"] == result.log_provenance
     assert captured_configs == [None]
+
+
+def test_external_log_locator_is_recorded_as_reference_only() -> None:
+    provenance = session_module._log_provenance(
+        None,
+        "external",
+        external_log_locator="ssh://runpod/workspace/comfyui-h3.log",
+    )
+
+    assert provenance == {
+        "available": False,
+        "kind": "external_server",
+        "path": None,
+        "locator": "ssh://runpod/workspace/comfyui-h3.log",
+        "locator_kind": "configured_external_log",
+        "reason": (
+            "Comfy server owns its logs; VibeComfy did not capture them; "
+            "the configured locator is a reference only."
+        ),
+    }
 
 
 def test_artifact_records_keep_mixed_descriptors_and_paths_paired() -> None:
@@ -1082,6 +1115,7 @@ def test_cmd_run_json_surfaces_outputs_and_external_log_provenance(
             outputs=["external.mp4"],
             artifacts=[{"location": "http://external.test/view?filename=external.mp4"}],
             metadata_path="m",
+            completion_path="completion.json",
             log_path=None,
             log_provenance={"kind": "external_server", "available": False, "path": None},
             status="completed",
@@ -1096,6 +1130,7 @@ def test_cmd_run_json_surfaces_outputs_and_external_log_provenance(
     assert payload["media_validated"] is False
     assert payload["outputs"] == ["external.mp4"]
     assert payload["artifacts"] == [{"location": "http://external.test/view?filename=external.mp4"}]
+    assert payload["completion_path"] == "completion.json"
     assert payload["log_path"] is None
     assert payload["log_provenance"]["kind"] == "external_server"
 
@@ -1136,6 +1171,28 @@ def test_cmd_run_text_agrees_with_unavailable_log_provenance(
     output = capsys.readouterr().out
     assert "log_path: unavailable (captured process log is unavailable)" in output
     assert "external server owns its logs" not in output
+
+
+def test_cmd_logs_surfaces_completion_record(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = tmp_path / "out" / "runs" / "run-1"
+    run_dir.mkdir(parents=True)
+    completion = {
+        "run_id": "run-1",
+        "prompt_id": "prompt-1",
+        "status": "completed",
+        "artifact_locations": ["http://external.test/view?filename=clip.mp4"],
+        "log_provenance": {"kind": "external_server", "available": False},
+    }
+    (run_dir / "completion.json").write_text(json.dumps(completion), encoding="utf-8")
+
+    assert _cmd_logs(argparse.Namespace(run_id="run-1", tail=4000)) == 0
+    output = capsys.readouterr().out
+    assert "== out/runs/run-1/completion.json ==" in output
+    assert "http://external.test/view?filename=clip.mp4" in output
+    assert "external_server" in output
 
 
 def test_cmd_run_auto_uses_active_session_for_schema_and_run(
