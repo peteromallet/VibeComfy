@@ -919,9 +919,31 @@ def transition_bundle(
             raise BundleTransitionError(str(exc)) from exc
         apply_result = session.apply_ops(ops, expected_revision=0)
         if not apply_result.ok:
-            details = "; ".join(
-                f"{item.code}: {item.message}" for item in apply_result.diagnostics
-            ) or apply_result.reason
+            # Keep the ordered evaluator ledger intact when crossing the
+            # bundle boundary.  Flattening only ``code: message`` hid the
+            # first rejected operation and its endpoint detail behind dozens
+            # of downstream topology diagnostics, making a safe correction
+            # indistinguishable from a blind retry.
+            transition_report = [
+                {
+                    "occurrence": transition.occurrence,
+                    "outcome": transition.outcome,
+                    "submitted": _jsonable(transition.submitted),
+                    "normalized": _jsonable(transition.normalized),
+                    "diagnostics": [_jsonable(item) for item in transition.diagnostics],
+                }
+                for transition in apply_result.transitions
+            ]
+            details = json.dumps(
+                {
+                    "reason": apply_result.reason,
+                    "diagnostics": [_jsonable(item) for item in apply_result.diagnostics],
+                    "transitions": transition_report,
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             raise BundleTransitionError(details or "workflow edit was rejected")
         if not isinstance(apply_result.workflow, VibeWorkflow) or apply_result.graph is None:
             raise BundleTransitionError("accepted edit did not produce a canonical workflow and presentation")

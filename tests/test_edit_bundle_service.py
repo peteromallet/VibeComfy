@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import shutil
 from pathlib import Path
 
@@ -313,7 +314,7 @@ def test_later_batch_failure_leaves_pair_and_revision_untouched(tmp_path: Path) 
     original_companion = python_path.with_suffix(".vibe.json").read_bytes()
 
     _gate()
-    with pytest.raises(BundleTransitionError):
+    with pytest.raises(BundleTransitionError) as raised:
         transition_bundle(
             python_path,
             tool_calls=[
@@ -322,6 +323,14 @@ def test_later_batch_failure_leaves_pair_and_revision_untouched(tmp_path: Path) 
             ],
             schema_provider=provider,
         )
+    report = json.loads(str(raised.value))
+    assert report["reason"] == "unknown_field"
+    assert report["transitions"]
+    assert report["transitions"][0]["occurrence"] == 0
+    assert report["transitions"][0]["outcome"] == "staged"
+    assert report["transitions"][1]["occurrence"] == 1
+    assert report["transitions"][1]["outcome"] == "rejected"
+    assert report["transitions"][1]["diagnostics"][0]["code"] == "unknown_field"
     assert python_path.read_bytes() == original_python
     assert python_path.with_suffix(".vibe.json").read_bytes() == original_companion
 
