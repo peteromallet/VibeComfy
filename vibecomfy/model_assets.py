@@ -370,10 +370,18 @@ def _normalise_model_entry(model: Any, *, class_type: str) -> dict[str, Any] | N
     url = model.get("url")
     if not isinstance(name, str) or not name:
         return None
-    if not isinstance(url, str) or not url:
+    if url is not None and (not isinstance(url, str) or not url):
         return None
-    subdir = _subdir_for_model(model, class_type=class_type, url=url)
-    entry: dict[str, Any] = {"name": name, "url": _strip_download_true(url), "subdir": subdir}
+    subdir = _subdir_for_model(model, class_type=class_type, url=url or "")
+    if not isinstance(subdir, str) or not subdir:
+        return None
+    entry: dict[str, Any] = {
+        "name": name,
+        "url": _strip_download_true(url) if isinstance(url, str) else None,
+        "subdir": subdir,
+    }
+    if url is None:
+        entry["unresolved"] = True
     if "target_path" in model:
         # Preserve presence, including malformed values, so the fetch owner
         # can reject them rather than silently falling back to subdir/name.

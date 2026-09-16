@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 import inspect
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
@@ -1233,7 +1233,7 @@ def _derive_input_type(class_type: str, field: str) -> str | None:
 @dataclass(frozen=True, init=False)
 class ModelAsset:
     filename: str
-    url: str
+    url: str | None
     subdir: str
     target_path: str | None = None
     sha256: str | None = None
@@ -1253,10 +1253,21 @@ class ModelAsset:
         size_bytes: int | None = None,
         gated: bool = False,
     ) -> None:
-        if url is None or subdir is None:
-            raise TypeError("ModelAsset requires url=... and subdir=...")
+        if subdir is None:
+            raise TypeError("ModelAsset requires subdir=...")
         if sha256 == "gated" or hf_revision == "gated":
             raise ValueError("Use ModelAsset(..., gated=True) instead of sha256='gated' or hf_revision='gated'.")
+        if url is None:
+            if not isinstance(filename, str) or not filename:
+                raise TypeError("unresolved ModelAsset requires an explicit filename")
+            if not _safe_model_relative_path(filename, field="filename"):
+                raise ValueError("unresolved ModelAsset filename must be a safe relative path")
+            if not _safe_model_relative_path(subdir, field="subdir"):
+                raise ValueError("unresolved ModelAsset subdir must be a safe relative path")
+        elif not isinstance(url, str) or not url:
+            raise TypeError("ModelAsset url must be a non-empty string or None")
+        elif not isinstance(subdir, str) or not subdir:
+            raise TypeError("ModelAsset requires a non-empty subdir")
         derived_filename = filename or Path(urlsplit(url).path).name
         if not derived_filename:
             raise ValueError("ModelAsset filename could not be derived from url")
@@ -1268,6 +1279,30 @@ class ModelAsset:
         object.__setattr__(self, "hf_revision", hf_revision)
         object.__setattr__(self, "size_bytes", size_bytes)
         object.__setattr__(self, "gated", bool(gated))
+
+
+def _safe_model_relative_path(value: Any, *, field: str) -> bool:
+    """Return whether an authored unresolved model path is fetch-safe.
+
+    The downloader owns the final authorization check.  Keeping the same
+    inexpensive lexical boundary in the authoring type prevents an unresolved
+    placeholder from representing an absolute path or traversal.
+    """
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    return not (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or bool(windows.root)
+        or ".." in posix.parts
+        or ".." in windows.parts
+        or "\\" in value
+        or value.endswith(("/", "\\"))
+        or value.rstrip("/").rsplit("/", 1)[-1] == "."
+    )
 
 
 class ReadyMetadata:
@@ -1972,7 +2007,7 @@ def _warn_on_model_requirement_disagreement(existing_models: Any, derived_models
         _MODEL_DISAGREEMENT_WARNED = True
 
 
-def _model_asset_metadata(model: ModelAsset) -> dict[str, str]:
+def _model_asset_metadata(model: ModelAsset) -> dict[str, Any]:
     data: dict[str, Any] = {
         "name": model.filename,
         "url": model.url,

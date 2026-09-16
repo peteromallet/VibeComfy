@@ -966,7 +966,13 @@ def _model_assets_for_emit(
     requirements: Mapping[str, Any],
 ) -> list[Mapping[str, Any]]:
     def usable(asset: Mapping[str, Any]) -> bool:
-        return bool(asset.get("url"))
+        return bool(
+            asset.get("url")
+            or (
+                isinstance(asset.get("name", asset.get("filename")), str)
+                and bool(asset.get("subdir", asset.get("directory")))
+            )
+        )
 
     raw_assets = metadata.get("model_assets")
     if isinstance(raw_assets, list):
@@ -1046,7 +1052,7 @@ def _format_models_block(model_assets: list[Mapping[str, Any]]) -> list[str]:
             args.append(f"filename={_format_value(filename)}")
         for field_name in ("url", "target_path", "sha256", "hf_revision", "size_bytes", "gated"):
             value = asset.get(field_name)
-            if value is not None:
+            if value is not None or (field_name == "url" and "url" in asset):
                 args.append(f"{field_name}={_format_value(value)}")
         if subdir is not None:
             args.append(f"subdir={_format_value(subdir)}")

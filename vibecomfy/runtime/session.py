@@ -634,6 +634,23 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
         return _norm(name), _norm(subdir), target_marker
 
     raw_assets = workflow.metadata.get("model_assets", [])
+    unresolved_authored = [
+        asset
+        for asset in raw_assets
+        if isinstance(asset, Mapping)
+        and asset.get("url") is None
+        and isinstance(asset.get("name", asset.get("filename")), str)
+    ] if isinstance(raw_assets, list) else []
+    if unresolved_authored:
+        names = ", ".join(
+            str(asset.get("name", asset.get("filename")))
+            for asset in unresolved_authored[:8]
+        )
+        more = "" if len(unresolved_authored) <= 8 else f" (+{len(unresolved_authored) - 8} more)"
+        raise ModelAssetError(
+            f"unresolved authored model assets: {names}{more}",
+            next_action=MODEL_DOCTOR_NEXT_ACTION,
+        )
     authored = _normalise_requirement_entries(raw_assets) if isinstance(raw_assets, list) else []
     resolved, unresolved = resolve_referenced_assets(workflow)
     authored_keys = {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import tomllib
@@ -36,6 +37,7 @@ def extract_ready_template_contract(
     path: str | Path,
     *,
     wrapper_class_types: Mapping[str, str] | None = None,
+    include_locations: bool = False,
 ) -> dict[str, Any]:
     """Extract cheap public contract metadata from a ready-template source file.
 
@@ -165,6 +167,15 @@ def extract_ready_template_contract(
         "reference": _has_marker(metadata, "reference"),
         "supplemental": _has_marker(metadata, "supplemental"),
     }
+    summary["source_locations"] = _static_source_locations(
+        tree,
+        source_path,
+        wrapper_class_types=wrappers,
+    )
+    if include_locations:
+        summary["diagnostics"] = _diagnostics_with_locations(
+            summary["diagnostics"], tree, source_path
+        )
     if merged_custom_node_refs:
         summary["custom_node_refs"] = merged_custom_node_refs
     return summary
@@ -903,7 +914,9 @@ def _eval_model_asset_call(node: ast.Call, assignments: dict[str, Any]) -> dict[
     return {
         "name": filename_val,
         "filename": filename_val,
-        "url": result.get("url", ""),
+        # None is the canonical unresolved state; an absent URL must not be
+        # collapsed into a different empty-string representation.
+        "url": result.get("url") if "url" in result else None,
         "subdir": result.get("subdir", ""),
         **({"target_path": result["target_path"]} if isinstance(result.get("target_path"), str) else {}),
         **({"sha256": result["sha256"]} if isinstance(result.get("sha256"), str) else {}),
@@ -1057,6 +1070,478 @@ def _call_name(func: ast.AST) -> str:
 
 def _diagnostic(code: str, message: str) -> dict[str, Any]:
     return {"code": code, "severity": "warning", "message": message}
+
+
+def _source_location(path: Path, node: ast.AST, *, semantic_path: str | None = None) -> dict[str, Any]:
+    location: dict[str, Any] = {
+        "source_path": str(path),
+        "line": int(getattr(node, "lineno", 1)),
+        "column": int(getattr(node, "col_offset", 0)),
+        "end_line": int(getattr(node, "end_lineno", getattr(node, "lineno", 1))),
+        "end_column": int(getattr(node, "end_col_offset", getattr(node, "col_offset", 0))),
+    }
+    if semantic_path is not None:
+        location["path"] = semantic_path
+    return location
+
+
+def _diagnostics_with_locations(
+    diagnostics: list[dict[str, Any]], tree: ast.AST, path: Path
+) -> list[dict[str, Any]]:
+    """Attach a best-effort AST location without changing legacy output by default."""
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    result: list[dict[str, Any]] = []
+    for diagnostic in diagnostics:
+        item = dict(diagnostic)
+        if "location" not in item:
+            needle = str(item.get("message", ""))
+            match = next(
+                (
+                    node
+                    for node in calls
+                    if _call_name(node.func) and _call_name(node.func) in needle
+                ),
+                None,
+            )
+            item["location"] = _source_location(path, match or tree)
+        result.append(item)
+    return result
+
+
+def _static_source_locations(
+    tree: ast.AST,
+    path: Path,
+    *,
+    wrapper_class_types: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return source locations for authored dependency and graph witnesses."""
+    locations: list[dict[str, Any]] = []
+    wrappers = wrapper_class_types or {}
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        for target in assignment.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if target.id == "MODELS" and isinstance(assignment.value, ast.Dict):
+                for key, value in zip(assignment.value.keys, assignment.value.values):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and isinstance(value, ast.Call)
+                        and _call_qualified_name(value.func) == "ModelAsset"
+                    ):
+                        locations.append({
+                            "kind": "model",
+                            **_source_location(path, value, semantic_path=f"MODELS[{json.dumps(str(key.value))}].url"),
+                        })
+            if target.id in {"READY_METADATA", "READY_REQUIREMENTS"}:
+                locations.extend(_requirement_locations(assignment.value, path, target.id))
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        class_type = _node_call_class_type(call)
+        name = _call_name(call.func)
+        if not class_type or not (
+            name in {"node", "raw_call", "_node", "ready_node"}
+            or name in wrappers
+            or (name and name[:1].isupper() and name not in _NON_WRAPPER_CALLS)
+        ):
+            continue
+        locations.append({
+            "kind": "graph_node",
+            "class_type": class_type,
+            **_source_location(path, call, semantic_path=f"graph[{class_type!r}]"),
+        })
+    return locations
+
+
+def _requirement_locations(value: ast.AST, path: Path, owner: str) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    requirement_dict: ast.Dict | None = None
+    if isinstance(value, ast.Call):
+        for keyword in value.keywords:
+            if keyword.arg == "requirements" and isinstance(keyword.value, ast.Dict):
+                requirement_dict = keyword.value
+                break
+    elif isinstance(value, ast.Dict):
+        requirement_dict = next(
+            (
+                nested_value
+                for key, nested_value in zip(value.keys, value.values)
+                if isinstance(key, ast.Constant)
+                and key.value == "requirements"
+                and isinstance(nested_value, ast.Dict)
+            ),
+            None,
+        )
+    if requirement_dict is None and owner == "READY_REQUIREMENTS" and isinstance(value, ast.Dict):
+        requirement_dict = value
+    if requirement_dict is None:
+        return locations
+    for key, nested in zip(requirement_dict.keys, requirement_dict.values):
+        if not isinstance(key, ast.Constant) or key.value != "custom_node_refs" or not isinstance(nested, ast.List):
+            continue
+        for index, item in enumerate(nested.elts):
+            if isinstance(item, ast.Dict):
+                locations.append({
+                    "kind": "custom_node_ref",
+                    **_source_location(
+                        path,
+                        item,
+                        semantic_path=(
+                            f"{owner}.custom_node_refs[{index}].url"
+                            if owner == "READY_REQUIREMENTS"
+                            else f"{owner}.requirements.custom_node_refs[{index}].url"
+                        ),
+                    ),
+                })
+    return locations
+
+
+def reconcile_ready_template_source(
+    source: str,
+    *,
+    source_path: str | Path = "<memory>",
+    expected_source_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Statically inspect and narrowly repair authored dependency placeholders.
+
+    Only literal ``ModelAsset`` calls and literal custom-node-ref dictionaries
+    are edited.  Dynamic expressions produce diagnostics and are left byte
+    unchanged.  The returned source is suitable for an atomic caller write.
+    """
+    if not isinstance(source, str):
+        raise TypeError("source must be text")
+    path = Path(source_path)
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    expected = (expected_source_sha256 or "").removeprefix("sha256:")
+    if expected and expected != digest:
+        return {
+            "changed": False,
+            "source": source,
+            "source_sha256": digest,
+            "diagnostics": [{
+                "code": "source_cas_mismatch",
+                "severity": "error",
+                "message": "source changed since reconciliation began; no edit was applied",
+                "location": {"source_path": str(path)},
+            }],
+            "edits": [],
+            "blockers": [],
+        }
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        return {
+            "changed": False,
+            "source": source,
+            "source_sha256": digest,
+            "diagnostics": [{
+                "code": "static_contract_parse_failed",
+                "severity": "error",
+                "message": str(exc),
+                "location": {"source_path": str(path), "line": exc.lineno, "column": exc.offset},
+            }],
+            "edits": [],
+            "blockers": [],
+        }
+
+    # Reconciliation is deliberately import-free.  The ordinary contract
+    # reader may consult the local schema catalog for wrapper aliases, but a
+    # dependency repair must report gaps before any custom-node setup or
+    # catalog import is attempted.
+    contract = None
+    wrappers: dict[str, str] = {}
+    edits: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = list(contract.get("diagnostics", [])) if contract else []
+    blockers: list[dict[str, Any]] = []
+
+    model_calls = _model_asset_call_records(tree, path)
+    for record in model_calls:
+        call = record["node"]
+        kwargs = record["kwargs"]
+        model_path = record["path"]
+        if "url" in kwargs:
+            url_node = kwargs["url"]
+            url = _literal_value(url_node, {})
+            if url is _UNSUPPORTED:
+                diagnostics.append(_located_diagnostic(
+                    "static_dynamic_value", "ModelAsset has dynamic 'url'", path, url_node, model_path + ".url"
+                ))
+            elif url in (None, ""):
+                blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, url_node, model_path + ".url"))
+            continue
+        filename = _literal_keyword_value(kwargs.get("filename"), tree)
+        subdir = _literal_keyword_value(kwargs.get("subdir"), tree)
+        if not isinstance(filename, str) or not filename or not _safe_static_path(filename) or not isinstance(subdir, str) or not subdir or not _safe_static_path(subdir):
+            diagnostics.append(_located_diagnostic(
+                "static_dynamic_model_asset", "ModelAsset needs explicit safe filename and subdir before url can be inserted", path, call, model_path
+            ))
+            continue
+        edit = _insert_keyword_edit(source, call, "url", "None", path, model_path + ".url")
+        edits.append(edit)
+        blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, call, model_path + ".url"))
+
+    for model_node, model_path in _requirement_model_dicts(tree):
+        fields = _dict_field_nodes(model_node)
+        url_node = fields.get("url")
+        if url_node is None:
+            edits.append(_insert_dict_field_edit(source, model_node, "url", "None", path, model_path + ".url"))
+            blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, model_node, model_path + ".url"))
+        else:
+            url = _literal_value(url_node, {})
+            if url is _UNSUPPORTED:
+                diagnostics.append(_located_diagnostic("static_dynamic_value", "model requirement has dynamic 'url'", path, url_node, model_path + ".url"))
+            elif url in (None, ""):
+                blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, url_node, model_path + ".url"))
+
+    ref_lists = _custom_ref_lists(tree)
+    declared_classes: set[str] = set()
+    for refs_node, refs_path in ref_lists:
+        for index, item in enumerate(refs_node.elts):
+            if not isinstance(item, ast.Dict):
+                diagnostics.append(_located_diagnostic("static_dynamic_value", "custom node ref is not a literal dictionary", path, item, f"{refs_path}[{index}]"))
+                continue
+            fields = _dict_field_nodes(item)
+            declared_classes.update(_string_list_value(fields.get("classes")))
+            declared_classes.update(_string_list_value(fields.get("class_set")))
+            if "url" not in fields:
+                edits.append(_insert_dict_field_edit(source, item, "url", "None", path, f"{refs_path}[{index}].url"))
+                blockers.append(_dependency_blocker("custom_node_repository_missing", "Fill the custom-node repository URL.", path, item, f"{refs_path}[{index}].url"))
+            else:
+                url = _literal_value(fields["url"], {})
+                if url is _UNSUPPORTED:
+                    diagnostics.append(_located_diagnostic("static_dynamic_value", "custom node ref has dynamic 'url'", path, fields["url"], f"{refs_path}[{index}].url"))
+                elif url in (None, ""):
+                    blockers.append(_dependency_blocker("custom_node_repository_missing", "Fill the custom-node repository URL.", path, fields["url"], f"{refs_path}[{index}].url"))
+
+    graph_classes = _graph_class_records(tree, wrappers)
+    try:
+        from vibecomfy.node_packs import CORE_COMFY_CLASSES
+        core_classes = set(CORE_COMFY_CLASSES)
+    except ImportError:
+        core_classes = set()
+    for class_type, node in graph_classes:
+        if class_type in core_classes or class_type in declared_classes:
+            continue
+        semantic_path = f"graph[{class_type!r}]"
+        blockers.append(_dependency_blocker("class_not_accounted_for", "No declared custom-node ref accounts for this class.", path, node, semantic_path, detail={"class_type": class_type}))
+        if ref_lists:
+            refs_node, refs_path = ref_lists[0]
+            new_index = len(refs_node.elts)
+            value = repr({"slug": class_type, "source": "git", "url": None, "classes": [class_type]})
+            edits.append(_append_list_item_edit(source, refs_node, value, path, f"{refs_path}[{new_index}]"))
+            declared_classes.add(class_type)
+
+    edited_source = _apply_source_edits(source, edits)
+    # An inserted placeholder is itself unresolved; callers may still choose
+    # to show the complete report before a future run fills it.
+    return {
+        "changed": edited_source != source,
+        "source": edited_source,
+        "source_sha256": hashlib.sha256(edited_source.encode("utf-8")).hexdigest(),
+        "original_source_sha256": digest,
+        "diagnostics": diagnostics,
+        "edits": [dict(edit) for edit in edits],
+        "blockers": blockers,
+        "locations": contract.get("source_locations", []) if contract else _static_source_locations(tree, path, wrapper_class_types=wrappers),
+    }
+
+
+def reconcile_ready_template_file(
+    path: str | Path,
+    *,
+    expected_source_sha256: str | None = None,
+    write: bool = True,
+) -> dict[str, Any]:
+    """Reconcile one source file and atomically publish only a CAS-valid edit."""
+    source_path = Path(path)
+    source = source_path.read_text(encoding="utf-8")
+    result = reconcile_ready_template_source(
+        source,
+        source_path=source_path,
+        expected_source_sha256=expected_source_sha256,
+    )
+    if write and result["changed"]:
+        current = source_path.read_text(encoding="utf-8")
+        if current != source:
+            result["changed"] = False
+            result["source"] = source
+            result["diagnostics"].append({
+                "code": "source_cas_mismatch",
+                "severity": "error",
+                "message": "source changed before atomic publication; no edit was applied",
+                "location": {"source_path": str(source_path)},
+            })
+        else:
+            from vibecomfy.porting.object_info.generation import atomic_write_text
+            atomic_write_text(source_path, result["source"])
+            result["written"] = True
+    else:
+        result["written"] = False
+    return result
+
+
+def _located_diagnostic(code: str, message: str, path: Path, node: ast.AST, semantic_path: str) -> dict[str, Any]:
+    return {"code": code, "severity": "warning", "message": message, "location": _source_location(path, node, semantic_path=semantic_path)}
+
+
+def _dependency_blocker(code: str, message: str, path: Path, node: ast.AST, semantic_path: str, *, detail: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    return {"code": code, "message": message, "location": _source_location(path, node, semantic_path=semantic_path), "detail": dict(detail or {})}
+
+
+def _model_asset_call_records(tree: ast.AST, path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        target_names = {target.id for target in assignment.targets if isinstance(target, ast.Name)}
+        if "MODELS" in target_names and isinstance(assignment.value, ast.Dict):
+            for key, value in zip(assignment.value.keys, assignment.value.values):
+                if isinstance(key, ast.Constant) and isinstance(value, ast.Call) and _call_qualified_name(value.func) == "ModelAsset":
+                    records.append({"node": value, "kwargs": {kw.arg: kw.value for kw in value.keywords if kw.arg}, "path": f"MODELS[{json.dumps(str(key.value))}]"})
+    return records
+
+
+def _requirement_model_dicts(tree: ast.AST) -> list[tuple[ast.Dict, str]]:
+    """Find literal ``requirements.models`` dictionaries without executing code."""
+    records: list[tuple[ast.Dict, str]] = []
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        owners = [target.id for target in assignment.targets if isinstance(target, ast.Name)]
+        if not set(owners) & {"READY_METADATA", "READY_REQUIREMENTS"}:
+            continue
+        for node in ast.walk(assignment.value):
+            if not isinstance(node, ast.Dict):
+                continue
+            fields = _dict_field_nodes(node)
+            models = fields.get("models")
+            if not isinstance(models, ast.List):
+                continue
+            for index, item in enumerate(models.elts):
+                if isinstance(item, ast.Dict):
+                    records.append((item, f"{owners[0]}.requirements.models[{index}]"))
+    return records
+
+
+def _custom_ref_lists(tree: ast.AST) -> list[tuple[ast.List, str]]:
+    found: list[tuple[ast.List, str]] = []
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        names = [target.id for target in assignment.targets if isinstance(target, ast.Name)]
+        if not set(names) & {"READY_METADATA", "READY_REQUIREMENTS"}:
+            continue
+        for node in ast.walk(assignment.value):
+            if not isinstance(node, ast.keyword) or node.arg != "requirements":
+                continue
+            for nested in ast.walk(node.value):
+                if isinstance(nested, ast.Dict):
+                    for key, value in zip(nested.keys, nested.values):
+                        if isinstance(key, ast.Constant) and key.value == "custom_node_refs" and isinstance(value, ast.List):
+                            found.append((value, "READY_METADATA.requirements.custom_node_refs"))
+        for node in ast.walk(assignment.value):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if isinstance(key, ast.Constant) and key.value == "custom_node_refs" and isinstance(value, ast.List):
+                        found.append((value, "READY_REQUIREMENTS.custom_node_refs" if "READY_REQUIREMENTS" in names else "READY_METADATA.requirements.custom_node_refs"))
+    unique: dict[int, tuple[ast.List, str]] = {id(node): (node, path) for node, path in found}
+    return list(unique.values())
+
+
+def _graph_class_records(tree: ast.AST, wrappers: Mapping[str, str]) -> list[tuple[str, ast.Call]]:
+    records: list[tuple[str, ast.Call]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_name(node.func)
+        class_type = _node_call_class_type(node)
+        if not class_type or not name:
+            continue
+        if name in {"node", "raw_call", "_node", "ready_node"} or name in wrappers or (name[:1].isupper() and name not in _NON_WRAPPER_CALLS):
+            records.append((class_type, node))
+    return records
+
+
+def _dict_field_nodes(node: ast.Dict) -> dict[str, ast.AST]:
+    return {
+        str(key.value): value
+        for key, value in zip(node.keys, node.values)
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+
+
+def _string_list_value(node: ast.AST | None) -> set[str]:
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return set()
+    return {str(item.value) for item in node.elts if isinstance(item, ast.Constant) and isinstance(item.value, str) and item.value}
+
+
+def _literal_keyword_value(node: ast.AST | None, tree: ast.AST) -> Any:
+    if node is None:
+        return None
+    return _literal_value(node, {})
+
+
+def _safe_static_path(value: str) -> bool:
+    from vibecomfy.templates import _safe_model_relative_path
+    return _safe_model_relative_path(value, field="model")
+
+
+def _offsets(source: str) -> list[int]:
+    positions = [0]
+    for line in source.splitlines(keepends=True):
+        positions.append(positions[-1] + len(line))
+    return positions
+
+
+def _node_end_offset(source: str, node: ast.AST) -> int:
+    positions = _offsets(source)
+    return positions[int(node.end_lineno) - 1] + int(node.end_col_offset)
+
+
+def _insert_keyword_edit(source: str, call: ast.Call, name: str, value: str, path: Path, semantic_path: str) -> dict[str, Any]:
+    anchor: ast.AST | None = call.keywords[-1].value if call.keywords else (call.args[-1] if call.args else None)
+    position = _node_end_offset(source, anchor) if anchor is not None else _node_end_offset(source, call) - 1
+    prefix = ", " if anchor is not None else ""
+    return {"start": position, "end": position, "replacement": f"{prefix}{name}={value}", "path": semantic_path, "location": _source_location(path, call, semantic_path=semantic_path)}
+
+
+def _insert_dict_field_edit(source: str, node: ast.Dict, name: str, value: str, path: Path, semantic_path: str) -> dict[str, Any]:
+    anchor: ast.AST | None = node.values[-1] if node.values else None
+    position = _node_end_offset(source, anchor) if anchor is not None else _node_end_offset(source, node) - 1
+    prefix = ", " if anchor is not None else ""
+    return {"start": position, "end": position, "replacement": f'{prefix}{name!r}: {value}', "path": semantic_path, "location": _source_location(path, node, semantic_path=semantic_path)}
+
+
+def _append_list_item_edit(source: str, node: ast.List, value: str, path: Path, semantic_path: str) -> dict[str, Any]:
+    anchor: ast.AST | None = node.elts[-1] if node.elts else None
+    position = _node_end_offset(source, anchor) if anchor is not None else _node_end_offset(source, node) - 1
+    prefix = ", " if anchor is not None else ""
+    return {"start": position, "end": position, "replacement": f"{prefix}{value}", "path": semantic_path, "location": _source_location(path, node, semantic_path=semantic_path)}
+
+
+def _apply_source_edits(source: str, edits: list[dict[str, Any]]) -> str:
+    if not edits:
+        return source
+    unique: dict[tuple[int, int], dict[str, Any]] = {(int(edit["start"]), int(edit["end"])): edit for edit in edits}
+    ordered = sorted(unique.values(), key=lambda item: (int(item["start"]), int(item["end"])), reverse=True)
+    previous_start = len(source) + 1
+    for edit in ordered:
+        start, end = int(edit["start"]), int(edit["end"])
+        if end > previous_start:
+            raise ValueError("overlapping static source edits")
+        previous_start = start
+        source = source[:start] + str(edit["replacement"]) + source[end:]
+    return source
+
+
+# Short aliases keep the foundation discoverable to callers that describe the
+# operation as simply "reconcile source" while the explicit name remains the
+# canonical API.
+reconcile_source = reconcile_ready_template_source
+reconcile_ready_template = reconcile_ready_template_source
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:

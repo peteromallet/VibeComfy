@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from vibecomfy.errors import ModelAssetError
+from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+from vibecomfy.registry.static_contract import (
+    extract_ready_template_contract,
+    reconcile_ready_template_file,
+    reconcile_ready_template_source,
+)
+from vibecomfy.templates import ModelAsset
+
+
+def test_unresolved_model_asset_requires_explicit_safe_paths() -> None:
+    asset = ModelAsset(filename="denoiser.safetensors", url=None, subdir="diffusion_models")
+    assert asset.url is None
+
+    with pytest.raises((TypeError, ValueError)):
+        ModelAsset(url=None, subdir="diffusion_models")
+    with pytest.raises(ValueError):
+        ModelAsset(filename="../denoiser.safetensors", url=None, subdir="diffusion_models")
+
+
+def test_custom_node_normalization_preserves_empty_url_and_unions_class_data() -> None:
+    normalized, warnings = normalize_custom_node_requirements({
+        "custom_node_refs": [
+            {"slug": "example", "url": "", "classes": ["A"]},
+            {"slug": "example", "source": "git", "url": "", "class_set": ["B"]},
+        ]
+    })
+    assert not warnings
+    assert normalized["custom_node_refs"] == [{
+        "slug": "example", "source": "git", "url": "", "classes": ["A"], "class_set": ["B"],
+    }]
+
+
+def test_static_contract_reports_exact_dependency_locations(tmp_path: Path) -> None:
+    source = tmp_path / "workflow.py"
+    source.write_text(
+        "MODELS = {'foo': ModelAsset(filename='foo.safetensors', url=None, subdir='checkpoints')}\n"
+        "READY_REQUIREMENTS = {'custom_node_refs': [{'slug': 'pack', 'url': ''}]}\n",
+        encoding="utf-8",
+    )
+    locations = extract_ready_template_contract(source)["source_locations"]
+    paths = {item["path"] for item in locations}
+    assert 'MODELS["foo"].url' in paths
+    assert "READY_REQUIREMENTS.custom_node_refs[0].url" in paths
+
+
+def test_same_file_reconciliation_is_literal_idempotent_and_preserves_comments() -> None:
+    source = """# keep this comment\nfrom vibecomfy.templates import ModelAsset, ReadyMetadata\nMODELS = {\n    'foo': ModelAsset(filename='foo.safetensors', subdir='checkpoints'),\n}\nREADY_METADATA = ReadyMetadata.build(\n    capability='image',\n    requirements={'custom_node_refs': [{'slug': 'pack', 'classes': ['CustomNode']}]},\n)\ndef build():\n    node = CustomNode(_id='1')\n"""
+    result = reconcile_ready_template_source(source, source_path="workflow.py")
+    assert result["changed"] is True
+    assert "url=None" in result["source"]
+    assert "# keep this comment" in result["source"]
+    assert "'url': None" in result["source"]
+    again = reconcile_ready_template_source(result["source"], source_path="workflow.py")
+    assert again["changed"] is False
+    assert again["edits"] == []
+
+
+def test_reconciliation_leaves_dynamic_dependencies_unchanged() -> None:
+    source = (
+        "MODELS = {'foo': ModelAsset(filename='foo.safetensors', url=MODEL_URL, subdir='checkpoints')}\n"
+        "READY_REQUIREMENTS = {'custom_node_refs': [{'slug': 'pack', 'url': REPOSITORY_URL}]}\n"
+    )
+    result = reconcile_ready_template_source(source, source_path="dynamic.py")
+    assert result["changed"] is False
+    assert result["source"] == source
+    assert {item["code"] for item in result["diagnostics"]} == {"static_dynamic_value"}
+
+
+def test_reconciliation_rejects_source_cas_without_writing(tmp_path: Path) -> None:
+    source = tmp_path / "workflow.py"
+    original = "MODELS = {'foo': ModelAsset(filename='foo.safetensors', subdir='checkpoints')}\n"
+    source.write_text(original, encoding="utf-8")
+    result = reconcile_ready_template_file(
+        source,
+        expected_source_sha256=hashlib.sha256(b"stale").hexdigest(),
+    )
+    assert result["changed"] is False
+    assert any(item["code"] == "source_cas_mismatch" for item in result["diagnostics"])
+    assert source.read_text(encoding="utf-8") == original
+
+
+def test_emitter_round_trips_unresolved_model_asset_and_runtime_rejects_it() -> None:
+    from vibecomfy.porting.emit.emit_constants import _format_models_block
+
+    text = "\n".join(_format_models_block([{
+        "name": "foo.safetensors", "url": None, "subdir": "checkpoints",
+    }]))
+    assert "url=None" in text
+    namespace: dict[str, object] = {}
+    exec("from vibecomfy.templates import ModelAsset\n" + text, namespace)  # noqa: S102
+    assert namespace["MODELS"]["checkpoint"].url is None  # type: ignore[index]
+
+    from vibecomfy.runtime.session import _model_assets_from_workflow
+    from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("unresolved", WorkflowSource("unresolved"))
+    workflow.metadata["model_assets"] = [{
+        "name": "foo.safetensors", "url": None, "subdir": "checkpoints",
+    }]
+    with pytest.raises(ModelAssetError, match="unresolved authored model assets"):
+        _model_assets_from_workflow(workflow)

@@ -39,7 +39,11 @@ def normalize_custom_node_requirements(requirements: Mapping[str, Any] | None) -
             custom_nodes.append(item)
     merged["custom_nodes"] = sorted(set(custom_nodes))
     if custom_node_refs:
-        by_key = {_ref_key(ref): ref for ref in custom_node_refs}
+        by_key: dict[str, dict[str, Any]] = {}
+        for ref in custom_node_refs:
+            key = _ref_key(ref)
+            existing = by_key.get(key)
+            by_key[key] = _merge_refs(existing, ref) if existing is not None else ref
         merged["custom_node_refs"] = [by_key[key] for key in sorted(by_key)]
     return merged, warnings
 
@@ -72,6 +76,8 @@ def lock_entry_to_ref(entry: LockEntry) -> dict[str, Any]:
         ref["url"] = entry.url
     if entry.path is not None:
         ref["path"] = entry.path
+    if entry.class_set:
+        ref["class_set"] = list(entry.class_set)
     if entry.name and entry.name != ref["slug"]:
         ref["name"] = entry.name
     return ref
@@ -146,13 +152,44 @@ def _normalize_ref(ref: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(slug, str) or not slug:
         return None
     if not isinstance(source, str) or not source:
-        source = "git" if ref.get("url") else "local" if ref.get("path") else "comfy-registry"
+        source = "git" if "url" in ref else "local" if ref.get("path") else "comfy-registry"
     normalized: dict[str, Any] = {"slug": slug, "source": source}
-    for key in ("name", "version", "commit", "url", "path"):
+    for key in ("name", "version", "commit", "path"):
         value = ref.get(key)
         if isinstance(value, str) and value:
             normalized[key] = value
+    # Empty URL is meaningful: it is the unresolved, user-editable repository
+    # placeholder.  Do not turn it into an absent field or invent a provider.
+    if "url" in ref and isinstance(ref.get("url"), str):
+        normalized["url"] = ref["url"]
+    for key in ("classes", "class_set"):
+        if key not in ref:
+            continue
+        value = ref.get(key)
+        if not isinstance(value, (list, tuple)):
+            continue
+        values = sorted({item for item in value if isinstance(item, str) and item})
+        if values:
+            normalized[key] = values
     return normalized
+
+
+def _merge_refs(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
+    """Merge duplicate refs without losing unresolved URL/class evidence."""
+    merged = dict(left)
+    for key, value in right.items():
+        if key in {"classes", "class_set"}:
+            values = set(merged.get(key) or ()) | set(value or ())
+            if values:
+                merged[key] = sorted(str(item) for item in values)
+        elif key == "url" and "url" in merged:
+            # A filled URL wins over an empty placeholder; two different
+            # non-empty values remain deterministic and visibly conflicted.
+            if not merged[key] and value:
+                merged[key] = value
+        else:
+            merged.setdefault(key, value)
+    return merged
 
 
 def _ref_key(ref: Mapping[str, Any]) -> str:
