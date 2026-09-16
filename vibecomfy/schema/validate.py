@@ -306,7 +306,9 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                 continue
             if (
                 not _field_compatible(class_type, name, "unknown_input")
-                and not _is_dynamic_payload_input(class_type, name, payload_inputs)
+                and not _is_dynamic_payload_input(
+                    class_type, name, payload_inputs, schema_inputs=raw_schema_inputs
+                )
             ):
                 issues.append(
                     ValidationIssue(
@@ -777,7 +779,7 @@ def propose_schema_normalization(
                     )
                 continue
             value = inputs.get(name)
-            if _is_dynamic_payload_input(class_type, name, inputs):
+            if _is_dynamic_payload_input(class_type, name, inputs, schema_inputs=schema_inputs):
                 continue
             if _preserve_linked_undeclared_input(name, value):
                 continue
@@ -897,7 +899,13 @@ def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
     return bool(_FIXED_SLOT_INPUT_RE.match(name)) and _is_api_link(value)
 
 
-def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str, Any] | None = None) -> bool:
+def _is_dynamic_payload_input(
+    class_type: str,
+    input_name: str,
+    inputs: dict[str, Any] | None = None,
+    *,
+    schema_inputs: dict[str, Any] | None = None,
+) -> bool:
     """Return whether an input is generated from a runtime payload count.
 
     Some custom nodes declare a compact controller input in object_info but
@@ -916,6 +924,18 @@ def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str
         return True
     if class_type == "SimpleCalculatorKJ":
         return input_name in _simple_calculator_variables(inputs or {})
+    # Comfy's versioned auto-grow contract exposes a compact controller in
+    # object_info and serializes populated child sockets as dotted payload
+    # fields (for example ``ref_images.ref_image_0``).  The controller's
+    # schema, rather than a class allowlist, is the authority for accepting
+    # these fields.  This covers current and future custom nodes using the
+    # same contract without weakening ordinary unknown-input validation.
+    if "." in input_name and schema_inputs:
+        controller, child = input_name.split(".", 1)
+        spec = schema_inputs.get(controller)
+        input_type = str(getattr(spec, "type", "") or "").upper()
+        if child and "AUTOGROW" in input_type:
+            return True
     # ComfyMathExpression declares one ``values`` auto-grow controller in
     # object_info, while the API expands each connected variable to a dotted
     # field (values.a, values.b, ...).  These names are runtime schema fields,

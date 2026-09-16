@@ -45,3 +45,31 @@ def test_comfy_math_expression_accepts_autogrow_dotted_values():
         provider,
     )
     assert not [issue for issue in issues if issue.severity == "error"]
+
+
+def test_generic_comfy_autogrow_accepts_dotted_reference_sockets():
+    provider = _Provider(
+        {
+            "MiniMaxH3ReferenceToVideo": NodeSchema(
+                class_type="MiniMaxH3ReferenceToVideo",
+                pack="comfy_core",
+                inputs={
+                    "ref_images": InputSpec("COMFY_AUTOGROW_V3"),
+                },
+                outputs=[],
+            )
+        }
+    )
+    issues = validate_api_against_schema(
+        {
+            "973": {
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "inputs": {
+                    "ref_images.ref_image_0": ["1020", 0],
+                    "ref_images.ref_image_1": ["1021", 0],
+                },
+            }
+        },
+        provider,
+    )
+    assert not [issue for issue in issues if issue.severity == "error"]
