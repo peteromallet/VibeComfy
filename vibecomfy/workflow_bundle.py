@@ -13,6 +13,7 @@ import ast
 import copy
 import hashlib
 import json
+import logging
 import math
 import os
 import shlex
@@ -38,6 +39,9 @@ from vibecomfy.workflow import (
     canonical_ir_projection,
 )
 from vibecomfy.model_assets import reconcile_model_requirements
+
+
+_logger = logging.getLogger(__name__)
 
 
 class WorkflowBundleError(ValueError):
@@ -1972,8 +1976,17 @@ def _approval_preconditions(
     schema_provider: Any,
     *,
     models_root: str | Path | None = None,
-) -> None:
+) -> list[dict[str, Any]]:
     """Run local, read-only requirement, schema-identity, and model gates."""
+    approval_diagnostics: list[dict[str, Any]] = []
+
+    def publish_approval_diagnostics() -> None:
+        try:
+            setattr(schema_provider, "_approval_diagnostics", list(approval_diagnostics))
+        except Exception:
+            # A third-party provider may be slotted/immutable; the return value
+            # still lets the bundle compiler retain the same diagnostics.
+            pass
     requirements = getattr(workflow, "requirements", None)
     for field_name in ("missing_models", "missing_nodes", "unsupported"):
         values = getattr(requirements, field_name, ()) if requirements is not None else ()
@@ -2051,6 +2064,18 @@ def _approval_preconditions(
         raise WorkflowBundleError("object-info identity evidence is malformed")
     try:
         from vibecomfy.porting.object_info import resolve_class_entry
+
+        # An explicit target provider is the authority for the server that
+        # will receive this projection.  Its fresh /object_info response is
+        # stronger evidence than a historical offline identity cache: a node
+        # can be locally installed and executable while its imported workflow
+        # still carries an older pack commit.  Keep this escape hatch narrow;
+        # ordinary/offline providers must continue to resolve exact identity
+        # matches so stale provenance cannot silently pass authoring gates.
+        target_authority = bool(
+            getattr(schema_provider, "requires_fresh_target", False)
+            and getattr(schema_provider, "schema_authority", None) == "live_target"
+        )
 
         pack_by_class = {
             str(class_type): pack
@@ -2149,6 +2174,71 @@ def _approval_preconditions(
                 str(node.class_type), identity=identity, allow_class_fallback=False
             )
             if result.entry is None:
+                if target_authority and callable(get_schema):
+                    target_schema = get_schema(str(node.class_type))
+                    if target_schema is not None:
+                        verified_installed_commit: str | None = None
+                        if lock_entry is not None:
+                            expected_commit = lock_entry.commit or lock_entry.git_commit_sha
+                            if not expected_commit:
+                                raise WorkflowBundleError(
+                                    f"live target schema cannot supersede explicit lock pin for "
+                                    f"{node.class_type} ({node_id}) without a commit witness"
+                                )
+                            try:
+                                from vibecomfy.runtime.drift import _git_head, _nodepack_dir
+
+                                pack_dir = _nodepack_dir(str(lock_entry.name))
+                                verified_installed_commit = (
+                                    _git_head(pack_dir) if pack_dir is not None else None
+                                )
+                            except (OSError, RuntimeError, ValueError):
+                                verified_installed_commit = None
+                            if verified_installed_commit != str(expected_commit):
+                                raise WorkflowBundleError(
+                                    f"live target schema cannot supersede explicit lock pin for "
+                                    f"{node.class_type} ({node_id}); installed checkout does not "
+                                    f"match {expected_commit}"
+                                )
+                        historical_identity: dict[str, str] = {}
+                        if isinstance(identity, Mapping):
+                            for key in ("pack_slug", "pack", "slug", "git_commit", "commit", "evidence_identity"):
+                                value = identity.get(key)
+                                if value is not None and str(value):
+                                    historical_identity[key] = str(value)
+                        else:
+                            for key in ("pack_slug", "git_commit", "evidence_identity"):
+                                value = getattr(identity, key, None)
+                                if value is not None and str(value):
+                                    historical_identity[key] = str(value)
+                        target_digest = getattr(schema_provider, "_object_info_digest", None)
+                        target_url = getattr(schema_provider, "_active_server_url", None) or getattr(
+                            schema_provider, "server_url", None
+                        )
+                        approval_diagnostics.append(
+                            {
+                                "code": "live_target_schema_override",
+                                "severity": "warning",
+                                "status": "resolved_against_target",
+                                "message": (
+                                    "resolved against the selected live target; historical "
+                                    "object-info provenance did not match the offline cache"
+                                ),
+                                "node_id": str(node_id),
+                                "class_type": str(node.class_type),
+                                "historical_identity": historical_identity,
+                                "target_server_url": str(target_url) if target_url else None,
+                                "target_schema_digest": str(target_digest) if target_digest else None,
+                                "verified_installed_commit": verified_installed_commit,
+                            }
+                        )
+                        _logger.warning(
+                            "using live target schema for %s (%s) because offline "
+                            "object-info identity did not resolve",
+                            node.class_type,
+                            node_id,
+                        )
+                        continue
                 # A generated ready template has already been bound to a
                 # concrete schema provider.  The local object-info cache
                 # may only have a class-only entry for that same provider
@@ -2246,7 +2336,8 @@ def _approval_preconditions(
             else:
                 raise WorkflowBundleError("workflow requirements.models contains a malformed entry")
         if not references:
-            return
+            publish_approval_diagnostics()
+            return approval_diagnostics
         registry = load_registry()
         authored_assets = (
             [asset for asset in metadata.get("model_assets", []) if isinstance(asset, Mapping)]
@@ -2311,6 +2402,8 @@ def _approval_preconditions(
         raise WorkflowBundleError(
             f"local model reconciliation failed: {type(exc).__name__}: {exc}"
         ) from exc
+    publish_approval_diagnostics()
+    return approval_diagnostics
 
 
 @dataclass(frozen=True)
@@ -2378,7 +2471,16 @@ class WorkflowBundle:
             from vibecomfy.schema import get_authoring_schema_provider
 
             schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
-        _approval_preconditions(self.workflow, schema_provider, models_root=models_root)
+        approval_diagnostics = _approval_preconditions(
+            self.workflow, schema_provider, models_root=models_root
+        )
+        try:
+            setattr(schema_provider, "_approval_diagnostics", approval_diagnostics)
+        except Exception:
+            # A third-party provider may be slotted/immutable.  Approval still
+            # succeeds on the authoritative target; built-in providers expose
+            # the diagnostics through runtime evidence below.
+            pass
         binding = {} if run_inputs is None else run_inputs
         if not isinstance(binding, Mapping):
             raise WorkflowBundleError("run_inputs must be an object")

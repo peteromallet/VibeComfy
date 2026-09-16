@@ -562,8 +562,51 @@ def test_bundle_identity_comes_from_lock_and_schema_source(monkeypatch: pytest.M
 
     monkeypatch.setattr(object_info, "resolve_class_entry", resolve)
     provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
-    _approval_preconditions(workflow, provider)
+    diagnostics = _approval_preconditions(workflow, provider)
+    assert diagnostics == []
     assert calls == [("LockedNode", {"pack_slug": "locked-pack", "git_commit": "abc123"}, False)]
+
+
+def test_bundle_live_target_identity_override_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Target-authority reconciliation remains visible in runtime schema evidence."""
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.runtime.session import _schema_provider_provenance
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("live-target-identity-evidence")
+    workflow.add_node("TargetNode", uid="target-node", value=1)
+    pack = CustomNodePack("TargetPack", "local", frozenset({"TargetNode"}))
+    lock = LockEntry(name="TargetPack", slug="target-pack", commit="abc123", path="packs/target")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    import vibecomfy.runtime.drift as drift
+    monkeypatch.setattr(drift, "_nodepack_dir", lambda _name: object())
+    monkeypatch.setattr(drift, "_git_head", lambda _path: "abc123")
+    monkeypatch.setattr(
+        object_info,
+        "resolve_class_entry",
+        lambda *_args, **_kwargs: type("Result", (), {"entry": None, "source": "identity_miss"})(),
+    )
+    provider = type(
+        "TargetProvider",
+        (),
+        {
+            "requires_fresh_target": True,
+            "schema_authority": "live_target",
+            "server_url": "http://target",
+            "_active_server_url": "http://target",
+            "_object_info_digest": "d" * 64,
+            "get_schema": lambda _self, _class: object(),
+        },
+    )()
+
+    _approval_preconditions(workflow, provider)
+    evidence = _schema_provider_provenance(provider)
+    assert evidence["approval_diagnostics"][0]["code"] == "live_target_schema_override"
+    assert evidence["approval_diagnostics"][0]["target_schema_digest"] == "d" * 64
+    assert evidence["approval_diagnostics"][0]["verified_installed_commit"] == "abc123"
 
 
 def test_bundle_identity_lock_miss_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -585,6 +628,75 @@ def test_bundle_identity_lock_miss_fails_closed(monkeypatch: pytest.MonkeyPatch)
     )
     provider = type("Provider", (), {"get_schema": lambda _self, _class: object()})()
     with pytest.raises(WorkflowBundleError, match="object-info identity"):
+        _approval_preconditions(workflow, provider)
+
+
+def test_bundle_identity_miss_uses_fresh_target_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live target schema can supersede stale offline provenance only at runtime."""
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("live-target-identity-miss")
+    node = workflow.add_node("TargetNode", uid="target-node", value=1)
+    node.metadata["object_info_identity"] = {
+        "pack_slug": "target-pack",
+        "git_commit": "historical-commit",
+    }
+    pack = CustomNodePack("TargetPack", "local", frozenset({"TargetNode"}))
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    monkeypatch.setattr(
+        object_info,
+        "resolve_class_entry",
+        lambda *_args, **_kwargs: type("Result", (), {"entry": None, "source": "identity_miss"})(),
+    )
+    provider = type(
+        "TargetProvider",
+        (),
+        {
+            "requires_fresh_target": True,
+            "schema_authority": "live_target",
+            "get_schema": lambda _self, _class: object(),
+        },
+    )()
+
+    _approval_preconditions(workflow, provider)
+
+
+def test_bundle_live_target_identity_pin_mismatch_remains_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live class hit cannot hide a pinned checkout mismatch."""
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    import vibecomfy.runtime.drift as drift
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("live-target-pin-mismatch")
+    workflow.add_node("TargetNode", uid="target-node", value=1)
+    pack = CustomNodePack("TargetPack", "local", frozenset({"TargetNode"}))
+    lock = LockEntry(name="TargetPack", slug="target-pack", commit="expected", path="packs/target")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [lock])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (pack,))
+    monkeypatch.setattr(drift, "_nodepack_dir", lambda _name: object())
+    monkeypatch.setattr(drift, "_git_head", lambda _path: "different")
+    monkeypatch.setattr(
+        object_info,
+        "resolve_class_entry",
+        lambda *_args, **_kwargs: type("Result", (), {"entry": None, "source": "identity_miss"})(),
+    )
+    provider = type(
+        "TargetProvider",
+        (),
+        {
+            "requires_fresh_target": True,
+            "schema_authority": "live_target",
+            "get_schema": lambda _self, _class: object(),
+        },
+    )()
+
+    with pytest.raises(WorkflowBundleError, match="installed checkout does not match expected"):
         _approval_preconditions(workflow, provider)
 
 

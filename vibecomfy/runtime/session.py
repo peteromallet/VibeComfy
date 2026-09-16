@@ -103,6 +103,11 @@ def _schema_provider_provenance(provider: Any | None, *, failure: str | None = N
         "digest_canonicalization": "object_info_payload_checksum",
     }
     if provider is not None:
+        approval_diagnostics = getattr(provider, "_approval_diagnostics", None)
+        if isinstance(approval_diagnostics, list) and approval_diagnostics:
+            provenance["approval_diagnostics"] = [
+                dict(item) for item in approval_diagnostics if isinstance(item, Mapping)
+            ]
         for key in ("server_url", "cache_path", "log_path"):
             value = getattr(provider, key, None)
             if value is not None:
