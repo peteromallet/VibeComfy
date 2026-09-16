@@ -42,6 +42,7 @@ __all__ = [
     "canonical_pack_schema_projection",
     "compute_schema_hash",
     "read_lockfile",
+    "resolve_lockfile_path",
     "upsert_lockfile_entry",
     "write_lockfile",
 ]
@@ -88,6 +89,7 @@ def _init_module_map() -> dict[str, str]:
         "canonical_pack_schema_projection",
         "compute_schema_hash",
         "read_lockfile",
+        "resolve_lockfile_path",
         "upsert_lockfile_entry",
         "write_lockfile",
     }

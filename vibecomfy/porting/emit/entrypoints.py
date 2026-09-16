@@ -182,7 +182,7 @@ def emit_scratchpad_python(
         if diagnostics is None:
             raise ValueError(
                 f"{message}; use the canonical defaults keep_virtual_wires=True and "
-                "prune_dead_branches=False, then migrate through `vibecomfy port convert`"
+                "prune_dead_branches=False, then re-import through `vibecomfy import`"
             )
         diagnostics.append(
             EmissionDiagnostic(

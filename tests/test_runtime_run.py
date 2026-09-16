@@ -829,8 +829,7 @@ def test_artifact_run_fails_closed_without_approved_record(runtime: str, monkeyp
     assert "WorkflowBundle" in text
     assert "run_embedded_sync(record, bundle)" in text
     assert "run_sync(record, bundle, server_url=...)" in text
-    assert "vibecomfy port check <source> --json" in text
-    assert "vibecomfy port convert <source> --out out/scratchpads/<name>.py" in text
+    assert "vibecomfy import <source>" in text
 
 
 def test_artifact_run_preserves_unknown_runtime_error() -> None:
@@ -1286,11 +1285,48 @@ def test_cmd_run_memory_profile_rejects_active_session(
 # ---------------------------------------------------------------------------
 
 
+def test_attempt_lockfile_snapshot_reads_current_toml(tmp_path, monkeypatch):
+    """Attempt evidence snapshots the TOML lock rather than JSON-decoding it."""
+    from vibecomfy.runtime.attempt import _read_lockfile_snapshot
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "vibecomfy.node_packs.resolve_lockfile_path",
+        lambda path=None: tmp_path / (path or "custom_nodes.lock"),
+    )
+    Path("custom_nodes.lock").write_text(
+        '[nodepacks.Example]\nname = "Example"\ncommit = "abc123"\nurl = "https://example.test/example.git"\n',
+        encoding="utf-8",
+    )
+
+    snapshot = _read_lockfile_snapshot()
+    assert snapshot == {
+        "nodepacks": {
+            "Example": {
+                "name": "Example",
+                "slug": "Example",
+                "source": "git",
+                "commit": "abc123",
+                "git_commit_sha": "abc123",
+                "url": "https://example.test/example.git",
+            }
+        }
+    }
+
+
 def test_collect_drift_no_lockfile(tmp_path, monkeypatch):
     """When lockfile is missing, collect_drift reports 'lockfile not found'."""
     from vibecomfy.runtime.drift import _invalidate_cache_entry, collect_drift
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "vibecomfy.node_packs.resolve_lockfile_path",
+        lambda path=None: tmp_path / (path or "custom_nodes.lock"),
+    )
+    monkeypatch.setattr(
+        "vibecomfy.runtime.drift.resolve_lockfile_path",
+        lambda path=None: tmp_path / (path or "custom_nodes.lock"),
+    )
     wf = VibeWorkflow("drift-no-lock", WorkflowSource("drift-no-lock"))
     wf.requirements.custom_nodes = ["some-pack"]
 
@@ -1320,6 +1356,34 @@ def test_collect_drift_pinned_comfy_commit(tmp_path, monkeypatch):
     assert result["pinned"]["comfy_commit"] == "abc123def"
     assert result["actual"]["comfy_commit"] == "xyz789"
     assert any("ComfyUI commit" in m for m in result["mismatches"])
+
+
+def test_collect_drift_uses_known_comfy_core_commit_fallback(tmp_path, monkeypatch):
+    from vibecomfy.runtime.drift import _invalidate_cache_entry, collect_drift
+
+    monkeypatch.chdir(tmp_path)
+    wf = VibeWorkflow("drift-comfy-core", WorkflowSource("drift-comfy-core"))
+    wf.metadata["comfy_core"] = {"commit": "core-pinned"}
+    monkeypatch.setattr("vibecomfy.runtime.drift._comfyui_git_head", lambda: "different")
+
+    _invalidate_cache_entry(wf)
+    result = collect_drift(wf)
+    assert result["pinned"]["comfy_commit"] == "core-pinned"
+    assert any("pinned core-pinned" in m for m in result["mismatches"])
+
+
+def test_collect_drift_ignores_unknown_comfy_core_commit(tmp_path, monkeypatch):
+    from vibecomfy.runtime.drift import _invalidate_cache_entry, collect_drift
+
+    monkeypatch.chdir(tmp_path)
+    wf = VibeWorkflow("drift-comfy-unknown", WorkflowSource("drift-comfy-unknown"))
+    wf.metadata["comfy_core"] = {"commit": "unknown"}
+    monkeypatch.setattr("vibecomfy.runtime.drift._comfyui_git_head", lambda: "different")
+
+    _invalidate_cache_entry(wf)
+    result = collect_drift(wf)
+    assert result["pinned"]["comfy_commit"] is None
+    assert not any("ComfyUI commit" in m for m in result["mismatches"])
 
 
 def test_collect_drift_canonical_schema_hash_match_is_not_mismatch(tmp_path, monkeypatch):
@@ -1352,7 +1416,7 @@ def test_collect_drift_canonical_schema_hash_match_is_not_mismatch(tmp_path, mon
     )
 
     monkeypatch.setattr("vibecomfy.runtime.drift.read_lockfile", lambda: [entry], raising=False)
-    monkeypatch.setattr("vibecomfy.node_packs.read_lockfile", lambda: [entry])
+    monkeypatch.setattr("vibecomfy.node_packs.read_lockfile", lambda path=None: [entry])
     monkeypatch.setattr("vibecomfy.runtime.drift._nodepack_dir", lambda name: pack_dir)
     monkeypatch.setattr("vibecomfy.runtime.drift._git_head", lambda path: "abc123")
     monkeypatch.setattr(
@@ -1386,7 +1450,7 @@ def test_collect_drift_legacy_schema_hash_is_unverified_not_mismatch(tmp_path, m
         class_schema_sha256="legacy-file-byte-hash",
     )
 
-    monkeypatch.setattr("vibecomfy.node_packs.read_lockfile", lambda: [entry])
+    monkeypatch.setattr("vibecomfy.node_packs.read_lockfile", lambda path=None: [entry])
     monkeypatch.setattr("vibecomfy.runtime.drift._nodepack_dir", lambda name: pack_dir)
     monkeypatch.setattr("vibecomfy.runtime.drift._git_head", lambda path: "abc123")
 
@@ -2044,6 +2108,20 @@ def test_allocate_run_dir_prefix_and_unique_suffix(
     # Directory was created
     assert run_dir.exists()
     assert run_dir.is_dir()
+
+
+def test_drift_cache_distinguishes_explicit_lockfiles_with_same_mtime(tmp_path):
+    import os
+    from types import SimpleNamespace
+    from vibecomfy.runtime.drift import _cache_key
+
+    first = tmp_path / "first.lock"
+    second = tmp_path / "second.lock"
+    for path in (first, second):
+        path.write_text("", encoding="utf-8")
+        os.utime(path, (1000, 1000))
+    workflow = SimpleNamespace(id="same-workflow")
+    assert _cache_key(workflow, first) != _cache_key(workflow, second)
 
 
 def test_allocate_run_dir_smoke_prefix(

@@ -26,8 +26,8 @@ from .execution import (
 RAW_RUNPOD_TRANSPORT_MIGRATION = (
     "RunPod transport requires an ApprovedProjectionRecord bound to a current "
     "WorkflowBundle; raw API, UI, scratchpad, and bare-workflow execution are disabled.\n"
-    "Next: vibecomfy port check <source> --json\n"
-    "Then: vibecomfy port convert <source> --out out/scratchpads/<name>.py"
+    "Next: vibecomfy import <source>\n"
+    "Then: vibecomfy validate workflows/<name> --json"
 )
 
 __all__ = [

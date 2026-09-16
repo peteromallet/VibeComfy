@@ -40,9 +40,8 @@ class Artifact:
             raise WorkflowBundleError(
                 "Artifact.run cannot execute a bare workflow; execution requires finalizing and approving a candidate "
                 "into an ApprovedProjectionRecord bound to a WorkflowBundle. Next: call "
-                "run_embedded_sync(record, bundle) or run_sync(record, bundle, server_url=...). For raw or legacy sources, run "
-                "`vibecomfy port check <source> --json` then `vibecomfy port convert <source> --out "
-                "out/scratchpads/<name>.py`."
+                "run_embedded_sync(record, bundle) or run_sync(record, bundle, server_url=...). "
+                "For raw or legacy sources, run `vibecomfy import <source>` first."
             )
         raise ValueError(f"Unknown artifact runtime: {runtime}")
 

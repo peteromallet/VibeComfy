@@ -17,29 +17,31 @@ from pathlib import Path
 from typing import Any
 
 from vibecomfy.errors import DriftError
-from vibecomfy.node_packs import compute_schema_hash
+from vibecomfy.node_packs import compute_schema_hash, resolve_lockfile_path
 from vibecomfy.workflow import VibeWorkflow
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Per-process cache — keyed by (lockfile_mtime, workflow_id) → structured dict
+# Per-process cache — keyed by (lockfile_path, lockfile_mtime, workflow_id)
 # ---------------------------------------------------------------------------
-_drift_cache: dict[tuple[float, str], dict[str, Any]] = {}
+_drift_cache: dict[tuple[str, float, str], dict[str, Any]] = {}
 
 
-def _cache_key(workflow: VibeWorkflow) -> tuple[float, str]:
+def _cache_key(workflow: VibeWorkflow, lockfile_path: str | Path | None = None) -> tuple[str, float, str]:
     """Return a stable cache key for the current process lifetime.
 
-    Uses lockfile mtime (so lockfile edits are detected even without
-    restarting) and workflow id.
+    Uses resolved lockfile path and mtime (so alternate explicit lockfiles and
+    lockfile edits are detected without restarting), plus workflow id.
     """
-    lock_path = Path("custom_nodes.lock")
+    lock_path = resolve_lockfile_path(lockfile_path)
     mtime = lock_path.stat().st_mtime if lock_path.is_file() else 0.0
-    return (mtime, workflow.id)
+    return (str(lock_path.resolve()), mtime, workflow.id)
 
 
-def collect_drift(workflow: VibeWorkflow) -> dict[str, Any]:
+def collect_drift(
+    workflow: VibeWorkflow, *, lockfile_path: str | Path | None = None
+) -> dict[str, Any]:
     """Return a structured drift report for *workflow*.
 
     The returned dict has three top-level keys:
@@ -54,13 +56,13 @@ def collect_drift(workflow: VibeWorkflow) -> dict[str, Any]:
         List of human-readable mismatch descriptions.
 
     Results are cached per-process; repeated calls with the same
-    workflow id and lockfile mtime return the same dict instance.
+    workflow id, lockfile path, and lockfile mtime return the same dict instance.
 
     The function never raises — even when the lockfile is missing.  Callers
     that want hard failure on mismatch should check ``mismatches`` and raise
     :class:`DriftError` themselves.
     """
-    key = _cache_key(workflow)
+    key = _cache_key(workflow, lockfile_path)
     cached = _drift_cache.get(key)
     if cached is not None:
         return cached
@@ -70,7 +72,7 @@ def collect_drift(workflow: VibeWorkflow) -> dict[str, Any]:
     mismatches: list[str] = []
 
     # -- (a) custom_node_packs drift ------------------------------------------
-    _collect_nodepack_drift(workflow, pinned, actual, mismatches)
+    _collect_nodepack_drift(workflow, pinned, actual, mismatches, lockfile_path=lockfile_path)
 
     # -- (b) comfy_commit drift -----------------------------------------------
     _collect_comfy_commit_drift(workflow, pinned, actual, mismatches)
@@ -105,11 +107,13 @@ def _collect_nodepack_drift(
     pinned: dict[str, Any],
     actual: dict[str, Any],
     mismatches: list[str],
+    *,
+    lockfile_path: str | Path | None = None,
 ) -> None:
     """Compare template-pinned packs against installed state."""
     from vibecomfy.node_packs import LockEntry, read_lockfile
 
-    lock_entries: list[LockEntry] = read_lockfile()
+    lock_entries: list[LockEntry] = read_lockfile(resolve_lockfile_path(lockfile_path))
     pinned["custom_node_packs"] = list(workflow.requirements.custom_nodes)
     pinned["lockfile_entries"] = {
         entry.name: {
@@ -219,8 +223,18 @@ def _collect_comfy_commit_drift(
     metadata = workflow.metadata if isinstance(workflow.metadata, dict) else {}
     pinned_commit: str | None = None
     raw = metadata.get("comfy_commit")
-    if isinstance(raw, str) and raw:
+    if isinstance(raw, str) and _is_known_pin(raw):
         pinned_commit = raw
+    # ReadyMetadata carries the same provenance under ``comfy_core``.  Use it
+    # only as a fallback: an explicit workflow-level comfy_commit is the
+    # authoritative override.  Unknown/unavailable capture markers are not
+    # pins and must not create a false mismatch.
+    if pinned_commit is None:
+        core = metadata.get("comfy_core")
+        if isinstance(core, dict):
+            core_commit = core.get("commit")
+            if isinstance(core_commit, str) and _is_known_pin(core_commit):
+                pinned_commit = core_commit
     pinned["comfy_commit"] = pinned_commit
 
     installed_commit = _comfyui_git_head()
@@ -232,6 +246,11 @@ def _collect_comfy_commit_drift(
                 f"ComfyUI commit {installed_commit} does not match "
                 f"pinned {pinned_commit}"
             )
+
+
+def _is_known_pin(value: str) -> bool:
+    """Return whether a metadata value is an actual commit pin."""
+    return bool(value.strip() and value.strip().lower() not in {"unknown", "unavailable", "none", "null"})
 
 
 # ---------------------------------------------------------------------------
@@ -332,13 +351,15 @@ def _canonical_pack_schema_hash(entry: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def enforce_strict_drift(workflow: VibeWorkflow) -> None:
+def enforce_strict_drift(
+    workflow: VibeWorkflow, *, lockfile_path: str | Path | None = None
+) -> None:
     """Collect drift and raise :class:`DriftError` if any mismatches exist.
 
     This is the pre-queue gate wired into all session paths when
     ``SessionConfig.strict_drift`` is ``True``.
     """
-    drift = collect_drift(workflow)
+    drift = collect_drift(workflow, lockfile_path=lockfile_path)
     mismatches: list[str] = drift.get("mismatches", [])
     if mismatches:
         raise DriftError(

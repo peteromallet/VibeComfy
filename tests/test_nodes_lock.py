@@ -10,9 +10,19 @@ from vibecomfy.node_packs import (
     canonical_pack_schema_projection,
     compute_schema_hash,
     read_lockfile,
+    resolve_lockfile_path,
     upsert_lockfile_entry,
     write_lockfile,
 )
+
+
+def test_default_lockfile_is_repo_anchored_while_explicit_path_stays_explicit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert resolve_lockfile_path() == Path(__file__).resolve().parents[1] / "custom_nodes.lock"
+    assert resolve_lockfile_path("custom_nodes.lock") == Path("custom_nodes.lock")
+    assert resolve_lockfile_path(tmp_path / "custom_nodes.lock") == tmp_path / "custom_nodes.lock"
 
 
 def test_lockfile_legacy_round_trip_to_text(tmp_path: Path) -> None:

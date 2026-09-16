@@ -143,7 +143,9 @@ async def run(
             phase = "drift"
             resolved_strict = strict_drift if strict_drift is not None else bool(resolved_config.strict_drift)
             if resolved_strict:
-                enforce_strict_drift(workflow)
+                enforce_strict_drift(
+                    workflow, lockfile_path=resolved_config.extra.get("lockfile")
+                )
             phase = "queue"
             try:
                 queued = (

@@ -12,6 +12,21 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 compatibility
     import tomli as tomllib  # type: ignore[no-redef]
 
 
+def resolve_lockfile_path(path: str | Path | None = None, *, repo_root: Path | None = None) -> Path:
+    """Resolve the authoritative node-pack lockfile independently of cwd.
+
+    An explicit path keeps its historical meaning (relative to the caller's
+    cwd); the implicit project lockfile is anchored to the VibeComfy checkout.
+    """
+    if path is not None:
+        return Path(path).expanduser()
+    if repo_root is None:
+        # Package-owned default, matching workflow-bundle approval authority;
+        # do not require a checkout-discovery call when running from a wheel.
+        repo_root = Path(__file__).resolve().parents[2]
+    return Path(repo_root) / "custom_nodes.lock"
+
+
 @dataclass
 class LockEntry:
     name: str

@@ -100,7 +100,7 @@ def build_attempt_bundle(
     model_manifest = _build_model_manifest(workflow, config=config)
 
     # --- lockfile snapshot --------------------------------------------------
-    lockfile_snapshot = _read_lockfile_snapshot()
+    lockfile_snapshot = _read_lockfile_snapshot(config=config)
 
     # --- runtime version ----------------------------------------------------
     try:
@@ -277,14 +277,48 @@ def _compute_actual_sha256(asset: dict[str, Any], *, config: Any = None) -> str 
         return None
 
 
-def _read_lockfile_snapshot() -> dict[str, Any] | None:
-    """Return the parsed ``custom_nodes.lock`` contents, or ``None``."""
-    lockfile_path = Path("custom_nodes.lock")
+def _read_lockfile_snapshot(*, config: Any = None) -> dict[str, Any] | None:
+    """Return a JSON-safe semantic snapshot of ``custom_nodes.lock``.
+
+    The lockfile is allowed to be either the legacy three-column format or
+    the current TOML format.  Keep the snapshot shape stable for artifact
+    consumers by exposing the entries under a ``nodepacks`` mapping.
+    """
+    configured = getattr(config, "extra", {}).get("lockfile") if config is not None else None
+    from vibecomfy.node_packs import resolve_lockfile_path
+
+    lockfile_path = resolve_lockfile_path(configured)
     if not lockfile_path.is_file():
         return None
     try:
-        return json.loads(lockfile_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        from vibecomfy.node_packs import read_lockfile
+
+        entries = read_lockfile(lockfile_path)
+        if not entries:
+            return {"nodepacks": {}}
+        nodepacks: dict[str, Any] = {}
+        for entry in entries:
+            item: dict[str, Any] = {
+                "name": entry.name,
+                "slug": entry.slug,
+                "source": entry.source,
+            }
+            for field in (
+                "version", "commit", "git_commit_sha", "url", "path",
+                "schema_hash", "semantic_label", "class_schema_sha256", "last_seen_at",
+            ):
+                value = getattr(entry, field, None)
+                if value is not None:
+                    item[field] = value
+            if entry.class_set:
+                item["class_set"] = list(entry.class_set)
+            if entry.pip_packages:
+                item["pip_packages"] = list(entry.pip_packages)
+            if entry.source_sha256:
+                item["source_sha256"] = dict(entry.source_sha256)
+            nodepacks[entry.name] = item
+        return {"nodepacks": nodepacks}
+    except (OSError, ValueError, TypeError):
         logger.debug("Failed to read lockfile snapshot", exc_info=True)
         return None
 

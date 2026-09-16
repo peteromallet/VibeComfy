@@ -67,12 +67,11 @@ def _workflow_authority_error(workflow: VibeWorkflow, action: str) -> WorkflowAu
     source = str(source_path or workflow.id)
     quoted_source = shlex.quote(source)
     stem = Path(source).stem or "workflow"
-    quoted_output = shlex.quote(f"out/scratchpads/{stem}.py")
     return WorkflowAuthorityError(
         f"{action} requires canonical Python workflow authority; raw UI/API JSON "
         "is import evidence only. "
-        f"First: vibecomfy port check {quoted_source} --json. "
-        f"Then: vibecomfy port convert {quoted_source} --out {quoted_output}"
+        f"Import it first: vibecomfy import {quoted_source}. "
+        f"Then validate the bundle with `vibecomfy validate workflows/{shlex.quote(stem)}`."
     )
 
 
@@ -1398,6 +1397,18 @@ def filter_provenance(
         except (TypeError, ValueError) as exc:
             raise WorkflowBundleError(f"invalid provenance tool_versions: {exc}") from exc
         result["tool_versions"] = copy.deepcopy(tools)
+    # Imported workflows carry a closed, source-authored provenance report
+    # (from porting.provenance.extract_provenance). Retain it through bundle
+    # revisions so re-emission cannot silently replace mixed pins with a
+    # runtime-resolved version. Validate as canonical JSON without imposing a
+    # second schema here; the extractor owns that report shape.
+    source_provenance = raw.get("source_provenance")
+    if source_provenance is not None:
+        try:
+            canonical_digest(source_provenance)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowBundleError(f"invalid source_provenance: {exc}") from exc
+        result["source_provenance"] = copy.deepcopy(source_provenance)
     return result
 
 
@@ -1412,8 +1423,8 @@ def _read_sidecar(path: Path | None) -> dict[str, Any] | None:
     if legacy.is_file():
         raise WorkflowBundleError(
             f"legacy layout sidecar {legacy} is not an approved source; "
-            f"run `vibecomfy port convert {path.with_suffix('.json')} --out {path}` "
-            "to migrate its presentation fields to the same-basename .vibe.json"
+            "re-import the source with `vibecomfy import` and export its presentation "
+            "through the canonical `.vibe.json` companion"
         )
     candidate = _sidecar_path(path)
     if not candidate.is_file():

@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
-from vibecomfy.node_packs import LockEntry, read_lockfile
+from vibecomfy.node_packs import LockEntry, read_lockfile, resolve_lockfile_path
 from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
 from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
@@ -628,10 +628,10 @@ def _remap_public_inputs_for_materialized_subgraphs(
 # Lockfile / custom-node-pack helpers
 # ---------------------------------------------------------------------------
 
-def _lock_entries_by_class(lockfile_path: Path = Path("custom_nodes.lock")) -> dict[str, LockEntry]:
+def _lock_entries_by_class(lockfile_path: Path | str | None = None) -> dict[str, LockEntry]:
     by_class: dict[str, LockEntry] = {}
     try:
-        entries = read_lockfile(lockfile_path)
+        entries = read_lockfile(resolve_lockfile_path(lockfile_path))
     except (OSError, ValueError):
         return {}
     for entry in entries:

@@ -12,6 +12,11 @@ from vibecomfy.runtime.session import SessionConfig, active_session_metadata, fi
 from vibecomfy.schema import get_authoring_schema_provider
 
 
+def get_schema_provider(prefer: str, *, server_url: str | None = None):
+    """Keep the command-level schema seam while using authoring schemas."""
+    return get_authoring_schema_provider(on_demand_schemas=False)
+
+
 _OVERRIDE_HINTS = {
     "prompt": (
         "--prompt is only wired when the workflow contains a known mainline prompt encoder "
@@ -70,7 +75,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         # The static local node index can lag a freshly captured ComfyUI
         # object-info cache, which makes valid custom/core nodes look
         # unresolved at the final compile gate.
-        schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
+        schema_provider = get_schema_provider("local")
         try:
             bundle = load_bundle(
                 args.path,
@@ -143,16 +148,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _print_source_migration_failure(path: str, detail: str) -> None:
-    """Give raw/legacy sources the one-way port door, never a runtime fallback."""
+    """Point raw/legacy sources at the single import door."""
     suffixes = Path(path).suffixes
     if suffixes and suffixes[-1] in {".json", ".py"}:
         stem = Path(path).stem
         quoted_path = shlex.quote(path)
-        quoted_output = shlex.quote(f"out/scratchpads/{stem}.py")
         print(
             f"run failed: {detail}\n"
-            f"Next: vibecomfy port check {quoted_path} --json\n"
-            f"Then: vibecomfy port convert {quoted_path} --out {quoted_output}",
+            f"Next: vibecomfy import {quoted_path}\n"
+            f"Then: vibecomfy validate workflows/{shlex.quote(stem)} --json",
             file=sys.stderr,
         )
         return

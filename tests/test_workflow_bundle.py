@@ -81,6 +81,28 @@ def test_reemitting_a_loaded_pair_is_byte_deterministic(tmp_path: Path) -> None:
     assert (first_dir / "workflow.vibe.json").read_bytes() == (second_dir / "workflow.vibe.json").read_bytes()
 
 
+def test_source_provenance_report_survives_bundle_reload_and_reemission(tmp_path: Path) -> None:
+    report = {
+        "records": [
+            {"node_id": "1", "class_type": "KSampler", "cnr_id": "comfy-core", "ver": "0.24.0"},
+            {"node_id": "2", "class_type": "Aux", "aux_id": "owner/repo", "ver": "deadbeef"},
+        ],
+        "requirements": [], "warnings": [], "conflicts": [], "version_pins": [],
+        "required_pack_slugs": ["comfy-core"], "aux_only": [], "unprovenanced": [],
+        "core_slug_non_core": [], "low_confidence": False,
+    }
+    provenance = {"operation": "imported", "source_provenance": report}
+    first = tmp_path / "first"; second = tmp_path / "second"
+    first.mkdir(); second.mkdir()
+    emit_bundle(_nonempty_workflow("provenance-pair"), first / "workflow.py", provenance)
+    loaded = load_bundle(first / "workflow.py", trust=Provenance.USER_CONFIRMED)
+    assert loaded.provenance["source_provenance"] == report
+    emit_bundle(loaded.workflow, second / "workflow.py", loaded.provenance)
+    assert "source_provenance" in (second / "workflow.py").read_text(encoding="utf-8")
+    reloaded = load_bundle(second / "workflow.py", trust=Provenance.USER_CONFIRMED)
+    assert reloaded.provenance["source_provenance"] == report
+
+
 @pytest.mark.parametrize("corpus_id", ["352066ccef9dbe37", "8800a945cff8d090"])
 def test_cli_convert_corpus_pair_admits_through_real_loader_path(
     corpus_id: str, tmp_path: Path

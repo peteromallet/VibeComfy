@@ -571,7 +571,10 @@ async def _ensure_embedded_prerequisites(
         from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
         from vibecomfy.node_packs import read_lockfile
 
-        lockfile_entries = read_lockfile()
+        configured_lockfile = getattr(getattr(session, "config", None), "extra", {}).get("lockfile")
+        from vibecomfy.node_packs import resolve_lockfile_path
+
+        lockfile_entries = read_lockfile(resolve_lockfile_path(configured_lockfile))
         pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
         pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
         if pin_errors:
@@ -1127,7 +1130,7 @@ class EmbeddedSession:
             watchdog = await _start_watchdog(server_url=ws_url, client_id=client_id, api_dict=api_dict)
             phase = "drift"
             if strict_drift:
-                enforce_strict_drift(workflow)
+                enforce_strict_drift(workflow, lockfile_path=self.config.extra.get("lockfile"))
             phase = "queue"
             phase_start = time.monotonic()
             try:
@@ -1440,7 +1443,7 @@ class ServerSession:
             watchdog = await _start_watchdog(server_url=self.url, client_id=client_id, api_dict=api_dict)
             phase = "drift"
             if strict_drift:
-                enforce_strict_drift(workflow)
+                enforce_strict_drift(workflow, lockfile_path=self.config.extra.get("lockfile"))
             phase = "queue"
             phase_start = time.monotonic()
             try:

@@ -227,6 +227,14 @@ def port_convert_workflow(
     # evidence) after conversion, including when conversion raises midway.
     workflow = workflow.copy()
     raw_workflow = copy.deepcopy(raw_workflow)
+    # Canonical conversion may be invoked directly (outside import_service),
+    # so retain the source-authored provenance report at this shared boundary.
+    # It is evidence only; runtime resolution remains a separate concern.
+    if raw_workflow is not None and "source_provenance" not in (provenance or {}):
+        from vibecomfy.porting.provenance import extract_provenance
+
+        provenance = dict(provenance or {})
+        provenance["source_provenance"] = extract_provenance(raw_workflow).to_json()
 
     emission_diagnostics: list[EmissionDiagnostic] = []
 
