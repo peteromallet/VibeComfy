@@ -755,6 +755,7 @@ def test_interpret_emit_fails_closed_when_exit_guard_rejects(monkeypatch) -> Non
                     code="full_ui_node_changed_unattributed",
                     message="unattributed emit change",
                     severity="error",
+                    detail={"uid": "5", "field_paths": ["inputs"]},
                 ),
             ),
         ),
@@ -766,6 +767,13 @@ def test_interpret_emit_fails_closed_when_exit_guard_rejects(monkeypatch) -> Non
         getattr(diag, "code", None) == "full_ui_node_changed_unattributed"
         for diag in done.diagnostics
     )
+    detail = next(
+        diag.detail
+        for diag in done.diagnostics
+        if getattr(diag, "code", None) == "full_ui_node_changed_unattributed"
+    )
+    assert detail["uid"] == "5"
+    assert detail["field_paths"] == ("inputs",)
     assert "emit-exit guard rejected" in done.summary
     assert session.original_ui == before
 

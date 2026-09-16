@@ -902,6 +902,7 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                         getattr(issue, "code", "exit_guard"),
                         getattr(issue, "message", str(issue)),
                         severity=getattr(issue, "severity", "error") or "error",
+                        detail=getattr(issue, "detail", {}) or {},
                     )
                     for issue in exit_guard.diagnostics
                 )

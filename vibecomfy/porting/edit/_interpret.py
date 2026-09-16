@@ -1087,6 +1087,7 @@ def _evaluate_operation(
                             getattr(issue, "code", "presentation_rejected"),
                             getattr(issue, "message", str(issue)),
                             severity=getattr(issue, "severity", "error") or "error",
+                            detail=getattr(issue, "detail", {}) or {},
                         )
                         for issue in presentation_guard.diagnostics
                     )
