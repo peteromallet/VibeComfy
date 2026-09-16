@@ -1567,6 +1567,7 @@ def interpret(
     batch_source: str | Sequence[EditOp],
     *,
     schema_provider: Any | None = None,
+    presentation_ui: Mapping[str, Any] | None = None,
     max_batch_bytes: int = 1_000_000,
     max_statements: int = 10_000,
     max_expanded_statements: int = 20_000,
@@ -1579,10 +1580,17 @@ def interpret(
 
     Pure: the input workflow is never mutated.  ``batch_source`` is either
     Python surface text or an already-lowered op sequence (Law 3).
+    ``presentation_ui`` is an optional retained LiteGraph snapshot for the
+    lowered-operation route; Python source still captures its presentation
+    through the ordinary source boundary.
     """
     if not isinstance(pre_workflow, VibeWorkflow):
         raise TypeError(
             f"interpret requires VibeWorkflow, got {type(pre_workflow).__name__}"
+        )
+    if isinstance(batch_source, str) and presentation_ui is not None:
+        raise ValueError(
+            "presentation_ui is supported only with an already-lowered operation sequence"
         )
     provider = _frozen_provider_for_interpret(
         schema_provider,
@@ -1601,6 +1609,7 @@ def interpret(
             pre_workflow,
             tuple(batch_source),
             schema_provider=provider,
+            presentation_ui=presentation_ui,
             value_default_context=value_default_context,
         )
     else:
@@ -1664,6 +1673,7 @@ def _interpret_ops(
     ops: tuple[EditOp, ...],
     *,
     schema_provider: Any,
+    presentation_ui: Mapping[str, Any] | None = None,
     value_default_context: Any = None,
 ) -> InterpretationResult:
     """Interpret already-typed operations through the shared boundary."""
@@ -1684,9 +1694,15 @@ def _interpret_ops(
         )
     cursor = _cow_workflow_copy(pre_workflow)
     context_cursor = value_default_context
-    presentation_ui, presentation_index, presentation_error = _capture_presentation(
-        cursor, schema_provider
-    )
+    if presentation_ui is None:
+        presentation_ui, presentation_index, presentation_error = _capture_presentation(
+            cursor, schema_provider
+        )
+    else:
+        from vibecomfy.porting.edit.lint import LintIndex
+
+        presentation_index = LintIndex.build(presentation_ui)
+        presentation_error = None
     if presentation_error is not None:
         return InterpretationResult(
             workflow=_cow_workflow_copy(pre_workflow),

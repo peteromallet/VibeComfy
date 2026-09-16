@@ -912,6 +912,7 @@ def transition_bundle(
             initial_workflow=initial.workflow,
             workflow_snapshot=snapshot_of(initial.workflow),
             schema_provider=edit_schema,
+            use_ingest_presentation=True,
         )
         try:
             ops = _typed_operations(session, tool_calls)

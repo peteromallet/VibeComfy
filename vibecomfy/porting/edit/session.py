@@ -209,17 +209,22 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         initial_workflow: VibeWorkflow | None = None,
         workflow_snapshot: Any | None = None,
         interaction_mode: str | None = None,
+        use_ingest_presentation: bool = False,
     ) -> None:
         # raw_ui_json is door input only: the named ingest builds the retained
         # IR once.  The ingest snapshot is deep-frozen emit prior_ui furniture,
         # not a parallel mutation store and never a re-ingest fallback.
         self._ingest_ui: Mapping[str, Any] = _deep_freeze(deepcopy(dict(raw_ui_json)))
+        self._current_presentation_ui: dict[str, Any] | None = None
         self.landed_ops: list[Any] = []
         self.touched_uids: set[str] = set()
         self.touched_node_ids: set[str] = set()
         # Request-declared interaction permission.  This is transported from
         # executor_classification; it is never derived from the task text.
         self.interaction_mode = interaction_mode
+        self.use_ingest_presentation = bool(use_ingest_presentation)
+        if self.use_ingest_presentation:
+            self._current_presentation_ui = _unfreeze(self._ingest_ui)
         supplied_provider = schema_provider or get_schema_provider("auto")
         # Once a provider exposes an ingress snapshot, pin this session to a
         # provider reconstructed from that exact immutable snapshot.  This
@@ -550,7 +555,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
         target = workflow if workflow is not None else getattr(self, "workflow", None)
         if target is None:
             raise RuntimeError("EditSession cannot emit UI without a retained IR")
-        prior_ui = _unfreeze(self._ingest_ui)
+        prior_ui = (
+            deepcopy(self._current_presentation_ui)
+            if self.use_ingest_presentation and self._current_presentation_ui is not None
+            else _unfreeze(self._ingest_ui)
+        )
         emitted = emit_ui_json(
             target,
             schema_provider=schema_provider or self.schema_provider,
@@ -793,6 +802,11 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
                 pre,
                 batch,
                 schema_provider=self.schema_provider,
+                presentation_ui=(
+                    deepcopy(self._current_presentation_ui)
+                    if self.use_ingest_presentation
+                    else None
+                ),
                 value_default_context=self.value_default_context,
             )
             interpretation_schema_provider = (
@@ -915,6 +929,8 @@ class EditSession(_RenderMixin, _ParseExecuteMixin, _ResolveMixin, _DescribeMixi
 
             self.workflow = post
             self.schema_provider = interpretation_schema_provider
+            if self.use_ingest_presentation and candidate_ui is not None:
+                self._current_presentation_ui = deepcopy(candidate_ui)
             self.value_default_context = typed_report.value_default_context
             self._history.append((pre, frozen_canonical_ops, frozen_canonical_ops))
             self.landed_ops.extend(frozen_canonical_ops)
