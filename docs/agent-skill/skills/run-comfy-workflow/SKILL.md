@@ -54,6 +54,58 @@ vibecomfy run <workflow.py> --runtime embedded --ensure-packs --ensure-models
 
 `--ensure-packs` is embedded-only.
 
+## Canonical dependency repair loop
+
+For a local Python workflow, `run` reads the authored `MODELS` /
+`ModelAsset` and `READY_METADATA.requirements.custom_node_refs` surfaces before
+compilation. Missing model URLs, repository URLs, unsafe destinations,
+unsupported dynamic metadata, and root or nested node classes that are not
+core, explicitly listed in a ref's `classes`/`class_set`, or covered by one
+unambiguous local pack catalog are reported together. The run stops with:
+"Run blocked: dependencies unresolved. Nothing downloaded, installed,
+restarted, compiled, or queued." Common literal placeholders are written back
+to the same `workflow.py`; rerunning is idempotent.
+
+```python
+from vibecomfy.templates import ModelAsset, ReadyMetadata
+
+MODELS = {
+    "denoiser": ModelAsset(
+        filename="denoiser.safetensors",
+        url="https://host.example/models/denoiser.safetensors",
+        subdir="diffusion_models",
+        hf_revision="<revision>",       # optional
+        sha256="<64-hex-digest>",        # optional
+    ),
+}
+READY_METADATA = ReadyMetadata.build(
+    capability="image",
+    requirements={"custom_node_refs": [{
+        "slug": "example-pack", "source": "git",
+        "url": "https://host.example/example-pack.git",
+        "version": "<tag-or-branch>",  # optional; commit is also supported
+        "classes": ["ExampleNode"],
+    }]},
+)
+```
+
+A model URL resolves the current bytes at that URL by default and records the
+effective URL, observed SHA-256, size, and file-stat evidence in the local
+verification receipt. A supplied checksum/revision is honored. A node URL
+resolves the repository's default branch by default; a supplied version/tag/
+branch is checked out, and a supplied commit is verified exactly. The existing
+`custom_nodes.lock` is reused when its URL and optional selectors match, so a
+repeat does not silently move a workflow to a new revision. Change the URL or
+request an explicit refresh to start a new resolution.
+
+After the report is clear, the existing preparation and runtime path performs
+the download/install, preserves bounded download concurrency, and keeps the
+normal warm-session behavior. Inspect preparation receipts under
+`out/preparations/` when troubleshooting; do not infer a provider from a model
+filename or node class. Remote `--server-url` runs remain non-mutating, and
+RunPod/GPU validation plus Astrid project integration are separate follow-on
+routes.
+
 ## Existing ComfyUI Server
 
 Use this when the user already has ComfyUI running locally or remotely:

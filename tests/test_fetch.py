@@ -271,6 +271,37 @@ def test_download_writes_tmp_then_renames(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert requested["follow_redirects"] is True
 
 
+def test_url_only_model_records_effective_bytes_and_reuses_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    calls = 0
+
+    def stream(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return fake_stream(FakeResponse(chunks=[b"latest-bytes"]))
+
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+    entry = {
+        **ENTRY,
+        "url": "https://example.test/latest.safetensors",
+        "hf_revision": "rev1",
+    }
+
+    path = fetch.download(entry)
+    assert fetch.download(entry) == path
+    receipt = fetch.read_resolution_receipt(entry, root=tmp_path)
+
+    assert calls == 1
+    assert receipt is not None
+    assert receipt["requested_url"] == entry["url"]
+    assert receipt["hf_revision"] == "rev1"
+    assert receipt["effective_url"] == entry["url"]
+    assert receipt["observed_sha256"] == hashlib.sha256(b"latest-bytes").hexdigest()
+    assert receipt["size_bytes"] == len(b"latest-bytes")
+
+
 def test_download_verifies_downloaded_file_sha256(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
     monkeypatch.setattr(fetch.httpx, "stream", lambda *_args, **_kwargs: fake_stream(FakeResponse(chunks=[b"abc"])))

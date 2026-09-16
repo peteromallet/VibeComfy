@@ -1321,11 +1321,40 @@ def reconcile_ready_template_source(
         core_classes = set(CORE_COMFY_CLASSES)
     except ImportError:
         core_classes = set()
+    local_catalog: dict[str, set[str]] = {}
+    try:
+        # This is only the checked-in/lockfile class catalog; it does not
+        # import arbitrary custom-node implementations or perform discovery.
+        from vibecomfy.node_packs import get_known_node_packs
+
+        for pack in get_known_node_packs():
+            for class_type in pack.classes:
+                local_catalog.setdefault(str(class_type), set()).add(str(pack.name))
+    except (ImportError, OSError, ValueError, TypeError):
+        # A broken optional catalog must not hide source-level gaps.  The
+        # authored class list remains sufficient when it is present.
+        local_catalog = {}
+
+    class_counts: dict[str, int] = {}
+    class_accounting: dict[str, dict[str, Any]] = {}
     for class_type, node in graph_classes:
-        if class_type in core_classes or class_type in declared_classes:
+        class_counts[class_type] = class_counts.get(class_type, 0) + 1
+        if class_type in core_classes:
+            class_accounting.setdefault(class_type, {"status": "core", "occurrences": 0})["occurrences"] += 1
+            continue
+        if class_type in declared_classes:
+            class_accounting.setdefault(class_type, {"status": "declared", "occurrences": 0})["occurrences"] += 1
+            continue
+        catalog_matches = sorted(local_catalog.get(class_type, ()))
+        if len(catalog_matches) == 1:
+            class_accounting.setdefault(class_type, {"status": "local_catalog", "pack": catalog_matches[0], "occurrences": 0})["occurrences"] += 1
             continue
         semantic_path = f"graph[{class_type!r}]"
-        blockers.append(_dependency_blocker("class_not_accounted_for", "No declared custom-node ref accounts for this class.", path, node, semantic_path, detail={"class_type": class_type}))
+        detail = {"class_type": class_type, "occurrences": class_counts[class_type]}
+        if len(catalog_matches) > 1:
+            detail["catalog_matches"] = catalog_matches
+        class_accounting[class_type] = {"status": "unaccounted", **detail}
+        blockers.append(_dependency_blocker("class_not_accounted_for", "No declared custom-node ref or unambiguous local pack accounts for this class.", path, node, semantic_path, detail=detail))
         if ref_lists:
             refs_node, refs_path = ref_lists[0]
             new_index = len(refs_node.elts)
@@ -1344,6 +1373,8 @@ def reconcile_ready_template_source(
         "diagnostics": diagnostics,
         "edits": [dict(edit) for edit in edits],
         "blockers": blockers,
+        "graph_classes": dict(sorted(class_counts.items())),
+        "class_accounting": {key: class_accounting[key] for key in sorted(class_accounting)},
         "locations": contract.get("source_locations", []) if contract else _static_source_locations(tree, path, wrapper_class_types=wrappers),
     }
 

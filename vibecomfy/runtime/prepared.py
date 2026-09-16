@@ -39,6 +39,7 @@ class PreparationPlan:
 class PreparationResult:
     plan: PreparationPlan
     model_paths: tuple[str, ...] = ()
+    model_evidence: tuple[dict[str, Any], ...] = ()
     node_results: tuple[dict[str, Any], ...] = ()
     receipt_path: str | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -48,6 +49,7 @@ class PreparationResult:
             "ok": True,
             "plan": self.plan.to_json(),
             "model_paths": list(self.model_paths),
+            "model_evidence": [dict(entry) for entry in self.model_evidence],
             "node_results": [dict(result) for result in self.node_results],
             "receipt_path": self.receipt_path,
             "diagnostics": dict(self.diagnostics),
@@ -235,6 +237,7 @@ def _prepare_workflow_unlocked(
         raise PreparationError("download_workers must be a positive integer")
 
     model_paths: list[str] = []
+    model_evidence: list[dict[str, Any]] = []
     model_future: Future[list[Path]] | None = None
     model_executor: ThreadPoolExecutor | None = None
     if ensure_models and plan.models:
@@ -290,6 +293,10 @@ def _prepare_workflow_unlocked(
         if model_future is not None:
             try:
                 model_paths = [str(path) for path in model_future.result()]
+                for entry in plan.models:
+                    receipt = fetch_assets.read_resolution_receipt(entry, root=model_root)
+                    if receipt is not None:
+                        model_evidence.append(receipt)
             except Exception as exc:
                 raise PreparationError(f"model preparation failed: {exc}") from exc
     finally:
@@ -303,6 +310,7 @@ def _prepare_workflow_unlocked(
     result = PreparationResult(
         plan=plan,
         model_paths=tuple(model_paths),
+        model_evidence=tuple(model_evidence),
         node_results=tuple(node_results),
         receipt_path=str(receipt_path),
         diagnostics={

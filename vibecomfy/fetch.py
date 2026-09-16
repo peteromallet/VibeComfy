@@ -245,6 +245,126 @@ def verify(
     return False
 
 
+def _source_receipt_matches(
+    receipt_path: Path,
+    *,
+    path: Path,
+    requested_url: str,
+    requested_revision: str | None,
+    fingerprint: dict[str, int],
+) -> bool:
+    """Return whether a URL resolution receipt still witnesses this file."""
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    stat_data = receipt.get("stat") if isinstance(receipt, dict) else None
+    return (
+        isinstance(receipt, dict)
+        and receipt.get("schema_version") == 1
+        and receipt.get("kind") == "model_url_resolution"
+        and receipt.get("path") == str(path.resolve(strict=False))
+        and receipt.get("requested_url") == requested_url
+        and (
+            requested_revision is None
+            or receipt.get("hf_revision") == requested_revision
+        )
+        and isinstance(stat_data, dict)
+        and all(stat_data.get(field) == fingerprint.get(field) for field in ("inode", "size", "mtime_ns"))
+        and isinstance(receipt.get("observed_sha256"), str)
+        and len(receipt["observed_sha256"]) == 64
+        and receipt.get("size_bytes") == fingerprint.get("size")
+    )
+
+
+def _write_source_receipt(
+    receipt_path: Path,
+    *,
+    path: Path,
+    requested_url: str,
+    requested_revision: str | None,
+    effective_url: str,
+    fingerprint: dict[str, int],
+    observed_sha256: str,
+) -> None:
+    """Persist URL, effective redirect, bytes identity, and stat evidence."""
+    _write_verification_receipt(
+        receipt_path,
+        {
+            "schema_version": 1,
+            "kind": "model_url_resolution",
+            "path": str(path.resolve(strict=False)),
+            "requested_url": requested_url,
+            **(
+                {"hf_revision": requested_revision}
+                if requested_revision is not None
+                else {}
+            ),
+            "effective_url": effective_url,
+            "observed_sha256": observed_sha256.lower(),
+            # Keep the source witness compatible with ``verify``'s existing
+            # digest cache so a pinned entry can reuse the same receipt.
+            "expected_sha256": observed_sha256.lower(),
+            "actual_sha256": observed_sha256.lower(),
+            "expected_size_bytes": fingerprint["size"],
+            "size_bytes": fingerprint["size"],
+            "stat": fingerprint,
+        },
+    )
+
+
+def _refresh_source_receipt(
+    receipt_path: Path,
+    *,
+    path: Path,
+    requested_url: str,
+    requested_revision: str | None,
+    effective_url: str,
+    fingerprint: dict[str, int],
+) -> None:
+    """Reattach URL fields after the legacy verification writer runs."""
+    try:
+        verification = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return
+    observed = verification.get("actual_sha256") if isinstance(verification, dict) else None
+    if isinstance(observed, str) and len(observed) == 64:
+        _write_source_receipt(
+            receipt_path,
+            path=path,
+            requested_url=requested_url,
+            requested_revision=requested_revision,
+            effective_url=effective_url,
+            fingerprint=fingerprint,
+            observed_sha256=observed,
+        )
+
+
+def read_resolution_receipt(
+    entry: Mapping[str, Any], *, root: Path | None = None
+) -> dict[str, Any] | None:
+    """Read the verified URL-resolution witness for a model entry, if valid."""
+    path = local_path(entry, root=root)
+    receipt_path = _verification_receipt_path(path, root=root)
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    requested_url = _strip_download_true(str(entry.get("url", "")))
+    requested_revision = entry.get("hf_revision")
+    if not isinstance(requested_revision, str) or not requested_revision:
+        requested_revision = None
+    if not path.is_file() or not _source_receipt_matches(
+        receipt_path,
+        path=path,
+        requested_url=requested_url,
+        requested_revision=requested_revision,
+        fingerprint=_model_stat_fingerprint(path),
+    ):
+        return None
+    return dict(receipt)
+
+
 def _model_stat_fingerprint(path: Path) -> dict[str, int]:
     stat = path.stat()
     return {
@@ -334,13 +454,109 @@ def download(
 ) -> Path:
     authorized_root, path, destination_field = _destination_for_entry(entry, root=root)
     name = str(entry["name"])
+    requested_url = _strip_download_true(str(entry.get("url", "")))
+    requested_revision = entry.get("hf_revision")
+    if not isinstance(requested_revision, str) or not requested_revision:
+        requested_revision = None
+    receipt_path = _verification_receipt_path(path, root=root)
     if path.is_file() and path.stat().st_size > 0 and not force:
-        cached = verify(entry, path, root=root, force=force_verify)
-        if not quiet:
-            print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
-        return path
+        fingerprint = _model_stat_fingerprint(path)
+        if _source_receipt_matches(
+            receipt_path,
+            path=path,
+            requested_url=requested_url,
+            requested_revision=requested_revision,
+            fingerprint=fingerprint,
+        ):
+            prior_source = None
+            try:
+                prior_source = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                pass
+            cached = verify(entry, path, root=root, force=force_verify)
+            if force_verify:
+                _refresh_source_receipt(
+                    receipt_path,
+                    path=path,
+                    requested_url=requested_url,
+                    requested_revision=requested_revision,
+                    effective_url=(
+                        str(prior_source.get("effective_url", requested_url))
+                        if isinstance(prior_source, dict)
+                        else requested_url
+                    ),
+                    fingerprint=_model_stat_fingerprint(path),
+                )
+            if not quiet:
+                print(f"skipped {name}" + (" (cached sha256)" if cached else " (cached URL resolution)"))
+            return path
+        # Preserve the long-standing local-file reuse behavior when there is
+        # no URL witness yet.  Hashing once below creates one.  A receipt for
+        # a different URL, however, is evidence of a changed source and must
+        # not silently reuse stale bytes.
+        try:
+            prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            prior_receipt = None
+        source_url_changed = (
+            isinstance(prior_receipt, dict)
+            and prior_receipt.get("kind") == "model_url_resolution"
+            and prior_receipt.get("requested_url") != requested_url
+        )
+        source_revision_changed = (
+            isinstance(prior_receipt, dict)
+            and prior_receipt.get("kind") == "model_url_resolution"
+            and requested_revision is not None
+            and prior_receipt.get("hf_revision") != requested_revision
+        )
+        if (
+            not source_url_changed
+            and not source_revision_changed
+            and isinstance(entry.get("sha256"), str)
+            and entry.get("sha256")
+            and entry.get("gated") is not True
+        ):
+            # A pinned model can validate a changed stat without downloading
+            # again.  Refresh the URL witness from the verification receipt.
+            verify(entry, path, root=root, force=force_verify)
+            _refresh_source_receipt(
+                receipt_path,
+                path=path,
+                requested_url=requested_url,
+                requested_revision=requested_revision,
+                effective_url=(
+                    str(prior_receipt.get("effective_url", requested_url))
+                    if isinstance(prior_receipt, dict)
+                    else requested_url
+                ),
+                fingerprint=_model_stat_fingerprint(path),
+            )
+            if not quiet:
+                print(f"skipped {name} (cached sha256)")
+            return path
+        if not (
+            isinstance(prior_receipt, dict)
+            and prior_receipt.get("kind") == "model_url_resolution"
+        ):
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                    digest.update(chunk)
+            _write_source_receipt(
+                receipt_path,
+                path=path,
+                requested_url=requested_url,
+                requested_revision=requested_revision,
+                effective_url=requested_url,
+                fingerprint=fingerprint,
+                observed_sha256=digest.hexdigest(),
+            )
+            cached = verify(entry, path, root=root, force=force_verify)
+            if not quiet:
+                print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
+            return path
 
-    url = _strip_download_true(str(entry["url"]))
+    url = requested_url
     headers: dict[str, str] = {}
     token = os.environ.get("HF_TOKEN")
     if token:
@@ -356,15 +572,21 @@ def download(
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp: Path | None = None
     tmp_identity: tuple[int, int] | None = None
+    effective_url = url
+    digest = hashlib.sha256()
+    size_bytes = 0
     try:
         with stream_context as response:
             _raise_for_status(response.status_code, url)
+            effective_url = str(getattr(response, "url", url))
             _assert_destination_stable(authorized_root, path, field=destination_field)
             tmp, handle, tmp_identity = _open_owned_temp(path.parent)
             with handle:
                 for chunk in response.iter_bytes():
                     if chunk:
                         handle.write(chunk)
+                        digest.update(chunk)
+                        size_bytes += len(chunk)
         _assert_destination_stable(authorized_root, path, field=destination_field)
         if tmp is None or tmp_identity is None or _temp_identity(tmp) != tmp_identity:
             raise RuntimeError("download temporary file changed before final replace")
@@ -374,7 +596,19 @@ def download(
     except BaseException:
         _unlink_owned_temp(tmp, tmp_identity)
         raise
+    fingerprint = _model_stat_fingerprint(path)
+    if fingerprint["size"] != size_bytes:
+        raise RuntimeError(f"downloaded size changed while publishing {name}")
     verify(entry, path, root=root, force=True)
+    _write_source_receipt(
+        receipt_path,
+        path=path,
+        requested_url=requested_url,
+        requested_revision=requested_revision,
+        effective_url=effective_url,
+        fingerprint=fingerprint,
+        observed_sha256=digest.hexdigest(),
+    )
     return path
 
 
@@ -444,4 +678,12 @@ def _raise_for_status(status_code: int, url: str) -> None:
 from vibecomfy.model_assets import _strip_download_true as _strip_download_true  # noqa: E402,F401
 
 
-__all__ = ["download", "download_many", "is_present", "local_path", "models_root", "verify"]
+__all__ = [
+    "download",
+    "download_many",
+    "is_present",
+    "local_path",
+    "models_root",
+    "read_resolution_receipt",
+    "verify",
+]

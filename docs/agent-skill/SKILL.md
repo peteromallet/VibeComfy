@@ -116,6 +116,19 @@ fetch, node-pack, lockfile, session, and bounded download plumbing automatically
 `--download-workers`, and `--json` remain available on the normal run command.
 Explicit `--server-url` runs are remote and non-mutating.
 
+The local repair loop is canonical and same-file: authored `ModelAsset` rows
+and `requirements.custom_node_refs` are the only dependency declarations.
+URL-only models use the current URL bytes and leave an observed SHA-256/size/
+effective-URL receipt; optional `hf_revision`, `sha256`, and node
+version/tag/branch/commit pins remain explicit. Matching model receipts and
+`custom_nodes.lock` entries are reused exactly. Before any setup or queueing,
+root and nested graph classes are checked against core classes, declared
+`classes`/`class_set`, and an unambiguous local pack catalog. Gaps are reported
+with source locations and actionable same-file placeholders; dynamic forms
+remain manual-edit diagnostics. Warm sessions and bounded concurrency are
+preserved after reconciliation. RunPod/GPU acceptance and Astrid integration
+remain deferred and must not be claimed from local structural tests.
+
 ## Authoring Model
 
 Use one loader by default:

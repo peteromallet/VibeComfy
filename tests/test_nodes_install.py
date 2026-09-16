@@ -597,6 +597,41 @@ def test_batch_install_rejects_authored_ref_lock_conflict_before_preflight(
     assert result.results[0].status == "failed"
 
 
+def test_batch_install_reuses_exact_lock_for_url_only_authored_ref(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "custom_nodes"
+    (install_root / "ExamplePack").mkdir(parents=True)
+    lock = LockEntry(
+        name="ExamplePack",
+        slug="example-pack",
+        source="git",
+        url="https://example.test/example.git",
+        commit="lockedhead",
+        class_set=("ExampleNode",),
+    )
+    runner = PipPreflightRunner(sha="lockedhead", porcelain="", origin_url=lock.url)
+
+    result = install_required_packs(
+        [CustomNodePack("ExamplePack", lock.url, ("ExampleNode",))],
+        restore_entries=[lock],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack", source="git", url=lock.url
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert result.results[0].status == "refreshed"
+    assert not any(call[:2] == ["git", "clone"] for call in runner.calls)
+    assert not any(call[:4] == ["git", "-C", str(install_root / "ExamplePack"), "fetch"] for call in runner.calls)
+
+
 def test_install_idempotent_when_clean(tmp_path: Path) -> None:
     install_dir = tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     install_dir.mkdir(parents=True)

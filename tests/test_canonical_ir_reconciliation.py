@@ -74,6 +74,46 @@ def test_reconciliation_leaves_dynamic_dependencies_unchanged() -> None:
     assert {item["code"] for item in result["diagnostics"]} == {"static_dynamic_value"}
 
 
+def test_reconciliation_accounts_for_nested_declared_classes_and_counts_occurrences() -> None:
+    source = """
+READY_METADATA = {"requirements": {"custom_node_refs": [{
+    "slug": "example-pack", "url": "https://example.test/example.git",
+    "classes": ["NestedNode"],
+}]}}
+def build():
+    def nested_graph():
+        return node("1", "NestedNode")
+    return nested_graph()
+"""
+
+    result = reconcile_ready_template_source(source, source_path="nested.py")
+
+    assert result["blockers"] == []
+    assert result["graph_classes"]["NestedNode"] == 1
+    assert result["class_accounting"]["NestedNode"]["status"] == "declared"
+
+
+def test_reconciliation_uses_an_unambiguous_local_pack_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.node_packs as node_packs
+
+    pack = node_packs.CustomNodePack(
+        "LocalExample", "https://example.test/example.git", frozenset({"CatalogNode"})
+    )
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda: (pack,))
+
+    result = reconcile_ready_template_source(
+        "def build():\n    return node('1', 'CatalogNode')\n",
+        source_path="catalog.py",
+    )
+
+    assert result["blockers"] == []
+    assert result["class_accounting"]["CatalogNode"] == {
+        "status": "local_catalog", "pack": "LocalExample", "occurrences": 1
+    }
+
+
 def test_reconciliation_rejects_source_cas_without_writing(tmp_path: Path) -> None:
     source = tmp_path / "workflow.py"
     original = "MODELS = {'foo': ModelAsset(filename='foo.safetensors', subdir='checkpoints')}\n"

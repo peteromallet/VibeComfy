@@ -474,7 +474,6 @@ def install_required_packs(
     cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli,
 ) -> InstallBatchResult:
     ordered_packs = tuple(packs)
-    restore_by_name = {entry.name: entry for entry in restore_entries or ()}
     install_refs = install_refs_by_name or {}
     ref_error = validate_install_refs(ordered_packs, install_refs, restore_entries or ())
     if ref_error is not None:
@@ -495,13 +494,10 @@ def install_required_packs(
     results: list[InstallResult] = []
     for pack in ordered_packs:
         authored_ref = install_refs.get(pack.name)
-        # An authored selector must be realized from that selector.  An older
-        # lock entry may be used only when the workflow supplied no selector.
-        entry = (
-            _restore_entry_from_install_ref(pack, authored_ref)
-            if authored_ref is not None
-            else restore_by_name.get(pack.name)
-        )
+        # A lock is a resolution receipt.  Reuse it when it exactly matches
+        # the authored URL and optional selector; otherwise resolve the URL
+        # (default branch for an unpinned ref) and record a new full commit.
+        entry = _matching_lock_entry(pack, authored_ref, restore_entries or ())
         install_ref = _pack_ref_from_install_ref(authored_ref)
         if install_ref is not None and not install_ref.slug:
             install_ref = _pack_ref_with_slug(install_ref, pack.name)
@@ -633,6 +629,38 @@ def validate_install_refs(
         if ref.commit and locked_commit and ref.commit != locked_commit:
             return f"custom-node install ref for {name!r} conflicts with lock commit {locked_commit!r}"
     return None
+
+
+def _matching_lock_entry(
+    pack: CustomNodePack,
+    install_ref: PackRef | LockEntry | dict[str, Any] | str | None,
+    restore_entries: Sequence[LockEntry],
+) -> LockEntry | None:
+    """Return an exact lock witness for a URL/ref, if one exists."""
+    if isinstance(install_ref, LockEntry):
+        return install_ref
+    ref = _pack_ref_from_install_ref(install_ref)
+    candidates = [
+        entry for entry in restore_entries
+        if entry.name == pack.name or entry.slug == pack.name or (ref is not None and entry.slug == ref.slug)
+    ]
+    for entry in candidates:
+        if ref is None:
+            return entry
+        if ref.url and entry.url and _normalize_git_remote(ref.url) != _normalize_git_remote(entry.url):
+            continue
+        if ref.url and not entry.url:
+            continue
+        if ref.version and entry.version != ref.version:
+            continue
+        locked_commit = entry.commit or entry.git_commit_sha
+        if ref.commit and locked_commit != ref.commit:
+            continue
+        # A commit-only ref is exact only when the lock carries that commit;
+        # URL-only and version-only refs are likewise witnessed by the URL or
+        # selector checks above.
+        return entry
+    return _restore_entry_from_install_ref(pack, install_ref)
 
 
 def _merge_declared_requirement_packs(
