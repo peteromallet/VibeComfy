@@ -560,13 +560,9 @@ def test_batch_install_semver_ref_attempts_checkout_and_preserves_version_identi
     ]
 
 
-def test_batch_install_rejects_authored_ref_lock_conflict_before_preflight(
+def test_batch_install_resolves_changed_authored_source_as_new_identity(
     tmp_path: Path,
 ) -> None:
-    class UnexpectedRunner:
-        def __call__(self, *_args, **_kwargs):
-            raise AssertionError("lock identity must be validated before side effects")
-
     pack = CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",))
     lock = LockEntry(
         name="ExamplePack",
@@ -575,6 +571,8 @@ def test_batch_install_rejects_authored_ref_lock_conflict_before_preflight(
         url="https://example.test/example.git",
         commit="oldhead",
     )
+    new_commit = "a" * 40
+    runner = PipPreflightRunner(sha="pre-checkout-head", checkout_head=new_commit)
     result = install_required_packs(
         [pack],
         restore_entries=[lock],
@@ -582,19 +580,71 @@ def test_batch_install_rejects_authored_ref_lock_conflict_before_preflight(
             "ExamplePack": PackRef(
                 slug="example-pack",
                 source="git",
-                url="https://example.test/example.git",
-                commit="newhead",
+                url="https://new.example/example.git",
+                version="v2.0.0",
+                commit=new_commit,
             )
         },
         install_root=tmp_path / "custom_nodes",
         lockfile_path=tmp_path / "custom_nodes.lock",
-        runner=UnexpectedRunner(),
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert result.results[0].git_commit_sha == new_commit
+    assert [
+        "git", "clone", "https://new.example/example.git",
+        str(tmp_path / "custom_nodes" / "ExamplePack"),
+    ] in runner.calls
+    assert [
+        "git", "-C", str(tmp_path / "custom_nodes" / "ExamplePack"),
+        "checkout", new_commit,
+    ] in runner.calls
+    [resolved] = read_lockfile(tmp_path / "custom_nodes.lock")
+    assert resolved.url == "https://new.example/example.git"
+    assert resolved.version == "v2.0.0"
+    assert resolved.commit == new_commit
+
+
+def test_changed_authored_source_does_not_overwrite_existing_checkout(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ExamplePack"
+    install_dir.mkdir(parents=True)
+    lock = LockEntry(
+        name="ExamplePack",
+        slug="example-pack",
+        url="https://old.example/example.git",
+        commit="oldhead",
+    )
+    runner = PipPreflightRunner(
+        sha="oldhead", porcelain="", origin_url="https://old.example/example.git"
+    )
+
+    result = install_required_packs(
+        [CustomNodePack("ExamplePack", lock.url or "", ("ExampleNode",))],
+        restore_entries=[lock],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack",
+                source="git",
+                url="https://new.example/example.git",
+                commit="b" * 40,
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
         cm_cli_resolver=lambda _root, _runner: None,
     )
 
     assert result.ok is False
-    assert "lock commit" in (result.preflight.error or "")
-    assert result.results[0].status == "failed"
+    assert result.results[0].status == "skipped_dirty"
+    assert "refusing to overwrite existing clone" in (result.results[0].error or "")
+    assert not any(call[:4] == ["git", "-C", str(install_dir), "fetch"] for call in runner.calls)
+    assert not (tmp_path / "custom_nodes.lock").exists()
 
 
 def test_batch_install_reuses_exact_lock_for_url_only_authored_ref(

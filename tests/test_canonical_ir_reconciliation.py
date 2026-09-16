@@ -93,6 +93,32 @@ def build():
     assert result["class_accounting"]["NestedNode"]["status"] == "declared"
 
 
+def test_reconciliation_batches_distinct_missing_classes_and_is_idempotent() -> None:
+    source = """
+READY_REQUIREMENTS = {"custom_node_refs": []}
+def build():
+    first = node("1", "MissingFirstNode")
+    second = node("2", "MissingSecondNode")
+    return first, second
+"""
+
+    result = reconcile_ready_template_source(source, source_path="missing.py")
+
+    assert result["changed"] is True
+    assert "'slug': 'MissingFirstNode'" in result["source"]
+    assert "'slug': 'MissingSecondNode'" in result["source"]
+    assert result["source"].count("'slug': 'Missing") == 2
+    assert [item["path"] for item in result["edits"]] == [
+        "READY_REQUIREMENTS.custom_node_refs[0]",
+        "READY_REQUIREMENTS.custom_node_refs[1]",
+    ]
+    assert len([item for item in result["blockers"] if item["code"] == "class_not_accounted_for"]) == 2
+
+    again = reconcile_ready_template_source(result["source"], source_path="missing.py")
+    assert again["changed"] is False
+    assert again["edits"] == []
+
+
 def test_reconciliation_uses_an_unambiguous_local_pack_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

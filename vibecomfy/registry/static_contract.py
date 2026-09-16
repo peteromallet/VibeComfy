@@ -1337,6 +1337,7 @@ def reconcile_ready_template_source(
 
     class_counts: dict[str, int] = {}
     class_accounting: dict[str, dict[str, Any]] = {}
+    next_ref_index = len(ref_lists[0][0].elts) if ref_lists else 0
     for class_type, node in graph_classes:
         class_counts[class_type] = class_counts.get(class_type, 0) + 1
         if class_type in core_classes:
@@ -1357,7 +1358,8 @@ def reconcile_ready_template_source(
         blockers.append(_dependency_blocker("class_not_accounted_for", "No declared custom-node ref or unambiguous local pack accounts for this class.", path, node, semantic_path, detail=detail))
         if ref_lists:
             refs_node, refs_path = ref_lists[0]
-            new_index = len(refs_node.elts)
+            new_index = next_ref_index
+            next_ref_index += 1
             value = repr({"slug": class_type, "source": "git", "url": None, "classes": [class_type]})
             edits.append(_append_list_item_edit(source, refs_node, value, path, f"{refs_path}[{new_index}]"))
             declared_classes.add(class_type)
@@ -1550,14 +1552,34 @@ def _append_list_item_edit(source: str, node: ast.List, value: str, path: Path, 
     anchor: ast.AST | None = node.elts[-1] if node.elts else None
     position = _node_end_offset(source, anchor) if anchor is not None else _node_end_offset(source, node) - 1
     prefix = ", " if anchor is not None else ""
-    return {"start": position, "end": position, "replacement": f"{prefix}{value}", "path": semantic_path, "location": _source_location(path, node, semantic_path=semantic_path)}
+    return {"start": position, "end": position, "replacement": f"{prefix}{value}", "kind": "list_append", "path": semantic_path, "location": _source_location(path, node, semantic_path=semantic_path)}
 
 
 def _apply_source_edits(source: str, edits: list[dict[str, Any]]) -> str:
     if not edits:
         return source
-    unique: dict[tuple[int, int], dict[str, Any]] = {(int(edit["start"]), int(edit["end"])): edit for edit in edits}
-    ordered = sorted(unique.values(), key=lambda item: (int(item["start"]), int(item["end"])), reverse=True)
+    grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for edit in edits:
+        grouped.setdefault((int(edit["start"]), int(edit["end"])), []).append(edit)
+    merged: list[dict[str, Any]] = []
+    for group in grouped.values():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        if not all(edit.get("kind") == "list_append" for edit in group):
+            raise ValueError("multiple static source edits share an unsupported offset")
+        replacement = str(group[0]["replacement"])
+        has_existing_item = replacement.startswith(", ")
+        for edit in group[1:]:
+            item = str(edit["replacement"])
+            if has_existing_item:
+                replacement += item
+            else:
+                replacement += ", " + item.removeprefix(", ")
+        combined = dict(group[0])
+        combined["replacement"] = replacement
+        merged.append(combined)
+    ordered = sorted(merged, key=lambda item: (int(item["start"]), int(item["end"])), reverse=True)
     previous_start = len(source) + 1
     for edit in ordered:
         start, end = int(edit["start"]), int(edit["end"])

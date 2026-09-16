@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 
@@ -251,6 +252,7 @@ def _source_receipt_matches(
     path: Path,
     requested_url: str,
     requested_revision: str | None,
+    fetch_url: str,
     fingerprint: dict[str, int],
 ) -> bool:
     """Return whether a URL resolution receipt still witnesses this file."""
@@ -265,10 +267,8 @@ def _source_receipt_matches(
         and receipt.get("kind") == "model_url_resolution"
         and receipt.get("path") == str(path.resolve(strict=False))
         and receipt.get("requested_url") == requested_url
-        and (
-            requested_revision is None
-            or receipt.get("hf_revision") == requested_revision
-        )
+        and receipt.get("fetch_url", receipt.get("effective_url")) == fetch_url
+        and receipt.get("hf_revision") == requested_revision
         and isinstance(stat_data, dict)
         and all(stat_data.get(field) == fingerprint.get(field) for field in ("inode", "size", "mtime_ns"))
         and isinstance(receipt.get("observed_sha256"), str)
@@ -283,6 +283,7 @@ def _write_source_receipt(
     path: Path,
     requested_url: str,
     requested_revision: str | None,
+    fetch_url: str,
     effective_url: str,
     fingerprint: dict[str, int],
     observed_sha256: str,
@@ -295,6 +296,7 @@ def _write_source_receipt(
             "kind": "model_url_resolution",
             "path": str(path.resolve(strict=False)),
             "requested_url": requested_url,
+            "fetch_url": fetch_url,
             **(
                 {"hf_revision": requested_revision}
                 if requested_revision is not None
@@ -319,6 +321,7 @@ def _refresh_source_receipt(
     path: Path,
     requested_url: str,
     requested_revision: str | None,
+    fetch_url: str,
     effective_url: str,
     fingerprint: dict[str, int],
 ) -> None:
@@ -334,6 +337,7 @@ def _refresh_source_receipt(
             path=path,
             requested_url=requested_url,
             requested_revision=requested_revision,
+            fetch_url=fetch_url,
             effective_url=effective_url,
             fingerprint=fingerprint,
             observed_sha256=observed,
@@ -354,11 +358,13 @@ def read_resolution_receipt(
     requested_revision = entry.get("hf_revision")
     if not isinstance(requested_revision, str) or not requested_revision:
         requested_revision = None
+    fetch_url = _effective_fetch_url(requested_url, requested_revision)
     if not path.is_file() or not _source_receipt_matches(
         receipt_path,
         path=path,
         requested_url=requested_url,
         requested_revision=requested_revision,
+        fetch_url=fetch_url,
         fingerprint=_model_stat_fingerprint(path),
     ):
         return None
@@ -458,6 +464,7 @@ def download(
     requested_revision = entry.get("hf_revision")
     if not isinstance(requested_revision, str) or not requested_revision:
         requested_revision = None
+    fetch_url = _effective_fetch_url(requested_url, requested_revision)
     receipt_path = _verification_receipt_path(path, root=root)
     if path.is_file() and path.stat().st_size > 0 and not force:
         fingerprint = _model_stat_fingerprint(path)
@@ -466,6 +473,7 @@ def download(
             path=path,
             requested_url=requested_url,
             requested_revision=requested_revision,
+            fetch_url=fetch_url,
             fingerprint=fingerprint,
         ):
             prior_source = None
@@ -480,6 +488,7 @@ def download(
                     path=path,
                     requested_url=requested_url,
                     requested_revision=requested_revision,
+                    fetch_url=fetch_url,
                     effective_url=(
                         str(prior_source.get("effective_url", requested_url))
                         if isinstance(prior_source, dict)
@@ -490,10 +499,10 @@ def download(
             if not quiet:
                 print(f"skipped {name}" + (" (cached sha256)" if cached else " (cached URL resolution)"))
             return path
-        # Preserve the long-standing local-file reuse behavior when there is
-        # no URL witness yet.  Hashing once below creates one.  A receipt for
-        # a different URL, however, is evidence of a changed source and must
-        # not silently reuse stale bytes.
+        # A URL-only asset has no safe local identity until either its source
+        # receipt matches or its authored checksum has been verified below.
+        # Never turn arbitrary pre-existing bytes into a URL receipt: they may
+        # belong to an unrelated source with the same destination filename.
         try:
             prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
@@ -524,39 +533,18 @@ def download(
                 path=path,
                 requested_url=requested_url,
                 requested_revision=requested_revision,
+                fetch_url=fetch_url,
                 effective_url=(
-                    str(prior_receipt.get("effective_url", requested_url))
+                    str(prior_receipt.get("effective_url", fetch_url))
                     if isinstance(prior_receipt, dict)
-                    else requested_url
+                    else fetch_url
                 ),
                 fingerprint=_model_stat_fingerprint(path),
             )
             if not quiet:
                 print(f"skipped {name} (cached sha256)")
             return path
-        if not (
-            isinstance(prior_receipt, dict)
-            and prior_receipt.get("kind") == "model_url_resolution"
-        ):
-            digest = hashlib.sha256()
-            with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-                    digest.update(chunk)
-            _write_source_receipt(
-                receipt_path,
-                path=path,
-                requested_url=requested_url,
-                requested_revision=requested_revision,
-                effective_url=requested_url,
-                fingerprint=fingerprint,
-                observed_sha256=digest.hexdigest(),
-            )
-            cached = verify(entry, path, root=root, force=force_verify)
-            if not quiet:
-                print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
-            return path
-
-    url = requested_url
+    url = fetch_url
     headers: dict[str, str] = {}
     token = os.environ.get("HF_TOKEN")
     if token:
@@ -605,11 +593,42 @@ def download(
         path=path,
         requested_url=requested_url,
         requested_revision=requested_revision,
+        fetch_url=fetch_url,
         effective_url=effective_url,
         fingerprint=fingerprint,
         observed_sha256=digest.hexdigest(),
     )
     return path
+
+
+def _effective_fetch_url(url: str, revision: str | None) -> str:
+    """Apply the supported Hugging Face revision selector to an asset URL.
+
+    ``hf_revision`` is meaningful for Hugging Face ``resolve``/``blob`` asset
+    URLs. Other URL authorities remain unchanged because a generic rewrite
+    could change their API semantics.
+    """
+    if not revision:
+        return url
+    parsed = urlsplit(url)
+    if (parsed.hostname or "").lower() not in {
+        "huggingface.co",
+        "www.huggingface.co",
+        "hf.co",
+        "www.hf.co",
+    }:
+        return url
+    parts = parsed.path.split("/")
+    for marker in ("resolve", "blob"):
+        try:
+            marker_index = parts.index(marker)
+        except ValueError:
+            continue
+        if marker_index + 1 >= len(parts) or not parts[marker_index + 1]:
+            continue
+        parts[marker_index + 1] = quote(revision, safe="")
+        return urlunsplit((parsed.scheme, parsed.netloc, "/".join(parts), parsed.query, parsed.fragment))
+    return url
 
 
 def download_many(

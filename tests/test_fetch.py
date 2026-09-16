@@ -92,14 +92,22 @@ def test_models_root_extra_model_paths_dir_beats_local_library_config(
     assert fetch.models_root() == env_models
 
 
-def test_download_skips_present_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_download_fetches_present_file_without_source_witness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
     path = tmp_path / "checkpoints" / "model.safetensors"
     path.parent.mkdir()
-    path.write_bytes(b"present")
+    path.write_bytes(b"unrelated-existing-bytes")
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: fake_stream(FakeResponse(chunks=[b"authored-source"])),
+    )
 
     assert fetch.download(ENTRY) == path
-    assert capsys.readouterr().out == "skipped model.safetensors\n"
+    assert path.read_bytes() == b"authored-source"
+    assert capsys.readouterr().out == ""
 
 
 def test_download_verifies_present_file_sha256(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -300,6 +308,54 @@ def test_url_only_model_records_effective_bytes_and_reuses_receipt(
     assert receipt["effective_url"] == entry["url"]
     assert receipt["observed_sha256"] == hashlib.sha256(b"latest-bytes").hexdigest()
     assert receipt["size_bytes"] == len(b"latest-bytes")
+
+
+def test_hf_revision_changes_effective_fetch_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    requested: list[str] = []
+
+    def stream(_method: str, url: str, **_kwargs):
+        requested.append(url)
+        return fake_stream(FakeResponse(chunks=[b"revision-pinned-bytes"]))
+
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+    entry = {
+        **ENTRY,
+        "url": "https://huggingface.co/acme/repo/resolve/main/model.safetensors",
+        "hf_revision": "abc123",
+    }
+
+    path = fetch.download(entry)
+    assert requested == [
+        "https://huggingface.co/acme/repo/resolve/abc123/model.safetensors"
+    ]
+    receipt = fetch.read_resolution_receipt(entry, root=tmp_path)
+    assert receipt is not None
+    assert receipt["fetch_url"] == requested[0]
+    assert fetch.download(entry) == path
+    assert requested == [requested[0]]
+
+
+def test_url_only_existing_bytes_require_matching_receipt_or_authored_checksum(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    path = tmp_path / "checkpoints" / "model.safetensors"
+    path.parent.mkdir()
+    path.write_bytes(b"unrelated-existing-bytes")
+    calls = 0
+
+    def stream(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return fake_stream(FakeResponse(chunks=[b"fetched-authored-bytes"]))
+
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+    assert fetch.download(ENTRY) == path
+    assert calls == 1
+    assert path.read_bytes() == b"fetched-authored-bytes"
 
 
 def test_download_verifies_downloaded_file_sha256(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

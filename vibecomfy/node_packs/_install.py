@@ -603,11 +603,6 @@ def validate_install_refs(
 ) -> str | None:
     """Validate selectors and any available lock identity before mutation."""
     pack_names = {pack.name for pack in packs}
-    lock_by_selector: dict[str, LockEntry] = {}
-    for entry in restore_entries:
-        lock_by_selector[entry.name] = entry
-        if entry.slug:
-            lock_by_selector[entry.slug] = entry
     for name, raw_ref in install_refs_by_name.items():
         if name not in pack_names:
             return f"custom-node install ref {name!r} does not select a resolved pack"
@@ -618,16 +613,11 @@ def validate_install_refs(
         if ref is None:
             # A LockEntry is already a complete restore identity.
             continue
-        entry = lock_by_selector.get(name) or lock_by_selector.get(ref.slug) or lock_by_selector.get(ref.name or "")
-        if entry is None:
-            continue
-        if ref.url and entry.url and _normalize_git_remote(ref.url) != _normalize_git_remote(entry.url):
-            return f"custom-node install ref for {name!r} conflicts with lock URL {entry.url!r}"
-        if ref.version and entry.version and ref.version != entry.version:
-            return f"custom-node install ref for {name!r} conflicts with lock version {entry.version!r}"
-        locked_commit = entry.commit or entry.git_commit_sha
-        if ref.commit and locked_commit and ref.commit != locked_commit:
-            return f"custom-node install ref for {name!r} conflicts with lock commit {locked_commit!r}"
+        # A changed authored URL/version/commit is a new resolution, not a
+        # preflight conflict. _matching_lock_entry selects only exact lock
+        # witnesses; a miss flows through the authored ref and refresh/clone
+        # path, where existing checkout origin and dirty-state safety remain
+        # enforced before mutation.
     return None
 
 
@@ -660,7 +650,10 @@ def _matching_lock_entry(
         # URL-only and version-only refs are likewise witnessed by the URL or
         # selector checks above.
         return entry
-    return _restore_entry_from_install_ref(pack, install_ref)
+    # A non-matching authored ref is deliberately not converted into a lock
+    # entry here.  It must flow through install_pack so a changed URL gets a
+    # new clone and an existing checkout still undergoes origin/dirty checks.
+    return None
 
 
 def _merge_declared_requirement_packs(
