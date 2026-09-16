@@ -20,6 +20,7 @@ from .cache import (
     load_object_info_cache,
     object_info_cache_candidates,
     object_info_cache_path,
+    object_info_payload_checksum,
     runtime_fingerprint,
     validate_object_info_payload_shape,
     validate_object_info_cache,
@@ -1359,25 +1360,29 @@ class ConversionSchemaProvider:
 
     @staticmethod
     def _with_provenance(schema: NodeSchema, info: SchemaSourceInfo) -> NodeSchema:
-        # NodeSchema is frozen, so we must construct a new one with provenance.
-        return NodeSchema(
-            class_type=schema.class_type,
-            pack=schema.pack,
-            inputs=schema.inputs,
-            outputs=schema.outputs,
-            output_is_list=schema.output_is_list,
-            widget_input_order=schema.widget_input_order,
-            source_provider=info.provider_name,
-            source_path=info.source_path,
-            source_cache_path=info.cache_path,
-            source_server_url=info.server_url,
-            source_package=info.package,
-            source_version=info.version,
-            source_hash=info.hash,
-            confidence=info.confidence,
-            conflicts=tuple(info.conflicts),
-            ignored_evidence=tuple(info.ignored_evidence),
-        )
+        return _with_schema_provenance(schema, info)
+
+
+def _with_schema_provenance(schema: NodeSchema, info: SchemaSourceInfo) -> NodeSchema:
+    """Return a frozen schema annotated with its evidence source."""
+    return NodeSchema(
+        class_type=schema.class_type,
+        pack=schema.pack,
+        inputs=schema.inputs,
+        outputs=schema.outputs,
+        output_is_list=schema.output_is_list,
+        widget_input_order=schema.widget_input_order,
+        source_provider=info.provider_name,
+        source_path=info.source_path,
+        source_cache_path=info.cache_path,
+        source_server_url=info.server_url,
+        source_package=info.package,
+        source_version=info.version,
+        source_hash=info.hash,
+        confidence=info.confidence,
+        conflicts=tuple(info.conflicts),
+        ignored_evidence=tuple(info.ignored_evidence),
+    )
 
 
 class RuntimeSchemaProvider:
@@ -1392,6 +1397,8 @@ class RuntimeSchemaProvider:
         self.cache_path = object_info_cache_path(server_url=server_url, cache_dir=cache_dir)
         self.log_path = log_path
         self._object_info: dict[str, Any] | None = None
+        self._active_server_url: str | None = None
+        self._object_info_digest: str | None = None
         self._schemas: dict[str, NodeSchema] | None = None
         self._schemas_fully_loaded = False
         self._schema_misses: set[str] = set()
@@ -1408,7 +1415,7 @@ class RuntimeSchemaProvider:
         if self._schemas is None:
             self._schemas = {}
         if isinstance(info, dict):
-            schema = _schema_from_object_info(class_type, info)
+            schema = self._schema_from_loaded_object_info(class_type, info)
             self._schemas[class_type] = schema
             return schema
         self._schema_misses.add(class_type)
@@ -1417,7 +1424,7 @@ class RuntimeSchemaProvider:
     def schemas(self) -> dict[str, NodeSchema]:
         if not self._schemas_fully_loaded:
             self._schemas = {
-                class_type: _schema_from_object_info(class_type, info)
+                class_type: self._schema_from_loaded_object_info(class_type, info)
                 for class_type, info in self.object_info().items()
                 if class_type != CACHE_METADATA_KEY and isinstance(info, dict)
             }
@@ -1441,6 +1448,11 @@ class RuntimeSchemaProvider:
                 self._set_object_info(_run_async(self.object_info_async()))
         return self._object_info
 
+    def _schema_from_loaded_object_info(
+        self, class_type: str, info: dict[str, Any]
+    ) -> NodeSchema:
+        return _schema_from_object_info(class_type, info)
+
     async def object_info_async(self) -> dict[str, Any]:
         cached = self._load_valid_cached_object_info()
         if cached is not None:
@@ -1448,6 +1460,11 @@ class RuntimeSchemaProvider:
             return self._object_info
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
+        return await self._accept_live_object_info(data, active_url)
+
+    async def _accept_live_object_info(
+        self, data: Any, active_url: str
+    ) -> dict[str, Any]:
         try:
             validate_object_info_payload_shape(data)
         except ValueError as exc:
@@ -1458,6 +1475,8 @@ class RuntimeSchemaProvider:
             runtime_fingerprint=runtime_fingerprint(self.server_url),
             server_url=active_url,
         )
+        self._active_server_url = active_url
+        self._object_info_digest = object_info_payload_checksum(data)
         self._set_object_info(data)
         return self._object_info
 
@@ -1496,13 +1515,61 @@ class RuntimeSchemaProvider:
         self._object_info = data
 
 
+class TargetSchemaProvider(RuntimeSchemaProvider):
+    """Fresh schema authority for one explicit ComfyUI target.
+
+    A target query is evidence about the server that will receive the prompt,
+    so a valid historical cache must never satisfy it.  The fetched payload is
+    still persisted for diagnostics and later authoring, but lookups on this
+    provider remain bound to the in-memory live capture.
+    """
+
+    requires_fresh_target = True
+    schema_authority = "live_target"
+
+    def __init__(
+        self,
+        *,
+        server_url: str,
+        cache_dir: str | Path = "out/cache",
+        log_path: str | Path | None = None,
+    ) -> None:
+        if not isinstance(server_url, str) or not server_url.strip():
+            raise ValueError("server_url must be a non-empty string")
+        super().__init__(server_url=server_url, cache_dir=cache_dir, log_path=log_path)
+
+    def object_info(self) -> dict[str, Any]:
+        if self._object_info is None:
+            self._set_object_info(_run_async(self.object_info_async()))
+        return self._object_info
+
+    async def object_info_async(self) -> dict[str, Any]:
+        async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
+            data = await ComfyClient(active_url).object_info()
+        return await self._accept_live_object_info(data, active_url)
+
+    def _schema_from_loaded_object_info(
+        self, class_type: str, info: dict[str, Any]
+    ) -> NodeSchema:
+        schema = _schema_from_object_info(class_type, info)
+        return _with_schema_provenance(
+            schema,
+            SchemaSourceInfo(
+                provider_name="target_object_info",
+                server_url=self._active_server_url or self.server_url,
+                hash=self._object_info_digest or object_info_payload_checksum(self._object_info or {}),
+                confidence=1.0,
+            ),
+        )
+
+
 def get_schema_provider(
     prefer: Literal["runtime", "local", "authoring", "auto"] = "auto",
     *,
     server_url: str | None = None,
 ) -> RuntimeSchemaProvider | LocalSchemaProvider | AuthoringSchemaProvider | CompositeSchemaProvider:
     if prefer == "runtime":
-        return RuntimeSchemaProvider(server_url=server_url)
+        return TargetSchemaProvider(server_url=server_url) if server_url else RuntimeSchemaProvider()
     if prefer == "local":
         return LocalSchemaProvider()
     if prefer == "authoring":
@@ -1510,12 +1577,28 @@ def get_schema_provider(
     if prefer != "auto":
         raise ValueError(f"Unknown schema provider preference: {prefer}")
     if server_url:
-        return RuntimeSchemaProvider(server_url=server_url)
+        return TargetSchemaProvider(server_url=server_url)
     if Path("node_index.json").exists():
         return LocalSchemaProvider()
     if has_comfyui_runtime():
         return RuntimeSchemaProvider(server_url=server_url)
     return LocalSchemaProvider()
+
+
+def get_target_schema_provider(
+    server_url: str,
+    *,
+    cache_dir: str | Path = "out/cache",
+    log_path: str | Path | None = None,
+) -> TargetSchemaProvider:
+    """Build a fresh, target-bound schema provider for an explicit server."""
+    if not isinstance(server_url, str) or not server_url.strip():
+        raise ValueError("server_url must be a non-empty string")
+    return TargetSchemaProvider(
+        server_url=server_url,
+        cache_dir=cache_dir,
+        log_path=log_path,
+    )
 
 
 def get_authoring_schema_provider(

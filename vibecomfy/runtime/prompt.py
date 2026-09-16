@@ -22,8 +22,10 @@ def _schema_validate_disabled() -> bool:
 def _build_schema_provider(server_url: str | None) -> Any | None:
     if _schema_validate_disabled():
         return None
-    from vibecomfy.schema import RuntimeSchemaProvider
+    from vibecomfy.schema import RuntimeSchemaProvider, TargetSchemaProvider
 
+    if server_url:
+        return TargetSchemaProvider(server_url=server_url)
     return RuntimeSchemaProvider(server_url=server_url)
 
 
@@ -36,6 +38,9 @@ async def _warm_schema_provider(
     if provider is None:
         return None
     from vibecomfy.schema.cache import ObjectInfoPayloadError
+    target_provider = bool(getattr(provider, "requires_fresh_target", False))
+    if target_provider:
+        cache_only = False
 
     try:
         if getattr(provider, "_object_info", None) is not None:
@@ -81,9 +86,13 @@ async def _warm_schema_provider(
         provider._object_info = object_info
         return provider
     except ObjectInfoPayloadError as exc:
+        if target_provider:
+            raise
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
     except (OSError, RuntimeError, TimeoutError) as exc:
+        if target_provider:
+            raise
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
 

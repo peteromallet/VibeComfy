@@ -21,9 +21,15 @@ from vibecomfy.workflow_bundle import WorkflowAuthorityError
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     json_output = bool(getattr(args, "json", False))
+    schema_provider = None
     try:
-        schema_provider = None if args.no_schema else get_schema_provider("auto")
-        bundle = load_bundle(args.path)
+        server_url = getattr(args, "server_url", None)
+        schema_provider = (
+            None
+            if args.no_schema
+            else get_schema_provider("auto", server_url=server_url)
+        )
+        bundle = load_bundle(args.path, schema_provider=schema_provider)
         bundle.require_canonical_authority("workflow validation")
         workflow = bundle.workflow
         if not args.no_schema:
@@ -42,19 +48,27 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         raise
     except WorkflowAuthorityError as exc:
         if json_output:
-            emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
+            emit(
+                _exception_payload(args.path, exc, schema_provider=schema_provider),
+                json=True,
+                text_renderer=_render_exception_payload,
+            )
             return 1
         print(f"workflow_authority_error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
         if json_output:
-            emit(_exception_payload(args.path, exc), json=True, text_renderer=_render_exception_payload)
+            emit(
+                _exception_payload(args.path, exc, schema_provider=schema_provider),
+                json=True,
+                text_renderer=_render_exception_payload,
+            )
             return 1
         traceback.print_exc(file=sys.stderr)
         print(f"python_build_error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    payload = _report_payload(workflow, report)
+    payload = _report_payload(workflow, report, schema_provider=schema_provider)
     if not report.ok:
         if json_output:
             emit(payload, json=True, text_renderer=_render_report_payload)
@@ -68,10 +82,20 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_validate_payload(path: str, *, no_schema: bool = False, check_freshness: bool = False) -> dict[str, object]:
+def build_validate_payload(
+    path: str,
+    *,
+    no_schema: bool = False,
+    check_freshness: bool = False,
+    server_url: str | None = None,
+) -> dict[str, object]:
     """Block A back-compat: build the validation payload directly without going through the CLI."""
-    schema_provider = None if no_schema else get_schema_provider("auto")
-    bundle = load_bundle(path)
+    schema_provider = (
+        None
+        if no_schema
+        else get_schema_provider("auto", server_url=server_url)
+    )
+    bundle = load_bundle(path, schema_provider=schema_provider)
     bundle.require_canonical_authority("workflow validation")
     workflow = bundle.workflow
     if not no_schema:
@@ -89,7 +113,12 @@ def build_validate_payload(path: str, *, no_schema: bool = False, check_freshnes
         for issue in report.issues
     ]
     if not report.ok:
-        return {"status": "error", "path": path, "issues": issues}
+        return {
+            "status": "error",
+            "path": path,
+            "issues": issues,
+            "schema_provenance": _schema_provenance(schema_provider),
+        }
     if check_freshness:
         drift = _subgraph_freshness_diagnostics(bundle.python_path or Path(path))
         if drift:
@@ -97,16 +126,34 @@ def build_validate_payload(path: str, *, no_schema: bool = False, check_freshnes
                 f"Subgraph freshness check failed for {path}",
                 next_action="vibecomfy import <source> and re-validate the canonical bundle",
             )
-    return {"status": "ok", "path": path, "issues": issues}
+    return {
+        "status": "ok",
+        "path": path,
+        "issues": issues,
+        "schema_provenance": _schema_provenance(schema_provider),
+    }
 
 
-def _report_payload(workflow: VibeWorkflow, report: ValidationReport) -> dict[str, Any]:
+def _report_payload(
+    workflow: VibeWorkflow,
+    report: ValidationReport,
+    *,
+    schema_provider: Any | None = None,
+) -> dict[str, Any]:
     return {
         "workflow_id": workflow.id,
         "ok": report.ok,
         "status": "ok" if report.ok else "error",
         "issues": [_issue_payload(issue) for issue in report.issues],
+        "schema_provenance": _schema_provenance(schema_provider),
     }
+
+
+def _schema_provenance(provider: Any | None) -> dict[str, Any]:
+    """Reuse the runtime evidence shape for CLI validation receipts."""
+    from vibecomfy.runtime.session import _schema_provider_provenance
+
+    return _schema_provider_provenance(provider)
 
 
 def _issue_payload(issue: ValidationIssue) -> dict[str, Any]:
@@ -118,7 +165,12 @@ def _issue_payload(issue: ValidationIssue) -> dict[str, Any]:
     }
 
 
-def _exception_payload(path: str, exc: Exception) -> dict[str, Any]:
+def _exception_payload(
+    path: str,
+    exc: Exception,
+    *,
+    schema_provider: Any | None = None,
+) -> dict[str, Any]:
     return {
         "path": path,
         "ok": False,
@@ -130,6 +182,7 @@ def _exception_payload(path: str, exc: Exception) -> dict[str, Any]:
                 "message": str(exc),
             }
         ],
+        "schema_provenance": _schema_provenance(schema_provider),
     }
 
 
@@ -157,6 +210,7 @@ def register(subparsers) -> None:
     validate.add_argument("path")
     validate.add_argument("--json", action="store_true")
     validate.add_argument("--no-schema", action="store_true", help="Skip schema validation; run structural-only.")
+    validate.add_argument("--server-url", help="Fetch fresh /object_info from this target before validation.")
     validate.add_argument("--check-freshness", action="store_true", help="Check materialized subgraph source hashes against source workflow JSON.")
     validate.set_defaults(func=_cmd_validate)
 

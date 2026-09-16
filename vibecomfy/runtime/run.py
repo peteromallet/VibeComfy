@@ -75,6 +75,7 @@ async def run(
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    schema_provider: Any | None = None,
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
@@ -113,7 +114,7 @@ async def run(
 
         try:
             apply_model_preflight(workflow, policy)
-            provider = _build_schema_provider(active_url)
+            provider = schema_provider if schema_provider is not None else _build_schema_provider(active_url)
             api_dict = await _prepare_prompt_async(
                 record,
                 bundle,
@@ -241,21 +242,21 @@ def run_sync(
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    schema_provider: Any | None = None,
 ) -> RunResult:
-    return asyncio.run(
-        run(
-            record,
-            bundle,
-            server_url=server_url,
-            backend=backend,
-            config=config,
-            ensure_models=ensure_models,
-            shared_models_root=shared_models_root,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-    )
+    kwargs = {
+        "server_url": server_url,
+        "backend": backend,
+        "config": config,
+        "ensure_models": ensure_models,
+        "shared_models_root": shared_models_root,
+        "strict_drift": strict_drift,
+        "chain_id": chain_id,
+        "parent_run_id": parent_run_id,
+    }
+    if schema_provider is not None:
+        kwargs["schema_provider"] = schema_provider
+    return asyncio.run(run(record, bundle, **kwargs))
 
 
 async def run_embedded(

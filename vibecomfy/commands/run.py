@@ -12,11 +12,13 @@ from vibecomfy.runtime.run import run_embedded_sync, run_sync
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
 from vibecomfy.runtime.prepared import PreparationError, prepare_workflow
 from vibecomfy.registry.static_contract import reconcile_ready_template_file
-from vibecomfy.schema import get_authoring_schema_provider
+from vibecomfy.schema import get_authoring_schema_provider, get_target_schema_provider
 
 
 def get_schema_provider(prefer: str, *, server_url: str | None = None):
-    """Keep the command-level schema seam while using authoring schemas."""
+    """Select offline authoring or fresh target schema authority."""
+    if server_url:
+        return get_target_schema_provider(server_url)
     return get_authoring_schema_provider(on_demand_schemas=False)
 
 
@@ -133,7 +135,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         # The static local node index can lag a freshly captured ComfyUI
         # object-info cache, which makes valid custom/core nodes look
         # unresolved at the final compile gate.
-        schema_provider = get_schema_provider("local")
+        schema_provider = get_schema_provider("local", server_url=server_url)
         try:
             bundle = load_bundle(
                 args.path,
@@ -281,6 +283,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 bundle,
                 server_url=session_url,
                 backend=getattr(args, "backend", "api"),
+                schema_provider=schema_provider if server_url is not None else None,
                 ensure_models=False if preparation is not None else bool(getattr(args, "ensure_models", False)),
                 shared_models_root=getattr(args, "shared_models_root", None),
                 config=config,

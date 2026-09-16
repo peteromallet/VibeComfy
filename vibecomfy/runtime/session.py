@@ -95,6 +95,8 @@ def _schema_provider_provenance(provider: Any | None, *, failure: str | None = N
     provenance: dict[str, Any] = {
         "provider": type(provider).__name__ if provider is not None else None,
         "validation": "structural-only" if provider is None else "object-info",
+        "authority": getattr(provider, "schema_authority", None) if provider is not None else None,
+        "fresh_target": bool(getattr(provider, "requires_fresh_target", False)) if provider is not None else False,
         "object_info_loaded": False,
         "schema_digest": None,
         "digest_algorithm": "sha256",
@@ -111,6 +113,9 @@ def _schema_provider_provenance(provider: Any | None, *, failure: str | None = N
 
             provenance["object_info_loaded"] = True
             provenance["schema_digest"] = object_info_payload_checksum(dict(object_info))
+            active_url = getattr(provider, "_active_server_url", None)
+            if active_url is not None:
+                provenance["target_server_url"] = str(active_url)
         elif failure is None:
             provenance["validation"] = "object-info-unavailable"
     if failure:
@@ -2366,8 +2371,10 @@ def _schema_validate_disabled() -> bool:
 def _build_schema_provider(server_url: str | None) -> Any | None:
     if _schema_validate_disabled():
         return None
-    from vibecomfy.schema import RuntimeSchemaProvider
+    from vibecomfy.schema import RuntimeSchemaProvider, TargetSchemaProvider
 
+    if server_url:
+        return TargetSchemaProvider(server_url=server_url)
     return RuntimeSchemaProvider(server_url=server_url)
 
 
@@ -2380,6 +2387,11 @@ async def _warm_schema_provider(
     if provider is None:
         return None
     from vibecomfy.schema.cache import ObjectInfoPayloadError
+    target_provider = bool(getattr(provider, "requires_fresh_target", False))
+    if target_provider:
+        # Explicit target authority can never use cache-only mode: that would
+        # turn historical bytes into proof about the server being queued.
+        cache_only = False
 
     try:
         if getattr(provider, "_object_info", None) is not None:
@@ -2425,9 +2437,13 @@ async def _warm_schema_provider(
         provider._object_info = object_info
         return provider
     except ObjectInfoPayloadError as exc:
+        if target_provider:
+            raise
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
     except (OSError, RuntimeError, TimeoutError) as exc:
+        if target_provider:
+            raise
         on_unavailable(f"{type(exc).__name__}: {exc}; using structural validation only")
         return None
 
