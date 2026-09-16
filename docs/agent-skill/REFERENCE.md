@@ -151,31 +151,14 @@ vibecomfy run image/z_image --ready --runtime server --server-url http://127.0.0
 vibecomfy logs tail
 ```
 
-Prepared execution is the managed local dependency-and-run path:
-
-```bash
-vibecomfy run <workflow-or-ready-id> --prepare
-vibecomfy run <workflow-or-ready-id> --prepare --dry-run
-```
-
-The preparation-specific flags are `--prepare`, `--session`, `--keep-warm`,
-`--restart-session`, `--runtime-root`, `--dry-run`, `--json`,
-`--download-workers`, `--ensure-models`, and `--no-ensure-models`. Prepared execution rejects
-`--runtime embedded` and `--server-url`; `--ensure-packs` remains an
-embedded-runtime option. A literal top-level `PREPARE` declaration takes
-precedence over literal
-`READY_REQUIREMENTS`. The preparation plan can contain `models`,
-`custom_nodes`, and `python_packages`; the current runner realizes models,
-custom-node packs, and declared Python packages with the interpreter running
-VibeComfy.
-Preparation writes `<runtime-root>/out/preparations/` before compile/queue;
-prepared runs reuse the named managed session when it is already active, or
-replace it when `--restart-session` is passed.
-Model downloads use two bounded streams by default and overlap serialized
-Python/custom-node setup; `--download-workers` tunes that same preparation
-behavior.
-See [prepared workflow runner](../guides/prepared-workflow-runner.md) for the
-full contract and current limitations.
+Local canonical Python workflows are reconciled automatically after load and
+before compilation. The run reports all statically visible model, node-pack,
+destination, and class-accounting blockers before any local transfer, install,
+session restart, compile, or queue. Resolved workflows reuse the existing
+fetch, lockfile, session, and bounded download plumbing. `--runtime-root`,
+`--session`, `--keep-warm`, `--restart-session`, `--download-workers`, and
+`--json` apply to the normal run command; explicit `--server-url` execution is
+remote and non-mutating.
 
 Python-format workflows can run against an existing server. VibeComfy imports `build()`, compiles the returned `VibeWorkflow` to API JSON, and queues that JSON to the server.
 
@@ -267,7 +250,7 @@ runtime root is supplied):
 - `<runtime-root>/out/runs/<run_id>/metadata.json`
 - generated image/video/audio files under `<runtime-root>/out/runs/<run_id>/`
 - `<runtime-root>/out/sessions/<id>/` for managed session state
-- `<runtime-root>/out/preparations/<workflow-stem>-<session-id>.json` for prepared-run receipts
+- `<runtime-root>/out/preparations/<workflow-stem>-<session-id>.json` for dependency-preparation receipts
 
 ## Plugin Surface
 

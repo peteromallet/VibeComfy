@@ -102,31 +102,19 @@ vibecomfy config show --json
 vibecomfy runtime doctor
 ```
 
-## Prepared Execution
+## Automatic Local Preparation
 
-Use the prepared runner when a canonical workflow needs its declared model and
-custom-node dependencies prepared before a managed local run:
+Local canonical Python workflows are statically reconciled after load. Missing
+model URLs, node repositories, destinations, and class accounting gaps are
+reported together; the run stops before compilation, session changes, package
+or node installation, model transfer, or queueing. Common unresolved entries
+are written back to the same workflow source for the user to complete.
 
-```bash
-vibecomfy run <workflow-or-ready-id> --prepare
-vibecomfy run <workflow-or-ready-id> --prepare --dry-run
-```
-
-Prepared execution is managed-server only. It accepts `--session`,
-`--keep-warm`, `--restart-session`, `--runtime-root`, `--download-workers`, `--no-ensure-models`
-(or `--ensure-models`), `--dry-run`, and `--json`; `--runtime embedded` and
-`--server-url` are rejected for this path. The runner reads a literal top-level
-`PREPARE` assignment, falling back to literal `READY_REQUIREMENTS` only when
-no literal `PREPARE` value is read, then uses workflow metadata when no usable
-declaration is present. Preparation writes a
-receipt under `<runtime-root>/out/preparations/` before compilation and queueing.
-Model preparation uses two bounded download streams by default and overlaps
-transfer with serialized Python/custom-node setup; `--download-workers` only
-tunes that shared default behavior.
-See
-[prepared workflow runner](../guides/prepared-workflow-runner.md) for the
-declaration schema, bounded download concurrency, receipts, and current
-boundaries.
+Once the dependency report is resolved, `vibecomfy run` uses the existing model
+fetch, node-pack, lockfile, session, and bounded download plumbing automatically.
+`--runtime-root`, `--session`, `--keep-warm`, `--restart-session`,
+`--download-workers`, and `--json` remain available on the normal run command.
+Explicit `--server-url` runs are remote and non-mutating.
 
 ## Authoring Model
 

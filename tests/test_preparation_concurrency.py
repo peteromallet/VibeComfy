@@ -8,12 +8,16 @@ from typing import Any
 import pytest
 
 import vibecomfy.fetch as fetch_module
-import vibecomfy.runtime.prepared as prepared_module
 from vibecomfy.runtime.prepared import PreparationError, prepare_workflow
 
 
 def _workflow() -> Any:
-    return SimpleNamespace(requirements=SimpleNamespace(models=[], custom_nodes=[]))
+    return SimpleNamespace(
+        metadata={},
+        nodes={},
+        runtime_nodes=lambda: {},
+        requirements=SimpleNamespace(models=[], custom_nodes=[]),
+    )
 
 
 def test_download_many_overlaps_downloads_and_preserves_declaration_order(
@@ -83,11 +87,12 @@ def test_prepare_workflow_deduplicates_exact_model_declarations_before_download(
 
     monkeypatch.setattr(fetch_module, "download_many", fake_download_many)
 
+    workflow = _workflow()
+    workflow.metadata["model_assets"] = [model, dict(model)]
     result = prepare_workflow(
-        _workflow(),
+        workflow,
         reference=tmp_path / "workflow.py",
         runtime_root=tmp_path / "runtime",
-        declaration={"models": [model, dict(model)]},
         ensure_packs=False,
     )
 
@@ -125,52 +130,11 @@ def test_prepare_workflow_rejects_conflicting_destination_before_download(
     monkeypatch.setattr(fetch_module, "download_many", unexpected_download)
 
     with pytest.raises(PreparationError, match="destination collision"):
+        workflow = _workflow()
+        workflow.metadata["model_assets"] = conflicting_models
         prepare_workflow(
-            _workflow(),
+            workflow,
             reference=tmp_path / "workflow.py",
             runtime_root=tmp_path / "runtime",
-            declaration={"models": conflicting_models},
             ensure_packs=False,
         )
-
-
-def test_prepare_workflow_overlaps_model_transfer_with_package_setup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    model = {
-        "name": "checkpoint.safetensors",
-        "subdir": "checkpoints",
-        "url": "https://example.test/checkpoint",
-    }
-    download_started = threading.Event()
-    package_setup_observed_download = threading.Event()
-    release_download = threading.Event()
-
-    def fake_download_many(
-        entries: list[dict[str, Any]], *, root: Path, max_workers: int, quiet: bool
-    ) -> list[Path]:
-        assert max_workers == 2
-        assert quiet is False
-        download_started.set()
-        assert release_download.wait(timeout=2)
-        return [root / entries[0]["subdir"] / entries[0]["name"]]
-
-    def fake_pip(*args: Any, **kwargs: Any) -> Any:
-        assert download_started.wait(timeout=2)
-        package_setup_observed_download.set()
-        release_download.set()
-        return SimpleNamespace(returncode=0, stderr="")
-
-    monkeypatch.setattr(fetch_module, "download_many", fake_download_many)
-    monkeypatch.setattr(prepared_module.subprocess, "run", fake_pip)
-
-    result = prepare_workflow(
-        _workflow(),
-        reference=tmp_path / "workflow.py",
-        runtime_root=tmp_path / "runtime",
-        declaration={"models": [model], "python_packages": ["example-package"]},
-        ensure_packs=False,
-    )
-
-    assert result.prepared is True
-    assert package_setup_observed_download.is_set()

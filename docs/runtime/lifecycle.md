@@ -23,24 +23,14 @@ vibecomfy run smoke/empty_image_red --ready --runtime embedded --backend graphbu
 
 The managed smoke started Comfy, read node definitions from `/object_info`, and terminated. The embedded smoke runs the Python ready template `ready_templates/smoke/empty_image_red.py` and writes a PNG under `output/`.
 
-## Prepared Runs
+## Automatic local dependency preparation
 
-`vibecomfy run <workflow-or-ready-id> --prepare` runs a separate managed-local
-sequence: canonical load, safe literal dependency declaration, preparation
-plan, model/custom-node preparation, preparation receipt, managed session
-start, compile, and normal queue/output collection. It is rejected with exit
-code 2 for `--runtime embedded` and `--server-url`.
-
-Prepared runs default to the managed session id `prepared`; `--session` selects
-another id. An active managed session with that id is reused. Use
-`--restart-session` to stop the owned session and start a fresh one. A session
-started by the invocation is stopped after the runtime call unless
-`--keep-warm` is supplied; a reused session is not stopped. `--dry-run` stops
-after printing the plan and does not install, download, start, compile, or
-queue.
-
-`--runtime-root` relocates preparation state, model files, custom nodes,
-lockfile, session markers, and prepared run evidence to that authority.
+For a canonical Python workflow, `vibecomfy run` loads the bundle, reconciles
+its authored dependency metadata, validates the complete local preparation
+plan, and only then performs model/node setup, session changes, compilation,
+and queueing. Missing dependencies are reported together and fail closed with
+no local runtime side effects. `--runtime-root` relocates preparation state,
+model files, custom nodes, lockfile, session markers, and run evidence.
 
 ## Warm Sessions
 
