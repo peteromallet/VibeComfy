@@ -63,30 +63,33 @@ def _normalise_names(value: Any) -> tuple[str, ...]:
 
 
 def _model_entries(workflow: Any) -> tuple[dict[str, Any], ...]:
-    from vibecomfy.runtime.session import _model_assets_from_workflow
-
     if workflow is None:
         return ()
     metadata = getattr(workflow, "metadata", {})
     authored = metadata.get("model_assets") if isinstance(metadata, Mapping) else None
-    # Keep authored rows distinct until destination validation.  The runtime
-    # resolver intentionally deduplicates equal references, but conflicting
-    # authored rows must remain visible so they cannot race into a download.
-    derived = _model_assets_from_workflow(workflow)
-    # Keep authored rows as well as runtime-discovered picker values.  The
-    # canonical resolver filters equivalent entries, while this layer still
-    # preserves distinct authored rows for collision validation.
-    entries = (
-        [*authored, *derived]
-        if isinstance(authored, list) and authored
-        else derived
-    )
+    requirements = getattr(workflow, "requirements", None)
+    declared = getattr(requirements, "models", ())
+    # Preparation consumes only source-backed rows already present in the
+    # canonical IR.  In particular, it must not turn a picker filename into a
+    # URL by consulting a model registry.  Metadata is preferred because it is
+    # the rich canonical representation; requirements.models is the explicit
+    # fallback for older envelopes.
+    if isinstance(authored, list) and authored:
+        entries = authored
+    elif isinstance(declared, (list, tuple)):
+        entries = [
+            item if isinstance(item, Mapping) else {"name": item}
+            for item in declared
+            if isinstance(item, (Mapping, str))
+        ]
+    else:
+        entries = []
     normalized: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for raw_entry in entries:
         if not isinstance(raw_entry, Mapping):
             raise PreparationError("model declarations must contain objects")
-        entry = _reconcile_model_entry(dict(raw_entry))
+        entry = dict(raw_entry)
         name = str(entry.get("name", entry.get("filename", "")))
         subdir = str(entry.get("subdir", entry.get("directory", "")))
         target = str(entry.get("target_path", f"{subdir}/{name}"))
@@ -96,55 +99,6 @@ def _model_entries(workflow: Any) -> tuple[dict[str, Any], ...]:
         seen.add(identity)
         normalized.append(entry)
     return tuple(normalized)
-
-
-def _reconcile_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    """Fill a URL/checksum from the local model registry when it can.
-
-    A workflow may know only a logical model name and target directory.  The
-    registry is the authority for turning that name into a downloadable URL;
-    this function never invents a source.  Unresolved entries remain intact so
-    an existing local file can still be reused, while a missing file fails at
-    the fetch boundary with its concrete metadata error.
-    """
-    if isinstance(entry.get("url"), str) and entry["url"]:
-        return entry
-    name = entry.get("name", entry.get("filename"))
-    if not isinstance(name, str) or not name:
-        return entry
-    subdir = entry.get("subdir", entry.get("directory", ""))
-    if not isinstance(subdir, str):
-        return entry
-    try:
-        from vibecomfy.registry.models_loader import load_registry, resolve_model_entry
-
-        registry_entry = resolve_model_entry(
-            str(entry.get("model_id", entry.get("id", name))),
-            registry=load_registry(),
-            subdir=subdir or None,
-        )
-    except Exception:
-        return entry
-    if registry_entry is None:
-        return entry
-    source = registry_entry.source
-    url = source.url
-    if not url and source.kind == "huggingface" and source.repo and source.filename:
-        revision = source.revision or "main"
-        url = f"https://huggingface.co/{source.repo}/resolve/{revision}/{source.filename}"
-    if not url:
-        return entry
-    reconciled = dict(entry)
-    reconciled["url"] = url
-    if not reconciled.get("sha256") and registry_entry.sha256:
-        reconciled["sha256"] = registry_entry.sha256
-    if reconciled.get("size_bytes") is None and registry_entry.size_bytes is not None:
-        reconciled["size_bytes"] = registry_entry.size_bytes
-    if not reconciled.get("hf_revision") and source.revision:
-        reconciled["hf_revision"] = source.revision
-    if registry_entry.gated and "gated" not in reconciled:
-        reconciled["gated"] = True
-    return reconciled
 
 
 def build_plan(
@@ -231,9 +185,11 @@ def _prepare_workflow_unlocked(
     restore_entries: list[Any] = []
     if ensure_packs:
         from vibecomfy.node_packs import (
+            build_install_refs_by_name,
             missing_packs_for_workflow,
             preflight_pip_requirements,
             read_lockfile,
+            validate_install_refs,
         )
 
         try:
@@ -248,6 +204,17 @@ def _prepare_workflow_unlocked(
                 "custom-node planning could not resolve class types: "
                 + ", ".join(sorted(unresolved))
             )
+        try:
+            install_refs_by_name = build_install_refs_by_name(workflow, packs)
+            ref_error = validate_install_refs(
+                packs,
+                install_refs_by_name,
+                restore_entries,
+            )
+        except (TypeError, ValueError) as exc:
+            raise PreparationError(f"custom-node planning failed: {exc}") from exc
+        if ref_error is not None:
+            raise PreparationError(ref_error)
         if packs:
             preflight = preflight_pip_requirements(packs)
             if not preflight.ok:
@@ -304,6 +271,7 @@ def _prepare_workflow_unlocked(
                 install_root=root / "custom_nodes",
                 lockfile_path=lockfile_path,
                 restore_entries=restore_entries,
+                install_refs_by_name=install_refs_by_name,
             )
             node_results = [
                 {

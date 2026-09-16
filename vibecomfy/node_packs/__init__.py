@@ -29,6 +29,7 @@ __all__ = [
     "PipPreflightResult",
     "Runner",
     "default_install_root",
+    "build_install_refs_by_name",
     "install_pack",
     "install_required_packs",
     "inspect_pack_install_state",
@@ -36,6 +37,7 @@ __all__ = [
     "missing_packs_for_workflow",
     "preflight_pip_requirements",
     "restore_pack",
+    "validate_install_refs",
     # _lockfile
     "LockEntry",
     "canonical_class_schema_projection",
@@ -75,6 +77,7 @@ def _init_module_map() -> dict[str, str]:
         "PipPreflightResult",
         "Runner",
         "default_install_root",
+        "build_install_refs_by_name",
         "install_pack",
         "install_required_packs",
         "inspect_pack_install_state",
@@ -82,6 +85,7 @@ def _init_module_map() -> dict[str, str]:
         "missing_packs_for_workflow",
         "preflight_pip_requirements",
         "restore_pack",
+        "validate_install_refs",
     }
     _lockfile_names = {
         "LockEntry",

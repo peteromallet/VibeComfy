@@ -423,7 +423,7 @@ def test_batch_install_commit_ref_uses_restore_entry_and_writes_verified_pin(tmp
                 source="aux-git",
                 version=commit,
                 commit=commit,
-                url="https://example.test/example.git",
+                url="https://authored.example/example.git",
             )
         },
         install_root=install_root,
@@ -436,13 +436,13 @@ def test_batch_install_commit_ref_uses_restore_entry_and_writes_verified_pin(tmp
     assert [(item.name, item.status, item.git_commit_sha) for item in result.results] == [
         ("ExamplePack", "installed", commit),
     ]
-    assert ["git", "clone", "https://example.test/example.git", str(install_root / "ExamplePack")] in runner.calls
+    assert ["git", "clone", "https://authored.example/example.git", str(install_root / "ExamplePack")] in runner.calls
     assert ["git", "-C", str(install_root / "ExamplePack"), "checkout", commit] in runner.calls
     assert read_lockfile(tmp_path / "custom_nodes.lock") == [
         LockEntry(
             name="ExamplePack",
             git_commit_sha=commit,
-            url="https://example.test/example.git",
+            url="https://authored.example/example.git",
             slug="example-pack",
             source="aux-git",
             version=commit,
@@ -558,6 +558,43 @@ def test_batch_install_semver_ref_attempts_checkout_and_preserves_version_identi
             class_set=("ExampleNode",),
         )
     ]
+
+
+def test_batch_install_rejects_authored_ref_lock_conflict_before_preflight(
+    tmp_path: Path,
+) -> None:
+    class UnexpectedRunner:
+        def __call__(self, *_args, **_kwargs):
+            raise AssertionError("lock identity must be validated before side effects")
+
+    pack = CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",))
+    lock = LockEntry(
+        name="ExamplePack",
+        slug="example-pack",
+        source="git",
+        url="https://example.test/example.git",
+        commit="oldhead",
+    )
+    result = install_required_packs(
+        [pack],
+        restore_entries=[lock],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack",
+                source="git",
+                url="https://example.test/example.git",
+                commit="newhead",
+            )
+        },
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=UnexpectedRunner(),
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is False
+    assert "lock commit" in (result.preflight.error or "")
+    assert result.results[0].status == "failed"
 
 
 def test_install_idempotent_when_clean(tmp_path: Path) -> None:

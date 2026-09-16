@@ -138,3 +138,83 @@ def test_prepare_workflow_rejects_conflicting_destination_before_download(
             runtime_root=tmp_path / "runtime",
             ensure_packs=False,
         )
+
+
+def test_prepare_workflow_never_infers_missing_model_url_from_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vibecomfy.registry.models_loader as models_loader
+
+    def unexpected_registry_lookup(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("runtime preparation must not consult the model registry")
+
+    monkeypatch.setattr(models_loader, "load_registry", unexpected_registry_lookup)
+    monkeypatch.setattr(models_loader, "resolve_model_entry", unexpected_registry_lookup)
+
+    workflow = _workflow()
+    workflow.metadata["model_assets"] = [{
+        "name": "registry-only.safetensors",
+        "subdir": "checkpoints",
+    }]
+
+    with pytest.raises(PreparationError, match="could not resolve URLs"):
+        prepare_workflow(
+            workflow,
+            reference=tmp_path / "workflow.py",
+            runtime_root=tmp_path / "runtime",
+            ensure_packs=False,
+        )
+
+
+def test_prepare_workflow_passes_authored_custom_node_ref_to_installer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vibecomfy.node_packs as node_packs
+
+    pack = node_packs.CustomNodePack(
+        "ExamplePack", "https://catalog.example/example.git", frozenset({"ExampleNode"})
+    )
+    workflow = _workflow()
+    workflow.requirements.custom_nodes = ["ExamplePack"]
+    workflow.metadata["requirements"] = {
+        "custom_node_refs": [{
+            "slug": "example-pack",
+            "source": "git",
+            "url": "https://authored.example/example.git",
+            "version": "v1.2.3",
+            "commit": "feedfacefeedfacefeedfacefeedfacefeedface",
+        }]
+    }
+    install_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [])
+    monkeypatch.setattr(
+        node_packs,
+        "missing_packs_for_workflow",
+        lambda _workflow, lockfile_path: ([pack], []),
+    )
+    monkeypatch.setattr(node_packs, "preflight_pip_requirements", lambda _packs: node_packs.PipPreflightResult(ok=True))
+
+    def fake_install(packs: Any, **kwargs: Any) -> Any:
+        install_calls.append(kwargs)
+        return node_packs.InstallBatchResult(
+            ok=True,
+            results=(node_packs.InstallResult("ExamplePack", "installed", "feedfacefeedfacefeedfacefeedfacefeedface", None),),
+            preflight=node_packs.PipPreflightResult(ok=True),
+        )
+
+    monkeypatch.setattr(node_packs, "install_required_packs", fake_install)
+
+    prepare_workflow(
+        workflow,
+        reference=tmp_path / "workflow.py",
+        runtime_root=tmp_path / "runtime",
+        ensure_models=False,
+        ensure_packs=True,
+    )
+
+    assert len(install_calls) == 1
+    authored = install_calls[0]["install_refs_by_name"]["ExamplePack"]
+    assert authored.url == "https://authored.example/example.git"
+    assert authored.version == "v1.2.3"
+    assert authored.commit == "feedfacefeedfacefeedfacefeedfacefeedface"

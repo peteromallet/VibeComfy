@@ -221,7 +221,10 @@ def install_pack(
     if not pack_name: raise ValueError(f"could not infer custom node pack name from repo {repo!r}")
     if resolved_ref is not None and not resolved_ref.slug:
         resolved_ref = _pack_ref_with_slug(resolved_ref, pack_name)
-    repo_url = repo or (pack.repo if pack is not None else None)
+    # An authored ref is authoritative for its source URL, including for a
+    # catalogued pack.  Falling back to the catalog here silently discarded
+    # requirements.custom_node_refs[].url.
+    repo_url = repo or (resolved_ref.url if resolved_ref is not None else None) or (pack.repo if pack is not None else None)
     if repo_url is None: raise ValueError(f"missing repo URL for custom node pack {pack_name!r}")
     install_dir = install_root / pack_name
     sentinel = _install_sentinel(install_root, pack_name)
@@ -471,6 +474,16 @@ def install_required_packs(
     cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli,
 ) -> InstallBatchResult:
     ordered_packs = tuple(packs)
+    restore_by_name = {entry.name: entry for entry in restore_entries or ()}
+    install_refs = install_refs_by_name or {}
+    ref_error = validate_install_refs(ordered_packs, install_refs, restore_entries or ())
+    if ref_error is not None:
+        error = ref_error
+        return InstallBatchResult(
+            ok=False,
+            results=tuple(InstallResult(pack.name, "failed", None, error) for pack in ordered_packs),
+            preflight=PipPreflightResult(ok=False, error=error),
+        )
     preflight = preflight_pip_requirements(ordered_packs, runner=runner)
     if not preflight.ok:
         error = preflight.error or "pip preflight failed"
@@ -479,12 +492,16 @@ def install_required_packs(
             results=tuple(InstallResult(pack.name, "failed", None, error) for pack in ordered_packs),
             preflight=preflight,
         )
-    restore_by_name = {entry.name: entry for entry in restore_entries or ()}
-    install_refs = install_refs_by_name or {}
     results: list[InstallResult] = []
     for pack in ordered_packs:
         authored_ref = install_refs.get(pack.name)
-        entry = restore_by_name.get(pack.name) or _restore_entry_from_install_ref(pack, authored_ref)
+        # An authored selector must be realized from that selector.  An older
+        # lock entry may be used only when the workflow supplied no selector.
+        entry = (
+            _restore_entry_from_install_ref(pack, authored_ref)
+            if authored_ref is not None
+            else restore_by_name.get(pack.name)
+        )
         install_ref = _pack_ref_from_install_ref(authored_ref)
         if install_ref is not None and not install_ref.slug:
             install_ref = _pack_ref_with_slug(install_ref, pack.name)
@@ -527,6 +544,95 @@ def missing_packs_for_workflow(
     packs = resolve_node_packs(missing_classes, lockfile_path=lockfile_path)
     unresolved = unresolved_class_types(missing_classes, lockfile_path=lockfile_path)
     return _merge_declared_requirement_packs(workflow, packs, lockfile_path=lockfile_path), unresolved
+
+
+def build_install_refs_by_name(
+    workflow: VibeWorkflow,
+    packs: Sequence[CustomNodePack],
+) -> dict[str, PackRef]:
+    """Translate canonical authored node refs to the selected pack names."""
+    metadata = getattr(workflow, "metadata", {})
+    requirements = metadata.get("requirements") if isinstance(metadata, Mapping) else None
+    raw_refs = getattr(getattr(workflow, "requirements", None), "custom_node_refs", None)
+    if not isinstance(raw_refs, list):
+        raw_refs = requirements.get("custom_node_refs") if isinstance(requirements, Mapping) else ()
+    if not isinstance(raw_refs, list):
+        return {}
+
+    def selector_key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value).strip().casefold())
+
+    pack_keys: dict[str, list[CustomNodePack]] = {}
+    for pack in packs:
+        keys = {selector_key(pack.name), selector_key(_pack_name_from_repo(pack.repo))}
+        for key in keys:
+            if key:
+                pack_keys.setdefault(key, []).append(pack)
+
+    refs_by_name: dict[str, PackRef] = {}
+    for index, raw_ref in enumerate(raw_refs):
+        if not isinstance(raw_ref, Mapping):
+            raise ValueError(f"authored custom_node_refs[{index}] must be an object")
+        selectors = [raw_ref.get("slug"), raw_ref.get("name")]
+        selector_values = [value for value in selectors if isinstance(value, str) and value.strip()]
+        if not selector_values:
+            raise ValueError(f"authored custom_node_refs[{index}] has no slug or name selector")
+        matches = {
+            pack.name
+            for value in selector_values
+            for pack in pack_keys.get(selector_key(value), ())
+        }
+        if len(matches) != 1:
+            selected = ", ".join(selector_values)
+            raise ValueError(
+                f"authored custom_node_refs[{index}] selector {selected!r} did not select exactly one resolved pack"
+            )
+        pack_name = next(iter(matches))
+        ref = _pack_ref_from_install_ref(raw_ref)
+        if ref is None:
+            raise ValueError(f"authored custom_node_refs[{index}] is not a valid install ref")
+        if not ref.slug:
+            ref = _pack_ref_with_slug(ref, pack_name)
+        previous = refs_by_name.get(pack_name)
+        if previous is not None and previous != ref:
+            raise ValueError(f"conflicting authored custom-node refs for {pack_name!r}")
+        refs_by_name[pack_name] = ref
+    return refs_by_name
+
+
+def validate_install_refs(
+    packs: Sequence[CustomNodePack],
+    install_refs_by_name: Mapping[str, PackRef | LockEntry | dict[str, Any] | str],
+    restore_entries: Sequence[LockEntry],
+) -> str | None:
+    """Validate selectors and any available lock identity before mutation."""
+    pack_names = {pack.name for pack in packs}
+    lock_by_selector: dict[str, LockEntry] = {}
+    for entry in restore_entries:
+        lock_by_selector[entry.name] = entry
+        if entry.slug:
+            lock_by_selector[entry.slug] = entry
+    for name, raw_ref in install_refs_by_name.items():
+        if name not in pack_names:
+            return f"custom-node install ref {name!r} does not select a resolved pack"
+        try:
+            ref = _pack_ref_from_install_ref(raw_ref)
+        except (AttributeError, TypeError, ValueError) as exc:
+            return f"invalid custom-node install ref for {name!r}: {exc}"
+        if ref is None:
+            # A LockEntry is already a complete restore identity.
+            continue
+        entry = lock_by_selector.get(name) or lock_by_selector.get(ref.slug) or lock_by_selector.get(ref.name or "")
+        if entry is None:
+            continue
+        if ref.url and entry.url and _normalize_git_remote(ref.url) != _normalize_git_remote(entry.url):
+            return f"custom-node install ref for {name!r} conflicts with lock URL {entry.url!r}"
+        if ref.version and entry.version and ref.version != entry.version:
+            return f"custom-node install ref for {name!r} conflicts with lock version {entry.version!r}"
+        locked_commit = entry.commit or entry.git_commit_sha
+        if ref.commit and locked_commit and ref.commit != locked_commit:
+            return f"custom-node install ref for {name!r} conflicts with lock commit {locked_commit!r}"
+    return None
 
 
 def _merge_declared_requirement_packs(
@@ -590,6 +696,7 @@ def _pack_ref_from_install_ref(install_ref: PackRef | LockEntry | dict[str, Any]
         path=str(install_ref["path"]) if install_ref.get("path") is not None else None,
         name=str(install_ref["name"]) if install_ref.get("name") is not None else None,
         registry_id=str(install_ref["registry_id"]) if install_ref.get("registry_id") is not None else None,
+        download_url=str(install_ref["download_url"]) if install_ref.get("download_url") is not None else None,
     )
 def _pack_ref_with_slug(pack_ref: PackRef, slug: str) -> PackRef:
     return PackRef(
@@ -601,6 +708,7 @@ def _pack_ref_with_slug(pack_ref: PackRef, slug: str) -> PackRef:
         path=pack_ref.path,
         name=pack_ref.name,
         registry_id=pack_ref.registry_id,
+        download_url=pack_ref.download_url,
     )
 def _checkout_ref_and_verify(
     name: str,
