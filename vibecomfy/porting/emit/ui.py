@@ -792,6 +792,33 @@ def _captured_link_id_map(
     return result
 
 
+def _captured_link_id_map_from_ui_payload(
+    payload: Mapping[str, Any] | None,
+) -> dict[tuple[str, str, str, str], int]:
+    """Read retained link identities from a detached LiteGraph envelope.
+
+    Bundle companions do not carry the ingest door, but the edit evaluator
+    still has the materialized UI snapshot that preserves native link ids.
+    Reuse the door mapper's endpoint checks rather than inventing a second
+    link identity rule for that presentation boundary.
+    """
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("nodes"), list):
+        return {}
+    nodes = {
+        str(node.get("id")): node
+        for node in payload.get("nodes", [])
+        if isinstance(node, Mapping) and node.get("id") is not None
+    }
+    if not nodes:
+        return {}
+    return _captured_link_id_map(
+        {
+            "top": payload,
+            "nodes": nodes,
+        }
+    )
+
+
 def _intent_recovery_fields(node: Any) -> dict[str, Any]:
     class_type = str(getattr(node, "class_type", ""))
     payload = intent_node_payload_from_metadata(getattr(node, "metadata", None))
@@ -4222,6 +4249,8 @@ def emit_ui_json(
     # 1-indexed numbering (the captured map is empty there).
     EdgeKey = tuple[str, str, str, str]
     captured_link_ids = _captured_link_id_map(_door)
+    for key, link_id in _captured_link_id_map_from_ui_payload(prior_ui_payload).items():
+        captured_link_ids.setdefault(key, link_id)
     edit_link_hints = (wf.metadata or {}).get("_edit_link_id_hints", {})
     used_link_ids: set[int] = set()
     link_id_map: dict[EdgeKey, int] = {}
