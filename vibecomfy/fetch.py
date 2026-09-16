@@ -13,6 +13,7 @@ import hashlib
 import os
 import stat
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -329,12 +330,14 @@ def download(
     force_verify: bool = False,
     client: Any = None,
     root: Path | None = None,
+    quiet: bool = False,
 ) -> Path:
     authorized_root, path, destination_field = _destination_for_entry(entry, root=root)
     name = str(entry["name"])
     if path.is_file() and path.stat().st_size > 0 and not force:
         cached = verify(entry, path, root=root, force=force_verify)
-        print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
+        if not quiet:
+            print(f"skipped {name}" + (" (cached sha256)" if cached else ""))
         return path
 
     url = _strip_download_true(str(entry["url"]))
@@ -381,21 +384,49 @@ def download_many(
     force: bool = False,
     force_verify: bool = False,
     root: Path | None = None,
+    max_workers: int = 2,
+    quiet: bool = False,
 ) -> list[Path]:
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers < 1:
+        raise ValueError("max_workers must be a positive integer")
+
+    def download_one(entry: dict) -> tuple[dict, Path, bool]:
+        name = str(entry.get("name", "<unknown>"))
+        was_present = is_present(entry, root=root) and not force
+        path = download(
+            entry, force=force, force_verify=force_verify, root=root, quiet=quiet
+        )
+        return entry, path, was_present
+
     paths: list[Path] = []
     failures = 0
-    for entry in entries:
-        name = str(entry.get("name", "<unknown>"))
-        try:
-            was_present = is_present(entry, root=root) and not force
-            path = download(entry, force=force, force_verify=force_verify, root=root)
-        except Exception as exc:
-            failures += 1
-            print(f"failed {name}: {exc}")
-            continue
-        paths.append(path)
-        if not was_present:
-            print(f"downloaded {name} -> {path}")
+    pool: ThreadPoolExecutor | None = None
+    try:
+        if max_workers > 1 and len(entries) >= 2:
+            pool = ThreadPoolExecutor(
+                max_workers=min(max_workers, len(entries)),
+                thread_name_prefix="vibecomfy-fetch",
+            )
+            pending = [(entry, pool.submit(download_one, entry)) for entry in entries]
+        else:
+            pending = [(entry, None) for entry in entries]
+        for entry, future in pending:
+            name = str(entry.get("name", "<unknown>"))
+            try:
+                _entry, path, was_present = (
+                    download_one(entry) if future is None else future.result()
+                )
+            except Exception as exc:
+                failures += 1
+                if not quiet:
+                    print(f"failed {name}: {exc}")
+                continue
+            paths.append(path)
+            if not quiet and not was_present:
+                print(f"downloaded {name} -> {path}")
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True)
     if failures:
         raise RuntimeError(f"{failures} failures")
     return paths

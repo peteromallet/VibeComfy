@@ -102,6 +102,32 @@ vibecomfy config show --json
 vibecomfy runtime doctor
 ```
 
+## Prepared Execution
+
+Use the prepared runner when a canonical workflow needs its declared model and
+custom-node dependencies prepared before a managed local run:
+
+```bash
+vibecomfy run <workflow-or-ready-id> --prepare
+vibecomfy run <workflow-or-ready-id> --prepare --dry-run
+```
+
+Prepared execution is managed-server only. It accepts `--session`,
+`--keep-warm`, `--restart-session`, `--runtime-root`, `--download-workers`, `--no-ensure-models`
+(or `--ensure-models`), `--dry-run`, and `--json`; `--runtime embedded` and
+`--server-url` are rejected for this path. The runner reads a literal top-level
+`PREPARE` assignment, falling back to literal `READY_REQUIREMENTS` only when
+no literal `PREPARE` value is read, then uses workflow metadata when no usable
+declaration is present. Preparation writes a
+receipt under `<runtime-root>/out/preparations/` before compilation and queueing.
+Model preparation uses two bounded download streams by default and overlaps
+transfer with serialized Python/custom-node setup; `--download-workers` only
+tunes that shared default behavior.
+See
+[prepared workflow runner](../guides/prepared-workflow-runner.md) for the
+declaration schema, bounded download concurrency, receipts, and current
+boundaries.
+
 ## Authoring Model
 
 Use one loader by default:

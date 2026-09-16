@@ -520,15 +520,22 @@ def install_required_packs(
         results=tuple(results),
         preflight=preflight,
     )
-def missing_packs_for_workflow(workflow: VibeWorkflow) -> tuple[list[CustomNodePack], list[str]]:
+def missing_packs_for_workflow(
+    workflow: VibeWorkflow, *, lockfile_path: Path = Path("custom_nodes.lock")
+) -> tuple[list[CustomNodePack], list[str]]:
     missing_classes = missing_class_types_for_workflow(workflow)
-    packs = resolve_node_packs(missing_classes)
-    unresolved = unresolved_class_types(missing_classes)
-    return _merge_declared_requirement_packs(workflow, packs), unresolved
+    packs = resolve_node_packs(missing_classes, lockfile_path=lockfile_path)
+    unresolved = unresolved_class_types(missing_classes, lockfile_path=lockfile_path)
+    return _merge_declared_requirement_packs(workflow, packs, lockfile_path=lockfile_path), unresolved
 
 
-def _merge_declared_requirement_packs(workflow: VibeWorkflow, packs: list[CustomNodePack]) -> list[CustomNodePack]:
-    by_name = {pack.name: pack for pack in get_known_node_packs()}
+def _merge_declared_requirement_packs(
+    workflow: VibeWorkflow,
+    packs: list[CustomNodePack],
+    *,
+    lockfile_path: Path = Path("custom_nodes.lock"),
+) -> list[CustomNodePack]:
+    by_name = {pack.name: pack for pack in get_known_node_packs(lockfile_path=lockfile_path)}
     merged = {pack.name: pack for pack in packs}
     for name in workflow.requirements.custom_nodes:
         pack = by_name.get(name)

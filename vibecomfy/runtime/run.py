@@ -46,7 +46,9 @@ from .session import (
 logger = logging.getLogger(__name__)
 
 
-def _allocate_run_dir(prefix: str) -> tuple[str, Path]:
+def _allocate_run_dir(
+    prefix: str, *, runtime_root: str | Path | None = None
+) -> tuple[str, Path]:
     """Allocate a collision-resistant run directory.
 
     Returns ``(run_id, run_dir)`` where *run_id* carries a stable *prefix*
@@ -55,7 +57,8 @@ def _allocate_run_dir(prefix: str) -> tuple[str, Path]:
     raises ``FileExistsError`` instead of silently sharing a directory.
     """
     run_id = f"{prefix}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
-    run_dir = Path("out/runs") / run_id
+    base = Path(runtime_root).expanduser() if runtime_root is not None else Path.cwd()
+    run_dir = base / "out" / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_id, run_dir
 
@@ -77,9 +80,9 @@ async def run(
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
     bundle.require_canonical_authority("runtime execution")
     workflow = bundle.workflow
-    run_id, run_dir = _allocate_run_dir("run")
-    log_path = run_dir / "comfy.log"
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
+    run_id, run_dir = _allocate_run_dir("run", runtime_root=resolved_config.runtime_root)
+    log_path = run_dir / "comfy.log"
     managed_config = resolved_config if server_url is None else None
     policy = resolve_model_preflight_policy(
         mode="managed_local_server" if server_url is None else "explicit_remote_server_unverified",

@@ -22,6 +22,32 @@ comfyui nodes --help
 
 `comfyui env check` prints the active runtime profile. On this local Mac it reported Python `3.11.11`, ComfyUI `0.18.2`, Torch `2.11.0`, no NVIDIA/AMD GPU, `mps`, 16 GB RAM, and missing local model directories.
 
+### Prepared CLI surface
+
+The prepared runner is exposed through the existing `run` command:
+
+```text
+vibecomfy run <workflow-or-ready-id> --prepare
+```
+
+Its preparation flags are `--prepare`, `--session`, `--restart-session`,
+`--keep-warm`, `--runtime-root`, `--dry-run`, `--json`, `--download-workers`, `--ensure-models`, and
+`--no-ensure-models`. `--prepare` requires the managed local runtime; it
+rejects `--runtime embedded` and `--server-url`. The default prepared session
+id is `prepared`; an active session is reused unless `--restart-session` is
+passed.
+
+Python declarations are read from literal top-level `PREPARE`, falling back to
+literal `READY_REQUIREMENTS`. The plan recognizes `models`, `custom_nodes`,
+and `python_packages`. Models use the existing fetch authority; custom-node
+preparation uses the existing catalog/installer; declared packages are
+installed with the interpreter running VibeComfy. A successful non-dry preparation writes a receipt
+under `<runtime-root>/out/preparations/` before compile and queue, and the
+prepared run writes its normal evidence under `<runtime-root>/out/runs/`.
+Model transfer uses two bounded streams by default and overlaps serialized
+Python/custom-node setup; `--download-workers` is a tuning setting on that
+single preparation behavior.
+
 ## HTTP Surface
 
 VibeComfy currently uses:

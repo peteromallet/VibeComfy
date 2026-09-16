@@ -15,6 +15,7 @@ from typing import Any
 from vibecomfy.errors import RuntimeConfigurationError
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.model_policy import normalized_models_root
+from vibecomfy.runtime.locks import resource_lock
 from vibecomfy.runtime.session import (
     ServerSession,
     SessionConfig,
@@ -30,8 +31,15 @@ from vibecomfy.runtime.session import (
 )
 
 
-def _session_dir(id_: str) -> Path:
-    return Path("out/sessions") / id_
+def _runtime_root(value: str | Path | None = None) -> Path:
+    root = Path(value).expanduser() if value is not None else Path.cwd()
+    return root.resolve(strict=False)
+
+
+def _session_dir(id_: str, runtime_root: str | Path | None = None) -> Path:
+    if runtime_root is None:
+        return Path("out/sessions") / id_
+    return _runtime_root(runtime_root) / "out" / "sessions" / id_
 
 
 def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -66,8 +74,14 @@ def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     ready_timeout_sec = getattr(args, "ready_timeout_sec", None)
     if ready_timeout_sec is not None:
         config["ready_timeout_sec"] = ready_timeout_sec
-    config["models_root"] = normalized_models_root()
-    config["models_root_normalized"] = normalized_models_root()
+    runtime_root = getattr(args, "runtime_root", None)
+    if runtime_root is not None:
+        config["runtime_root"] = str(_runtime_root(runtime_root))
+        models_root = str(_runtime_root(runtime_root) / "ComfyUI" / "models")
+    else:
+        models_root = normalized_models_root()
+    config["models_root"] = models_root
+    config["models_root_normalized"] = models_root
     config["locality"] = "managed_local_server"
     return config
 
@@ -86,7 +100,7 @@ async def _daemon_main(args: argparse.Namespace) -> int:
             next_action="Fix the runtime configuration and retry.",
         )
     session = ServerSession(SessionConfig.from_dict(config_dict))
-    session_dir = _session_dir(args.id)
+    session_dir = _session_dir(args.id, config_dict.get("runtime_root"))
     stop_event = asyncio.Event()
     session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "server_argv.json").write_text(
@@ -153,8 +167,16 @@ async def _daemon_main(args: argparse.Namespace) -> int:
 
 
 def _cmd_session_start(args: argparse.Namespace) -> int:
-    session_dir = _session_dir(args.id)
-    if find_active_session(args.id) is not None:
+    runtime_root = getattr(args, "runtime_root", None)
+    session_dir = _session_dir(args.id, runtime_root)
+    with resource_lock(session_dir):
+        return _cmd_session_start_locked(args, session_dir, runtime_root)
+
+
+def _cmd_session_start_locked(
+    args: argparse.Namespace, session_dir: Path, runtime_root: str | Path | None
+) -> int:
+    if find_active_session(args.id, runtime_root=runtime_root) is not None:
         print(f"session {args.id}: already running; refusing duplicate start", file=sys.stderr)
         return 1
     # Clear only stale markers after duplicate ownership has been checked.
@@ -189,7 +211,8 @@ def _cmd_session_start(args: argparse.Namespace) -> int:
     for _ in range(ready_timeout_sec):
         if _session_ready(session_dir):
             url = (session_dir / "url").read_text(encoding="utf-8").strip()
-            print(f"session {args.id}: {url}")
+            if not getattr(args, "quiet", False):
+                print(f"session {args.id}: {url}")
             return 0
         if process.poll() is not None:
             print(f"session {args.id} failed to start; see {log_path}", file=sys.stderr)
@@ -213,11 +236,20 @@ def _terminate_daemon_process(process: subprocess.Popen[Any]) -> None:
 
 
 def _cmd_session_stop(args: argparse.Namespace) -> int:
-    session_dir = _session_dir(args.id)
+    runtime_root = getattr(args, "runtime_root", None)
+    session_dir = _session_dir(args.id, runtime_root)
+    with resource_lock(session_dir):
+        return _cmd_session_stop_locked(args, session_dir, runtime_root)
+
+
+def _cmd_session_stop_locked(
+    args: argparse.Namespace, session_dir: Path, runtime_root: str | Path | None
+) -> int:
     pid_path = session_dir / "pid"
     if not pid_path.exists():
         _cleanup_session_files(session_dir)
-        print(f"session {args.id}: not running")
+        if not getattr(args, "quiet", False):
+            print(f"session {args.id}: not running")
         return 0
     try:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
@@ -230,7 +262,8 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         _cleanup_session_files(session_dir)
-        print(f"session {args.id}: stopped")
+        if not getattr(args, "quiet", False):
+            print(f"session {args.id}: stopped")
         return 0
     except (OSError, ValueError) as exc:
         print(f"session {args.id}: stop failed: {exc}", file=sys.stderr)
@@ -238,13 +271,15 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
 
     for _ in range(100):
         if not pid_path.exists():
-            print(f"session {args.id}: stopped")
+            if not getattr(args, "quiet", False):
+                print(f"session {args.id}: stopped")
             return 0
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             _cleanup_session_files(session_dir)
-            print(f"session {args.id}: stopped")
+            if not getattr(args, "quiet", False):
+                print(f"session {args.id}: stopped")
             return 0
         except OSError:
             pass
@@ -254,18 +289,20 @@ def _cmd_session_stop(args: argparse.Namespace) -> int:
 
 
 def _cmd_session_list(args: argparse.Namespace) -> int:
-    root = Path("out/sessions")
+    root = _runtime_root(getattr(args, "runtime_root", None)) / "out" / "sessions"
     if not root.exists():
         return 0
     for session_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        url = find_active_session(session_dir.name)
+        url = find_active_session(
+            session_dir.name, runtime_root=getattr(args, "runtime_root", None)
+        )
         if url:
             print(f"{session_dir.name}\t{url}")
     return 0
 
 
 def _cmd_session_status(args: argparse.Namespace) -> int:
-    url = find_active_session(args.id)
+    url = find_active_session(args.id, runtime_root=getattr(args, "runtime_root", None))
     if not url:
         print(f"session {args.id}: not running")
         return 1
@@ -274,7 +311,7 @@ def _cmd_session_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_session_flush(args: argparse.Namespace) -> int:
-    url = find_active_session(args.id)
+    url = find_active_session(args.id, runtime_root=getattr(args, "runtime_root", None))
     if not url:
         print(f"session {args.id}: not running", file=sys.stderr)
         return 1
@@ -302,23 +339,28 @@ def register(subparsers) -> None:
     start.add_argument("--output-directory")
     start.add_argument("--temp-directory")
     start.add_argument("--ready-timeout-sec", type=int)
+    start.add_argument("--runtime-root")
     start.set_defaults(func=_cmd_session_start)
 
     stop = session_sub.add_parser("stop")
     stop.add_argument("id")
+    stop.add_argument("--runtime-root")
     stop.set_defaults(func=_cmd_session_stop)
 
     list_ = session_sub.add_parser("list")
+    list_.add_argument("--runtime-root")
     list_.set_defaults(func=_cmd_session_list)
 
     flush = session_sub.add_parser("flush")
     flush.add_argument("id")
+    flush.add_argument("--runtime-root")
     flush.add_argument("--unload-models", action=argparse.BooleanOptionalAction, default=True)
     flush.add_argument("--free-memory", action=argparse.BooleanOptionalAction, default=True)
     flush.set_defaults(func=_cmd_session_flush)
 
     status = session_sub.add_parser("status")
     status.add_argument("id")
+    status.add_argument("--runtime-root")
     status.set_defaults(func=_cmd_session_status)
 
 
@@ -333,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--config", default="{}")
+    parser.add_argument("--runtime-root")
     args = parser.parse_args(argv)
     if not args.daemon:
         parser.error("--daemon is required for module execution")

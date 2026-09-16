@@ -1967,7 +1967,12 @@ def _rebind_current_bundle(bundle: "WorkflowBundle") -> "WorkflowBundle":
     return live_current
 
 
-def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> None:
+def _approval_preconditions(
+    workflow: VibeWorkflow,
+    schema_provider: Any,
+    *,
+    models_root: str | Path | None = None,
+) -> None:
     """Run local, read-only requirement, schema-identity, and model gates."""
     requirements = getattr(workflow, "requirements", None)
     for field_name in ("missing_models", "missing_nodes", "unsupported"):
@@ -2190,7 +2195,7 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
         ) from exc
 
     try:
-        from vibecomfy.fetch import is_present
+        from vibecomfy.fetch import is_present, verify
         from vibecomfy.model_assets import _referenced_model_values
         from vibecomfy.registry.models_loader import load_registry, resolve_model_entry
 
@@ -2243,24 +2248,61 @@ def _approval_preconditions(workflow: VibeWorkflow, schema_provider: Any) -> Non
         if not references:
             return
         registry = load_registry()
+        authored_assets = (
+            [asset for asset in metadata.get("model_assets", []) if isinstance(asset, Mapping)]
+            if isinstance(metadata, Mapping) and isinstance(metadata.get("model_assets"), list)
+            else []
+        )
+
+        def authored_asset(value: str, subdir: str) -> Mapping[str, Any] | None:
+            for asset in authored_assets:
+                name = asset.get("name", asset.get("filename"))
+                asset_subdir = asset.get("subdir", asset.get("directory", ""))
+                if str(name) == value and str(asset_subdir or "") == subdir:
+                    return asset
+            return None
+
         for reference in references:
             value = reference.get("value")
             subdir = reference.get("subdir")
             entry = resolve_model_entry(value, registry=registry, subdir=subdir or None)
             if entry is None:
-                raise WorkflowBundleError(f"model reference is not locally registered: {value}")
+                local_asset = authored_asset(str(value), str(subdir or ""))
+                if local_asset is None:
+                    raise WorkflowBundleError(f"model reference is not locally registered: {value}")
+                if local_asset.get("gated") is not True and not local_asset.get("url"):
+                    raise WorkflowBundleError(
+                        f"model reference is not locally registered and has no source URL: {value}"
+                    )
+                local_root = Path(models_root) if models_root is not None else None
+                try:
+                    if not is_present(
+                        {"name": value, "subdir": subdir or ""}, root=local_root
+                    ):
+                        raise WorkflowBundleError(
+                            f"workflow-local model is not present locally: {value}"
+                        )
+                    verify(local_asset, root=local_root)
+                except WorkflowBundleError:
+                    raise
+                except Exception as exc:
+                    raise WorkflowBundleError(
+                        f"workflow-local model verification failed for {value}: {exc}"
+                    ) from exc
+                continue
             effective_subdir = subdir
             if not effective_subdir and entry.targets:
                 target_path = str(entry.targets[0].path).replace("\\", "/")
                 effective_subdir = target_path.rsplit("/", 1)[0] if "/" in target_path else ""
             if not effective_subdir:
                 raise WorkflowBundleError(f"model reference has no deterministic local target: {value}")
-            root = None
+            root = Path(models_root) if models_root is not None else None
             if isinstance(metadata, Mapping) and metadata.get("models_root") is not None:
                 raw_root = metadata["models_root"]
                 if not isinstance(raw_root, (str, Path)) or not Path(raw_root).is_absolute():
                     raise WorkflowBundleError("workflow models_root must be an absolute path")
-                root = Path(raw_root)
+                if root is None:
+                    root = Path(raw_root)
             if not is_present({"name": value, "subdir": effective_subdir}, root=root):
                 raise WorkflowBundleError(f"registered model is not present locally: {value}")
     except WorkflowBundleError:
@@ -2323,6 +2365,7 @@ class WorkflowBundle:
         run_inputs: dict[str, Any] | None = None,
         *,
         schema_provider: Any = None,
+        models_root: str | Path | None = None,
     ) -> ApprovedProjectionRecord:
         """Compile this unchanged candidate into one detached approval record."""
         self.require_canonical_authority("workflow compilation")
@@ -2335,7 +2378,7 @@ class WorkflowBundle:
             from vibecomfy.schema import get_authoring_schema_provider
 
             schema_provider = get_authoring_schema_provider(on_demand_schemas=False)
-        _approval_preconditions(self.workflow, schema_provider)
+        _approval_preconditions(self.workflow, schema_provider, models_root=models_root)
         binding = {} if run_inputs is None else run_inputs
         if not isinstance(binding, Mapping):
             raise WorkflowBundleError("run_inputs must be an object")

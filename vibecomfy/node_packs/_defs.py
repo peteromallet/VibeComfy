@@ -521,12 +521,20 @@ def clear_known_node_packs_cache() -> None:
     _cached_known_node_packs.cache_clear()
 
 
-def resolve_node_packs(class_types: set[str]) -> list[CustomNodePack]:
-    packs = [pack for pack in get_known_node_packs() if class_types & pack.classes]
+def resolve_node_packs(
+    class_types: set[str], *, lockfile_path: Path = Path("custom_nodes.lock")
+) -> list[CustomNodePack]:
+    packs = [
+        pack
+        for pack in get_known_node_packs(lockfile_path=lockfile_path)
+        if class_types & pack.classes
+    ]
     return sorted(packs, key=lambda pack: pack.name.lower())
 
 
-def unresolved_class_types(class_types: set[str]) -> list[str]:
-    packs = get_known_node_packs()
+def unresolved_class_types(
+    class_types: set[str], *, lockfile_path: Path = Path("custom_nodes.lock")
+) -> list[str]:
+    packs = get_known_node_packs(lockfile_path=lockfile_path)
     covered = set().union(*(pack.classes for pack in packs)) if packs else set()
     return sorted(class_types - covered)

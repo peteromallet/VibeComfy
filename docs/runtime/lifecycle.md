@@ -23,6 +23,25 @@ vibecomfy run smoke/empty_image_red --ready --runtime embedded --backend graphbu
 
 The managed smoke started Comfy, read node definitions from `/object_info`, and terminated. The embedded smoke runs the Python ready template `ready_templates/smoke/empty_image_red.py` and writes a PNG under `output/`.
 
+## Prepared Runs
+
+`vibecomfy run <workflow-or-ready-id> --prepare` runs a separate managed-local
+sequence: canonical load, safe literal dependency declaration, preparation
+plan, model/custom-node preparation, preparation receipt, managed session
+start, compile, and normal queue/output collection. It is rejected with exit
+code 2 for `--runtime embedded` and `--server-url`.
+
+Prepared runs default to the managed session id `prepared`; `--session` selects
+another id. An active managed session with that id is reused. Use
+`--restart-session` to stop the owned session and start a fresh one. A session
+started by the invocation is stopped after the runtime call unless
+`--keep-warm` is supplied; a reused session is not stopped. `--dry-run` stops
+after printing the plan and does not install, download, start, compile, or
+queue.
+
+`--runtime-root` relocates preparation state, model files, custom nodes,
+lockfile, session markers, and prepared run evidence to that authority.
+
 ## Warm Sessions
 
 VibeComfy has two warm-session backends:
@@ -41,6 +60,10 @@ vibecomfy session stop default
 ```
 
 `session start` writes `pid`, `url`, and `config.json` under `out/sessions/<id>/`. `vibecomfy run --runtime auto` checks the default session before loading schemas or queueing work; if the session is alive it passes the same URL to schema discovery and execution. If no warm session is alive, `auto` uses embedded one-shot execution. `--runtime server` also reuses the active session when present, and otherwise keeps the existing one-shot managed-server behavior.
+
+When `--runtime-root` is supplied, session state is under
+`<runtime-root>/out/sessions/<id>/`; the session start/stop/status/list/flush
+commands accept the same `--runtime-root` option.
 
 Warm policy is controlled by `SessionConfig.warm_policy` and can be overridden with `VIBECOMFY_WARM`:
 

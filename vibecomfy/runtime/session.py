@@ -1628,8 +1628,15 @@ async def _resolve_inflight_before_stop(session: Any, wait_for_inflight: bool) -
     session._inflight_run = None
 
 
-def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
-    session_dir = Path("out/sessions") / id
+def _session_state_dir(id: str = "default", runtime_root: str | Path | None = None) -> Path:
+    root = Path(runtime_root).expanduser() if runtime_root is not None else Path.cwd()
+    return (root / "out" / "sessions" / id).resolve(strict=False)
+
+
+def active_session_metadata(
+    id: str = "default", *, runtime_root: str | Path | None = None
+) -> dict[str, Any] | None:
+    session_dir = _session_state_dir(id, runtime_root)
     revision_path = session_dir / "source_revision"
 
     if not _session_ready(session_dir):
@@ -1684,8 +1691,10 @@ def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
     return result
 
 
-def find_active_session(id: str = "default") -> str | None:
-    metadata = active_session_metadata(id)
+def find_active_session(
+    id: str = "default", *, runtime_root: str | Path | None = None
+) -> str | None:
+    metadata = active_session_metadata(id, runtime_root=runtime_root)
     return str(metadata["url"]) if metadata else None
 
 
