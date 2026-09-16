@@ -74,6 +74,49 @@ def test_reconciliation_leaves_dynamic_dependencies_unchanged() -> None:
     assert {item["code"] for item in result["diagnostics"]} == {"static_dynamic_value"}
 
 
+def test_reconciliation_reports_dynamic_dependency_containers_for_manual_repair() -> None:
+    source = (
+        "MODELS = load_models()\n"
+        "READY_REQUIREMENTS = {\"models\": load_requirements()}\n"
+    )
+
+    result = reconcile_ready_template_source(source, source_path="dynamic-containers.py")
+
+    assert result["changed"] is False
+    diagnostics = [item for item in result["diagnostics"] if item["code"] == "manual_repair_required"]
+    assert {item["location"]["path"] for item in diagnostics} == {
+        "MODELS", "READY_REQUIREMENTS.models"
+    }
+    assert all("manually repair" in item["message"] for item in diagnostics)
+
+
+def test_literal_requirements_without_refs_get_one_idempotent_placeholder_list() -> None:
+    source = "READY_REQUIREMENTS = {}\ndef build():\n    return None\n"
+
+    result = reconcile_ready_template_source(source, source_path="empty-requirements.py")
+
+    assert result["changed"] is True
+    assert result["source"] == "READY_REQUIREMENTS = {'custom_node_refs': []}\ndef build():\n    return None\n"
+    assert [item["path"] for item in result["edits"]] == [
+        "READY_REQUIREMENTS.custom_node_refs"
+    ]
+    again = reconcile_ready_template_source(result["source"], source_path="empty-requirements.py")
+    assert again["changed"] is False
+    assert again["edits"] == []
+
+
+def test_literal_requirements_placeholder_list_receives_missing_class_refs() -> None:
+    source = "READY_REQUIREMENTS = {'models': []}\ndef build():\n    return node('1', 'MissingPlaceholderNode')\n"
+
+    result = reconcile_ready_template_source(source, source_path="missing-refs.py")
+
+    assert result["changed"] is True
+    assert "'custom_node_refs': [{'slug': 'MissingPlaceholderNode'" in result["source"]
+    assert result["source"].count("'custom_node_refs'") == 1
+    again = reconcile_ready_template_source(result["source"], source_path="missing-refs.py")
+    assert again["changed"] is False
+
+
 def test_reconciliation_accounts_for_nested_declared_classes_and_counts_occurrences() -> None:
     source = """
 READY_METADATA = {"requirements": {"custom_node_refs": [{

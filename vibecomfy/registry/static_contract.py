@@ -1253,7 +1253,7 @@ def reconcile_ready_template_source(
     contract = None
     wrappers: dict[str, str] = {}
     edits: list[dict[str, Any]] = []
-    diagnostics: list[dict[str, Any]] = list(contract.get("diagnostics", [])) if contract else []
+    diagnostics: list[dict[str, Any]] = _dependency_container_diagnostics(tree, path)
     blockers: list[dict[str, Any]] = []
 
     model_calls = _model_asset_call_records(tree, path)
@@ -1296,7 +1296,21 @@ def reconcile_ready_template_source(
                 blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, url_node, model_path + ".url"))
 
     ref_lists = _custom_ref_lists(tree)
+    requirement_dicts = _literal_requirement_dicts(tree)
+    placeholder_edit: dict[str, Any] | None = None
+    if not ref_lists and requirement_dicts:
+        requirement_node, requirement_path = requirement_dicts[0]
+        placeholder_edit = _insert_dict_field_edit(
+            source,
+            requirement_node,
+            "custom_node_refs",
+            "[]",
+            path,
+            requirement_path + ".custom_node_refs",
+        )
+        edits.append(placeholder_edit)
     declared_classes: set[str] = set()
+    placeholder_classes: list[str] = []
     for refs_node, refs_path in ref_lists:
         for index, item in enumerate(refs_node.elts):
             if not isinstance(item, ast.Dict):
@@ -1363,6 +1377,18 @@ def reconcile_ready_template_source(
             value = repr({"slug": class_type, "source": "git", "url": None, "classes": [class_type]})
             edits.append(_append_list_item_edit(source, refs_node, value, path, f"{refs_path}[{new_index}]"))
             declared_classes.add(class_type)
+        elif placeholder_edit is not None:
+            placeholder_classes.append(class_type)
+            declared_classes.add(class_type)
+
+    if placeholder_edit is not None:
+        field = "'custom_node_refs': []"
+        prefix = str(placeholder_edit["replacement"]).removesuffix(field)
+        values = [
+            repr({"slug": class_type, "source": "git", "url": None, "classes": [class_type]})
+            for class_type in placeholder_classes
+        ]
+        placeholder_edit["replacement"] = f"{prefix}'custom_node_refs': [{', '.join(values)}]" if values else f"{prefix}{field}"
 
     edited_source = _apply_source_edits(source, edits)
     # An inserted placeholder is itself unresolved; callers may still choose
@@ -1434,6 +1460,104 @@ def _model_asset_call_records(tree: ast.AST, path: Path) -> list[dict[str, Any]]
                 if isinstance(key, ast.Constant) and isinstance(value, ast.Call) and _call_qualified_name(value.func) == "ModelAsset":
                     records.append({"node": value, "kwargs": {kw.arg: kw.value for kw in value.keywords if kw.arg}, "path": f"MODELS[{json.dumps(str(key.value))}]"})
     return records
+
+
+def _dependency_container_diagnostics(tree: ast.AST, path: Path) -> list[dict[str, Any]]:
+    """Report dependency containers that static reconciliation cannot inspect."""
+    diagnostics: list[dict[str, Any]] = []
+
+    def manual(owner: str, node: ast.AST, detail: str) -> None:
+        diagnostics.append(_located_diagnostic(
+            "manual_repair_required",
+            f"{owner} contains dynamic dependency data ({detail}); manually repair the canonical dependency container.",
+            path,
+            node,
+            owner,
+        ))
+
+    def requirement_fields(node: ast.Dict, owner: str) -> None:
+        for key, value in zip(node.keys, node.values):
+            if not isinstance(key, ast.Constant) or key.value not in {"models", "custom_node_refs"}:
+                continue
+            if not isinstance(value, ast.List):
+                manual(f"{owner}.{key.value}", value, f"{key.value} is not a literal list")
+
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        names = {target.id for target in assignment.targets if isinstance(target, ast.Name)}
+        value = assignment.value
+        if "MODELS" in names:
+            if not isinstance(value, ast.Dict):
+                manual("MODELS", value, "MODELS is not a literal mapping")
+            else:
+                for key, model in zip(value.keys, value.values):
+                    if isinstance(key, ast.Constant) and not (
+                        isinstance(model, ast.Call)
+                        and _call_qualified_name(model.func) == "ModelAsset"
+                    ):
+                        manual(
+                            f"MODELS[{json.dumps(str(key.value))}]",
+                            model,
+                            "model entry is not a literal ModelAsset",
+                        )
+        if "READY_REQUIREMENTS" in names:
+            if not isinstance(value, ast.Dict):
+                manual("READY_REQUIREMENTS", value, "requirements are not a literal mapping")
+            else:
+                requirement_fields(value, "READY_REQUIREMENTS")
+        if "READY_METADATA" not in names:
+            continue
+        if isinstance(value, ast.Dict):
+            for key, nested in zip(value.keys, value.values):
+                if not isinstance(key, ast.Constant) or key.value != "requirements":
+                    continue
+                if not isinstance(nested, ast.Dict):
+                    manual("READY_METADATA.requirements", nested, "requirements are not a literal mapping")
+                else:
+                    requirement_fields(nested, "READY_METADATA.requirements")
+        elif isinstance(value, ast.Call):
+            for keyword in value.keywords:
+                if keyword.arg != "requirements":
+                    continue
+                if not isinstance(keyword.value, ast.Dict):
+                    manual("READY_METADATA.requirements", keyword.value, "requirements are not a literal mapping")
+                else:
+                    requirement_fields(keyword.value, "READY_METADATA.requirements")
+    return diagnostics
+
+
+def _literal_requirement_dicts(tree: ast.AST) -> list[tuple[ast.Dict, str]]:
+    """Return supported literal canonical requirements mappings in source order."""
+    found: list[tuple[ast.Dict, str]] = []
+
+    def supported(node: ast.Dict) -> bool:
+        return all(
+            isinstance(value, ast.List)
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant)
+            and key.value in {"models", "custom_node_refs"}
+        )
+
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        names = {target.id for target in assignment.targets if isinstance(target, ast.Name)}
+        value = assignment.value
+        if "READY_REQUIREMENTS" in names and isinstance(value, ast.Dict) and supported(value):
+            found.append((value, "READY_REQUIREMENTS"))
+        if "READY_METADATA" not in names:
+            continue
+        if isinstance(value, ast.Dict):
+            for key, nested in zip(value.keys, value.values):
+                if isinstance(key, ast.Constant) and key.value == "requirements" and isinstance(nested, ast.Dict) and supported(nested):
+                    found.append((nested, "READY_METADATA.requirements"))
+        elif isinstance(value, ast.Call):
+            for keyword in value.keywords:
+                if keyword.arg == "requirements" and isinstance(keyword.value, ast.Dict) and supported(keyword.value):
+                    found.append((keyword.value, "READY_METADATA.requirements"))
+    unique: dict[int, tuple[ast.Dict, str]] = {id(node): (node, path) for node, path in found}
+    return list(unique.values())
 
 
 def _requirement_model_dicts(tree: ast.AST) -> list[tuple[ast.Dict, str]]:

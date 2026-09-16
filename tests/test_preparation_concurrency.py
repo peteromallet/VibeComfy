@@ -166,6 +166,30 @@ def test_prepare_workflow_never_infers_missing_model_url_from_registry(
         )
 
 
+def test_prepare_workflow_rejects_unsupported_model_revision_before_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_download(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("unsupported model revision reached the downloader")
+
+    monkeypatch.setattr(fetch_module, "download_many", unexpected_download)
+    workflow = _workflow()
+    workflow.metadata["model_assets"] = [{
+        "name": "model.safetensors",
+        "subdir": "checkpoints",
+        "url": "https://example.test/model.safetensors",
+        "hf_revision": "rev1",
+    }]
+
+    with pytest.raises(PreparationError, match="unsupported revision selector"):
+        prepare_workflow(
+            workflow,
+            reference=tmp_path / "workflow.py",
+            runtime_root=tmp_path / "runtime",
+            ensure_packs=False,
+        )
+
+
 def test_prepare_workflow_passes_authored_custom_node_ref_to_installer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

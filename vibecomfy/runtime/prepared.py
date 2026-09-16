@@ -324,6 +324,8 @@ def _prepare_workflow_unlocked(
 
 
 def _validate_model_entries(entries: tuple[dict[str, Any], ...]) -> None:
+    from vibecomfy import fetch as fetch_assets
+
     missing = [
         str(entry.get("name", entry.get("filename", "<unnamed>")))
         for entry in entries
@@ -333,6 +335,15 @@ def _validate_model_entries(entries: tuple[dict[str, Any], ...]) -> None:
         raise PreparationError(
             "model planning could not resolve URLs: " + ", ".join(sorted(set(missing)))
         )
+    for entry in entries:
+        revision = entry.get("hf_revision") or entry.get("revision")
+        if revision is None or revision == "":
+            continue
+        name = str(entry.get("name", entry.get("filename", "<unnamed>")))
+        try:
+            fetch_assets._effective_fetch_url(str(entry["url"]), revision)
+        except (TypeError, ValueError) as exc:
+            raise PreparationError(f"model {name} has an unsupported revision selector: {exc}") from exc
 
 
 def _validate_model_destinations(

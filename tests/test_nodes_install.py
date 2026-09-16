@@ -85,6 +85,9 @@ class FakeRunner:
             return subprocess.CompletedProcess(call, 0, stdout=self.porcelain, stderr="")
         if call[:4] == ["git", "-C", call[2], "config"]:
             return subprocess.CompletedProcess(call, 0, stdout=f"{self.origin_url}\n", stderr="")
+        if len(call) >= 7 and call[0:2] == ["git", "-C"] and call[3:6] == ["remote", "set-url", "origin"]:
+            self.origin_url = call[6]
+            return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         if call[:4] == ["git", "-C", call[2], "rev-parse"]:
             return subprocess.CompletedProcess(call, 0, stdout=f"{self.sha}\n", stderr="")
         if call[:4] == ["git", "-C", call[2], "fetch"]:
@@ -607,7 +610,7 @@ def test_batch_install_resolves_changed_authored_source_as_new_identity(
     assert resolved.commit == new_commit
 
 
-def test_changed_authored_source_does_not_overwrite_existing_checkout(
+def test_changed_authored_source_resolves_clean_existing_checkout_as_new_source(
     tmp_path: Path,
 ) -> None:
     install_root = tmp_path / "custom_nodes"
@@ -622,6 +625,7 @@ def test_changed_authored_source_does_not_overwrite_existing_checkout(
     runner = PipPreflightRunner(
         sha="oldhead", porcelain="", origin_url="https://old.example/example.git"
     )
+    runner.checkout_head = "b" * 40
 
     result = install_required_packs(
         [CustomNodePack("ExamplePack", lock.url or "", ("ExampleNode",))],
@@ -640,11 +644,92 @@ def test_changed_authored_source_does_not_overwrite_existing_checkout(
         cm_cli_resolver=lambda _root, _runner: None,
     )
 
+    assert result.ok is True
+    assert result.results[0].status == "refreshed"
+    assert [
+        "git", "-C", str(install_dir), "remote", "set-url", "origin",
+        "https://new.example/example.git",
+    ] in runner.calls
+    assert ["git", "-C", str(install_dir), "fetch", "origin"] in runner.calls
+    assert ["git", "-C", str(install_dir), "checkout", "b" * 40] in runner.calls
+    [resolved] = read_lockfile(tmp_path / "custom_nodes.lock")
+    assert resolved.url == "https://new.example/example.git"
+    assert resolved.commit == "b" * 40
+
+
+def test_changed_authored_source_keeps_dirty_existing_checkout_safe(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ExamplePack"
+    install_dir.mkdir(parents=True)
+    runner = PipPreflightRunner(
+        sha="oldhead", porcelain=" M nodes.py\n", origin_url="https://old.example/example.git"
+    )
+
+    result = install_required_packs(
+        [CustomNodePack("ExamplePack", "https://old.example/example.git", ("ExampleNode",))],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack",
+                source="git",
+                url="https://new.example/example.git",
+                commit="b" * 40,
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
     assert result.ok is False
     assert result.results[0].status == "skipped_dirty"
-    assert "refusing to overwrite existing clone" in (result.results[0].error or "")
+    assert "uncommitted changes" in (result.results[0].error or "")
+    assert not any(call[3:6] == ["remote", "set-url", "origin"] for call in runner.calls if len(call) >= 6)
     assert not any(call[:4] == ["git", "-C", str(install_dir), "fetch"] for call in runner.calls)
     assert not (tmp_path / "custom_nodes.lock").exists()
+
+
+def test_removed_authored_version_does_not_reuse_versioned_lock(
+    tmp_path: Path,
+) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ExamplePack"
+    install_dir.mkdir(parents=True)
+    lock = LockEntry(
+        name="ExamplePack",
+        slug="example-pack",
+        source="git",
+        url="https://example.test/example.git",
+        version="v1.0.0",
+        commit="oldhead",
+    )
+    runner = PipPreflightRunner(
+        sha="oldhead", checkout_head="newhead", porcelain="", origin_url=lock.url
+    )
+
+    result = install_required_packs(
+        [CustomNodePack("ExamplePack", lock.url or "", ("ExampleNode",))],
+        restore_entries=[lock],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack", source="git", url=lock.url
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert result.results[0].git_commit_sha == "newhead"
+    assert ["git", "-C", str(install_dir), "fetch", "origin"] in runner.calls
+    assert ["git", "-C", str(install_dir), "checkout", "FETCH_HEAD"] in runner.calls
+    [resolved] = read_lockfile(tmp_path / "custom_nodes.lock")
+    assert resolved.version is None
+    assert resolved.commit == "newhead"
 
 
 def test_batch_install_reuses_exact_lock_for_url_only_authored_ref(

@@ -200,6 +200,8 @@ def install_pack(
     pack_ref: PackRef | None = None,
     checkout_ref: str | None = None,
     expected_commit: str | None = None,
+    allow_source_change: bool = False,
+    resolve_latest: bool = False,
 ) -> InstallResult:
     if install_root is None:
         install_root = default_install_root()
@@ -241,6 +243,8 @@ def install_pack(
             pack_ref=resolved_ref,
             checkout_ref=checkout_ref,
             expected_commit=expected_commit,
+            allow_source_change=allow_source_change or pack_ref is not None,
+            resolve_latest=resolve_latest or (pack_ref is not None and checkout_ref is None),
             sentinel=sentinel,
         )
     cm_cli_argv = cm_cli_resolver(install_root, runner)
@@ -400,6 +404,8 @@ def _refresh_existing(
     pack_ref: PackRef | None = None,
     checkout_ref: str | None = None,
     expected_commit: str | None = None,
+    allow_source_change: bool = False,
+    resolve_latest: bool = False,
     sentinel: _InstallSentinel | None = None,
 ) -> InstallResult:
     sentinel = sentinel or _install_sentinel(install_dir.parent, name)
@@ -408,16 +414,28 @@ def _refresh_existing(
     current_origin = _git_origin(install_dir, runner)
     if current_origin is None:
         return InstallResult(name, "skipped_dirty", current_head, f"{install_dir} is not a readable git clone; refusing to overwrite existing contents")
-    if _normalize_git_remote(current_origin) != _normalize_git_remote(repo_url):
+    dirty = _git_porcelain(install_dir, runner)
+    if dirty is None: return InstallResult(name, "failed", None, f"failed to inspect git status for {install_dir}")
+    if dirty and not force: return InstallResult(name, "skipped_dirty", current_head, f"{install_dir} has uncommitted changes; pass --force to refresh the lockfile pin")
+    origin_changed = _normalize_git_remote(current_origin) != _normalize_git_remote(repo_url)
+    if origin_changed and not allow_source_change:
         return InstallResult(
             name,
             "skipped_dirty",
             current_head,
             f"{install_dir} points at {current_origin}, expected {repo_url}; refusing to overwrite existing clone",
         )
-    dirty = _git_porcelain(install_dir, runner)
-    if dirty is None: return InstallResult(name, "failed", None, f"failed to inspect git status for {install_dir}")
-    if dirty and not force: return InstallResult(name, "skipped_dirty", current_head, f"{install_dir} has uncommitted changes; pass --force to refresh the lockfile pin")
+    if origin_changed:
+        try:
+            sentinel.write(phase="source", name=name, repo_url=repo_url, install_dir=install_dir)
+            runner(
+                ["git", "-C", str(install_dir), "remote", "set-url", "origin", repo_url],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            return InstallResult(name, "failed", current_head, _error_text(exc) or f"failed to change source for {name}")
     checkout_error = _checkout_ref_and_verify(
         name,
         repo_url,
@@ -427,6 +445,7 @@ def _refresh_existing(
         runner,
         sentinel=sentinel,
         fetch=True,
+        resolve_latest=resolve_latest,
     )
     if checkout_error is not None:
         return InstallResult(name, "failed", None, checkout_error)
@@ -518,6 +537,8 @@ def install_required_packs(
                     else install_ref.version if install_ref is not None else None
                 ),
                 expected_commit=install_ref.commit if install_ref is not None and _looks_like_commit(install_ref.commit) else None,
+                allow_source_change=authored_ref is not None and entry is None,
+                resolve_latest=authored_ref is not None and entry is None,
             )
         )
         if authored_ref is not None and entry is not None and result.status in {"installed", "refreshed"}:
@@ -641,7 +662,9 @@ def _matching_lock_entry(
             continue
         if ref.url and not entry.url:
             continue
-        if ref.version and entry.version != ref.version:
+        if ref.version is None and entry.version is not None:
+            continue
+        if ref.version is not None and entry.version != ref.version:
             continue
         locked_commit = entry.commit or entry.git_commit_sha
         if ref.commit and locked_commit != ref.commit:
@@ -741,15 +764,18 @@ def _checkout_ref_and_verify(
     *,
     sentinel: _InstallSentinel,
     fetch: bool,
+    resolve_latest: bool = False,
 ) -> str | None:
-    if checkout_ref is None:
+    if checkout_ref is None and not (fetch and resolve_latest):
         return None
     try:
         if fetch:
             sentinel.write(phase="fetch", name=name, repo_url=repo_url, install_dir=install_dir)
             runner(["git", "-C", str(install_dir), "fetch", "origin"], check=True, capture_output=True, text=True)
-        sentinel.write(phase="checkout", name=name, repo_url=repo_url, install_dir=install_dir)
-        runner(["git", "-C", str(install_dir), "checkout", checkout_ref], check=True, capture_output=True, text=True)
+        if checkout_ref is not None or resolve_latest:
+            checkout_target = checkout_ref or "FETCH_HEAD"
+            sentinel.write(phase="checkout", name=name, repo_url=repo_url, install_dir=install_dir)
+            runner(["git", "-C", str(install_dir), "checkout", checkout_target], check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         return _error_text(exc) or f"failed to checkout {checkout_ref} for {name}"
     if expected_commit is None:

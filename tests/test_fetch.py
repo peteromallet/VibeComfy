@@ -293,7 +293,7 @@ def test_url_only_model_records_effective_bytes_and_reuses_receipt(
     monkeypatch.setattr(fetch.httpx, "stream", stream)
     entry = {
         **ENTRY,
-        "url": "https://example.test/latest.safetensors",
+        "url": "https://huggingface.co/acme/repo/resolve/main/latest.safetensors",
         "hf_revision": "rev1",
     }
 
@@ -305,7 +305,7 @@ def test_url_only_model_records_effective_bytes_and_reuses_receipt(
     assert receipt is not None
     assert receipt["requested_url"] == entry["url"]
     assert receipt["hf_revision"] == "rev1"
-    assert receipt["effective_url"] == entry["url"]
+    assert receipt["effective_url"] == "https://huggingface.co/acme/repo/resolve/rev1/latest.safetensors"
     assert receipt["observed_sha256"] == hashlib.sha256(b"latest-bytes").hexdigest()
     assert receipt["size_bytes"] == len(b"latest-bytes")
 
@@ -336,6 +336,27 @@ def test_hf_revision_changes_effective_fetch_identity(
     assert receipt["fetch_url"] == requested[0]
     assert fetch.download(entry) == path
     assert requested == [requested[0]]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.test/models/model.safetensors",
+        "https://huggingface.co/acme/repo/raw/main/model.safetensors",
+    ],
+)
+def test_unsupported_hf_revision_selector_fails_before_streaming(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, url: str
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        fetch.httpx,
+        "stream",
+        lambda *_args, **_kwargs: pytest.fail("unsupported revision reached the network"),
+    )
+
+    with pytest.raises(ValueError, match="unsupported hf_revision selector"):
+        fetch.download({**ENTRY, "url": url, "hf_revision": "rev1"})
 
 
 def test_url_only_existing_bytes_require_matching_receipt_or_authored_checksum(

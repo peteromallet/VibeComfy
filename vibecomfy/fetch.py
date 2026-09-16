@@ -355,7 +355,7 @@ def read_resolution_receipt(
     except (OSError, ValueError, TypeError):
         return None
     requested_url = _strip_download_true(str(entry.get("url", "")))
-    requested_revision = entry.get("hf_revision")
+    requested_revision = entry.get("hf_revision") or entry.get("revision")
     if not isinstance(requested_revision, str) or not requested_revision:
         requested_revision = None
     fetch_url = _effective_fetch_url(requested_url, requested_revision)
@@ -461,7 +461,7 @@ def download(
     authorized_root, path, destination_field = _destination_for_entry(entry, root=root)
     name = str(entry["name"])
     requested_url = _strip_download_true(str(entry.get("url", "")))
-    requested_revision = entry.get("hf_revision")
+    requested_revision = entry.get("hf_revision") or entry.get("revision")
     if not isinstance(requested_revision, str) or not requested_revision:
         requested_revision = None
     fetch_url = _effective_fetch_url(requested_url, requested_revision)
@@ -617,7 +617,10 @@ def _effective_fetch_url(url: str, revision: str | None) -> str:
         "hf.co",
         "www.hf.co",
     }:
-        return url
+        raise ValueError(
+            "unsupported hf_revision selector: only Hugging Face resolve/blob "
+            "URLs support revision pinning; use a supported URL or remove hf_revision"
+        )
     parts = parsed.path.split("/")
     for marker in ("resolve", "blob"):
         try:
@@ -628,7 +631,10 @@ def _effective_fetch_url(url: str, revision: str | None) -> str:
             continue
         parts[marker_index + 1] = quote(revision, safe="")
         return urlunsplit((parsed.scheme, parsed.netloc, "/".join(parts), parsed.query, parsed.fragment))
-    return url
+    raise ValueError(
+        "unsupported hf_revision selector: Hugging Face URL must contain a "
+        "resolve/<revision>/... or blob/<revision>/... path"
+    )
 
 
 def download_many(
