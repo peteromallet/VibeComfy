@@ -1261,6 +1261,8 @@ def reconcile_ready_template_source(
         call = record["node"]
         kwargs = record["kwargs"]
         model_path = record["path"]
+        revision_name = "hf_revision" if "hf_revision" in kwargs else "revision"
+        revision_node = kwargs.get(revision_name)
         if "url" in kwargs:
             url_node = kwargs["url"]
             url = _literal_value(url_node, {})
@@ -1270,6 +1272,14 @@ def reconcile_ready_template_source(
                 ))
             elif url in (None, ""):
                 blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, url_node, model_path + ".url"))
+            if revision_node is not None:
+                blockers.extend(_model_selector_blockers(
+                    url=url,
+                    revision_node=revision_node,
+                    path=path,
+                    semantic_path=model_path,
+                    selector_name=revision_name,
+                ))
             continue
         filename = _literal_keyword_value(kwargs.get("filename"), tree)
         subdir = _literal_keyword_value(kwargs.get("subdir"), tree)
@@ -1281,6 +1291,14 @@ def reconcile_ready_template_source(
         edit = _insert_keyword_edit(source, call, "url", "None", path, model_path + ".url")
         edits.append(edit)
         blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, call, model_path + ".url"))
+        if revision_node is not None:
+            blockers.extend(_model_selector_blockers(
+                url=None,
+                revision_node=revision_node,
+                path=path,
+                semantic_path=model_path,
+                selector_name=revision_name,
+            ))
 
     for model_node, model_path in _requirement_model_dicts(tree):
         fields = _dict_field_nodes(model_node)
@@ -1294,6 +1312,12 @@ def reconcile_ready_template_source(
                 diagnostics.append(_located_diagnostic("static_dynamic_value", "model requirement has dynamic 'url'", path, url_node, model_path + ".url"))
             elif url in (None, ""):
                 blockers.append(_dependency_blocker("model_url_missing", "Fill the model URL.", path, url_node, model_path + ".url"))
+        _append_model_requirement_selector_blockers(
+            fields,
+            path=path,
+            model_path=model_path,
+            blockers=blockers,
+        )
 
     ref_lists = _custom_ref_lists(tree)
     requirement_dicts = _literal_requirement_dicts(tree)
@@ -1317,6 +1341,13 @@ def reconcile_ready_template_source(
                 diagnostics.append(_located_diagnostic("static_dynamic_value", "custom node ref is not a literal dictionary", path, item, f"{refs_path}[{index}]"))
                 continue
             fields = _dict_field_nodes(item)
+            _append_node_selector_blockers(
+                fields,
+                path=path,
+                ref_path=f"{refs_path}[{index}]",
+                node=item,
+                blockers=blockers,
+            )
             declared_classes.update(_string_list_value(fields.get("classes")))
             declared_classes.update(_string_list_value(fields.get("class_set")))
             if "url" not in fields:
@@ -1449,6 +1480,148 @@ def _dependency_blocker(code: str, message: str, path: Path, node: ast.AST, sema
     return {"code": code, "message": message, "location": _source_location(path, node, semantic_path=semantic_path), "detail": dict(detail or {})}
 
 
+def _model_selector_blockers(
+    *,
+    url: Any,
+    revision_node: ast.AST,
+    path: Path,
+    semantic_path: str,
+    selector_name: str = "hf_revision",
+) -> list[dict[str, Any]]:
+    revision = _literal_value(revision_node, {})
+    selector_path = semantic_path + "." + selector_name
+    if revision is _UNSUPPORTED:
+        return [_dependency_blocker(
+            "unsupported_model_selector",
+            "ModelAsset has a dynamic hf_revision selector; use a literal revision or remove the selector.",
+            path,
+            revision_node,
+            selector_path,
+        )]
+    if revision in (None, ""):
+        return []
+    if not isinstance(revision, str):
+        return [_dependency_blocker(
+            "unsupported_model_selector",
+            "ModelAsset hf_revision selector must be a non-empty string or omitted.",
+            path,
+            revision_node,
+            selector_path,
+        )]
+    if not isinstance(url, str) or not url.strip():
+        return []
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        return [_dependency_blocker(
+            "unsupported_model_selector",
+            f"ModelAsset {selector_name} selector {revision!r} is unsupported: invalid model URL ({exc}).",
+            path,
+            revision_node,
+            selector_path,
+        )]
+    supported_host = (parsed.hostname or "").lower() in {
+        "huggingface.co",
+        "www.huggingface.co",
+        "hf.co",
+        "www.hf.co",
+    }
+    supported_path = False
+    if supported_host:
+        parts = parsed.path.split("/")
+        for marker in ("resolve", "blob"):
+            if marker not in parts:
+                continue
+            marker_index = parts.index(marker)
+            if marker_index + 1 < len(parts) and parts[marker_index + 1]:
+                supported_path = True
+                break
+    if supported_host and supported_path:
+        return []
+    detail = (
+        "only Hugging Face resolve/blob URLs support hf_revision pinning"
+        if not supported_host
+        else "Hugging Face URL must contain a resolve/<revision>/ or blob/<revision>/ path"
+    )
+    return [_dependency_blocker(
+        "unsupported_model_selector",
+        f"ModelAsset hf_revision selector {revision!r} is unsupported: {detail}; use a supported URL or remove hf_revision.",
+        path,
+        revision_node,
+        selector_path,
+    )]
+
+
+def _append_model_requirement_selector_blockers(
+    fields: Mapping[str, ast.AST],
+    *,
+    path: Path,
+    model_path: str,
+    blockers: list[dict[str, Any]],
+) -> None:
+    selector_name = "hf_revision" if "hf_revision" in fields else "revision"
+    revision_node = fields.get(selector_name)
+    if revision_node is None:
+        return
+    url_node = fields.get("url")
+    url = _literal_value(url_node, {}) if url_node is not None else None
+    blockers.extend(_model_selector_blockers(
+        url=url,
+        revision_node=revision_node,
+        path=path,
+        semantic_path=model_path,
+        selector_name=selector_name,
+    ))
+
+
+def _append_node_selector_blockers(
+    fields: Mapping[str, ast.AST],
+    *,
+    path: Path,
+    ref_path: str,
+    node: ast.Dict,
+    blockers: list[dict[str, Any]],
+) -> None:
+    selector_values: list[str] = []
+    for field_name in ("slug", "name"):
+        field_node = fields.get(field_name)
+        if field_node is None:
+            continue
+        value = _literal_value(field_node, {})
+        if isinstance(value, str) and value.strip():
+            selector_values.append(value)
+            continue
+        blockers.append(_dependency_blocker(
+            "unsupported_node_selector",
+            f"custom node ref {field_name!r} selector must be a non-empty literal string.",
+            path,
+            field_node,
+            f"{ref_path}.{field_name}",
+        ))
+    if not selector_values:
+        blockers.append(_dependency_blocker(
+            "unsupported_node_selector",
+            "custom node ref must contain a non-empty literal slug or name selector.",
+            path,
+            node,
+            ref_path,
+        ))
+    for field_name in ("version", "commit"):
+        field_node = fields.get(field_name)
+        if field_node is None:
+            continue
+        value = _literal_value(field_node, {})
+        if isinstance(value, str) and value.strip():
+            continue
+        blockers.append(_dependency_blocker(
+            "unsupported_node_selector",
+            f"custom node ref {field_name!r} selector must be a non-empty literal string or omitted.",
+            path,
+            field_node,
+            f"{ref_path}.{field_name}",
+        ))
+
+
 def _model_asset_call_records(tree: ast.AST, path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for assignment in getattr(tree, "body", ()):
@@ -1576,9 +1749,11 @@ def _requirement_model_dicts(tree: ast.AST) -> list[tuple[ast.Dict, str]]:
             models = fields.get("models")
             if not isinstance(models, ast.List):
                 continue
+            owner = owners[0]
+            requirement_prefix = owner if owner == "READY_REQUIREMENTS" else owner + ".requirements"
             for index, item in enumerate(models.elts):
                 if isinstance(item, ast.Dict):
-                    records.append((item, f"{owners[0]}.requirements.models[{index}]"))
+                    records.append((item, f"{requirement_prefix}.models[{index}]"))
     return records
 
 

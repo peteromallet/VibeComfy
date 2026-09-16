@@ -82,6 +82,38 @@ def test_local_blockers_are_combined_before_runtime_side_effects(
     assert "url=None" in source.read_text(encoding="utf-8")
 
 
+def test_manual_repair_diagnostics_block_before_any_run_side_effect(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "dynamic-workflow.py"
+    source.write_text(
+        "MODELS = load_models()\n"
+        "READY_REQUIREMENTS = {'models': load_requirements()}\n"
+        "def build():\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    bundle = _bundle(source)
+    calls: list[str] = []
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *_a, **_k: bundle)
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.prepare_workflow",
+        lambda *_a, **_k: calls.append("prepare"),
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.run_embedded_sync",
+        lambda *_a, **_k: calls.append("run"),
+    )
+
+    assert _cmd_run(_args(source)) == 1
+    error = capsys.readouterr().err
+    assert "MODELS" in error
+    assert "READY_REQUIREMENTS.models" in error
+    assert "manual_repair_required" not in error
+    assert calls == []
+
+
 def test_resolved_local_source_reaches_existing_preparation_and_execution(
     tmp_path: Path, monkeypatch
 ) -> None:

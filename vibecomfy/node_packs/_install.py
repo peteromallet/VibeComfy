@@ -662,6 +662,13 @@ def _matching_lock_entry(
             continue
         if ref.url and not entry.url:
             continue
+        if not ref.url and entry.url:
+            # An authored selector without a source URL is not a witness for
+            # an older resolved source. Let the pack resolver/pack default
+            # establish the new source rather than reusing stale lock data.
+            continue
+        if ref.path and ref.path != entry.path:
+            continue
         if ref.version is None and entry.version is not None:
             continue
         if ref.version is not None and entry.version != ref.version:
@@ -700,13 +707,24 @@ def _lock_entry_for_pack(name: str, sha: str, repo_url: str, *, pack: CustomNode
     class_set = tuple(sorted(pack.classes)) if pack is not None and pack.classes else ()
     if pack_ref is not None and pack_ref.source == "comfy-registry" and not class_set:
         return None
+    # ``commit`` is the resolved identity, while a commit-only authored ref
+    # is also a requested selector. Preserve that request in the lock so a
+    # later selector removal cannot mistake the old resolved commit for a
+    # default/latest resolution.
+    requested_version = (
+        pack_ref.version
+        if pack_ref is not None
+        else None
+    )
+    if requested_version is None and pack_ref is not None and pack_ref.commit is not None:
+        requested_version = pack_ref.commit
     return LockEntry(
         name=name,
         git_commit_sha=sha,
         url=repo_url,
         slug=(pack_ref.slug if pack_ref is not None else name),
         source=(pack_ref.source if pack_ref is not None else "git"),
-        version=(pack_ref.version if pack_ref is not None else None),
+        version=requested_version,
         commit=sha,
         class_set=class_set,
         pip_packages=pack.pip_packages if pack is not None else (),

@@ -90,6 +90,27 @@ def test_reconciliation_reports_dynamic_dependency_containers_for_manual_repair(
     assert all("manually repair" in item["message"] for item in diagnostics)
 
 
+def test_reconciliation_collects_located_model_and_node_selector_blockers() -> None:
+    source = (
+        "from vibecomfy.templates import ModelAsset\n"
+        "MODELS = {'foo': ModelAsset(filename='foo.safetensors', url='https://example.test/foo', "
+        "subdir='checkpoints', hf_revision='rev1')}\n"
+        "READY_REQUIREMENTS = {'custom_node_refs': [{"
+        "'url': 'https://example.test/pack.git', 'version': NODE_VERSION}]}\n"
+    )
+
+    result = reconcile_ready_template_source(source, source_path="selectors.py")
+
+    blockers = [item for item in result["blockers"] if item["code"].endswith("_selector")]
+    assert {item["code"] for item in blockers} == {
+        "unsupported_model_selector", "unsupported_node_selector"
+    }
+    paths = {item["location"]["path"] for item in blockers}
+    assert 'MODELS["foo"].hf_revision' in paths
+    assert "READY_REQUIREMENTS.custom_node_refs[0]" in paths
+    assert "READY_REQUIREMENTS.custom_node_refs[0].version" in paths
+
+
 def test_literal_requirements_without_refs_get_one_idempotent_placeholder_list() -> None:
     source = "READY_REQUIREMENTS = {}\ndef build():\n    return None\n"
 

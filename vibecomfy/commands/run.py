@@ -166,6 +166,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             dynamic_diagnostics = [
                 item for item in reconciliation.get("diagnostics", [])
                 if str(item.get("code", "")).startswith("static_dynamic")
+                or item.get("code") == "manual_repair_required"
             ]
             blockers = list(reconciliation.get("blockers", []))
             if dynamic_diagnostics:

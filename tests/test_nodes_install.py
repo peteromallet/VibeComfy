@@ -732,6 +732,92 @@ def test_removed_authored_version_does_not_reuse_versioned_lock(
     assert resolved.commit == "newhead"
 
 
+def test_authored_selector_without_url_does_not_reuse_resolved_source_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.node_packs._install as install_module
+
+    pack = CustomNodePack("ExamplePack", "https://new.example/example.git", ("ExampleNode",))
+    monkeypatch.setattr(install_module, "_pack_by_name", lambda _name: pack)
+    lock = LockEntry(
+        name="ExamplePack",
+        slug="example-pack",
+        source="git",
+        url="https://old.example/example.git",
+        commit="oldhead",
+    )
+    runner = PipPreflightRunner(sha="newhead")
+
+    result = install_required_packs(
+        [pack],
+        restore_entries=[lock],
+        install_refs_by_name={
+            "ExamplePack": PackRef(slug="example-pack", source="git")
+        },
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert ["git", "clone", pack.repo, str(tmp_path / "custom_nodes" / "ExamplePack")] in runner.calls
+    assert ["git", "-C", str(tmp_path / "custom_nodes" / "ExamplePack"), "checkout", "oldhead"] not in runner.calls
+    [resolved] = read_lockfile(tmp_path / "custom_nodes.lock")
+    assert resolved.url == pack.repo
+    assert resolved.commit == "newhead"
+
+
+def test_removing_commit_only_selector_does_not_reuse_its_generated_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vibecomfy.node_packs._install as install_module
+
+    pack = CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",))
+    monkeypatch.setattr(install_module, "_pack_by_name", lambda _name: pack)
+    lockfile = tmp_path / "custom_nodes.lock"
+    install_root = tmp_path / "custom_nodes"
+    commit = "c" * 40
+    first_runner = PipPreflightRunner(sha=commit)
+    first = install_required_packs(
+        [pack],
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack", source="git", url=pack.repo, commit=commit
+            )
+        },
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=first_runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+    assert first.ok is True
+    [pinned] = read_lockfile(lockfile)
+    assert pinned.version == commit
+    (install_root / "ExamplePack").mkdir(parents=True)
+
+    second_runner = PipPreflightRunner(sha="latest-head")
+    second = install_required_packs(
+        [pack],
+        restore_entries=[pinned],
+        install_refs_by_name={
+            "ExamplePack": PackRef(slug="example-pack", source="git", url=pack.repo)
+        },
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=second_runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert second.ok is True
+    assert [
+        "git", "-C", str(install_root / "ExamplePack"), "checkout", "FETCH_HEAD"
+    ] in second_runner.calls
+    [latest] = read_lockfile(lockfile)
+    assert latest.version is None
+    assert latest.commit == "FETCH_HEAD"
+
+
 def test_batch_install_reuses_exact_lock_for_url_only_authored_ref(
     tmp_path: Path,
 ) -> None:
