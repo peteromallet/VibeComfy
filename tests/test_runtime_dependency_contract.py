@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from vibecomfy.commands.session import _config_from_args
+from vibecomfy.commands.prepare import _cmd_prepare
 from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
 from vibecomfy.registry.static_contract import extract_ready_template_contract, reconcile_ready_template_source
 from vibecomfy.runtime.dependencies import compare_runtime, sync_runtime
@@ -248,3 +251,192 @@ def test_sync_runtime_only_installs_nonmatching_packages() -> None:
 def test_public_session_surfaces_expose_dependency_mode() -> None:
     for fn in (VibeSession.run, EmbeddedSession.run, ServerSession.run, run_embedded_with_session):
         assert inspect.signature(fn).parameters["dependency_mode"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_runtime_source_ref_and_package_indexes_roundtrip() -> None:
+    runtime = RuntimeRequirements.from_dict(
+        {
+            "comfyui": {
+                "source": "https://github.com/comfyanonymous/ComfyUI.git",
+                "ref": "v0.36.0",
+            },
+            "package_indexes": ["https://download.pytorch.org/whl/cu130"],
+            "packages": {"torch": "==2.10.0+cu130"},
+        }
+    )
+    assert runtime is not None
+    assert runtime.comfy_source.endswith("ComfyUI.git")
+    assert runtime.comfy_ref == "v0.36.0"
+    assert runtime.package_indexes == ("https://download.pytorch.org/whl/cu130",)
+    assert RuntimeRequirements.from_dict(runtime.to_dict()) == runtime
+
+
+def test_unresolved_python_draft_keeps_source_revision_and_companion_diagnostic(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "draft.py"
+    source.write_text(
+        "from vibecomfy.templates import new_workflow, node as raw_call\n"
+        "READY_METADATA = {'ready_template': 'draft', 'source_bundle': "
+        "{'format_version': 2, 'generation_id': 'g', 'custody_digest': 'd'}}\n"
+        "def build():\n"
+        "    with new_workflow(READY_METADATA, source_path=__file__) as wf:\n"
+        "        raw_call('MissingNode', widget_0=7)\n"
+        "        return wf\n",
+        encoding="utf-8",
+    )
+    from vibecomfy.scratchpad_loader import load_scratchpad_draft
+    from vibecomfy.security.provenance import Provenance
+
+    draft = load_scratchpad_draft(
+        source, provenance_override=Provenance.USER_CONFIRMED
+    )
+
+    assert draft.ready_for_execution is False
+    assert draft.source_revision
+    assert draft.workflow.nodes
+    assert draft.workflow.metadata["source_spans"]
+    assert any(item["kind"] == "companion" for item in draft.unresolved)
+
+
+def test_prepare_bound_runpod_admits_lifecycle_target_before_no_endpoint_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    workflow = VibeWorkflow("bound-prep", WorkflowSource("bound-prep"))
+    bundle = SimpleNamespace(
+        workflow=workflow,
+        is_unresolved=False,
+        unresolved=[],
+        require_canonical_authority=lambda _operation: None,
+    )
+    calls: list[str] = []
+
+    class FakeLifecycleAdapter:
+        def __init__(self, binding, *, session_id):
+            assert binding["pod_id"] == "pod-123"
+            assert session_id == "migration"
+
+        async def attach(self):
+            calls.append("attach")
+            return {
+                "provider": "runpod_lifecycle",
+                "operation": "attach",
+                "pod_id": "pod-123",
+                "status": "attached",
+            }
+
+        def prepare(self, **kwargs):
+            calls.append("prepare")
+            assert kwargs["dependency_mode"] == "reuse"
+            assert kwargs["plan"]["workflow"] == "bound-prep.py"
+            return {
+                "provider": "runpod_lifecycle",
+                "operation": "prepare",
+                "pod_id": "pod-123",
+                "status": "prepared",
+            }
+
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.load_bundle",
+        lambda *_args, **_kwargs: bundle,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.active_session_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.find_active_session",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.load_binding",
+        lambda *_args, **_kwargs: {
+            "pod_id": "pod-123",
+            "remote": True,
+            "comfy_root": "/workspace/ComfyUI",
+            "python_executable": "/workspace/ComfyUI/.venv/bin/python",
+        },
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.runpod.BoundRunPodLifecycleAdapter",
+        FakeLifecycleAdapter,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.inspect_runtime_target",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.prepare.compare_runtime",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "matching",
+            "checks": [],
+            "mismatches": [],
+            "warnings": [],
+        },
+    )
+
+    args = argparse.Namespace(
+        path="bound-prep.py",
+        session="migration",
+        server_url=None,
+        runtime_root=str(tmp_path),
+        deps="reuse",
+        no_models=True,
+        no_packs=True,
+        download_workers=None,
+        offline=False,
+        json=True,
+    )
+
+    assert _cmd_prepare(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert calls == ["attach", "prepare"]
+    assert payload["status"] == "prepared"
+    assert payload["lifecycle"]["status"] == "attached"
+
+
+def test_bound_runpod_prepare_executes_remote_vibecomfy_coordinator() -> None:
+    from vibecomfy.commands.runpod import BoundRunPodLifecycleAdapter
+
+    calls: list[tuple[str, int]] = []
+
+    class FakePod:
+        async def wait_ready(self, timeout: int):
+            calls.append(("wait_ready", timeout))
+
+        async def exec_ssh(self, command: str, timeout: int):
+            calls.append((command, timeout))
+            return 0, '{"ok": true, "status": "prepared"}', ""
+
+    adapter = BoundRunPodLifecycleAdapter(
+        {
+            "pod_id": "pod-123",
+            "comfy_root": "/workspace/runpod-slim/ComfyUI",
+            "remote_workflow": "/workspace/workflows/h3.py",
+            "remote_runtime_root": "/workspace/runpod-slim",
+            "vibecomfy_executable": "/workspace/venv/bin/vibecomfy",
+        },
+        session_id="migration",
+    )
+    adapter._pod = FakePod()
+
+    result = adapter.prepare(
+        workflow_reference="local-handoff.py",
+        dependency_mode="sync",
+        runtime_root=Path("/tmp/local-runtime"),
+        ensure_models=True,
+        ensure_packs=False,
+        offline=True,
+        plan={"workflow": "local-handoff.py"},
+    )
+
+    assert result["status"] == "prepared"
+    command = calls[-1][0]
+    assert "prepare /workspace/workflows/h3.py" in command
+    assert "--deps sync" in command
+    assert "--runtime-root /workspace/runpod-slim" in command
+    assert "--no-packs" in command
+    assert "--offline" in command

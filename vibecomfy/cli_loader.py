@@ -87,11 +87,17 @@ def load_bundle(
     trust: Provenance | None = None,
     *,
     schema_provider: Any = None,
+    allow_unresolved: bool = False,
 ):
     """Load a candidate canonical bundle through the dedicated bundle binding."""
     from vibecomfy.workflow_bundle import load_bundle as _load_bundle
 
-    return _load_bundle(reference, trust=trust, schema_provider=schema_provider)
+    return _load_bundle(
+        reference,
+        trust=trust,
+        schema_provider=schema_provider,
+        allow_unresolved=allow_unresolved,
+    )
 
 
 __all__ = ["load_workflow_any", "load_bundle"]

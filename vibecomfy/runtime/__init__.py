@@ -5,6 +5,7 @@ from .run import (
     run_embedded_sync,
     run_embedded_with_session,
     run_sync,
+    retry_delivery,
     smoke_runtime,
     smoke_runtime_sync,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "apply_memory_profile_override",
     "run",
     "run_sync",
+    "retry_delivery",
     "run_embedded",
     "run_embedded_sync",
     "run_embedded_with_session",

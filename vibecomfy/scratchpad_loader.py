@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.abc
 import importlib.util
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from vibecomfy.errors import WorkflowBuildError
 from vibecomfy.security import current_gate_context, require_confirmation
@@ -19,6 +21,88 @@ if TYPE_CHECKING:
     # which is on the `vibecomfy` __init__ chain) does not transitively pull
     # in `vibecomfy.runtime.*` via `vibecomfy.schema.provider`.
     from vibecomfy.schema import SchemaProvider  # noqa: F401
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowDraft:
+    """A Python workflow admitted for planning before all evidence is present."""
+
+    workflow: VibeWorkflow
+    source_path: Path
+    source_revision: str
+    unresolved: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def ready_for_execution(self) -> bool:
+        return not self.unresolved
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": "resolved" if self.ready_for_execution else "unresolved",
+            "source_path": str(self.source_path),
+            "source_revision": self.source_revision,
+            "workflow_id": self.workflow.id,
+            "node_count": len(self.workflow.nodes),
+            "unresolved": [dict(item) for item in self.unresolved],
+        }
+
+
+def _source_revision(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _source_spans(path: Path, workflow: VibeWorkflow) -> dict[str, dict[str, int | str]]:
+    """Return source locations for constructor calls when they are literal."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError):
+        return {}
+    calls: list[tuple[int, int, str, ast.Call]] = []
+    for item in ast.walk(tree):
+        if not isinstance(item, ast.Call):
+            continue
+        func = item.func
+        name = (
+            func.id
+            if isinstance(func, ast.Name)
+            else func.attr
+            if isinstance(func, ast.Attribute)
+            else ""
+        )
+        if name not in {"raw_call", "node", "ready_node"} or not item.args:
+            continue
+        first = item.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            class_type = first.value
+        elif (
+            name == "raw_call"
+            and len(item.args) > 1
+            and isinstance(item.args[1], ast.Constant)
+            and isinstance(item.args[1].value, str)
+        ):
+            class_type = item.args[1].value
+        else:
+            continue
+        calls.append((item.lineno, item.col_offset, class_type, item))
+    calls.sort(key=lambda row: (row[0], row[1]))
+    spans: dict[str, dict[str, int | str]] = {}
+    cursor = 0
+    for node_id, node in workflow.nodes.items():
+        for index in range(cursor, len(calls)):
+            line, column, class_type, call = calls[index]
+            if class_type != node.class_type:
+                continue
+            spans[str(node_id)] = {
+                "path": str(path),
+                "line": int(line),
+                "column": int(column),
+                "end_line": int(getattr(call, "end_lineno", line)),
+                "end_column": int(getattr(call, "end_col_offset", column)),
+                "class_type": str(class_type),
+            }
+            cursor = index + 1
+            break
+    return spans
 
 
 def _module_import_context(path: Path) -> tuple[str, Path]:
@@ -126,6 +210,7 @@ def load_scratchpad(
     *,
     provenance_override: Provenance | None = None,
     logical_path: str | Path | None = None,
+    allow_unresolved: bool = False,
 ) -> VibeWorkflow:
     path = Path(path).resolve()
     exposed_path = Path(logical_path).resolve() if logical_path is not None else path
@@ -164,6 +249,7 @@ def load_scratchpad(
     from vibecomfy.workflow_context import active_workflow
 
     prior_workflow = active_workflow()
+    unresolved_companion_errors: list[str] = []
     try:
         require_confirmation(
             operation="scratchpad_exec",
@@ -173,16 +259,37 @@ def load_scratchpad(
             details={"path": str(path)},
             ctx=current_gate_context(),
         )
-        spec.loader.exec_module(module)
-        build = getattr(module, "build", None)
-        if build is None:
-            raise ValueError(f"Scratchpad {path} must define build()")
-        workflow = build()
+        def execute_build() -> VibeWorkflow:
+            spec.loader.exec_module(module)
+            build = getattr(module, "build", None)
+            if build is None:
+                raise ValueError(f"Scratchpad {path} must define build()")
+            return build()
+
+        if allow_unresolved:
+            from vibecomfy.workflow_bundle import unresolved_companion_context
+
+            with unresolved_companion_context() as errors:
+                workflow = execute_build()
+                unresolved_companion_errors.extend(errors)
+        else:
+            workflow = execute_build()
         if not isinstance(workflow, VibeWorkflow):
             raise WorkflowBuildError(
                 f"Scratchpad build() must return VibeWorkflow, got {type(workflow).__name__}",
                 next_action="Update build() so it returns a VibeWorkflow instance, then run the scratchpad again.",
             )
+        if allow_unresolved:
+            workflow.metadata["source_revision"] = _source_revision(path)
+            workflow.metadata["source_path"] = str(exposed_path)
+            spans = _source_spans(exposed_path, workflow)
+            if spans:
+                workflow.metadata["source_spans"] = spans
+            if unresolved_companion_errors:
+                existing = workflow.metadata.get("unresolved")
+                unresolved = dict(existing) if isinstance(existing, Mapping) else {}
+                unresolved["companion"] = list(unresolved_companion_errors)
+                workflow.metadata["unresolved"] = unresolved
         return workflow
     finally:
         current_workflow = active_workflow()
@@ -203,6 +310,39 @@ def load_scratchpad(
             sys.modules.pop(module_name, None)
         else:
             sys.modules[module_name] = prior_module
+
+
+def load_scratchpad_draft(
+    path: str | Path,
+    *,
+    provenance_override: Provenance | None = None,
+    logical_path: str | Path | None = None,
+) -> WorkflowDraft:
+    source_path = Path(path).resolve()
+    workflow = load_scratchpad(
+        source_path,
+        provenance_override=provenance_override,
+        logical_path=logical_path,
+        allow_unresolved=True,
+    )
+    raw_unresolved = workflow.metadata.get("unresolved")
+    unresolved: list[dict[str, Any]] = []
+    if isinstance(raw_unresolved, Mapping):
+        for kind, values in raw_unresolved.items():
+            if isinstance(values, (list, tuple)):
+                unresolved.extend(
+                    {"kind": str(kind), "message": str(value)} for value in values
+                )
+            elif values:
+                unresolved.append({"kind": str(kind), "message": str(values)})
+    return WorkflowDraft(
+        workflow=workflow,
+        source_path=Path(logical_path).resolve() if logical_path is not None else source_path,
+        source_revision=str(
+            workflow.metadata.get("source_revision") or _source_revision(source_path)
+        ),
+        unresolved=tuple(unresolved),
+    )
 
 
 def render_scratchpad(source: str, *, source_is_path: bool = False, schema_provider: SchemaProvider | None = None) -> str:

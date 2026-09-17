@@ -10,9 +10,10 @@ import uuid
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
-from vibecomfy.workflow_bundle import WorkflowAuthorityError
+from vibecomfy.workflow_bundle import WorkflowAuthorityError, WorkflowBundleError
 from vibecomfy.runtime.run import run_embedded_sync, run_sync
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
+from vibecomfy.runtime.session_binding import load_binding
 from vibecomfy.runtime.prepared import PreparationError, prepare_workflow
 from vibecomfy.registry.static_contract import reconcile_ready_template_file
 from vibecomfy.schema import get_authoring_schema_provider, get_target_schema_provider
@@ -155,6 +156,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(_memory_profile_restart_required_message("explicit --server-url"), file=sys.stderr)
             return 2
         lookup_session_id = session_id or "default"
+        bound_target = load_binding(lookup_session_id, runtime_root)
+        bound_lifecycle_adapter = None
+        if isinstance(bound_target, dict) and bound_target.get("remote") is True:
+            from vibecomfy.commands.runpod import BoundRunPodLifecycleAdapter
+
+            bound_lifecycle_adapter = BoundRunPodLifecycleAdapter(
+                bound_target,
+                session_id=lookup_session_id,
+            )
         if session_url is None and runtime in {"auto", "server"}:
             session_metadata = active_session_metadata(lookup_session_id, runtime_root=runtime_root)
             session_url = (
@@ -162,10 +172,38 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 if session_metadata
                 else _find_session(lookup_session_id, runtime_root)
             )
+            if session_url is None and isinstance(bound_target, dict):
+                bound_url = (
+                    bound_target.get("comfy_url")
+                    or bound_target.get("url")
+                    or bound_target.get("endpoint")
+                )
+                if isinstance(bound_url, str) and bound_url.strip():
+                    session_url = bound_url.strip().rstrip("/")
+                    session_metadata = {
+                        "url": session_url,
+                        "source": "vibecomfy_runpod_binding",
+                        "config": {
+                            "runtime_root": bound_target.get("comfy_root") or runtime_root,
+                            "launch_flags": list(bound_target.get("launch_flags") or []),
+                            "comfy_root": bound_target.get("comfy_root"),
+                            "python_executable": bound_target.get("python_executable"),
+                            "custom_nodes_root": bound_target.get("custom_nodes_root"),
+                            "models_root": bound_target.get("models_root"),
+                        },
+                        "binding": dict(bound_target),
+                    }
             if memory_profile is not None and session_url is not None:
                 print(_memory_profile_restart_required_message("already-running session"), file=sys.stderr)
                 return 2
         if session_id and runtime in {"auto", "server"} and session_url is None:
+            if isinstance(bound_target, dict):
+                print(
+                    f"run failed: named RunPod binding {session_id!r} has no comfy_url/endpoint; "
+                    "record a reachable endpoint with `vibecomfy runpod bind --comfy-url ...`",
+                    file=sys.stderr,
+                )
+                return 2
             print(
                 f"run failed: named session {session_id!r} is not running; start it or use --runtime server",
                 file=sys.stderr,
@@ -187,8 +225,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             bundle = load_bundle(
                 args.path,
                 schema_provider=schema_provider,
+                allow_unresolved=True,
             )
-            bundle.require_canonical_authority("workflow execution")
+            if not bool(getattr(bundle, "is_unresolved", False)):
+                bundle.require_canonical_authority("workflow execution")
             workflow = bundle.workflow
         except WorkflowAuthorityError as exc:
             print(f"run failed: {exc}", file=sys.stderr)
@@ -241,7 +281,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             runtime_dependency_report["mode"] = dependency_mode
             runtime_dependency_report.setdefault("changes", [])
 
-        if dependency_mode == "sync" and session_url is not None and server_url is None:
+        if (
+            dependency_mode == "sync"
+            and session_url is not None
+            and server_url is None
+            and bound_lifecycle_adapter is None
+        ):
             if not getattr(args, "restart_session", False):
                 print(
                     "run failed: --deps sync refused while the managed session is active; "
@@ -292,7 +337,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     print(f"dependency_receipt: {receipt}", file=sys.stderr)
                 return 1
 
-        if dependency_mode == "sync" and runtime_requirements is not None and server_url is None:
+        if (
+            dependency_mode == "sync"
+            and runtime_requirements is not None
+            and server_url is None
+            and bound_lifecycle_adapter is None
+        ):
             try:
                 runtime_dependency_report = sync_runtime(
                     runtime_requirements,
@@ -334,7 +384,45 @@ def _cmd_run(args: argparse.Namespace) -> int:
             return 2
 
         local_source = _canonical_source_path(args.path, workflow)
-        local_prepare = server_url is None and local_source is not None
+        local_prepare = (
+            server_url is None
+            and local_source is not None
+            and bound_lifecycle_adapter is None
+        )
+        if (
+            bound_lifecycle_adapter is not None
+            and server_url is None
+            and local_source is not None
+        ):
+            remote_target = {
+                "managed": True,
+                "pod_id": bound_target.get("pod_id") if isinstance(bound_target, dict) else None,
+                "runtime_root": bound_target.get("comfy_root") if isinstance(bound_target, dict) else runtime_root,
+                "comfy_root": bound_target.get("comfy_root") if isinstance(bound_target, dict) else None,
+                "python_executable": bound_target.get("python_executable") if isinstance(bound_target, dict) else None,
+                "custom_nodes_root": bound_target.get("custom_nodes_root") if isinstance(bound_target, dict) else None,
+                "models_root": bound_target.get("models_root") if isinstance(bound_target, dict) else None,
+                "launch_flags": list(bound_target.get("launch_flags") or []) if isinstance(bound_target, dict) else [],
+            }
+            try:
+                preparation = prepare_workflow(
+                    workflow,
+                    reference=local_source or args.path,
+                    runtime_root=runtime_root or Path.cwd(),
+                    ensure_models=ensure_models_option is not False,
+                    ensure_packs=True,
+                    session_id=lookup_session_id,
+                    download_workers=getattr(args, "download_workers", None),
+                    quiet=bool(getattr(args, "json", False)),
+                    runtime_dependency_report=runtime_dependency_report,
+                    dependency_mode=dependency_mode,
+                    runtime_target=remote_target,
+                    offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+                    remote_adapter=bound_lifecycle_adapter,
+                )
+            except PreparationError as exc:
+                print(f"run failed: {exc}", file=sys.stderr)
+                return 1
         if local_prepare:
             try:
                 reconciliation = reconcile_ready_template_file(local_source)
@@ -354,8 +442,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 return 1
             if reconciliation.get("changed"):
                 try:
-                    bundle = load_bundle(local_source, schema_provider=schema_provider)
-                    bundle.require_canonical_authority("workflow execution")
+                    bundle = load_bundle(
+                        local_source,
+                        schema_provider=schema_provider,
+                        allow_unresolved=True,
+                    )
+                    if not bool(getattr(bundle, "is_unresolved", False)):
+                        bundle.require_canonical_authority("workflow execution")
                     workflow = bundle.workflow
                 except Exception as exc:
                     _print_source_migration_failure(str(local_source), str(exc))
@@ -376,6 +469,32 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 print(f"run failed: {exc}", file=sys.stderr)
                 return 1
         runtime_requirements = runtime_requirements_from_workflow(workflow)
+
+        bundle_unresolved = tuple(getattr(bundle, "unresolved", ()) or ())
+        unresolved_non_companion = [
+            item for item in bundle_unresolved if str(item.get("kind", "")) != "companion"
+        ]
+        if unresolved_non_companion:
+            unresolved = [dict(item) for item in bundle_unresolved]
+            detail = "; ".join(
+                str(item.get("message", item)) for item in unresolved
+            ) or "workflow requires dependency/schema reconciliation"
+            error = WorkflowBundleError(
+                "workflow remains an unresolved draft after dependency preparation: "
+                + detail
+            )
+            receipt = _persist_cli_dependency_failure(
+                workflow=workflow,
+                runtime_requirements=runtime_requirements,
+                runtime_report=dict(runtime_dependency_report or {}),
+                runtime_root=runtime_root,
+                phase="mapping",
+                error=error,
+            )
+            print(f"run failed: {error}", file=sys.stderr)
+            if receipt is not None:
+                print(f"dependency_receipt: {receipt}", file=sys.stderr)
+            return 1
 
         if getattr(args, "restart_session", False) and session_url is not None:
             from vibecomfy.commands import session as session_command
@@ -419,6 +538,33 @@ def _cmd_run(args: argparse.Namespace) -> int:
             if session_url is None:
                 print("run failed: managed session did not become active", file=sys.stderr)
                 return 1
+        # Final target admission happens after the managed session is alive and
+        # immediately before compilation.  The target provider is live-only;
+        # the reconciler uses retained source rosters, then republishes the
+        # canonical Python/companion pair transactionally when needed.
+        # Reconciliation may have published and reloaded a clean canonical
+        # pair. Re-read unresolved state from that execution snapshot instead
+        # of carrying the pre-reconciliation tuple forward.
+        bundle_unresolved = tuple(getattr(bundle, "unresolved", ()) or ())
+        if bundle_unresolved:
+            unresolved = [dict(item) for item in bundle_unresolved]
+            detail = "; ".join(str(item.get("message", item)) for item in unresolved)
+            error = WorkflowBundleError(
+                "workflow remains an unresolved draft after live reconciliation: " + detail
+            )
+            receipt = _persist_cli_dependency_failure(
+                workflow=workflow,
+                runtime_requirements=runtime_requirements,
+                runtime_report=dict(runtime_dependency_report or {}),
+                runtime_root=runtime_root,
+                phase="mapping",
+                error=error,
+            )
+            print(f"run failed: {error}", file=sys.stderr)
+            if receipt is not None:
+                print(f"dependency_receipt: {receipt}", file=sys.stderr)
+            return 1
+
         run_inputs: dict[str, object] = {}
         if args.prompt is not None:
             if workflow.inputs.get("prompt") is None:
@@ -455,6 +601,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         external_log_locator = getattr(args, "external_log_locator", None)
         if external_log_locator is not None:
             config_extra["external_log_locator"] = external_log_locator
+        output_directory = getattr(args, "output_directory", None)
+        if output_directory is not None:
+            config_extra["output_directory"] = output_directory
         if runtime_requirements is not None and runtime_requirements.launch_flags:
             config_extra["launch_flags"] = list(runtime_requirements.launch_flags)
         config = SessionConfig(
@@ -465,18 +614,38 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
         managed_runtime_target = None
         if session_url is not None and server_url is None:
+            binding = bound_target if isinstance(bound_target, dict) else None
             session_config = (session_metadata or {}).get("config", {})
             if isinstance(session_config, dict):
-                managed_runtime_target = inspect_runtime_target(
-                    runtime_root=session_config.get("runtime_root") or runtime_root or Path.cwd(),
-                    package_names=[name for name, _constraint in runtime_requirements.packages]
-                    if runtime_requirements is not None else None,
-                )
-                if isinstance(session_config.get("launch_flags"), list):
-                    managed_runtime_target["launch_flags"] = list(session_config["launch_flags"])
-                managed_runtime_target["runtime_root"] = str(
-                    session_config.get("runtime_root") or runtime_root or Path.cwd()
-                )
+                if binding is not None:
+                    managed_runtime_target = {
+                        "managed": True,
+                        "pod_id": binding.get("pod_id"),
+                        "runtime_root": binding.get("comfy_root") or session_config.get("runtime_root"),
+                        "comfy_root": binding.get("comfy_root"),
+                        "python_executable": binding.get("python_executable"),
+                        "custom_nodes_root": binding.get("custom_nodes_root"),
+                        "models_root": binding.get("models_root"),
+                        "launch_flags": list(binding.get("launch_flags") or []),
+                    }
+                    if binding.get("pod_id"):
+                        from vibecomfy.commands.runpod import BoundRunPodLifecycleAdapter
+
+                        managed_runtime_target["_runpod_lifecycle_adapter"] = (
+                            bound_lifecycle_adapter
+                            or BoundRunPodLifecycleAdapter(binding, session_id=lookup_session_id)
+                        )
+                else:
+                    managed_runtime_target = inspect_runtime_target(
+                        runtime_root=session_config.get("runtime_root") or runtime_root or Path.cwd(),
+                        package_names=[name for name, _constraint in runtime_requirements.packages]
+                        if runtime_requirements is not None else None,
+                    )
+                    if isinstance(session_config.get("launch_flags"), list):
+                        managed_runtime_target["launch_flags"] = list(session_config["launch_flags"])
+                    managed_runtime_target["runtime_root"] = str(
+                        session_config.get("runtime_root") or runtime_root or Path.cwd()
+                    )
                 managed_runtime_target["managed"] = True
 
         def execute_once():
@@ -578,6 +747,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print("\n".join(lines))
         return 0
     except (OSError, RuntimeError, ValueError) as exc:
+        completion_status = str(getattr(exc, "completion_status", ""))
+        if not completion_status and getattr(exc, "output_verification", None) is not None:
+            completion_status = "Failed — final output rejected"
+        if getattr(args, "json", False):
+            payload = {
+                "status": completion_status or "Failed",
+                "error": str(exc),
+                "prompt_id": getattr(exc, "prompt_id", None),
+                "receipt_path": getattr(exc, "receipt_path", None),
+                "output_verification": getattr(exc, "output_verification", None),
+                "delivery_state": getattr(exc, "delivery_state", None),
+                "diagnostics": list(getattr(exc, "diagnostics", []) or []),
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 1
+        if completion_status:
+            print(f"status: {completion_status}", file=sys.stderr)
         print(f"run failed: {exc}", file=sys.stderr)
         return 1
 
@@ -621,6 +807,10 @@ def register(subparsers) -> None:
     run.add_argument(
         "--external-log-locator",
         help="Reference for logs owned by an explicit external Comfy server; never treated as captured.",
+    )
+    run.add_argument(
+        "--output-directory",
+        help="Comfy output root used to resolve returned filename/subfolder descriptors for verification and delivery.",
     )
     run.add_argument("--backend", default="api")
     run.add_argument("--prompt")

@@ -11,6 +11,7 @@ import signal
 import socket
 import struct
 import subprocess
+import shutil
 import sys
 import tempfile
 import time
@@ -19,7 +20,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import asdict, dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from vibecomfy.comfy_command import comfyui_command
@@ -139,6 +140,7 @@ def _runtime_evidence(
     queue_acceptance: Mapping[str, Any] | None = None,
     terminal: Mapping[str, Any] | None = None,
     dependency_report: Mapping[str, Any] | None = None,
+    adapter_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     approved = record.to_dict()
     acceptance = {
@@ -156,16 +158,19 @@ def _runtime_evidence(
     }
     if terminal is not None:
         terminal_default.update(dict(terminal))
+    adapter = {
+        "kind": adapter_kind,
+        "backend": backend,
+        "endpoint": endpoint,
+    }
+    if adapter_details:
+        adapter["lifecycle"] = dict(adapter_details)
     evidence = {
         "approved_projection": approved,
         "api_digest": record.api_digest,
         "ui_digest": canonical_digest(approved["ui_projection"]),
         "record_digest": canonical_digest(approved),
-        "adapter": {
-            "kind": adapter_kind,
-            "backend": backend,
-            "endpoint": endpoint,
-        },
+        "adapter": adapter,
         "schema_provenance": dict(schema_provenance or _schema_provider_provenance(None)),
         "queue_acceptance": acceptance,
         "terminal": terminal_default,
@@ -338,6 +343,17 @@ def _runtime_failure_evidence(
 ) -> dict[str, Any]:
     status = str(queue_acceptance.get("status", "not_attempted"))
     prompt_id = queue_acceptance.get("prompt_id")
+    if prompt_id is None:
+        cursor_for_prompt: BaseException | None = exc
+        seen_prompt: set[int] = set()
+        while cursor_for_prompt is not None and id(cursor_for_prompt) not in seen_prompt:
+            seen_prompt.add(id(cursor_for_prompt))
+            candidate_prompt = getattr(cursor_for_prompt, "prompt_id", None)
+            if candidate_prompt is not None:
+                prompt_id = str(candidate_prompt)
+                status = "unknown" if status == "not_attempted" else status
+                break
+            cursor_for_prompt = cursor_for_prompt.__cause__ or cursor_for_prompt.__context__
     cursor: BaseException | None = exc
     timed_out = False
     while cursor is not None:
@@ -360,14 +376,100 @@ def _runtime_failure_evidence(
     else:
         terminal_phase, reason_type = phase, type(exc).__name__
     reason = str(exc) or reason_type
+    terminal: dict[str, Any] = {
+        "phase": terminal_phase,
+        "reason_type": reason_type,
+        "reason": reason,
+        "acceptance_known": status in {"accepted", "rejected"},
+    }
+    diagnostics = _exception_diagnostics(exc)
+    if diagnostics:
+        terminal["diagnostics"] = diagnostics
+    output_verification = _exception_output_verification(exc)
+    delivery_state = _exception_delivery_state(exc)
+    media = output_verification.get("media") if isinstance(output_verification, Mapping) else None
+    external_retrieval_failure = bool(
+        phase == "output"
+        and status == "accepted"
+        and isinstance(media, Mapping)
+        and media.get("adapter_kind") == "external"
+        and media.get("status") != "verified"
+    )
+    delivery_retrieval = (
+        delivery_state.get("retrieval") if isinstance(delivery_state, Mapping) else None
+    )
+    delivery_retrieval_failure = bool(
+        isinstance(delivery_retrieval, Mapping)
+        and delivery_retrieval.get("status") == "failed"
+    )
+    if external_retrieval_failure or delivery_retrieval_failure:
+        terminal["completion_status"] = "Incomplete — generation verified but retrieval failed"
+    elif output_verification is not None:
+        terminal["completion_status"] = "Failed — final output rejected"
+    elif phase in {"download", "retrieval", "logs"} or (
+        phase == "output" and status == "accepted"
+    ):
+        terminal["completion_status"] = "Incomplete — generation verified but retrieval failed"
+    if delivery_state is not None:
+        terminal["delivery"] = delivery_state
+        execution = delivery_state.get("execution")
+        verification = delivery_state.get("verification")
+        retrieval = delivery_state.get("retrieval")
+        if isinstance(execution, Mapping):
+            terminal["execution_state"] = execution.get("status")
+        if isinstance(verification, Mapping):
+            terminal["verification_state"] = verification.get("status")
+        if isinstance(retrieval, Mapping):
+            terminal["retrieval_state"] = retrieval.get("status")
     return _runtime_evidence(
         record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
         schema_provenance=schema_provenance,
         queue_acceptance={"status": status, "prompt_id": prompt_id},
-        terminal={"phase": terminal_phase, "reason_type": reason_type,
-                  "reason": reason, "acceptance_known": status in {"accepted", "rejected"}},
+        terminal=terminal,
         dependency_report=dependency_report,
     )
+
+
+def _exception_diagnostics(exc: BaseException | None) -> list[dict[str, Any]]:
+    """Collect bounded structured diagnostics from an exception chain."""
+    diagnostics: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    cursor = exc
+    while cursor is not None and id(cursor) not in seen:
+        seen.add(id(cursor))
+        raw = getattr(cursor, "diagnostics", None)
+        if isinstance(raw, (list, tuple)):
+            for item in raw:
+                if isinstance(item, Mapping):
+                    diagnostics.append(dict(item))
+        cursor = cursor.__cause__ or cursor.__context__
+    return diagnostics[:64]
+
+
+def _exception_output_verification(exc: BaseException | None) -> dict[str, Any] | None:
+    """Return the final-output witness attached anywhere in an exception chain."""
+    seen: set[int] = set()
+    cursor = exc
+    while cursor is not None and id(cursor) not in seen:
+        seen.add(id(cursor))
+        raw = getattr(cursor, "output_verification", None)
+        if isinstance(raw, Mapping):
+            return dict(raw)
+        cursor = cursor.__cause__ or cursor.__context__
+    return None
+
+
+def _exception_delivery_state(exc: BaseException | None) -> dict[str, Any] | None:
+    """Return post-generation delivery evidence from an exception chain."""
+    seen: set[int] = set()
+    cursor = exc
+    while cursor is not None and id(cursor) not in seen:
+        seen.add(id(cursor))
+        raw = getattr(cursor, "delivery_state", None)
+        if isinstance(raw, Mapping):
+            return dict(raw)
+        cursor = cursor.__cause__ or cursor.__context__
+    return None
 
 
 def _persist_runtime_failure(
@@ -417,6 +519,31 @@ def _persist_runtime_failure(
             interrupted=interrupted,
             dependency_report=attempt_bundle.get("dependency_report"),
         )
+    terminal_evidence = evidence.get("terminal")
+    if isinstance(terminal_evidence, Mapping):
+        completion_status = terminal_evidence.get("completion_status")
+        if completion_status:
+            attempt_bundle["status"] = str(completion_status)
+            attempt_bundle["completion_status"] = str(completion_status)
+    attempt_bundle["prompt_id"] = normalized_acceptance.get("prompt_id")
+    attempt_bundle["receipt_path"] = str(run_dir / "attempt.json")
+    output_verification = _exception_output_verification(exc_for_class)
+    if output_verification is not None:
+        attempt_bundle["output_verification"] = output_verification
+    delivery_state = _exception_delivery_state(exc_for_class)
+    if delivery_state is not None:
+        attempt_bundle["delivery_state"] = delivery_state
+        artifacts = delivery_state.get("artifacts")
+        if isinstance(artifacts, list):
+            attempt_bundle["artifacts"] = [
+                dict(item) for item in artifacts if isinstance(item, Mapping)
+            ]
+        remote_artifacts = delivery_state.get("remote_artifacts")
+        if isinstance(remote_artifacts, list):
+            attempt_bundle["remote_artifact_locations"] = list(remote_artifacts)
+        local_artifacts = delivery_state.get("local_artifacts")
+        if isinstance(local_artifacts, list):
+            attempt_bundle["local_artifact_paths"] = list(local_artifacts)
     attempt_error: Exception | None = None
     try:
         _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
@@ -438,6 +565,13 @@ def _persist_runtime_failure(
     if journal_error is not None:
         raise QueueError("runtime lifecycle evidence could not be persisted",
                          next_action="vibecomfy runtime doctor") from (original_error or journal_error)
+    terminal = evidence.get("terminal")
+    if exc_for_class is not None and isinstance(terminal, Mapping):
+        completion_status = terminal.get("completion_status")
+        if completion_status:
+            setattr(exc_for_class, "completion_status", str(completion_status))
+        setattr(exc_for_class, "receipt_path", str(run_dir / "attempt.json"))
+        setattr(exc_for_class, "prompt_id", normalized_acceptance.get("prompt_id"))
 
 
 def _persist_dependency_failure(
@@ -547,14 +681,36 @@ def _complete_runtime_run(
     queue_acceptance: Mapping[str, Any],
     metadata: dict[str, Any],
     dependency_report: Mapping[str, Any] | None = None,
+    adapter_details: Mapping[str, Any] | None = None,
 ) -> Path:
+    output_verification = metadata.get("output_verification")
+    if isinstance(output_verification, Mapping):
+        attempt_bundle["output_verification"] = dict(output_verification)
     evidence = _runtime_evidence(
         record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
         schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
         terminal={"phase": "completed", "reason_type": "none", "reason": None,
-                  "acceptance_known": True},
+                  "acceptance_known": True,
+                  "completion_status": str(metadata.get("status", "completed"))},
         dependency_report=dependency_report,
+        adapter_details=adapter_details,
     )
+    completion_path = run_dir / "completion.json"
+    metadata_path = run_dir / "metadata.json"
+    attempt_bundle.update({
+        "status": metadata.get("status", "completed"),
+        "completion_status": metadata.get("status", "completed"),
+        "prompt_id": metadata.get("prompt_id"),
+        "metadata_path": str(metadata_path),
+        "completion_path": str(completion_path),
+        "outputs": list(metadata.get("outputs", [])) if isinstance(metadata.get("outputs"), list) else [],
+        "artifacts": list(metadata.get("artifacts", [])) if isinstance(metadata.get("artifacts"), list) else [],
+        "artifact_paths": list(metadata.get("artifact_paths", [])) if isinstance(metadata.get("artifact_paths"), list) else [],
+        "log_path": metadata.get("log_path"),
+        "log_provenance": dict(metadata.get("log_provenance", {})) if isinstance(metadata.get("log_provenance"), Mapping) else {},
+    })
+    if isinstance(metadata.get("adapter"), Mapping):
+        attempt_bundle["adapter"] = dict(metadata["adapter"])
     try:
         _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
     except Exception as exc:
@@ -569,7 +725,6 @@ def _complete_runtime_run(
         adapter=dict(evidence["adapter"]),
         schema_provenance=dict(evidence["schema_provenance"]),
     )
-    completion_path = run_dir / "completion.json"
     metadata["completion_path"] = str(completion_path)
     try:
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
@@ -629,6 +784,8 @@ def _completion_record(run_dir: Path, metadata: Mapping[str, Any]) -> dict[str, 
         "artifact_locations": locations,
         "log_path": metadata.get("log_path"),
         "log_provenance": dict(log_provenance),
+        **({"output_verification": dict(metadata["output_verification"])}
+           if isinstance(metadata.get("output_verification"), Mapping) else {}),
         **({"runtime_dependency": dict(metadata["runtime_dependency"])}
            if isinstance(metadata.get("runtime_dependency"), Mapping) else {}),
     }
@@ -644,6 +801,7 @@ def _begin_runtime_lifecycle(
     backend: str,
     endpoint: str | None,
     dependency_report: Mapping[str, Any] | None = None,
+    adapter_details: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any]]:
     evidence = _runtime_evidence(
         record,
@@ -652,6 +810,7 @@ def _begin_runtime_lifecycle(
         endpoint=endpoint,
         schema_provenance=_schema_provider_provenance(None),
         dependency_report=dependency_report,
+        adapter_details=adapter_details,
     )
     attempt_bundle = _initial_attempt_bundle(record, evidence)
     try:
@@ -724,7 +883,12 @@ async def _ensure_embedded_prerequisites(
         configured_lockfile = getattr(getattr(session, "config", None), "extra", {}).get("lockfile")
         from vibecomfy.node_packs import resolve_lockfile_path
 
-        lockfile_entries = read_lockfile(resolve_lockfile_path(configured_lockfile))
+        lockfile_path = (
+            Path("custom_nodes.lock")
+            if configured_lockfile is None
+            else resolve_lockfile_path(configured_lockfile)
+        )
+        lockfile_entries = read_lockfile(lockfile_path)
         pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
         pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
         if pin_errors:
@@ -768,7 +932,9 @@ async def _ensure_embedded_prerequisites(
         apply_model_preflight(workflow, policy)
 
 
-def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
+def _model_assets_from_workflow(
+    workflow: VibeWorkflow, *, models_root: str | Path | None = None
+) -> list[dict[str, str]]:
     from vibecomfy.model_assets import (
         _asset_entry_key,
         _looks_like_runtime_input,
@@ -784,12 +950,18 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
         return _norm(name), _norm(subdir), target_marker
 
     raw_assets = workflow.metadata.get("model_assets", [])
+    local_root = Path(models_root).expanduser().resolve(strict=False) if models_root is not None else None
+    from vibecomfy import fetch as fetch_assets
     unresolved_authored = [
         asset
         for asset in raw_assets
         if isinstance(asset, Mapping)
         and asset.get("url") is None
         and isinstance(asset.get("name", asset.get("filename")), str)
+        and (
+            local_root is None
+            or not fetch_assets.is_present(asset, root=local_root)
+        )
     ] if isinstance(raw_assets, list) else []
     if unresolved_authored:
         names = ", ".join(
@@ -804,6 +976,11 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
     authored = _normalise_requirement_entries(raw_assets) if isinstance(raw_assets, list) else []
     resolved, unresolved = resolve_referenced_assets(workflow)
     authored_keys = {
+        (_norm(str(entry.get("name", ""))), _norm(str(entry.get("subdir", ""))))
+        for entry in authored
+        if isinstance(entry.get("name"), str) and isinstance(entry.get("subdir"), str)
+    }
+    authored_identity_keys = {
         _entry_key(entry)
         for entry in authored
         if isinstance(entry.get("name"), str) and isinstance(entry.get("subdir"), str)
@@ -840,7 +1017,7 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
             # do not let a truthiness fallback or this merge hide it.
             entries.append(entry)
             continue
-        if key not in authored_keys and f"{_norm(entry['subdir'])}/{_norm(entry['name'])}" in authored_paths:
+        if key not in authored_identity_keys and f"{_norm(entry['subdir'])}/{_norm(entry['name'])}" in authored_paths:
             continue
         if key in seen:
             continue
@@ -1328,6 +1505,60 @@ class EmbeddedSession:
             phase = "schema"
             if self._schema_provider is None:
                 self._schema_provider = _build_schema_provider(None)
+            if self._schema_provider is not None and (
+                callable(getattr(self._schema_provider, "object_info_async", None))
+                or callable(getattr(self._schema_provider, "object_info", None))
+            ):
+                self._schema_provider = await _warm_schema_provider(
+                    self._schema_provider,
+                    on_unavailable=self._on_schema_unavailable,
+                )
+            execution_snapshot: dict[str, Any] | None = None
+            reconciliation_schema: Mapping[str, Any] | None = None
+            if self._schema_provider is not None and (
+                callable(getattr(self._schema_provider, "object_info", None))
+                or callable(getattr(self._schema_provider, "refresh", None))
+            ):
+                from .reconciliation import (
+                    ReconciliationError,
+                    build_execution_snapshot,
+                    reconcile_before_queue_async,
+                )
+
+                try:
+                    reconciliation = await reconcile_before_queue_async(
+                        bundle,
+                        target_schema_provider=self._schema_provider,
+                        publish=True,
+                    )
+                except ReconciliationError as exc:
+                    _persist_runtime_failure(
+                        run_dir=run_dir,
+                        attempt_bundle=attempt_bundle,
+                        state=journal_state,
+                        run_id=run_id,
+                        record=record,
+                        generation=journal_generation,
+                        original_error=exc,
+                        queue_acceptance=queue_acceptance,
+                        phase="mapping",
+                        exc=exc,
+                    )
+                    raise
+                reconciliation_schema = reconciliation.schema
+                if reconciliation.bundle is not bundle:
+                    bundle = reconciliation.bundle
+                    workflow = bundle.workflow
+                    record = bundle.compile(
+                        run_inputs=dict(record.input_binding),
+                        schema_provider=self._schema_provider,
+                    )
+                execution_snapshot = build_execution_snapshot(
+                    bundle,
+                    record,
+                    schema=reconciliation_schema,
+                ).to_dict()
+                attempt_bundle["execution_snapshot"] = execution_snapshot
             phase_start = time.monotonic()
             api_dict = await _prepare_prompt_async(
                 record,
@@ -1336,6 +1567,15 @@ class EmbeddedSession:
                 schema_provider=self._schema_provider,
                 on_unavailable=self._on_schema_unavailable,
             )
+            if execution_snapshot is not None:
+                from .reconciliation import assert_execution_snapshot
+
+                assert_execution_snapshot(
+                    execution_snapshot,
+                    bundle,
+                    record,
+                    schema_provider=self._schema_provider,
+                )
             schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
             normalization = getattr(api_dict, "normalization", None)
             schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(self._schema_provider)
@@ -1361,6 +1601,8 @@ class EmbeddedSession:
                 runtime_evidence=evidence,
                 runtime_compatibility=dependency_report,
             )
+            if execution_snapshot is not None:
+                attempt_bundle["execution_snapshot"] = execution_snapshot
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             fp = model_fingerprint(api_dict)
             phase_start = time.monotonic()
@@ -1379,9 +1621,13 @@ class EmbeddedSession:
             except asyncio.TimeoutError:
                 raise
             except Exception as exc:
-                raise QueueError(
+                wrapped = QueueError(
                     _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
-                ) from exc
+                )
+                for attribute in ("diagnostics", "prompt_id", "output_verification", "completion_status"):
+                    if hasattr(exc, attribute):
+                        setattr(wrapped, attribute, getattr(exc, attribute))
+                raise wrapped from exc
             phase = "acceptance_witness"
             prompt_id = _commit_queue_witness(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1394,6 +1640,18 @@ class EmbeddedSession:
             timings["queue_prompt_sec"] = round(time.monotonic() - phase_start, 3)
             phase = "output"
             phase_start = time.monotonic()
+            output_verification: dict[str, Any] | None = None
+            if workflow.outputs and isinstance(queued, Mapping) and isinstance(queued.get("outputs"), Mapping):
+                output_verification = _validate_declared_output_contract(
+                    workflow,
+                    {
+                        prompt_id: {
+                            "outputs": queued["outputs"],
+                            "status": {"status_str": "success", "completed": True, "messages": []},
+                        }
+                    },
+                    prompt_id,
+                )
             comfy_outputs = _decode_terminal_result(
                 queued,
                 prompt_id=prompt_id,
@@ -1410,6 +1668,14 @@ class EmbeddedSession:
                 output_directory=output_directory,
             )
             outputs = [artifact["reported_path"] for artifact in artifacts]
+            media_validation = _verify_declared_media(
+                workflow,
+                artifacts,
+                adapter_kind="embedded",
+                output_verification=output_verification,
+            )
+            if output_verification is not None:
+                output_verification = {**output_verification, "media": media_validation}
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
@@ -1434,6 +1700,8 @@ class EmbeddedSession:
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
                 dependency_report=dependency_report,
+                output_verification=output_verification,
+                media_validation=media_validation,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1450,6 +1718,8 @@ class EmbeddedSession:
                 metadata_path=str(metadata_path),
                 log_path=log_path,
                 completion_path=str(Path(metadata_path).with_name("completion.json")),
+                status=str(metadata.get("status", "completed")),
+                media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -1551,6 +1821,7 @@ class ServerSession:
         self.log_handle: Any | None = None
         self._argv = _comfy_server_argv(self.config)
         self._process_configuration: _RuntimeConfigurationSnapshot | None = None
+        self.process_start_identity: str | None = None
         self._schema_provider: Any | None = None
         self._schema_warning_emitted = False
         self._inflight_run: asyncio.Task[Any] | None = None
@@ -1585,6 +1856,8 @@ class ServerSession:
             runtime_configuration=process_configuration,
         )
         self._process_configuration = process_configuration
+        if self.process is not None and self.process.pid:
+            self.process_start_identity = _process_start_identity(self.process.pid)
 
     async def run(
         self,
@@ -1724,6 +1997,48 @@ class ServerSession:
             phase = "schema"
             if self._schema_provider is None:
                 self._schema_provider = _build_schema_provider(self.url)
+            execution_snapshot: dict[str, Any] | None = None
+            if callable(getattr(self._schema_provider, "object_info", None)):
+                from .reconciliation import (
+                    ReconciliationError,
+                    build_execution_snapshot,
+                    reconcile_before_queue_async,
+                )
+
+                try:
+                    reconciliation = await reconcile_before_queue_async(
+                        bundle,
+                        target_schema_provider=self._schema_provider,
+                        target_schema_generation=getattr(self, "process_start_identity", None),
+                        publish=True,
+                    )
+                except ReconciliationError as exc:
+                    _persist_runtime_failure(
+                        run_dir=run_dir,
+                        attempt_bundle=attempt_bundle,
+                        state=journal_state,
+                        run_id=run_id,
+                        record=record,
+                        generation=journal_generation,
+                        original_error=exc,
+                        queue_acceptance=queue_acceptance,
+                        phase="mapping",
+                        exc=exc,
+                    )
+                    raise
+                if reconciliation.bundle is not bundle:
+                    bundle = reconciliation.bundle
+                    workflow = bundle.workflow
+                    record = bundle.compile(
+                        run_inputs=dict(record.input_binding),
+                        schema_provider=self._schema_provider,
+                    )
+                execution_snapshot = build_execution_snapshot(
+                    bundle,
+                    record,
+                    schema=reconciliation.schema,
+                ).to_dict()
+                attempt_bundle["execution_snapshot"] = execution_snapshot
             phase_start = time.monotonic()
             api_dict = await _prepare_prompt_async(
                 record,
@@ -1732,6 +2047,16 @@ class ServerSession:
                 schema_provider=self._schema_provider,
                 on_unavailable=self._on_schema_unavailable,
             )
+            if execution_snapshot is not None:
+                from .reconciliation import assert_execution_snapshot
+
+                assert_execution_snapshot(
+                    execution_snapshot,
+                    bundle,
+                    record,
+                    schema_provider=self._schema_provider,
+                    schema_generation=self.process_start_identity,
+                )
             schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
             normalization = getattr(api_dict, "normalization", None)
             schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(self._schema_provider)
@@ -1757,6 +2082,8 @@ class ServerSession:
                 runtime_evidence=evidence,
                 runtime_compatibility=dependency_report,
             )
+            if execution_snapshot is not None:
+                attempt_bundle["execution_snapshot"] = execution_snapshot
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             fp = model_fingerprint(api_dict)
             phase_start = time.monotonic()
@@ -1779,9 +2106,13 @@ class ServerSession:
             except asyncio.TimeoutError:
                 raise
             except Exception as exc:
-                raise QueueError(
+                wrapped = QueueError(
                     _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
-                ) from exc
+                )
+                for attribute in ("diagnostics", "prompt_id", "output_verification", "completion_status"):
+                    if hasattr(exc, attribute):
+                        setattr(wrapped, attribute, getattr(exc, attribute))
+                raise wrapped from exc
             phase = "acceptance_witness"
             prompt_id = _commit_queue_witness(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1795,7 +2126,11 @@ class ServerSession:
             phase = "history"
             phase_start = time.monotonic()
             history = await _wait_for_server_history(self.url, prompt_id, config=self.config)
-            comfy_outputs = _outputs_from_server_history(history, prompt_id)
+            output_verification = _validate_declared_output_contract(workflow, history, prompt_id)
+            # The declared-output projection must not bypass Comfy's terminal
+            # status/error decoder for the current prompt.
+            _outputs_from_server_history(history, prompt_id)
+            comfy_outputs = _declared_outputs_from_server_history(workflow, history, prompt_id)
             phase = "output"
             output_directory = _configured_output_directory(
                 self.config, runtime_configuration=self._process_configuration
@@ -1807,6 +2142,13 @@ class ServerSession:
                 output_directory=output_directory,
             )
             outputs = [artifact["reported_path"] for artifact in artifacts]
+            media_validation = _verify_declared_media(
+                workflow,
+                artifacts,
+                adapter_kind="managed",
+                output_verification=output_verification,
+            )
+            output_verification = {**output_verification, "media": media_validation}
             timings["collect_outputs_sec"] = round(time.monotonic() - phase_start, 3)
             self.last_fingerprint = fp
             stop_reason = "completed"
@@ -1831,6 +2173,8 @@ class ServerSession:
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
                 dependency_report=dependency_report,
+                output_verification=output_verification,
+                media_validation=media_validation,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1847,6 +2191,8 @@ class ServerSession:
                 metadata_path=str(metadata_path),
                 log_path=log_path,
                 completion_path=str(Path(metadata_path).with_name("completion.json")),
+                status=str(metadata.get("status", "completed")),
+                media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )
@@ -2018,6 +2364,18 @@ def active_session_metadata(
         "models_root_normalized": config.get("models_root_normalized"),
         "locality": config.get("locality"),
     }
+    # The daemon writes the child process birth identity after startup. Keep
+    # it with the session observation so live schema receipts can bind their
+    # generation to the process that will receive the queue.
+    for name in ("comfy_process_start_identity", "process_start_identity"):
+        marker = session_dir / name
+        if marker.is_file():
+            try:
+                value = marker.read_text(encoding="utf-8").strip()
+            except OSError:
+                value = ""
+            if value:
+                result[name] = value
     if session_revision is not None:
         result["launch_source_revision"] = session_revision
     if current_revision is not None:
@@ -2742,9 +3100,15 @@ async def _warm_schema_provider(
                 provider._object_info = cached
             return provider
 
+        object_info_async = getattr(provider, "object_info_async", None)
+        if not callable(object_info_async):
+            # A synchronous-only provider is still a valid lookup seam for the
+            # later structural gate, but calling it here would risk blocking
+            # (or re-entering) the active runtime event loop.
+            return provider
         from vibecomfy.schema.cache import validate_object_info_payload_shape
 
-        object_info = await provider.object_info_async()
+        object_info = await object_info_async()
         validate_object_info_payload_shape(object_info)
         provider._object_info = object_info
         return provider
@@ -2912,6 +3276,9 @@ def _run_metadata(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
     dependency_report: Mapping[str, Any] | None = None,
+    output_verification: Mapping[str, Any] | None = None,
+    media_validation: Mapping[str, Any] | None = None,
+    adapter_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     workflow = _require_runtime_boundary(record, bundle)
     approved = record.to_dict()
@@ -2937,17 +3304,36 @@ def _run_metadata(
     )
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
     shared = build_shared_fields(bundle, record, config=config)
+    media_verified = bool(
+        isinstance(media_validation, Mapping)
+        and media_validation.get("status") == "verified"
+    )
+    declared_video = any(
+        str(getattr(output, "artifact_kind", "") or "").lower() == "video"
+        or str(getattr(output, "mime_type", "") or "").lower().startswith("video/")
+        for output in workflow.outputs
+    )
+    completion_status = (
+        "Completed — final video verified"
+        if media_verified and declared_video
+        else "Completed — final media verified"
+        if media_verified
+        else "completed"
+    )
+    adapter = {
+        "kind": runtime,
+        "backend": "api",
+        "endpoint": adapter_endpoint,
+    }
+    if adapter_details:
+        adapter["lifecycle"] = dict(adapter_details)
     metadata = {
         "run_id": run_id,
         "workflow_id": workflow.id,
         "source": asdict(workflow.source),
         "workflow_hash": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
         "api_digest": approved["api_digest"],
-        "adapter": {
-            "kind": runtime,
-            "backend": "api",
-            "endpoint": adapter_endpoint,
-        },
+        "adapter": adapter,
         "schema_provenance": dict(schema_provenance or {}),
         "git_sha": _git_sha(),
         "inputs": {name: item.value for name, item in workflow.inputs.items()},
@@ -2966,14 +3352,18 @@ def _run_metadata(
         "artifact_paths": outputs,
         "outputs": outputs,
         "artifacts": artifacts,
-        "status": "completed",
-        "media_validated": False,
-        "media_validation": "not_performed",
+        "status": completion_status,
+        "media_validated": media_verified,
+        "media_validation": (
+            dict(media_validation) if isinstance(media_validation, Mapping) else "not_performed"
+        ),
         "log_path": log_provenance["path"],
         "log_provenance": log_provenance,
         "runtime": runtime,
         "schema_validation_skipped": schema_validation_skipped or [],
     }
+    if output_verification is not None:
+        metadata["output_verification"] = dict(output_verification)
     normalization_ops = getattr(normalization, "ops", None)
     if normalization_ops:
         metadata["schema_normalization"] = [op.to_dict() for op in normalization_ops]
@@ -3106,11 +3496,26 @@ def _bounded_terminal_value(value: Any) -> str:
 def _bounded_error_details(value: Any) -> Any:
     if not isinstance(value, Mapping):
         return _bounded_terminal_value(value)
-    return {
-        name: _bounded_terminal_value(value[name])
-        for name in _TERMINAL_ERROR_FIELDS
-        if name in value
-    }
+    return _bounded_structured_value(value)
+
+
+def _bounded_structured_value(value: Any, *, depth: int = 0) -> Any:
+    """Keep structured Comfy diagnostics useful without persisting unbounded data."""
+    if depth >= 4:
+        return _bounded_terminal_value(value)
+    if isinstance(value, Mapping):
+        bounded: dict[str, Any] = {}
+        for key, item in list(value.items())[:64]:
+            bounded[_bounded_terminal_value(key)] = _bounded_structured_value(
+                item, depth=depth + 1
+            )
+        return bounded
+    if isinstance(value, (list, tuple)):
+        return [
+            _bounded_structured_value(item, depth=depth + 1)
+            for item in value[:64]
+        ]
+    return _bounded_terminal_value(value)
 
 
 def _bounded_status_message(messages: Any) -> Any:
@@ -3177,10 +3582,16 @@ def _bounded_diagnostic(text: str) -> str:
 def _raise_terminal_execution_error(status: Any, prompt_id: str | None) -> None:
     label = _bounded_terminal_value(prompt_id if prompt_id else "<unknown>")
     message = f"Comfy prompt {label} failed: {_bounded_terminal_evidence(status)}"
-    raise RuntimeNodeError(
+    error = RuntimeNodeError(
         _bounded_diagnostic(message),
         next_action="vibecomfy runtime doctor",
     )
+    error.diagnostics = [{
+        "code": "comfy_execution_error",
+        "prompt_id": prompt_id,
+        "detail": _bounded_terminal_evidence(status),
+    }]
+    raise error
 
 
 def _decode_terminal_result(
@@ -3349,6 +3760,198 @@ def _outputs_from_server_history(history: dict[str, Any], prompt_id: str | None)
     )
 
 
+def _declared_outputs_from_server_history(
+    workflow: VibeWorkflow,
+    history: Mapping[str, Any],
+    prompt_id: str | None,
+) -> dict[str, Any]:
+    """Return only artifacts produced by the workflow's declared final sinks."""
+    entry = _history_entry(history, prompt_id)
+    raw_outputs = entry.get("outputs") if isinstance(entry, Mapping) else None
+    if not isinstance(raw_outputs, Mapping):
+        return {}
+    if not any(
+        getattr(output, "node_id", None) is not None
+        for output in workflow.outputs
+    ):
+        # Workflows without an explicit OutputSpec retain the historical
+        # behavior: return the complete Comfy output map.  The strict final
+        # sink filter applies only when Python has declared one.
+        return dict(raw_outputs)
+    return {
+        str(output.node_id): raw_outputs[str(output.node_id)]
+        for output in workflow.outputs
+        if getattr(output, "node_id", None) is not None
+        and str(output.node_id) in raw_outputs
+    }
+
+
+def _validate_declared_output_contract(
+    workflow: VibeWorkflow,
+    history: Mapping[str, Any],
+    prompt_id: str | None,
+) -> dict[str, Any]:
+    """Fail closed when a declared final sink did not produce an artifact.
+
+    A successful Comfy status only means that the accepted execution reached a
+    terminal status. It does not guarantee that every executable branch was
+    accepted. This check prevents a preview/intermediate branch from being
+    reported as the final result when the declared sink was ignored.
+    """
+    declared = [
+        output for output in workflow.outputs
+        if getattr(output, "node_id", None) is not None
+    ]
+    evidence: dict[str, Any] = {
+        "prompt_id": prompt_id,
+        "declared_final_nodes": [str(output.node_id) for output in declared],
+        "events": [],
+        "structured_diagnostics": [],
+    }
+    if not declared:
+        evidence["status"] = "not_declared"
+        return evidence
+    entry = _history_entry(history, prompt_id)
+    if entry is None:
+        error = RuntimeNodeError(
+            f"Comfy history for prompt {prompt_id!r} is missing the current execution entry",
+            next_action="inspect the durable Comfy history/log and verify the prompt ID",
+        )
+        error.diagnostics = [{
+            "code": "history_prompt_mismatch",
+            "prompt_id": prompt_id,
+            "declared_final_nodes": evidence["declared_final_nodes"],
+        }]
+        raise error
+    status = entry.get("status")
+    messages = status.get("messages") if isinstance(status, Mapping) else None
+    if isinstance(messages, (list, tuple)):
+        evidence["events"] = [
+            _bounded_terminal_value(message[0] if isinstance(message, (list, tuple)) and message else message)
+            for message in messages[-64:]
+        ]
+    structured: list[dict[str, Any]] = []
+    for field_name in ("node_errors", "errors", "execution_errors", "ignored_nodes", "ignored_outputs", "rejected_nodes"):
+        value = entry.get(field_name)
+        if value:
+            structured.append({
+                "code": f"comfy_{field_name}",
+                "field": field_name,
+                "detail": _bounded_error_details(value),
+            })
+    if isinstance(status, Mapping) and _status_has_execution_error(status):
+        structured.append({
+            "code": "comfy_execution_error",
+            "field": "status.messages",
+            "detail": _bounded_status_message(messages),
+        })
+    evidence["structured_diagnostics"] = structured
+    if structured:
+        error = RuntimeNodeError(
+            f"Comfy reported structured final-output diagnostics for prompt {prompt_id!r}; "
+            "a top-level success status is not sufficient",
+            next_action="inspect the per-node diagnostics and correct the final output branch",
+        )
+        error.diagnostics = structured
+        error.output_verification = evidence
+        raise error
+    raw_outputs = entry.get("outputs") if isinstance(entry, Mapping) else None
+    if not isinstance(raw_outputs, Mapping):
+        error = RuntimeNodeError(
+            "Comfy completed without a structured output map for the declared "
+            f"final sink(s) {[str(output.node_id) for output in declared]}",
+            next_action="inspect the durable Comfy history/log and verify the final output declaration",
+        )
+        error.diagnostics = [{
+            "code": "missing_structured_outputs",
+            "declared_final_nodes": evidence["declared_final_nodes"],
+        }]
+        error.output_verification = evidence
+        raise error
+    available = {str(node_id) for node_id in raw_outputs}
+    evidence["available_output_nodes"] = sorted(available)
+    missing = [str(output.node_id) for output in declared if str(output.node_id) not in available]
+    if missing:
+        error = RuntimeNodeError(
+            f"Comfy completed without declared final output node(s) {missing}; "
+            f"available output nodes: {sorted(available)}. A preview or intermediate "
+            "artifact is not a successful final result.",
+            next_action="inspect the Comfy validation diagnostics and correct the final output branch",
+        )
+        error.diagnostics = [{
+            "code": "declared_final_output_missing",
+            "missing_nodes": missing,
+            "available_output_nodes": sorted(available),
+            "preview_or_intermediate_nodes": sorted(
+                available - {str(output.node_id) for output in declared}
+            ),
+        }]
+        error.output_verification = evidence
+        raise error
+    empty = []
+    contract_errors: list[dict[str, Any]] = []
+    for output in declared:
+        node_id = str(output.node_id)
+        entries = _collect_output_entries(raw_outputs[node_id])
+        if not entries:
+            empty.append(node_id)
+            continue
+        expected_cardinality = getattr(output, "expected_cardinality", None)
+        if str(expected_cardinality).lower() in {"one", "1"} and len(entries) != 1:
+            contract_errors.append({
+                "code": "declared_final_output_cardinality",
+                "node_id": node_id,
+                "expected": expected_cardinality,
+                "actual": len(entries),
+            })
+        expected_kind = str(getattr(output, "artifact_kind", "") or "").lower()
+        expected_mime = str(getattr(output, "mime_type", "") or "").lower()
+        for descriptor, path in entries:
+            filename = descriptor.get("filename") if isinstance(descriptor, Mapping) else None
+            if not isinstance(filename, str) or not filename.strip() or not isinstance(path, str) or not path.strip():
+                contract_errors.append({
+                    "code": "declared_final_output_empty_descriptor",
+                    "node_id": node_id,
+                })
+                continue
+            suffix = Path(filename).suffix.lower()
+            if expected_kind == "video" or expected_mime.startswith("video/"):
+                if suffix not in {".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v", ".gif"}:
+                    contract_errors.append({
+                        "code": "declared_final_output_not_video",
+                        "node_id": node_id,
+                        "filename": filename,
+                        "expected_mime": expected_mime or None,
+                    })
+    if empty:
+        error = RuntimeNodeError(
+            f"Comfy completed but declared final output node(s) {empty} produced no artifact; "
+            "an intermediate/preview artifact cannot satisfy the final output contract.",
+            next_action="inspect the durable Comfy history/log and correct the final sink inputs",
+        )
+        error.diagnostics = [{
+            "code": "declared_final_output_empty",
+            "empty_nodes": empty,
+            "available_output_nodes": sorted(available),
+        }]
+        error.output_verification = evidence
+        raise error
+    if contract_errors:
+        error = RuntimeNodeError(
+            f"Comfy completed but declared final output contract was not satisfied for node(s) "
+            f"{sorted({item.get('node_id') for item in contract_errors})}",
+            next_action="inspect the final artifact descriptors and correct the output sink contract",
+        )
+        error.diagnostics = contract_errors
+        error.output_verification = evidence
+        raise error
+    evidence["status"] = "final_output_produced"
+    evidence["artifact_nodes"] = sorted(
+        node_id for node_id in available if _collect_output_entries(raw_outputs[node_id])
+    )
+    return evidence
+
+
 def _git_sha() -> str | None:
     try:
         result = subprocess.run(
@@ -3371,21 +3974,87 @@ def _collect_output_entries(
     *,
     output_directory: str | Path | None = None,
 ) -> list[tuple[dict[str, Any] | None, str]]:
-    """Traverse history once, retaining each descriptor beside its path."""
+    """Traverse history once, retaining one entry per physical artifact.
+
+    ComfyUI's video sinks can expose the same saved file in both ``gifs`` and
+    ``images``.  Those are alternate descriptor views of one artifact, not two
+    final outputs.  Keep the first (usually the richer ``gifs`` descriptor) and
+    deduplicate by the descriptor's filename/subfolder/type identity.
+    """
+
     entries: list[tuple[dict[str, Any] | None, str]] = []
-    if isinstance(value, dict):
-        filename = value.get("filename")
-        if isinstance(filename, str):
-            return [(dict(value), _resolve_comfy_output_filename(value, output_directory))]
-        for key, item in value.items():
-            if key in {"abs_path", "path", "fullpath", "filename"} and isinstance(item, str):
-                entries.append((None, item))
-            else:
-                entries.extend(_collect_output_entries(item, output_directory=output_directory))
-    elif isinstance(value, list):
-        for item in value:
-            entries.extend(_collect_output_entries(item, output_directory=output_directory))
-    return entries
+
+    def visit(item: Any, *, source: str | None = None) -> None:
+        if isinstance(item, dict):
+            filename = item.get("filename")
+            if isinstance(filename, str):
+                descriptor = dict(item)
+                descriptor["descriptor_sources"] = [source or "descriptor"]
+                entries.append((descriptor, _resolve_comfy_output_filename(item, output_directory)))
+                return
+            for key, child in item.items():
+                if key in {"abs_path", "path", "fullpath", "filename"} and isinstance(child, str):
+                    entries.append((None, child))
+                else:
+                    visit(child, source=str(key))
+        elif isinstance(item, list):
+            for child in item:
+                visit(child, source=source)
+
+    visit(value)
+
+    unique: list[tuple[dict[str, Any] | None, str]] = []
+    index_by_key: dict[tuple[str, ...], int] = {}
+    for descriptor, path in entries:
+        if descriptor is not None:
+            key = (
+                "artifact",
+                str(descriptor.get("type") or "output").strip().lower(),
+                os.path.normcase(os.path.normpath(path)),
+            )
+        else:
+            key = ("artifact", "output", os.path.normcase(os.path.normpath(str(path))))
+        existing_index = index_by_key.get(key)
+        if existing_index is None:
+            index_by_key[key] = len(unique)
+            unique.append((descriptor, path))
+            continue
+        existing_descriptor, existing_path = unique[existing_index]
+        if descriptor is None:
+            continue
+        if existing_descriptor is None:
+            unique[existing_index] = (descriptor, path)
+            continue
+        merged = dict(existing_descriptor)
+        sources = list(merged.get("descriptor_sources") or [])
+        for source in descriptor.get("descriptor_sources") or []:
+            if source not in sources:
+                sources.append(source)
+        merged["descriptor_sources"] = sources
+        for field_name, field_value in descriptor.items():
+            if field_name in {"filename", "subfolder", "type", "descriptor_sources"}:
+                continue
+            if field_name in merged and merged[field_name] != field_value:
+                error = RuntimeNodeError(
+                    "Comfy history returned contradictory descriptors for one output artifact",
+                    next_action="inspect the final sink history and correct the conflicting descriptor metadata",
+                )
+                error.diagnostics = [{
+                    "code": "conflicting_comfy_output_descriptors",
+                    "artifact_path": existing_path,
+                    "field": field_name,
+                    "values": [merged[field_name], field_value],
+                    "descriptor_sources": sources,
+                }]
+                raise error
+            merged.setdefault(field_name, field_value)
+        unique[existing_index] = (merged, existing_path)
+    for index, (descriptor, path) in enumerate(unique):
+        if descriptor is not None and len(descriptor.get("descriptor_sources") or []) < 2:
+            descriptor = dict(descriptor)
+            descriptor.pop("descriptor_sources", None)
+            unique[index] = (descriptor, path)
+    return unique
 
 
 def _comfy_view_url(endpoint: str, descriptor: Mapping[str, Any]) -> str | None:
@@ -3414,6 +4083,7 @@ def _artifact_records(
     if not entries and fallback_paths:
         entries = [(None, path) for path in fallback_paths]
     records: list[dict[str, Any]] = []
+    remote_adapter = adapter_kind in {"external", "runpod_lifecycle"}
     for descriptor, output in entries:
         descriptor = descriptor or {}
         record: dict[str, Any] = {
@@ -3422,20 +4092,248 @@ def _artifact_records(
             "subfolder": descriptor.get("subfolder") or "",
             "type": descriptor.get("type") or "output",
             "descriptor": dict(descriptor) if descriptor else None,
-            "source": "external_comfy_server" if adapter_kind == "external" else "local_filesystem",
+            "source": (
+                "runpod_lifecycle"
+                if adapter_kind == "runpod_lifecycle"
+                else "external_comfy_server"
+                if remote_adapter
+                else "local_filesystem"
+            ),
         }
-        if adapter_kind == "external" and adapter_endpoint and descriptor:
+        if remote_adapter and adapter_endpoint and descriptor:
             record["location"] = _comfy_view_url(adapter_endpoint, descriptor)
             record["path"] = None
-        elif adapter_kind == "external":
+        elif remote_adapter:
             record["location"] = None
             record["path"] = None
-            record["location_reason"] = "Comfy history returned a path without a retrievable output descriptor."
+            record["location_reason"] = (
+                "Comfy history returned a path without a retrievable output descriptor."
+            )
         else:
             record["location"] = output
             record["path"] = output
         records.append(record)
     return records
+
+
+def _media_contract(workflow: VibeWorkflow) -> dict[str, Any]:
+    """Return the optional, source-authored media expectations."""
+    raw = workflow.metadata.get("media_contract")
+    return dict(raw) if isinstance(raw, Mapping) else {}
+
+
+def _probe_media_file(path: Path) -> dict[str, Any]:
+    """Run one bounded ffprobe and return only stable media facts."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return {"status": "unavailable", "reason": "ffprobe is not installed"}
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,width,height,duration:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"status": "unavailable", "reason": str(exc) or type(exc).__name__}
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "ffprobe failed").strip()
+        return {"status": "invalid", "reason": _bounded_terminal_value(detail)}
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return {"status": "invalid", "reason": f"ffprobe returned invalid JSON: {exc}"}
+    streams = payload.get("streams") if isinstance(payload, Mapping) else None
+    if not isinstance(streams, list):
+        streams = []
+    facts: dict[str, Any] = {
+        "status": "verified",
+        "video_streams": 0,
+        "audio_streams": 0,
+        "width": None,
+        "height": None,
+        "duration_sec": None,
+    }
+    durations: list[float] = []
+    for stream in streams:
+        if not isinstance(stream, Mapping):
+            continue
+        codec_type = stream.get("codec_type")
+        if codec_type == "video":
+            facts["video_streams"] += 1
+            if facts["width"] is None and isinstance(stream.get("width"), int):
+                facts["width"] = stream["width"]
+            if facts["height"] is None and isinstance(stream.get("height"), int):
+                facts["height"] = stream["height"]
+        elif codec_type == "audio":
+            facts["audio_streams"] += 1
+        try:
+            duration = float(stream.get("duration"))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if math.isfinite(duration) and duration > 0:
+            durations.append(duration)
+    format_info = payload.get("format") if isinstance(payload, Mapping) else None
+    if isinstance(format_info, Mapping):
+        try:
+            duration = float(format_info.get("duration"))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if math.isfinite(duration) and duration > 0:
+            durations.append(duration)
+    if durations:
+        facts["duration_sec"] = round(max(durations), 6)
+    return facts
+
+
+def _verify_declared_media(
+    workflow: VibeWorkflow,
+    artifacts: Sequence[Mapping[str, Any]],
+    *,
+    adapter_kind: str,
+    output_verification: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Verify declared media without treating a filename as a valid artifact."""
+    declared = [
+        output
+        for output in workflow.outputs
+        if str(getattr(output, "artifact_kind", "") or "").lower() in {"video", "audio"}
+        or str(getattr(output, "mime_type", "") or "").lower().startswith(("video/", "audio/"))
+    ]
+    if not declared:
+        return {"status": "not_required", "required": False, "artifacts": []}
+    contract = _media_contract(workflow)
+    require_audio = bool(contract.get("require_audio")) or any(
+        str(getattr(output, "artifact_kind", "") or "").lower() == "audio"
+        or str(getattr(output, "mime_type", "") or "").lower().startswith("audio/")
+        for output in declared
+    )
+    expected_dimensions = contract.get("expected_dimensions")
+    if isinstance(expected_dimensions, (list, tuple)) and len(expected_dimensions) == 2:
+        expected_width, expected_height = expected_dimensions
+    else:
+        expected_width = expected_height = None
+    expected_min_duration = contract.get("min_duration_sec")
+    try:
+        expected_min_duration = float(expected_min_duration) if expected_min_duration is not None else None
+    except (TypeError, ValueError):
+        expected_min_duration = None
+    if not artifacts:
+        detail = [{"code": "final_media_missing", "reason": "declared media sink produced no artifact"}]
+        error = RuntimeNodeError(
+            "declared final media could not be verified because no artifact was produced",
+            next_action="inspect the final sink history and retrieve the declared artifact",
+        )
+        error.diagnostics = detail
+        error.output_verification = {
+            **dict(output_verification or {}),
+            "media": {"status": "invalid", "required": True, "diagnostics": detail},
+        }
+        raise error
+    probed: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        raw_path = artifact.get("path") or artifact.get("reported_path")
+        path = Path(str(raw_path)) if isinstance(raw_path, str) and raw_path.strip() else None
+        # An external Comfy server may still share the local filesystem (for
+        # example, VibeComfy and ComfyUI running in the same RunPod pod).  Do
+        # not probe a filename-only remote artifact, but verify it whenever
+        # the caller supplied a concrete path and that path exists locally.
+        if path is None or not path.is_file():
+            probe = {
+                "status": "unavailable",
+                "reason": "artifact is not available on the local filesystem",
+            }
+        else:
+            probe = _probe_media_file(path)
+        item = {
+            "reported_path": artifact.get("reported_path"),
+            "path": str(path) if path is not None else None,
+            **probe,
+        }
+        probed.append(item)
+        if probe.get("status") != "verified":
+            diagnostics.append({"code": "final_media_unverified", **item})
+            continue
+        expected_video = any(
+            str(getattr(output, "artifact_kind", "") or "").lower() == "video"
+            or str(getattr(output, "mime_type", "") or "").lower().startswith("video/")
+            for output in declared
+        )
+        expected_audio = require_audio or any(
+            str(getattr(output, "artifact_kind", "") or "").lower() == "audio"
+            or str(getattr(output, "mime_type", "") or "").lower().startswith("audio/")
+            for output in declared
+        )
+        if expected_video and (probe.get("video_streams", 0) < 1 or not probe.get("width") or not probe.get("height")):
+            diagnostics.append({"code": "final_video_stream_missing", **item})
+        if expected_audio and probe.get("audio_streams", 0) < 1:
+            diagnostics.append({"code": "final_audio_stream_missing", **item})
+        if expected_min_duration is not None and (probe.get("duration_sec") or 0) < expected_min_duration:
+            diagnostics.append({
+                "code": "final_media_duration_too_short",
+                "expected_min_duration_sec": expected_min_duration,
+                **item,
+            })
+        if expected_width is not None and probe.get("width") != expected_width:
+            diagnostics.append({"code": "final_media_width_mismatch", "expected": expected_width, **item})
+        if expected_height is not None and probe.get("height") != expected_height:
+            diagnostics.append({"code": "final_media_height_mismatch", "expected": expected_height, **item})
+    result = {
+        "status": "verified" if not diagnostics else "invalid",
+        "required": True,
+        "adapter_kind": adapter_kind,
+        "require_audio": require_audio,
+        "artifacts": probed,
+        "diagnostics": diagnostics,
+    }
+    if diagnostics:
+        error = RuntimeNodeError(
+            "declared final media could not be verified: decodability or stream-property verification failed",
+            next_action="inspect the final media artifact and correct the output branch",
+        )
+        error.diagnostics = diagnostics
+        error.output_verification = {**dict(output_verification or {}), "media": result}
+        error.delivery_state = {
+            "execution": {
+                "status": "succeeded",
+                "evidence": "declared final artifact was attributed by current prompt history",
+            },
+            "verification": {"status": "failed", "diagnostics": diagnostics},
+            "retrieval": {
+                "status": (
+                    "failed"
+                    if adapter_kind == "external"
+                    else "succeeded"
+                    if any(item.get("path") and Path(str(item["path"])).is_file() for item in artifacts)
+                    else "not_required"
+                )
+            },
+            "artifacts": [dict(item) for item in artifacts],
+            "remote_artifacts": [
+                item.get("location")
+                for item in artifacts
+                if isinstance(item.get("location"), str) and item.get("location")
+            ],
+            "local_artifacts": [
+                item.get("path")
+                for item in artifacts
+                if isinstance(item.get("path"), str) and item.get("path")
+            ],
+            "retryable": adapter_kind == "external",
+        }
+        raise error
+    return result
 
 
 def _log_provenance(
@@ -3477,14 +4375,80 @@ def _external_log_locator(config: SessionConfig | None) -> str | None:
     return str(locator)
 
 
-def _resolve_comfy_output_filename(value: dict[str, Any], output_directory: str | Path | None) -> str:
-    filename = str(value["filename"])
-    if Path(filename).is_absolute() or output_directory is None:
-        return filename
-    subfolder = value.get("subfolder")
-    if isinstance(subfolder, str) and subfolder.strip():
-        return str(Path(output_directory) / subfolder / filename)
-    return str(Path(output_directory) / filename)
+def _unsafe_output_descriptor(
+    *, filename: Any, subfolder: Any, reason: str
+) -> RuntimeNodeError:
+    error = RuntimeNodeError(
+        "Comfy history returned an unsafe output descriptor",
+        next_action="inspect the final sink descriptor and keep it relative to an approved output root",
+    )
+    error.diagnostics = [{
+        "code": "unsafe_comfy_output_descriptor",
+        "filename": filename,
+        "subfolder": subfolder,
+        "reason": reason,
+    }]
+    return error
+
+
+def _normalized_descriptor_path(value: Mapping[str, Any]) -> PurePosixPath:
+    filename = value.get("filename")
+    subfolder = value.get("subfolder") or ""
+    if not isinstance(filename, str) or not filename.strip():
+        raise _unsafe_output_descriptor(
+            filename=filename, subfolder=subfolder, reason="filename is empty"
+        )
+    components: list[str] = []
+    for field_name, raw in (("subfolder", subfolder), ("filename", filename)):
+        if not isinstance(raw, str):
+            raise _unsafe_output_descriptor(
+                filename=filename,
+                subfolder=subfolder,
+                reason=f"{field_name} is not a string",
+            )
+        normalized = raw.replace("\\", "/").strip()
+        if not normalized:
+            continue
+        candidate = PurePosixPath(normalized)
+        if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+            raise _unsafe_output_descriptor(
+                filename=filename,
+                subfolder=subfolder,
+                reason=f"{field_name} is absolute or contains traversal",
+            )
+        if candidate.parts and candidate.parts[0].endswith(":"):
+            raise _unsafe_output_descriptor(
+                filename=filename,
+                subfolder=subfolder,
+                reason=f"{field_name} contains an absolute drive path",
+            )
+        components.extend(part for part in candidate.parts if part not in {"", "."})
+    if not components:
+        raise _unsafe_output_descriptor(
+            filename=filename, subfolder=subfolder, reason="descriptor has no relative path"
+        )
+    return PurePosixPath(*components)
+
+
+def _resolve_comfy_output_filename(
+    value: dict[str, Any], output_directory: str | Path | None
+) -> str:
+    relative = _normalized_descriptor_path(value)
+    if output_directory is None:
+        return relative.as_posix()
+    root = Path(output_directory).expanduser().resolve(strict=False)
+    candidate = (root / Path(*relative.parts)).resolve(strict=False)
+    try:
+        inside_root = candidate.is_relative_to(root)
+    except AttributeError:  # pragma: no cover - Python 3.8 compatibility
+        inside_root = str(candidate).startswith(str(root) + os.sep)
+    if not inside_root:
+        raise _unsafe_output_descriptor(
+            filename=value.get("filename"),
+            subfolder=value.get("subfolder"),
+            reason="resolved path escapes the configured output root",
+        )
+    return str(candidate)
 
 
 def _configured_output_directory(

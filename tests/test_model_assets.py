@@ -632,6 +632,32 @@ def test_model_install_policy_only_requires_registry_or_authored_downloadables(
     assert "patch.safetensors" not in message
 
 
+def test_workflow_local_nested_model_asset_does_not_require_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = VibeWorkflow("local-model", WorkflowSource("local-model"))
+    workflow.metadata["model_assets"] = [{
+        "name": "nested/local.safetensors",
+        "url": None,
+        "subdir": "diffusion_models",
+    }]
+    workflow.nodes["1"] = VibeNode(
+        "1", "UNETLoader", inputs={"unet_name": "nested/local.safetensors"}
+    )
+    model_path = tmp_path / "diffusion_models" / "nested" / "local.safetensors"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(b"model")
+    monkeypatch.setattr(
+        "vibecomfy.registry.models_loader.load_registry",
+        lambda: (_ for _ in ()).throw(AssertionError("local asset must not load registry")),
+    )
+
+    assets = _model_assets_from_workflow(workflow, models_root=tmp_path)
+    assert assets[0]["name"] == "nested/local.safetensors"
+    assert assets[0]["url"] is None
+    assert assets[0]["subdir"] == "diffusion_models"
+
+
 def test_real_wan_t2v_extracts_three_assets() -> None:
     entries = extract_from_raw_workflow(load_workflow_json("ready_templates/sources/official/video/wan_t2v.json"))
 

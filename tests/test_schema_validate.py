@@ -118,6 +118,56 @@ def test_unknown_input_emits_error() -> None:
     assert report.issues[0].detail == {"node_id": "1", "class_type": "PromptNode", "input": "extra"}
 
 
+def test_controller_dependent_inputs_are_validated_from_observed_schema() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "VHS_VideoCombine": _schema(
+                "VHS_VideoCombine",
+                {
+                    "format": InputSpec(
+                        "CHOICE",
+                        choices=["video/h264-mp4", "video/webm"],
+                        dynamic_fields={
+                            "video/h264-mp4": ("crf", "pix_fmt", "save_metadata", "trim_to_audio"),
+                            "video/webm": ("crf", "pix_fmt", "save_metadata", "trim_to_audio"),
+                        },
+                    ),
+                    "images": InputSpec("IMAGE", required=True),
+                },
+            )
+        }
+    )
+    good = validate_api_against_schema(
+        {
+            "1": {
+                "class_type": "VHS_VideoCombine",
+                "inputs": {
+                    "images": ["0", 0],
+                    "format": "video/h264-mp4",
+                    "crf": 19,
+                    "pix_fmt": "yuv420p",
+                    "save_metadata": False,
+                    "trim_to_audio": True,
+                },
+            }
+        },
+        provider,
+    )
+    assert not good
+
+    bad = validate_api_against_schema(
+        {
+            "1": {
+                "class_type": "VHS_VideoCombine",
+                "inputs": {"images": ["0", 0], "format": "video/h264-mp4", "videopreview": {}},
+            }
+        },
+        provider,
+    )
+    assert [issue.code for issue in bad] == ["unknown_input"]
+    assert bad[0].detail["input"] == "videopreview"
+
+
 def test_value_out_of_range_emits_error() -> None:
     provider = FakeSchemaProvider({"AceNode": _schema("AceNode", {"bpm": InputSpec("INT", min=10)})})
     report = _workflow(VibeNode("1", "AceNode", inputs={"bpm": 2})).validate(schema_provider=provider)

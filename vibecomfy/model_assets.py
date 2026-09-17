@@ -126,14 +126,30 @@ def resolve_referenced_assets(
     prevents those final values from drifting away from the files staged by
     ``--ensure-models``.
     """
-    from vibecomfy.registry.models_loader import load_registry
+    authored_raw = getattr(workflow, "metadata", {}).get("model_assets", [])
+    authored = tuple(
+        item for item in _normalise_requirement_entries(authored_raw)
+        if isinstance(item, Mapping)
+    ) if isinstance(authored_raw, (list, tuple)) else ()
+    entries: tuple[ModelEntry, ...] = tuple(registry) if registry is not None else ()
+    registry_loaded = registry is not None
 
-    entries = tuple(registry) if registry is not None else load_registry()
+    def registry_entries() -> tuple[ModelEntry, ...]:
+        nonlocal entries, registry_loaded
+        if not registry_loaded:
+            from vibecomfy.registry.models_loader import load_registry
+
+            entries = tuple(load_registry())
+            registry_loaded = True
+        return entries
+
     resolved: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for reference in _referenced_model_values(workflow):
-        asset = _asset_for_reference(reference, registry=entries)
+        asset = _asset_for_authored_reference(reference, authored)
+        if asset is None:
+            asset = _asset_for_reference(reference, registry=registry_entries())
         if asset is None:
             unresolved.append(_unresolved_asset_for_reference(reference))
             continue
@@ -178,7 +194,11 @@ def _entries_from_node(node: Mapping[str, Any]) -> Iterable[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for model in models:
         entry = _normalise_model_entry(model, class_type=class_type)
-        if entry is not None:
+        # Raw UI ``properties.models`` is a discovery hint, not an authored
+        # local-asset declaration. Keep URL-less entries in the canonical
+        # Python ModelAsset path, but do not make an incomplete UI hint look
+        # like a downloadable requirement.
+        if entry is not None and isinstance(entry.get("url"), str) and entry["url"].strip():
             entries.append(entry)
     return entries
 
@@ -287,6 +307,42 @@ def _asset_for_reference(
         asset["hf_revision"] = revision
     asset.update(_reference_metadata(reference, reference_type="registry-backed", downloadable=True))
     return asset
+
+
+def _asset_for_authored_reference(
+    reference: Mapping[str, str], authored: Sequence[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """Resolve a picker value against workflow-local ModelAsset declarations.
+
+    A local declaration is authoritative even when it has no URL and therefore
+    does not belong in the global registry. Matching is path-aware so nested
+    model names and category/subdirectory custody survive the runtime pass.
+    """
+    value = reference["value"].replace("\\", "/")
+    subdir = reference["subdir"].replace("\\", "/")
+    for raw in authored:
+        name = raw.get("name", raw.get("filename"))
+        declared_subdir = raw.get("subdir", raw.get("directory"))
+        if not isinstance(name, str) or not isinstance(declared_subdir, str):
+            continue
+        name = name.replace("\\", "/")
+        declared_subdir = declared_subdir.replace("\\", "/")
+        if declared_subdir != subdir:
+            continue
+        if value != name and value.rsplit("/", 1)[-1] != name.rsplit("/", 1)[-1]:
+            continue
+        asset = dict(raw)
+        asset["name"] = name
+        asset["subdir"] = declared_subdir
+        asset.update(
+            _reference_metadata(
+                reference,
+                reference_type="workflow-local",
+                downloadable=isinstance(asset.get("url"), str) and bool(asset["url"].strip()),
+            )
+        )
+        return asset
+    return None
 
 
 def _url_for_registry_entry(entry: ModelEntry) -> str | None:

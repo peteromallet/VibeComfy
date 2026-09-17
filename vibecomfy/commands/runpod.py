@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import importlib
 import json
 import os
 import shlex
@@ -9,6 +11,246 @@ import sys
 from pathlib import Path
 
 from vibecomfy.commands import runpod_setup
+from vibecomfy.runtime.session_binding import load_binding, write_binding
+
+
+def _load_runpod_lifecycle():
+    """Load the existing lifecycle package, including a sibling checkout."""
+    try:
+        return importlib.import_module("runpod_lifecycle")
+    except ImportError:
+        root = _runpod_lifecycle_root()
+        src = root / "src"
+        if not src.exists():
+            raise RuntimeError(
+                "runpod-lifecycle is not installed and its configured sibling checkout is unavailable"
+            )
+        if str(src) not in sys.path:
+            sys.path.insert(0, str(src))
+        try:
+            return importlib.import_module("runpod_lifecycle")
+        except Exception as exc:
+            raise RuntimeError(f"could not import runpod-lifecycle: {type(exc).__name__}: {exc}") from exc
+
+
+class BoundRunPodLifecycleAdapter:
+    """Use the existing lifecycle API for one explicitly bound pod.
+
+    Comfy's HTTP API remains the queue transport.  This adapter owns the
+    machine custody witness and the SSH-backed artifact/log retrieval, so a
+    named RunPod session cannot silently degrade into an unverified URL run.
+    It never provisions, restarts, or mutates the pod.
+    """
+
+    def __init__(self, binding: dict[str, object], *, session_id: str) -> None:
+        self.binding = dict(binding)
+        self.session_id = str(session_id)
+        self._pod = None
+        self._witness: dict[str, object] | None = None
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "provider": "runpod_lifecycle",
+            "operation": "attach/status/prepare/download/log",
+            "pod_id": self.binding.get("pod_id"),
+            "status": "not_attached",
+        }
+
+    async def attach(self) -> dict[str, object]:
+        if self._witness is not None:
+            return dict(self._witness)
+        lifecycle = _load_runpod_lifecycle()
+        pod_id = str(self.binding.get("pod_id") or "").strip()
+        if not pod_id:
+            raise RuntimeError("RunPod binding has no pod_id")
+        config = lifecycle.RunPodConfig.from_env()
+        pod = await lifecycle.get_pod(pod_id, config, name=self.session_id)
+        status = await pod.status()
+        if not isinstance(status, dict):
+            raise RuntimeError(f"RunPod lifecycle returned no status for bound pod {pod_id}")
+        self._pod = pod
+        self._witness = {
+            "provider": "runpod_lifecycle",
+            "operation": "attach/status/prepare/download/log",
+            "pod_id": pod_id,
+            "status": "attached",
+            "desired_status": status.get("desired_status"),
+            "actual_status": status.get("actual_status"),
+        }
+        return dict(self._witness)
+
+    def prepare(
+        self,
+        *,
+        workflow_reference: str | Path,
+        dependency_mode: str,
+        runtime_root: str | Path | None,
+        ensure_models: bool,
+        ensure_packs: bool,
+        offline: bool,
+        plan: dict[str, object],
+        runtime_target: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Run the shared VibeComfy preparation coordinator on the bound pod.
+
+        The lifecycle package owns pod custody and SSH transport; the VibeComfy
+        CLI on the pod remains the single preparation coordinator.  A binding
+        must therefore name the remote workflow path (or a configured remote
+        command can provide one).  We fail closed when that handoff is not
+        configured instead of pretending that local preparation affected the
+        pod.
+        """
+        return asyncio.run(
+            self._prepare_async(
+                workflow_reference=workflow_reference,
+                dependency_mode=dependency_mode,
+                runtime_root=runtime_root,
+                ensure_models=ensure_models,
+                ensure_packs=ensure_packs,
+                offline=offline,
+                plan=plan,
+                runtime_target=runtime_target,
+            )
+        )
+
+    async def _prepare_async(
+        self,
+        *,
+        workflow_reference: str | Path,
+        dependency_mode: str,
+        runtime_root: str | Path | None,
+        ensure_models: bool,
+        ensure_packs: bool,
+        offline: bool,
+        plan: dict[str, object],
+        runtime_target: dict[str, object] | None,
+    ) -> dict[str, object]:
+        pod = self._pod
+        if pod is None:
+            await self.attach()
+            pod = self._pod
+        if pod is None:
+            raise RuntimeError("RunPod lifecycle adapter did not attach a pod")
+        wait_ready = getattr(pod, "wait_ready", None)
+        if callable(wait_ready):
+            await wait_ready(timeout=60)
+
+        remote_reference = self.binding.get("remote_workflow") or self.binding.get("workflow_path")
+        if not isinstance(remote_reference, str) or not remote_reference.strip():
+            raise RuntimeError(
+                "RunPod binding has no remote_workflow; bind the workflow on the pod "
+                "before requesting lifecycle-backed preparation"
+            )
+        executable = self.binding.get("vibecomfy_executable")
+        if isinstance(executable, str) and executable.strip():
+            command = shlex.split(executable)
+        else:
+            target_python = self.binding.get("python_executable")
+            command = [str(target_python), "-m", "vibecomfy.cli"] if target_python else ["vibecomfy"]
+        if not command:
+            raise RuntimeError("RunPod binding has an empty vibecomfy_executable")
+        remote_root = str(
+            self.binding.get("remote_runtime_root")
+            or self.binding.get("runtime_root")
+            or Path(str(self.binding.get("comfy_root") or "/workspace")).parent
+        )
+        command.extend(
+            [
+                "prepare",
+                remote_reference.strip(),
+                "--session",
+                self.session_id,
+                "--deps",
+                str(dependency_mode),
+                "--runtime-root",
+                remote_root,
+                "--json",
+            ]
+        )
+        if not ensure_models:
+            command.append("--no-models")
+        if not ensure_packs:
+            command.append("--no-packs")
+        if offline:
+            command.append("--offline")
+        code, stdout, stderr = await pod.exec_ssh(shlex.join(command), timeout=600)
+        if code != 0:
+            detail = (stderr or stdout or "remote preparation failed").strip()
+            raise RuntimeError(f"remote VibeComfy preparation failed: {detail[-2000:]}")
+        response: dict[str, object] | None = None
+        try:
+            parsed = json.loads(stdout)
+            if isinstance(parsed, dict):
+                response = parsed
+        except (TypeError, ValueError):
+            response = None
+        return {
+            "provider": "runpod_lifecycle",
+            "operation": "prepare",
+            "pod_id": self.binding.get("pod_id"),
+            "status": "prepared",
+            "remote_workflow": remote_reference.strip(),
+            "remote_runtime_root": remote_root,
+            "dependency_mode": dependency_mode,
+            "plan": dict(plan),
+            "runtime_target": dict(runtime_target or {}),
+            "response": response,
+            "stdout_tail": stdout[-2000:] if isinstance(stdout, str) else "",
+        }
+
+    async def download_artifacts(self, *, local_root: Path) -> dict[str, object]:
+        pod = self._pod
+        if pod is None:
+            await self.attach()
+            pod = self._pod
+        if pod is None:
+            raise RuntimeError("RunPod lifecycle adapter did not attach a pod")
+        wait_ready = getattr(pod, "wait_ready", None)
+        if callable(wait_ready):
+            await wait_ready(timeout=60)
+        remote_root = str(self.binding.get("comfy_root") or "/workspace")
+        downloaded = await pod.download_archive(
+            remote_root,
+            local_root,
+            artifact_paths=["output", "out"],
+        )
+        return {
+            "provider": "runpod_lifecycle",
+            "status": "retrieved" if downloaded is not None else "unavailable",
+            "remote_root": remote_root,
+            "artifact_paths": ["output", "out"],
+            "local_root": str(downloaded or local_root),
+        }
+
+    async def capture_log(self, *, local_path: Path) -> dict[str, object]:
+        pod = self._pod
+        if pod is None:
+            await self.attach()
+            pod = self._pod
+        if pod is None:
+            raise RuntimeError("RunPod lifecycle adapter did not attach a pod")
+        remote_path = str(
+            self.binding.get("log_path")
+            or (Path(str(self.binding.get("comfy_root") or "/workspace")) / "comfy.log")
+        )
+        command = f"if [ -f {shlex.quote(remote_path)} ]; then cat {shlex.quote(remote_path)}; else exit 3; fi"
+        code, stdout, stderr = await pod.exec_ssh(command, timeout=60)
+        if code != 0:
+            return {
+                "provider": "runpod_lifecycle",
+                "status": "unavailable",
+                "remote_path": remote_path,
+                "local_path": None,
+                "reason": (stderr or stdout or "remote log was not found").strip()[:500],
+            }
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text(stdout, encoding="utf-8")
+        return {
+            "provider": "runpod_lifecycle",
+            "status": "captured",
+            "remote_path": remote_path,
+            "local_path": str(local_path),
+        }
 
 
 def _runpod_lifecycle_root() -> Path:
@@ -84,6 +326,49 @@ def _cmd_runpod_corpus_matrix(args: argparse.Namespace) -> int:
         print("scripts/runpod_corpus_matrix.py not found; run from the VibeComfy repo root", file=sys.stderr)
         return 1
     return subprocess.call([sys.executable, str(script)])
+
+
+def _cmd_runpod_bind(args: argparse.Namespace) -> int:
+    """Record custody for an existing pod without provisioning or mutating it."""
+    from vibecomfy.runtime.session_binding import binding_path
+
+    values = {
+        "pod_id": str(args.pod_id),
+        "comfy_root": str(args.comfy_root),
+        "python_executable": str(args.python_executable),
+        "custom_nodes_root": str(args.custom_nodes_root) if args.custom_nodes_root else None,
+        "models_root": str(args.models_root) if args.models_root else None,
+        "launch_flags": list(args.launch_flags or []),
+        "remote": True,
+    }
+    comfy_url = getattr(args, "comfy_url", None)
+    if comfy_url is not None and str(comfy_url).strip():
+        values["comfy_url"] = str(comfy_url).strip().rstrip("/")
+    log_path = getattr(args, "log_path", None)
+    if log_path is not None and str(log_path).strip():
+        values["log_path"] = str(log_path).strip()
+    for argument, key in (
+        ("remote_workflow", "remote_workflow"),
+        ("remote_runtime_root", "remote_runtime_root"),
+        ("vibecomfy_executable", "vibecomfy_executable"),
+    ):
+        value = getattr(args, argument, None)
+        if value is not None and str(value).strip():
+            values[key] = str(value).strip()
+    if any(not str(values[key]).strip() for key in ("pod_id", "comfy_root", "python_executable")):
+        print("runpod bind failed: pod_id, comfy_root, and python are required", file=sys.stderr)
+        return 2
+    path = binding_path(args.session, args.runtime_root)
+    existing = load_binding(args.session, args.runtime_root)
+    if existing and not args.replace:
+        if all(existing.get(key) == values.get(key) for key in ("pod_id", "comfy_root", "python_executable", "comfy_url")):
+            print(f"runpod binding already recorded: {path}")
+            return 0
+        print(f"runpod bind refused: {path} already names a different target; pass --replace", file=sys.stderr)
+        return 1
+    written = write_binding(args.session, values, args.runtime_root)
+    print(f"runpod binding recorded: {written}")
+    return 0
 
 
 def _cmd_runpod_prepare_comfy(args: argparse.Namespace) -> int:
@@ -344,6 +629,23 @@ def register(subparsers) -> None:
 
     runpod_corpus = runpod_sub.add_parser("corpus-matrix")
     runpod_corpus.set_defaults(func=_cmd_runpod_corpus_matrix)
+
+    bind = runpod_sub.add_parser("bind", help="Record a named binding for an existing pod; does not provision or mutate it.")
+    bind.add_argument("pod_id")
+    bind.add_argument("--session", required=True)
+    bind.add_argument("--comfy-root", required=True)
+    bind.add_argument("--python", dest="python_executable", required=True)
+    bind.add_argument("--custom-nodes-root")
+    bind.add_argument("--models-root")
+    bind.add_argument("--comfy-url", help="Reachable Comfy endpoint for this existing pod (optional).")
+    bind.add_argument("--log-path", help="Remote Comfy log path to capture through the lifecycle API (optional).")
+    bind.add_argument("--remote-workflow", help="Workflow path already present on the bound pod for lifecycle-backed prepare.")
+    bind.add_argument("--remote-runtime-root", help="Managed runtime root on the bound pod (defaults to the ComfyUI parent).")
+    bind.add_argument("--vibecomfy-executable", help="Remote VibeComfy CLI or command used by lifecycle-backed prepare (default: vibecomfy).")
+    bind.add_argument("--launch-flag", dest="launch_flags", action="append")
+    bind.add_argument("--runtime-root")
+    bind.add_argument("--replace", action="store_true")
+    bind.set_defaults(func=_cmd_runpod_bind)
 
     prepare = runpod_sub.add_parser("prepare-comfy")
     prepare.add_argument("--profile", choices=("baseline", "ltx"), default="baseline")

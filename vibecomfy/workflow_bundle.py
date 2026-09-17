@@ -19,12 +19,18 @@ import os
 import shlex
 import shutil
 import tempfile
+import uuid
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows has no fcntl
+    fcntl = None
 
 from vibecomfy.security.provenance import Provenance
 from vibecomfy.testing.canonical import canonical_digest, canonical_json
@@ -190,6 +196,23 @@ class _CompanionLoadContext:
 _COMPANION_LOAD_CONTEXT: ContextVar[_CompanionLoadContext | None] = ContextVar(
     "vibecomfy_companion_load_context", default=None
 )
+
+# Dependency planning may load a Python draft before its presentation
+# companion is available. This context only relaxes that source-load check;
+# canonical compile/materialize paths continue to fail closed.
+_UNRESOLVED_COMPANION_ERRORS: ContextVar[list[str] | None] = ContextVar(
+    "vibecomfy_unresolved_companion_errors", default=None
+)
+
+
+@contextmanager
+def unresolved_companion_context() -> Any:
+    errors: list[str] = []
+    token = _UNRESOLVED_COMPANION_ERRORS.set(errors)
+    try:
+        yield errors
+    finally:
+        _UNRESOLVED_COMPANION_ERRORS.reset(token)
 
 
 def _closed_keys(value: Mapping[str, Any], allowed: frozenset[str], where: str) -> None:
@@ -425,6 +448,8 @@ def _validate_v1_sidecar(
     workflow: VibeWorkflow,
     *,
     allow_annotations: bool = False,
+    drop_stale_links: bool = False,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Validate and canonically normalize one legacy presentation sidecar."""
     if not isinstance(sidecar, Mapping):
@@ -564,19 +589,59 @@ def _validate_v1_sidecar(
                     except WorkflowCompileError as exc:
                         raise WorkflowBundleError(str(exc)) from exc
             key = (scope, ref["from_uid"], from_port, ref["to_uid"], to_port)
-            if key not in expected: raise WorkflowBundleError(f"sidecar link {index} edge_ref does not match a Python semantic edge")
+            if key not in expected:
+                if drop_stale_links:
+                    # A legacy sidecar is presentation evidence.  A link
+                    # which no longer exists in Python is stale evidence, not
+                    # permission to re-add an executable edge.
+                    if diagnostics is not None:
+                        diagnostics.append({
+                            "code": "stale_companion_link_dropped",
+                            "kind": "edge",
+                            "link_index": index,
+                            "reference": copy.deepcopy(dict(ref)),
+                            "reason": "edge is absent from Python semantic authority",
+                        })
+                    continue
+                raise WorkflowBundleError(
+                    f"sidecar link {index} edge_ref does not match a Python semantic edge"
+                )
         else:
             if not isinstance(ref.get("name"), str) or not ref["name"].strip(): raise WorkflowBundleError(f"sidecar link {index} virtual wire name must be nonblank")
             leg_index = _integer(ref.get("leg_index"), f"sidecar link {index} leg_index", nonnegative=True)
             legs = virtual.get((scope, ref["name"]))
             if legs is None or not any(leg[5] == leg_index for leg in legs):
-                raise WorkflowBundleError(f"sidecar link {index} virtual_wire_ref does not match a Python materialized leg")
+                if drop_stale_links:
+                    if diagnostics is not None:
+                        diagnostics.append({
+                            "code": "stale_companion_link_dropped",
+                            "kind": "virtual_wire",
+                            "link_index": index,
+                            "reference": copy.deepcopy(dict(ref)),
+                            "reason": "virtual-wire leg is absent from Python semantic authority",
+                        })
+                    continue
+                raise WorkflowBundleError(
+                    f"sidecar link {index} virtual_wire_ref does not match a Python materialized leg"
+                )
             key = (scope, ref["name"], leg_index)
         occurrence = _integer(entry.get("occurrence_index"), f"sidecar link {index} occurrence_index", nonnegative=True)
         if has_virtual:
             legs = virtual.get((scope, ref["name"]))
             if legs is None or not any(leg[5] == key[2] and leg[6] == occurrence for leg in legs):
-                raise WorkflowBundleError(f"sidecar link {index} virtual_wire_ref does not match a Python materialized occurrence")
+                if drop_stale_links:
+                    if diagnostics is not None:
+                        diagnostics.append({
+                            "code": "stale_companion_link_dropped",
+                            "kind": "virtual_wire_occurrence",
+                            "link_index": index,
+                            "reference": copy.deepcopy(dict(ref)),
+                            "reason": "virtual-wire occurrence is absent from Python semantic authority",
+                        })
+                    continue
+                raise WorkflowBundleError(
+                    f"sidecar link {index} virtual_wire_ref does not match a Python materialized occurrence"
+                )
         seen_occ.setdefault(key, []).append(occurrence)
         if "id" in entry:
             native = _integer(entry["id"], f"sidecar link {index} id")
@@ -1192,6 +1257,20 @@ def _v2_companion_for_build(
     metadata: Mapping[str, Any],
     source_path: str | Path | None,
 ) -> dict[str, Any] | None:
+    try:
+        return _v2_companion_for_build_strict(metadata, source_path)
+    except WorkflowBundleError as exc:
+        errors = _UNRESOLVED_COMPANION_ERRORS.get()
+        if errors is None:
+            raise
+        errors.append(str(exc))
+        return None
+
+
+def _v2_companion_for_build_strict(
+    metadata: Mapping[str, Any],
+    source_path: str | Path | None,
+) -> dict[str, Any] | None:
     """Load and validate marked custody before the first workflow constructor."""
     marker_value = metadata.get("source_bundle")
     if marker_value is None:
@@ -1446,6 +1525,8 @@ def _ui_candidate_sidecar(workflow: VibeWorkflow, candidate: Mapping[str, Any]) 
 def _presentation_payload(
     workflow: VibeWorkflow,
     candidate: Mapping[str, Any] | None,
+    *,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if candidate is None:
         return {"nodes": {}, "links": [], "groups": [], "canvas": {}, "annotations": []}
@@ -1462,11 +1543,40 @@ def _presentation_payload(
         else _ui_candidate_sidecar(workflow, candidate)
     )
     annotations = v1.pop("annotations", [])
-    validated = _validate_v1_sidecar(v1, workflow)
+    # Legacy links are useful layout custody only when Python still contains
+    # the corresponding edge.  The migration adapter drops stale links after
+    # validating their shape; it never turns a legacy link into a VibeEdge.
+    validated = _validate_v1_sidecar(
+        v1, workflow, drop_stale_links=True, diagnostics=diagnostics
+    )
     return {
         key: copy.deepcopy(validated[key])
         for key in ("nodes", "links", "groups", "canvas")
     } | {"annotations": _validate_annotations(annotations, workflow)}
+
+
+def _migrate_legacy_sidecar(
+    sidecar: Mapping[str, Any],
+    workflow: VibeWorkflow,
+    *,
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Normalize a legacy companion for one explicit bundle transaction.
+
+    The old v1 companion is presentation custody.  Its structurally valid
+    links may be retained only when they still describe Python-owned edges;
+    stale links are discarded.  Unknown fields, malformed links, identities,
+    and port evidence continue to fail closed instead of being guessed.
+    """
+    if not isinstance(sidecar, Mapping) or sidecar.get("format_version") != 1:
+        raise WorkflowBundleError("only format_version 1 companions can be migrated")
+    return _validate_v1_sidecar(
+        sidecar,
+        workflow,
+        allow_annotations="annotations" in sidecar,
+        drop_stale_links=True,
+        diagnostics=diagnostics,
+    )
 
 
 def _canonicalize_for_v2_pair(
@@ -1661,13 +1771,23 @@ def _build_v2_sidecar(
     operation: str,
     parent_revision: str,
     preserve_authored_graph: bool = False,
+    presentation_diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build one deterministic publication capsule around Python semantics."""
     from vibecomfy.porting.emit.emit_ready import canonical_v2_custody
 
-    custody = canonical_v2_custody(workflow, preserve_authored_graph=preserve_authored_graph)
+    # Validation canonicalizes numeric presentation fields (for example,
+    # helper positions) before they become durable custody.  Hash that exact
+    # normalized representation so legacy inline metadata using integer
+    # coordinates cannot produce a digest that immediately fails its own
+    # companion validation.
+    custody = _validate_v2_custody(
+        canonical_v2_custody(workflow, preserve_authored_graph=preserve_authored_graph)
+    )
     custody_digest = canonical_digest(custody)
-    presentation = _presentation_payload(workflow, candidate)
+    presentation = _presentation_payload(
+        workflow, candidate, diagnostics=presentation_diagnostics
+    )
     generation_id = canonical_digest(
         {
             "workflow_identity": workflow.id,
@@ -1988,7 +2108,15 @@ def _approval_preconditions(
             # still lets the bundle compiler retain the same diagnostics.
             pass
     requirements = getattr(workflow, "requirements", None)
-    for field_name in ("missing_models", "missing_nodes", "unsupported"):
+    # ``missing_nodes`` is an imported-workflow hint, not authoritative proof
+    # that a node is absent.  Older UI imports populate it before the local
+    # lockfile / target schema is consulted; treating it as a hard blocker here
+    # rejects an installed, pinned pack (the common H3 case).  Reconcile those
+    # names below with the actual schema and known pack class sets, and only
+    # fail when a class remains genuinely unresolved.  Models and unsupported
+    # features remain hard blockers because they have no equivalent local-pack
+    # witness that can safely discharge the declaration.
+    for field_name in ("missing_models", "unsupported"):
         values = getattr(requirements, field_name, ()) if requirements is not None else ()
         if values:
             raise WorkflowBundleError(
@@ -2019,11 +2147,20 @@ def _approval_preconditions(
             for node in workflow.nodes.values()
             if callable(get_schema) and get_schema(str(node.class_type)) is not None
         }
+        declared_missing_nodes = {
+            str(class_type)
+            for class_type in getattr(requirements, "missing_nodes", ())
+        }
+        # Canvas furniture can be present in an imported UI graph without
+        # being executable Comfy classes.  It must not turn into a false
+        # "genuinely absent" runtime dependency.
+        ui_only_classes = {"Note", "MarkdownNote", "Label (rgthree)"}
         missing_classes = sorted(
-            {str(node.class_type) for node in workflow.nodes.values()}
+            ({str(node.class_type) for node in workflow.nodes.values()} | declared_missing_nodes)
             - schema_classes
             - known_pack_classes
             - set(CORE_COMFY_CLASSES)
+            - ui_only_classes
         )
     except Exception as exc:
         raise WorkflowBundleError(
@@ -2419,16 +2556,28 @@ class WorkflowBundle:
     parent_revision: str = ""
     revision_id: str = ""
     authority_kind: str = "canonical"
+    unresolved: tuple[dict[str, Any], ...] = ()
 
     @property
     def workflow_identity(self) -> str:
         """Read-only identity derived from the workflow, never independently stored."""
         return self.workflow.id
 
+    @property
+    def is_unresolved(self) -> bool:
+        return self.authority_kind == "draft" or bool(self.unresolved)
+
     def require_canonical_authority(self, action: str) -> None:
         """Reject compatibility imports before any canonical consumer."""
         if self.authority_kind == "canonical":
             return
+        if self.authority_kind == "draft":
+            details = "; ".join(
+                str(item.get("message", item)) for item in self.unresolved
+            ) or "dependency or presentation evidence is not available"
+            raise WorkflowBundleError(
+                f"{action} requires a resolved workflow draft: {details}"
+            )
         if self.authority_kind != "import_evidence":
             raise WorkflowBundleError(
                 f"{action} rejected unknown workflow authority kind "
@@ -2579,6 +2728,7 @@ def _make_bundle(
     authority_kind: str | None = None,
     parent_revision: str = "",
     parent_evidence: Mapping[str, Any] | None = None,
+    unresolved: tuple[dict[str, Any], ...] = (),
 ) -> WorkflowBundle:
     # This ordering is intentional: identity checks precede sidecar checks,
     # semantic digesting, UI digesting, revision creation, and source writes.
@@ -2595,7 +2745,7 @@ def _make_bundle(
     bound_authority = (
         "import_evidence" if operation == "imported" else "canonical"
     ) if authority_kind is None else authority_kind
-    if bound_authority not in {"canonical", "import_evidence"}:
+    if bound_authority not in {"canonical", "import_evidence", "draft"}:
         raise WorkflowBundleError(f"unknown workflow authority kind {bound_authority!r}")
     revision_preimage = [workflow.id, semantic_digest, ui_digest, filtered, parent]
     if bound_authority == "import_evidence":
@@ -2642,6 +2792,7 @@ def _make_bundle(
         parent_revision=parent,
         revision_id=revision_id,
         authority_kind=bound_authority,
+        unresolved=tuple(copy.deepcopy(item) for item in unresolved),
     )
     return bundle
 
@@ -2735,6 +2886,7 @@ def load_bundle(
     trust: Provenance | None = None,
     *,
     schema_provider: Any = None,
+    allow_unresolved: bool = False,
 ) -> WorkflowBundle:
     """Load one canonical Python/compatibility reference as a candidate bundle."""
     if isinstance(reference, VibeWorkflow):
@@ -2761,7 +2913,11 @@ def load_bundle(
 
         # The compatibility CLI defaults to user confirmation.  Bundles keep
         # the actual typed trust value and let the restricted loader decide.
-        workflow = load_scratchpad(python_path, provenance_override=trust)
+        workflow = load_scratchpad(
+            python_path,
+            provenance_override=trust,
+            allow_unresolved=allow_unresolved,
+        )
     elif isinstance(resolved, Path) and resolved.suffix.lower() == ".json":
         if schema_provider is None:
             from vibecomfy.schema import get_authoring_schema_provider
@@ -2830,7 +2986,29 @@ def load_bundle(
                 python_path = candidate
             elif candidate.suffix.lower() == ".json":
                 operation = "imported"
-    sidecar = _read_sidecar(python_path or (Path(resolved) if isinstance(resolved, Path) else None))
+    unresolved: list[dict[str, Any]] = []
+    raw_unresolved = (
+        workflow.metadata.get("unresolved")
+        if isinstance(getattr(workflow, "metadata", None), Mapping)
+        else None
+    )
+    if allow_unresolved and isinstance(raw_unresolved, Mapping):
+        for kind, values in raw_unresolved.items():
+            if isinstance(values, (list, tuple)):
+                unresolved.extend(
+                    {"kind": str(kind), "message": str(value)} for value in values
+                )
+            elif values:
+                unresolved.append({"kind": str(kind), "message": str(values)})
+    try:
+        sidecar = _read_sidecar(
+            python_path or (Path(resolved) if isinstance(resolved, Path) else None)
+        )
+    except WorkflowBundleError as exc:
+        if not allow_unresolved:
+            raise
+        sidecar = None
+        unresolved.append({"kind": "companion", "message": str(exc)})
     source_provenance = getattr(getattr(workflow, "source", None), "provenance", {})
     # A ready/template reference is a declared identity, including aliases;
     # check it before any digesting so a registry stem cannot become identity.
@@ -2841,15 +3019,35 @@ def load_bundle(
         if isinstance(source_provenance, Mapping)
         else ""
     )
-    return _make_bundle(
-        workflow,
-        python_path=python_path,
-        ui_sidecar=sidecar,
-        provenance=source_provenance,
-        operation=operation,
-        parent_revision=loaded_parent,
-        parent_evidence=None,
-    )
+    bundle_kwargs = {
+        "python_path": python_path,
+        "provenance": source_provenance,
+        "operation": operation,
+        "parent_revision": loaded_parent,
+        "parent_evidence": None,
+        "authority_kind": ("draft" if unresolved and allow_unresolved else None),
+        "unresolved": tuple(unresolved),
+    }
+    try:
+        return _make_bundle(workflow, ui_sidecar=sidecar, **bundle_kwargs)
+    except WorkflowBundleError as exc:
+        # A legacy v1 companion may contain a link for an edge removed from
+        # Python since the last save.  Admit that pair as a migration
+        # candidate, retaining only the still-verifiable presentation links.
+        # Other legacy failures are deliberately re-raised: missing or
+        # unknown execution semantics must not be silently invented.
+        if not isinstance(sidecar, Mapping) or sidecar.get("format_version") != 1:
+            raise
+        migration_diagnostics: list[dict[str, Any]] = []
+        try:
+            migrated = _migrate_legacy_sidecar(
+                sidecar, workflow, diagnostics=migration_diagnostics
+            )
+        except WorkflowBundleError:
+            raise exc
+        if migration_diagnostics:
+            workflow.metadata["companion_diagnostics"] = migration_diagnostics
+        return _make_bundle(workflow, ui_sidecar=migrated, **bundle_kwargs)
 
 
 def _destination_path(destination: str | Path, workflow: VibeWorkflow) -> Path:
@@ -2913,7 +3111,257 @@ def emit_bundle(
     return bundle
 
 
+_TRANSACTION_VERSION = 1
+
+
+def _publish_lock_path(path: Path) -> Path:
+    return path.parent / f".{path.name}.vibe.lock"
+
+
+def _publish_transaction_path(path: Path) -> Path:
+    return path.parent / f".{path.name}.vibe.transaction.json"
+
+
+@contextmanager
+def _bundle_publish_lock(path: Path):
+    """Serialize pair publication without introducing another bundle store."""
+    lock_path = _publish_lock_path(path)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _write_publish_transaction(path: Path, record: Mapping[str, Any]) -> None:
+    """Durably replace the small publication journal under the pair lock."""
+    journal = _publish_transaction_path(path)
+    temporary: Path | None = None
+    try:
+        fd, raw_temporary = tempfile.mkstemp(
+            prefix=f".{journal.name}.", suffix=".tmp", dir=str(path.parent)
+        )
+        temporary = Path(raw_temporary)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(canonical_json(dict(record)))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        # ``os.rename`` is atomic on the supported local filesystems and is
+        # intentionally separate from the visible pair's ``os.replace`` so
+        # fault-injection of member publication still exercises the pair.
+        os.rename(temporary, journal)
+        temporary = None
+        directory_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+
+
+def _read_publish_transaction(path: Path) -> dict[str, Any] | None:
+    journal = _publish_transaction_path(path)
+    if not journal.is_file():
+        return None
+    record = _read_json_object(journal, label="workflow publication transaction")
+    if record.get("version") != _TRANSACTION_VERSION:
+        raise WorkflowBundleError("workflow publication transaction version is unsupported")
+    if not isinstance(record.get("transaction_id"), str) or not record["transaction_id"]:
+        raise WorkflowBundleError("workflow publication transaction has no transaction id")
+    members = record.get("members")
+    if not isinstance(members, list) or not members:
+        raise WorkflowBundleError("workflow publication transaction has no members")
+    if record.get("state") not in {"prepared", "publishing", "committed"}:
+        raise WorkflowBundleError("workflow publication transaction state is invalid")
+    return record
+
+
+def _member_digest_for_recovery(path: Path) -> str | None:
+    if path.is_symlink():
+        raise WorkflowBundleError(
+            f"workflow publication recovery found a symbolic-link member: {path}"
+        )
+    try:
+        return _sha256_file(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise WorkflowBundleError(
+            f"could not inspect workflow publication member {path}: {exc}"
+        ) from exc
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _recover_publish_transaction(path: Path) -> None:
+    """Recover or clean a journal left by a process interrupted mid-publish."""
+    record = _read_publish_transaction(path)
+    if record is None:
+        return
+    members = record["members"]
+    normalized: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for index, raw in enumerate(members):
+        if not isinstance(raw, Mapping):
+            raise WorkflowBundleError(
+                f"workflow publication transaction member {index} is invalid"
+            )
+        required = {
+            "destination", "staged", "staged_digest", "original_exists",
+            "original_digest", "backup",
+        }
+        if set(raw) != required:
+            raise WorkflowBundleError(
+                f"workflow publication transaction member {index} has an unsupported shape"
+            )
+        destination = Path(str(raw["destination"])).resolve()
+        staged = Path(str(raw["staged"])).resolve()
+        backup_raw = raw["backup"]
+        backup = Path(str(backup_raw)).resolve() if backup_raw is not None else None
+        if destination in seen:
+            raise WorkflowBundleError(
+                f"workflow publication transaction repeats member {destination}"
+            )
+        seen.add(destination)
+        if destination.parent != path.parent.resolve():
+            raise WorkflowBundleError(
+                f"workflow publication transaction member escapes bundle directory: {destination}"
+            )
+        if staged.parent != path.parent.resolve() or (
+            backup is not None and backup.parent != path.parent.resolve()
+        ):
+            raise WorkflowBundleError(
+                "workflow publication transaction temporary escapes bundle directory"
+            )
+        if type(raw["original_exists"]) is not bool:
+            raise WorkflowBundleError(
+                f"workflow publication transaction member {index} original_exists is invalid"
+            )
+        original_digest = raw["original_digest"]
+        if original_digest is not None and not isinstance(original_digest, str):
+            raise WorkflowBundleError(
+                f"workflow publication transaction member {index} original_digest is invalid"
+            )
+        staged_digest = raw["staged_digest"]
+        if not isinstance(staged_digest, str) or not staged_digest:
+            raise WorkflowBundleError(
+                f"workflow publication transaction member {index} staged_digest is invalid"
+            )
+        normalized.append({
+            "destination": destination,
+            "staged": staged,
+            "staged_digest": staged_digest,
+            "original_exists": raw["original_exists"],
+            "original_digest": original_digest,
+            "backup": backup,
+        })
+
+    restore: list[dict[str, Any]] = []
+    for item in normalized:
+        current = _member_digest_for_recovery(item["destination"])
+        original = item["original_digest"] if item["original_exists"] else None
+        staged = item["staged_digest"]
+        if record["state"] == "committed":
+            if current != staged:
+                raise WorkflowBundleError(
+                    "committed workflow publication transaction does not match its "
+                    f"staged member: {item['destination']}"
+                )
+        elif current == staged and current != original:
+            restore.append(item)
+        elif current != original:
+            raise WorkflowBundleError(
+                "workflow publication transaction found a concurrent member change; "
+                f"refusing to overwrite {item['destination']}; recover from "
+                f"{_publish_transaction_path(path)}"
+            )
+
+    errors: list[str] = []
+    for item in reversed(restore):
+        destination = item["destination"]
+        if item["original_exists"]:
+            backup = item["backup"]
+            if backup is None or not backup.is_file():
+                errors.append(f"original backup is missing for {destination}")
+                continue
+            try:
+                os.replace(backup, destination)
+            except OSError as exc:
+                errors.append(f"restore {destination}: {exc}")
+        else:
+            try:
+                destination.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                errors.append(f"remove new {destination}: {exc}")
+    cleanup_paths = [
+        item["staged"] for item in normalized
+    ] + [
+        item["backup"] for item in normalized if item["backup"] is not None
+    ]
+    if not errors:
+        for item in cleanup_paths:
+            try:
+                item.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                errors.append(f"cleanup {item}: {exc}")
+    if errors:
+        raise WorkflowBundleError(
+            "workflow publication recovery failed: " + "; ".join(errors)
+        )
+    try:
+        _publish_transaction_path(path).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise WorkflowBundleError(
+            f"workflow publication recovery could not remove its journal: {exc}"
+        ) from exc
+
+
 def _atomic_publish_pair(
+    path: Path,
+    source: str | bytes,
+    sidecar: Mapping[str, Any] | None,
+    *,
+    expected: WorkflowBundle | None = None,
+    expected_members: Mapping[str | Path, str | None] | None = None,
+    extra_members: Mapping[str | Path, bytes] | None = None,
+) -> None:
+    """Publish a complete pair under a lock with durable crash recovery."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _bundle_publish_lock(path):
+        _recover_publish_transaction(path)
+        _atomic_publish_pair_unlocked(
+            path,
+            source,
+            sidecar,
+            expected=expected,
+            expected_members=expected_members,
+            extra_members=extra_members,
+        )
+
+
+def _atomic_publish_pair_unlocked(
     path: Path,
     source: str | bytes,
     sidecar: Mapping[str, Any] | None,
@@ -2937,6 +3385,7 @@ def _atomic_publish_pair(
     backup_paths: list[Path] = []
     backup_contents: dict[Path, bytes] = {}
     replaced: set[Path] = set()
+    transaction_path = _publish_transaction_path(path)
     def cleanup(paths: list[Path]) -> list[str]:
         errors: list[str] = []
         for item in paths:
@@ -2953,6 +3402,7 @@ def _atomic_publish_pair(
         errors.extend(cleanup([temporary for temporary, _ in staged]))
         backed = {destination for _, destination in backups}
         errors.extend(cleanup([destination for _, destination in staged if destination in replaced and destination.exists() and destination not in backed]))
+        restore_errors: list[str] = []
         for backup, destination in reversed(backups):
             if destination not in replaced:
                 # Never restore the precondition snapshot over a concurrent
@@ -2967,10 +3417,23 @@ def _atomic_publish_pair(
                 else:
                     raise OSError("backup bytes unavailable")
             except OSError as restore_exc:
-                errors.append(f"restore {destination} from {backup}: {restore_exc}")
-        errors.extend(cleanup(backup_paths))
+                restore_errors.append(f"restore {destination} from {backup}: {restore_exc}")
+        errors.extend(restore_errors)
+        # A failed restore is itself recoverable state. Keep the backup and
+        # journal until a later invocation can retry it under the pair lock.
+        if not restore_errors:
+            errors.extend(cleanup(backup_paths))
         if errors:
-            raise WorkflowBundleError(f"publication failed: {exc}; rollback/cleanup failed: {'; '.join(errors)}") from exc
+            # Keep the journal and any failed-to-restore backup in place.  A
+            # later invocation can recover it under the same pair lock.
+            raise WorkflowBundleError(
+                f"publication failed: {exc}; rollback/cleanup failed: {'; '.join(errors)}"
+            ) from exc
+        errors.extend(cleanup([transaction_path]))
+        if errors:
+            raise WorkflowBundleError(
+                f"publication failed: {exc}; rollback/cleanup failed: {'; '.join(errors)}"
+            ) from exc
 
     try:
         source_payload = source.encode("utf-8") if isinstance(source, str) else source
@@ -3067,10 +3530,62 @@ def _atomic_publish_pair(
                         f"workflow bundle changed before publication: {member}; "
                         "reload it or choose an explicit --out destination"
                     )
+        transaction_members = []
         for temporary, destination in staged:
+            original = next(
+                (backup_destination for _backup, backup_destination in backups
+                 if backup_destination == destination),
+                None,
+            )
+            original_exists = original is not None
+            transaction_members.append({
+                "destination": str(destination.resolve()),
+                "staged": str(temporary.resolve()),
+                "staged_digest": _sha256_file(temporary),
+                "original_exists": original_exists,
+                "original_digest": (
+                    hashlib.sha256(backup_contents[destination]).hexdigest()
+                    if original_exists else None
+                ),
+                "backup": str(
+                    next(backup for backup, item in backups if item == destination).resolve()
+                ) if original_exists else None,
+            })
+        transaction_id = uuid.uuid4().hex
+        _write_publish_transaction(
+            path,
+            {
+                "version": _TRANSACTION_VERSION,
+                "transaction_id": transaction_id,
+                "state": "prepared",
+                "members": transaction_members,
+            },
+        )
+        for temporary, destination in staged:
+            _write_publish_transaction(
+                path,
+                {
+                    "version": _TRANSACTION_VERSION,
+                    "transaction_id": transaction_id,
+                    "state": "publishing",
+                    "members": transaction_members,
+                },
+            )
             os.replace(temporary, destination)
             replaced.add(destination)
+        _write_publish_transaction(
+            path,
+            {
+                "version": _TRANSACTION_VERSION,
+                "transaction_id": transaction_id,
+                "state": "committed",
+                "members": transaction_members,
+            },
+        )
         cleanup_errors = cleanup([temporary for temporary, _ in staged] + backup_paths)
+        if cleanup_errors:
+            raise WorkflowBundleError(f"publication cleanup failed: {'; '.join(cleanup_errors)}")
+        cleanup_errors = cleanup([transaction_path])
         if cleanup_errors:
             raise WorkflowBundleError(f"publication cleanup failed: {'; '.join(cleanup_errors)}")
     except BaseException as exc:
@@ -3272,7 +3787,11 @@ def emit_bundle_with_candidate(
     # same durable ids feed custody, layout, and export.
     workflow = _apply_candidate_node_identity(workflow, candidate)
     existing_candidate = (
-        _ui_candidate_sidecar(workflow, candidate)
+        candidate
+        if candidate is not None
+        and candidate.get("format_version") != 2
+        and set(candidate) >= _SIDECAR_KEYS
+        else _ui_candidate_sidecar(workflow, candidate)
         if candidate is not None and candidate.get("format_version") != 2
         else candidate
         if candidate is not None

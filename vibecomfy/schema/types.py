@@ -24,6 +24,11 @@ class InputSpec:
     max: int | float | None = None
     unresolved_choices: bool = False
     asset_kind: str | None = None
+    # Some Comfy nodes add inputs after a controller choice is selected.  VHS
+    # uses this shape for format-specific encoding controls (for example
+    # format=video/h264-mp4 exposes crf and pix_fmt).  Keep the observed
+    # controller-to-field contract instead of flattening those fields away.
+    dynamic_fields: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class OutputSpec:
@@ -135,6 +140,7 @@ def _schema_snapshot_digest(payload: Mapping[str, Any]) -> str:
 
 
 def _input_spec_payload(spec: Any) -> dict[str, Any]:
+    dynamic_fields = getattr(spec, "dynamic_fields", {}) or {}
     return {
         "type": getattr(spec, "type", None),
         "required": bool(getattr(spec, "required", False)),
@@ -144,6 +150,11 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
         "max": getattr(spec, "max", None),
         "unresolved_choices": bool(getattr(spec, "unresolved_choices", False)),
         "asset_kind": getattr(spec, "asset_kind", None),
+        "dynamic_fields": {
+            str(controller): [str(name) for name in fields]
+            for controller, fields in dynamic_fields.items()
+            if isinstance(fields, (list, tuple, set, frozenset))
+        }
     }
 
 
@@ -234,6 +245,13 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             max=spec.get("max") if isinstance(spec.get("max"), (int, float)) else None,
             unresolved_choices=spec.get("unresolved_choices") is True,
             asset_kind=spec.get("asset_kind") if isinstance(spec.get("asset_kind"), str) else None,
+            dynamic_fields={
+                str(controller): tuple(str(field) for field in fields if isinstance(field, str))
+                for controller, fields in (spec.get("dynamic_fields") or {}).items()
+                if isinstance(controller, str)
+                and isinstance(fields, Sequence)
+                and not isinstance(fields, (str, bytes, bytearray))
+            },
         )
     raw_outputs = raw.get("outputs")
     outputs = (

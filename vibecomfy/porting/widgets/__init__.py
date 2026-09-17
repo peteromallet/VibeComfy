@@ -21,6 +21,16 @@ from .compact_resolver import (
     widget_index_for_field,
     widget_value_for_field,
 )
+from .historical import (
+    HistoricalWidgetEvidence,
+    HistoricalWidgetMapping,
+    HistoricalWidgetMappingRefused,
+    HistoricalWidgetReconciliation,
+    PreservedWidgetSlot,
+    WidgetMappingRefusal,
+    admit_historical_widget_mappings,
+    reconcile_historical_widget_mappings,
+)
 from .schema import (
     WIDGET_SCHEMA,
     WIDGET_SEMANTIC_NAMES,
@@ -52,6 +62,15 @@ __all__ = [
     "widget_names_for_class",
     "widget_names_from_schema",
     "widget_value_for_field",
+    # .historical
+    "HistoricalWidgetEvidence",
+    "HistoricalWidgetMapping",
+    "HistoricalWidgetMappingRefused",
+    "HistoricalWidgetReconciliation",
+    "PreservedWidgetSlot",
+    "WidgetMappingRefusal",
+    "admit_historical_widget_mappings",
+    "reconcile_historical_widget_mappings",
     # .schema
     "WIDGET_SCHEMA",
     "WIDGET_SEMANTIC_NAMES",

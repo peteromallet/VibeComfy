@@ -331,7 +331,12 @@ def sync_runtime(
             if installer is not None:
                 action(package_specs, offline)
             else:
-                _install_packages(package_specs, offline, python=managed_python)
+                _install_packages(
+                    package_specs,
+                    offline,
+                    python=managed_python,
+                    package_indexes=req.package_indexes,
+                )
         except Exception as exc:
             failure_report = dict(report)
             failure_report.update(
@@ -429,12 +434,22 @@ def _managed_python(runtime_root: str | Path | None) -> Path | None:
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
-def _install_packages(specs: list[str], offline: bool, *, python: Path | None) -> None:
+def _install_packages(
+    specs: list[str],
+    offline: bool,
+    *,
+    python: Path | None,
+    package_indexes: Sequence[str] = (),
+) -> None:
     if python is None:
         raise RuntimeDependencyError("managed Python executable is unavailable")
     command = [str(python), "-m", "pip", "install", "--no-deps"]
     if offline:
         command.append("--no-index")
+    elif package_indexes:
+        command.extend(["--index-url", str(package_indexes[0])])
+        for index in package_indexes[1:]:
+            command.extend(["--extra-index-url", str(index)])
     subprocess.run([*command, *specs], check=True)
 
 

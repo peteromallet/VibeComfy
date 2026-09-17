@@ -18,6 +18,7 @@ from __future__ import annotations
 from vibecomfy.ingest.normalize import canonical_definition_links, canonical_definition_nodes, canonical_node_widgets, canonical_node_widgets_values
 
 import hashlib
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -313,6 +314,123 @@ def frozen_widget_names_by_uid(workflow: Any) -> Mapping[str, tuple[str, ...]]:
         names = snap.get("widget_names_sig") if isinstance(snap, Mapping) else None
         if isinstance(names, (list, tuple)) and names:
             result[str(uid)] = tuple(str(name) for name in names if name)
+    return result
+
+
+def historical_widget_evidence_for_uid(workflow: Any, uid: str) -> Any | None:
+    """Materialize the captured source roster for one node.
+
+    The existing frozen ``widget_names_sig`` table is intentionally kept as the
+    ordinary resolver's name authority.  This adapter packages that table with
+    the retained source values and identity needed by the historical admission
+    check.  It never consults current object-info or mutates the workflow.
+
+    ``source_digest`` is the retained raw-source revision when a more specific
+    source revision was not recorded.  A missing schema digest/version remains
+    visible to the admission check and therefore refuses automatic migration;
+    this helper does not manufacture one from today's schema.
+    """
+    snapshot = snapshot_of(workflow)
+    if snapshot is None:
+        return None
+    field_snapshot = getattr(snapshot, "field_snapshot", None)
+    if not isinstance(field_snapshot, Mapping):
+        return None
+    key = str(uid)
+    captured = field_snapshot.get(key)
+    if not isinstance(captured, Mapping):
+        return None
+
+    retained = getattr(snapshot, "workflow", None)
+    nodes = getattr(retained, "nodes", None)
+    node = None
+    if isinstance(nodes, Mapping):
+        node = nodes.get(key)
+        if node is None:
+            for candidate in nodes.values():
+                if str(getattr(candidate, "uid", "") or "") == key:
+                    node = candidate
+                    break
+    if node is None:
+        return None
+
+    raw_order = captured.get("widget_names_sig")
+    order = tuple(
+        name if isinstance(name, str) and name else None
+        for name in raw_order
+    ) if isinstance(raw_order, (list, tuple)) else ()
+
+    raw_widgets = getattr(node, "raw_widgets", None)
+    raw_values = getattr(raw_widgets, "values", None)
+    if isinstance(raw_values, (list, tuple)):
+        values = tuple(deepcopy(value) for value in raw_values)
+    else:
+        values_by_name = getattr(node, "widgets", None)
+        values_list: list[Any] = []
+        for index, name in enumerate(order):
+            positional = f"widget_{index}"
+            if isinstance(values_by_name, Mapping) and positional in values_by_name:
+                values_list.append(deepcopy(values_by_name[positional]))
+            elif isinstance(values_by_name, Mapping) and isinstance(name, str) and name in values_by_name:
+                values_list.append(deepcopy(values_by_name[name]))
+            else:
+                values_list.append(None)
+        values = tuple(values_list)
+
+    metadata = getattr(node, "metadata", None)
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    schema_source = metadata.get("schema_source")
+    schema_source = schema_source if isinstance(schema_source, Mapping) else {}
+    source = getattr(retained, "source", None)
+    source_provenance = getattr(source, "provenance", None)
+    source_provenance = source_provenance if isinstance(source_provenance, Mapping) else {}
+    source_revision = (
+        source_provenance.get("source_revision")
+        or source_provenance.get("revision")
+        or source_provenance.get("source_hash")
+        or getattr(snapshot, "source_digest", None)
+    )
+    source_span = (
+        metadata.get("source_span")
+        or metadata.get("python_span")
+        or metadata.get("source_location")
+    )
+    if not isinstance(source_span, str) or not source_span.strip():
+        source_path = getattr(source, "path", None) or getattr(source, "id", None) or "workflow"
+        source_span = f"{source_path}#node:{key}"
+
+    from vibecomfy.porting.widgets.historical import HistoricalWidgetEvidence
+
+    return HistoricalWidgetEvidence(
+        source_node_id=key,
+        class_type=str(captured.get("class_type") or getattr(node, "class_type", "")),
+        source_widget_order=order,
+        source_widget_values=values,
+        source_revision=source_revision,
+        source_schema_digest=(
+            schema_source.get("hash")
+            or schema_source.get("digest")
+            or schema_source.get("source_hash")
+        ),
+        source_schema_version=(
+            schema_source.get("version")
+            or schema_source.get("source_version")
+        ),
+        source_span=source_span,
+        evidence_source="workflow_snapshot.field_snapshot",
+    )
+
+
+def historical_widget_evidence_by_uid(workflow: Any) -> Mapping[str, Any]:
+    """Return adapters for every node with a retained frozen roster."""
+    snapshot = snapshot_of(workflow)
+    if snapshot is None or not isinstance(getattr(snapshot, "field_snapshot", None), Mapping):
+        return {}
+    result: dict[str, Any] = {}
+    for uid in snapshot.field_snapshot:
+        evidence = historical_widget_evidence_for_uid(workflow, str(uid))
+        if evidence is not None:
+            result[str(uid)] = evidence
     return result
 
 

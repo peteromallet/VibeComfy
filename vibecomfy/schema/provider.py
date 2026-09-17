@@ -1543,6 +1543,24 @@ class TargetSchemaProvider(RuntimeSchemaProvider):
             self._set_object_info(_run_async(self.object_info_async()))
         return self._object_info
 
+    def refresh(self) -> dict[str, Any]:
+        """Capture a new live generation for the same target.
+
+        Server sessions retain their provider between runs.  A node-pack
+        activation or Comfy restart can therefore make the cached in-memory
+        object_info stale even though the provider is still marked as a live
+        target.  The final reconciliation gate calls this explicit refresh
+        before admitting a projection.
+        """
+        self._object_info = None
+        self._active_server_url = None
+        self._object_info_digest = None
+        self._schemas = None
+        self._schemas_fully_loaded = False
+        self._schema_misses.clear()
+        self._set_object_info(_run_async(self.object_info_async()))
+        return self._object_info
+
     async def object_info_async(self) -> dict[str, Any]:
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
@@ -1861,6 +1879,19 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
             return None
         return value
 
+    dynamic_fields: dict[str, tuple[str, ...]] = {}
+    raw_formats = attrs.get("formats")
+    if isinstance(raw_formats, Mapping):
+        for controller_value, raw_rows in raw_formats.items():
+            if not isinstance(raw_rows, (list, tuple)):
+                continue
+            names: list[str] = []
+            for row in raw_rows:
+                if isinstance(row, (list, tuple)) and row and isinstance(row[0], str):
+                    names.append(row[0])
+            if names:
+                dynamic_fields[str(controller_value)] = tuple(dict.fromkeys(names))
+
     return InputSpec(
         type=str(typ) if typ is not None else None,
         required=required,
@@ -1870,6 +1901,7 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
         max=typed_bound(attrs.get("max")),
         unresolved_choices=attrs.get("unresolved_choices") is True,
         asset_kind="image" if attrs.get("image_upload") is True else None,
+        dynamic_fields=dynamic_fields,
     )
 
 def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:

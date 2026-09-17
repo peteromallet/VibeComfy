@@ -11,20 +11,280 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from vibecomfy.errors import QueueError, RuntimeNodeError
+from vibecomfy.errors import QueueError, RuntimeNodeError, WorkflowQueueError
 
 from vibecomfy.commands.logs import _cmd_logs
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
 from vibecomfy.artifacts import Artifact
 from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
-from vibecomfy.schema import NodeSchema
+from vibecomfy.schema import InputSpec, NodeSchema
 from vibecomfy.testing.canonical import canonical_digest
 from vibecomfy.runtime.session import SessionConfig
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
 from vibecomfy.workflow_bundle import WorkflowBundleError, load_bundle
 
 runtime_run_module = importlib.import_module("vibecomfy.runtime.run")
+
+
+def test_queue_server_prompt_rejects_structured_node_errors() -> None:
+    from vibecomfy.runtime.execution import queue_server_prompt
+
+    class Client:
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {
+                "prompt_id": "prompt-with-node-error",
+                "node_errors": {"90": {"class_type": "MiniMaxH3StreamLiveExtensionAVToVHS", "errors": ["missing crf"]}},
+            }
+
+    workflow = _workflow()
+    record, bundle = _approved(workflow)
+    with pytest.raises(WorkflowQueueError, match="missing crf") as caught:
+        asyncio.run(queue_server_prompt(record, bundle, client=Client()))
+    assert caught.value.completion_status == "Failed — final output rejected"
+    assert caught.value.output_verification["source"] == "comfy_queue_node_errors"
+
+
+def test_declared_output_contract_rejects_preview_when_final_sink_is_missing() -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("91", "MiniMaxH3FinalizeVHSOutput")]
+    history = {
+        "prompt-1": {
+            "outputs": {
+                "65": {"gifs": [{"filename": "preview.mp4"}]},
+            },
+            "status": {"status_str": "success", "completed": True, "messages": []},
+        }
+    }
+    with pytest.raises(RuntimeNodeError, match="declared final output node"):
+        session_module._validate_declared_output_contract(workflow, history, "prompt-1")
+
+
+def test_declared_output_contract_accepts_artifact_from_declared_sink() -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("90", "MiniMaxH3StreamLiveExtensionAVToVHS")]
+    history = {
+        "prompt-1": {
+            "outputs": {
+                "90": {"gifs": [{"filename": "final.mp4"}]},
+            },
+            "status": {"status_str": "success", "completed": True, "messages": []},
+        }
+    }
+    session_module._validate_declared_output_contract(workflow, history, "prompt-1")
+
+
+def test_declared_video_media_requires_bounded_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput(
+        "1", "SaveVideo", name="final", artifact_kind="video", mime_type="video/mp4"
+    )]
+    path = tmp_path / "final.mp4"
+    path.write_bytes(b"fixture")
+    monkeypatch.setattr(session_module.shutil, "which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({
+                "streams": [
+                    {"codec_type": "video", "width": 1280, "height": 720, "duration": "1.5"},
+                    {"codec_type": "audio", "duration": "1.5"},
+                ],
+                "format": {"duration": "1.5"},
+            }),
+            stderr="",
+        ),
+    )
+    result = session_module._verify_declared_media(
+        workflow,
+        [{"reported_path": str(path), "path": str(path)}],
+        adapter_kind="managed",
+    )
+    assert result["status"] == "verified"
+    assert result["artifacts"][0]["width"] == 1280
+    assert result["artifacts"][0]["audio_streams"] == 1
+
+
+def test_declared_video_media_does_not_accept_remote_filename_only() -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("1", "SaveVideo", artifact_kind="video", mime_type="video/mp4")]
+    with pytest.raises(RuntimeNodeError, match="media could not be verified") as caught:
+        session_module._verify_declared_media(
+            workflow,
+            [{"reported_path": "final.mp4", "path": None, "location": "https://remote.test/final.mp4"}],
+            adapter_kind="external",
+        )
+    assert caught.value.diagnostics[0]["code"] == "final_media_unverified"
+
+
+def test_declared_video_media_verifies_shared_filesystem_for_external_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("1", "SaveVideo", artifact_kind="video", mime_type="video/mp4")]
+    path = tmp_path / "final.mp4"
+    path.write_bytes(b"fixture")
+    monkeypatch.setattr(session_module.shutil, "which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr(
+        session_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({
+                "streams": [{"codec_type": "video", "width": 960, "height": 544}],
+                "format": {"duration": "10.8"},
+            }),
+            stderr="",
+        ),
+    )
+
+    result = session_module._verify_declared_media(
+        workflow,
+        [{"reported_path": str(path), "path": str(path)}],
+        adapter_kind="external",
+    )
+
+    assert result["status"] == "verified"
+    assert result["artifacts"][0]["video_streams"] == 1
+
+
+def test_external_media_retrieval_failure_is_incomplete_not_final_rejection() -> None:
+    record, _bundle = _approved(_workflow())
+    exc = RuntimeNodeError("remote artifact was not retrievable")
+    exc.output_verification = {
+        "status": "invalid",
+        "media": {
+            "status": "invalid",
+            "adapter_kind": "external",
+        },
+    }
+    evidence = session_module._runtime_failure_evidence(
+        record,
+        adapter_kind="external",
+        backend="api",
+        endpoint="https://comfy.example",
+        schema_provenance={},
+        queue_acceptance={"status": "accepted", "prompt_id": "p-retrieve"},
+        phase="output",
+        exc=exc,
+        queue_started=True,
+    )
+    assert evidence["terminal"]["completion_status"] == (
+        "Incomplete — generation verified but retrieval failed"
+    )
+
+
+def test_local_verification_failure_preserves_generation_delivery_states(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _workflow()
+    workflow.nodes["1"].class_type = "SaveVideo"
+    workflow.outputs = [
+        VibeOutput("1", "SaveVideo", artifact_kind="video", mime_type="video/mp4")
+    ]
+    local_path = tmp_path / "downloaded-artifacts/output/video/final.mp4"
+    local_path.parent.mkdir(parents=True)
+    local_path.write_bytes(b"not a decodable fixture")
+    monkeypatch.setattr(
+        session_module,
+        "_probe_media_file",
+        lambda _path: {"status": "invalid", "reason": "decode failed"},
+    )
+    output_verification = {"status": "final_output_produced", "prompt_id": "p-local"}
+
+    with pytest.raises(RuntimeNodeError) as caught:
+        session_module._verify_declared_media(
+            workflow,
+            [{
+                "reported_path": "video/final.mp4",
+                "path": str(local_path),
+                "location": "https://pod.test/view?filename=final.mp4&subfolder=video&type=output",
+            }],
+            adapter_kind="runpod_lifecycle",
+            output_verification=output_verification,
+        )
+
+    delivery = caught.value.delivery_state
+    assert delivery["execution"]["status"] == "succeeded"
+    assert delivery["retrieval"]["status"] == "succeeded"
+    assert delivery["verification"]["status"] == "failed"
+    record, _bundle = _approved(workflow)
+    evidence = session_module._runtime_failure_evidence(
+        record,
+        adapter_kind="runpod_lifecycle",
+        backend="api",
+        endpoint="https://pod.test",
+        schema_provenance={},
+        queue_acceptance={"status": "accepted", "prompt_id": "p-local"},
+        phase="verification",
+        exc=caught.value,
+        queue_started=True,
+    )
+    assert evidence["terminal"]["execution_state"] == "succeeded"
+    assert evidence["terminal"]["retrieval_state"] == "succeeded"
+    assert evidence["terminal"]["verification_state"] == "failed"
+    assert evidence["terminal"]["completion_status"] == "Failed — final output rejected"
+
+
+def test_declared_output_contract_persists_structured_diagnostics_for_preview_false_success() -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("91", "MiniMaxH3FinalizeVHSOutput")]
+    history = {
+        "prompt-1": {
+            "outputs": {"65": {"gifs": [{"filename": "preview.mp4"}]}},
+            "node_errors": {"90": {"errors": ["missing crf"]}},
+            "status": {
+                "status_str": "success",
+                "completed": True,
+                "messages": [["execution_start", {}], ["execution_success", {}]],
+            },
+        }
+    }
+    with pytest.raises(RuntimeNodeError) as caught:
+        session_module._validate_declared_output_contract(workflow, history, "prompt-1")
+    assert caught.value.diagnostics == [{
+        "code": "comfy_node_errors",
+        "field": "node_errors",
+        "detail": {"90": {"errors": ["missing crf"]}},
+    }]
+
+
+@pytest.mark.parametrize("missing", ["crf", "trim_to_audio", "pix_fmt", "save_metadata"])
+def test_final_output_chain_required_inputs_are_checked_against_live_schema(missing: str) -> None:
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput("1", "SaveImage", name="final", artifact_kind="video")]
+    workflow.nodes["1"].inputs.update({
+        "crf": 19,
+        "trim_to_audio": True,
+        "pix_fmt": "yuv420p",
+        "save_metadata": False,
+    })
+    workflow.nodes["1"].inputs.pop(missing)
+    record, bundle = _approved(workflow)
+
+    class _FinalSchemaProvider:
+        def get_schema(self, class_type):
+            assert class_type == "SaveImage"
+            return NodeSchema(
+                class_type,
+                None,
+                {
+                    name: InputSpec(required=True)
+                    for name in ("images", "filename_prefix", "crf", "trim_to_audio", "pix_fmt", "save_metadata")
+                },
+                [],
+            )
+
+    with pytest.raises(Exception, match=f"missing required input {missing}"):
+        session_module._prepare_runtime_prompt_with_evidence(
+            record,
+            bundle,
+            schema_provider=_FinalSchemaProvider(),
+        )
 
 
 def _workflow() -> VibeWorkflow:
@@ -405,6 +665,7 @@ def _run_one_shot_post_witness_failure(
             "reason_type": "OSError",
             "reason": "output collection failed",
             "acceptance_known": True,
+            "completion_status": "Incomplete — generation verified but retrieval failed",
         }
     elif failure_kind == "keyboard_interrupt":
         assert terminal == {
@@ -668,6 +929,16 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     assert metadata["log_provenance"] == result.log_provenance
     assert result.completion_path == str(Path(result.metadata_path).parent / "completion.json")
     completion = json.loads(Path(result.completion_path).read_text(encoding="utf-8"))
+    attempt = json.loads((Path(result.metadata_path).parent / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["status"] == result.status
+    assert attempt["completion_status"] == result.status
+    assert attempt["prompt_id"] == result.prompt_id
+    assert attempt["metadata_path"] == result.metadata_path
+    assert attempt["completion_path"] == result.completion_path
+    assert attempt["outputs"] == result.outputs
+    assert attempt["artifact_paths"] == result.outputs
+    assert attempt["log_path"] == result.log_path
+    assert attempt["log_provenance"] == result.log_provenance
     assert completion["run_id"] == result.run_id
     assert completion["prompt_id"] == result.prompt_id
     assert completion["status"] == "completed"
@@ -720,12 +991,12 @@ def test_artifact_records_keep_mixed_descriptors_and_paths_paired() -> None:
     )
 
     assert [artifact["reported_path"] for artifact in artifacts] == [
-        "remote.mp4",
+        "clips/remote.mp4",
         "/remote/second.png",
     ]
     assert artifacts == [
         {
-            "reported_path": "remote.mp4",
+            "reported_path": "clips/remote.mp4",
             "filename": "remote.mp4",
             "subfolder": "clips",
             "type": "output",
@@ -750,6 +1021,85 @@ def test_artifact_records_keep_mixed_descriptors_and_paths_paired() -> None:
             "location_reason": "Comfy history returned a path without a retrievable output descriptor.",
         },
     ]
+
+
+def test_artifact_records_deduplicate_comfy_video_descriptor_views() -> None:
+    outputs = {
+        "node": {
+            "gifs": [{
+                "filename": "continuation.mp4",
+                "subfolder": "video",
+                "type": "output",
+                "format": "video/h264-mp4",
+            }],
+            "images": [{
+                "filename": "continuation.mp4",
+                "subfolder": "video",
+                "type": "output",
+            }],
+            "animated": [True],
+        }
+    }
+
+    entries = session_module._collect_output_entries(outputs)
+
+    assert len(entries) == 1
+    assert entries[0][0]["format"] == "video/h264-mp4"
+    assert entries[0][0]["descriptor_sources"] == ["gifs", "images"]
+
+
+def test_artifact_records_keep_distinct_nested_paths_and_reject_conflicts() -> None:
+    outputs = {
+        "gifs": [
+            {"filename": "same.mp4", "subfolder": "video/a", "type": "output"},
+            {"filename": "same.mp4", "subfolder": "video/b", "type": "output"},
+        ],
+    }
+
+    entries = session_module._collect_output_entries(outputs)
+
+    assert [path for _descriptor, path in entries] == [
+        "video/a/same.mp4",
+        "video/b/same.mp4",
+    ]
+
+    contradictory = {
+        "gifs": [{
+            "filename": "same.mp4",
+            "subfolder": "video/a",
+            "type": "output",
+            "format": "video/h264-mp4",
+        }],
+        "images": [{
+            "filename": "same.mp4",
+            "subfolder": "video/a",
+            "type": "output",
+            "format": "image/gif",
+        }],
+    }
+    with pytest.raises(RuntimeNodeError) as caught:
+        session_module._collect_output_entries(contradictory)
+    assert caught.value.diagnostics[0]["code"] == "conflicting_comfy_output_descriptors"
+
+
+def test_nested_output_descriptor_resolves_under_configured_root_only(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    resolved = session_module._resolve_comfy_output_filename(
+        {
+            "filename": "masked_av_extension_00001-audio.mp4",
+            "subfolder": "video/nested",
+            "type": "output",
+        },
+        output_root,
+    )
+
+    assert Path(resolved) == output_root / "video/nested/masked_av_extension_00001-audio.mp4"
+    with pytest.raises(RuntimeNodeError) as caught:
+        session_module._resolve_comfy_output_filename(
+            {"filename": "escape.mp4", "subfolder": "../outside", "type": "output"},
+            output_root,
+        )
+    assert caught.value.diagnostics[0]["code"] == "unsafe_comfy_output_descriptor"
 
 
 def test_embedded_configuration_uses_hiddenswitch_configuration_object(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1246,6 +1596,137 @@ def test_cmd_run_auto_uses_active_session_for_schema_and_run(
     assert route_url == "http://warm.test"
     assert route_backend == "api"
     assert capsys.readouterr().err == ""
+
+
+def test_cmd_run_consumes_named_runpod_binding_endpoint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    args = argparse.Namespace(
+        path="edit/qwen_image_edit",
+        ready=True,
+        runtime="auto",
+        server_url=None,
+        session="migration",
+        runtime_root=str(tmp_path),
+        backend="api",
+        prompt=None,
+        seed=None,
+        steps=None,
+    )
+    run_calls: list[dict[str, object]] = []
+    monkeypatch.setattr("vibecomfy.commands.run.active_session_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.load_binding",
+        lambda *args, **kwargs: {
+            "pod_id": "pod-123",
+            "comfy_root": "/workspace/ComfyUI",
+            "python_executable": "/workspace/ComfyUI/.venv/bin/python",
+            "comfy_url": "https://pod-123-8188.proxy.runpod.net",
+            "launch_flags": ["--use-ck-attention"],
+        },
+    )
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+
+    def fake_run_sync(record, bundle, **kwargs):
+        run_calls.append(kwargs)
+        return types.SimpleNamespace(
+            run_id="run-bound",
+            prompt_id="prompt-bound",
+            outputs=[],
+            artifacts=[],
+            metadata_path="metadata.json",
+            log_path=None,
+            log_provenance={"available": False},
+            status="completed",
+            media_validated=False,
+        )
+
+    monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
+    assert _cmd_run(args) == 0
+    assert run_calls[0]["server_url"] == "https://pod-123-8188.proxy.runpod.net"
+    target = run_calls[0]["runtime_target"]
+    assert target["pod_id"] == "pod-123"
+    assert target["python_executable"] == "/workspace/ComfyUI/.venv/bin/python"
+    assert target["_runpod_lifecycle_adapter"].describe()["provider"] == "runpod_lifecycle"
+    assert capsys.readouterr().err == ""
+
+
+def test_cmd_run_routes_local_source_preparation_to_bound_lifecycle_coordinator(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "workflow.py"
+    source.write_text("# remote workflow is already staged on the pod\n", encoding="utf-8")
+    args = argparse.Namespace(
+        path=str(source),
+        ready=True,
+        runtime="auto",
+        server_url=None,
+        session="migration",
+        runtime_root=str(tmp_path),
+        backend="api",
+        prompt=None,
+        seed=None,
+        steps=None,
+        deps="sync",
+        ensure_models=False,
+        json=False,
+    )
+    prepare_calls: list[dict[str, object]] = []
+
+    class FakeLifecycleAdapter:
+        def __init__(self, binding, *, session_id):
+            assert binding["pod_id"] == "pod-123"
+            assert session_id == "migration"
+
+        def prepare(self, **kwargs):
+            prepare_calls.append(kwargs)
+            return {"provider": "runpod_lifecycle", "status": "prepared"}
+
+        def describe(self):
+            return {"provider": "runpod_lifecycle", "status": "attached"}
+
+    monkeypatch.setattr("vibecomfy.commands.runpod.BoundRunPodLifecycleAdapter", FakeLifecycleAdapter)
+    monkeypatch.setattr("vibecomfy.commands.run.active_session_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr("vibecomfy.commands.run.find_active_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "vibecomfy.commands.run.load_binding",
+        lambda *args, **kwargs: {
+            "pod_id": "pod-123",
+            "remote": True,
+            "comfy_root": "/workspace/runpod-slim/ComfyUI",
+            "python_executable": "/workspace/runpod-slim/ComfyUI/.venv/bin/python",
+            "comfy_url": "https://pod-123-8188.proxy.runpod.net",
+            "remote_workflow": "/workspace/workflows/workflow.py",
+        },
+    )
+    monkeypatch.setattr("vibecomfy.commands.run.get_schema_provider", lambda *args, **kwargs: None)
+    monkeypatch.setattr("vibecomfy.commands.run.load_bundle", lambda *args, **kwargs: _command_bundle())
+
+    def fake_run_sync(record, bundle, **kwargs):
+        return types.SimpleNamespace(
+            run_id="run-bound-prepared",
+            prompt_id="prompt-bound-prepared",
+            outputs=[],
+            artifacts=[],
+            metadata_path="metadata.json",
+            log_path=None,
+            log_provenance={"available": False},
+            status="completed",
+            media_validated=False,
+        )
+
+    monkeypatch.setattr("vibecomfy.commands.run.run_sync", fake_run_sync)
+    assert _cmd_run(args) == 0
+    assert len(prepare_calls) == 1
+    assert prepare_calls[0]["dependency_mode"] == "sync"
+    assert prepare_calls[0]["runtime_target"]["python_executable"].endswith("/python")
+    assert "status: completed" in capsys.readouterr().out
 
 
 def test_cmd_run_auto_without_active_session_falls_back_to_embedded(
@@ -1842,6 +2323,243 @@ def test_one_shot_run_dict_queue_result_sets_run_result_prompt_id(
 
     result = asyncio.run(runtime_run_module.run(*_approved(_make_one_shot_run_wf())))
     assert result.prompt_id == "dict-prompt-id"
+
+
+def test_bound_runpod_uses_lifecycle_adapter_and_same_attempt_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "https://pod-123-8188.proxy.runpod.net"
+
+    class FakeLifecycleAdapter:
+        calls: list[str] = []
+
+        def describe(self):
+            return {
+                "provider": "runpod_lifecycle",
+                "operation": "attach/status/download",
+                "pod_id": "pod-123",
+                "status": "not_attached",
+            }
+
+        async def attach(self):
+            self.calls.append("attach")
+            return {
+                "provider": "runpod_lifecycle",
+                "operation": "attach/status/download",
+                "pod_id": "pod-123",
+                "status": "attached",
+                "desired_status": "RUNNING",
+                "actual_status": "RUNNING",
+            }
+
+        async def download_artifacts(self, *, local_root: Path):
+            self.calls.append("download")
+            output = local_root / "output" / "final.png"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"fixture")
+            return {
+                "provider": "runpod_lifecycle",
+                "status": "retrieved",
+                "remote_root": "/workspace/ComfyUI",
+                "artifact_paths": ["output", "out"],
+                "local_root": str(local_root),
+            }
+
+        async def capture_log(self, *, local_path: Path):
+            self.calls.append("log")
+            return {
+                "provider": "runpod_lifecycle",
+                "status": "unavailable",
+                "remote_path": "/workspace/ComfyUI/comfy.log",
+                "local_path": None,
+                "reason": "fixture has no remote log",
+            }
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            return {"prompt_id": "lifecycle-prompt"}
+
+    async def fake_history(_url: str, prompt_id: str | None, config=None) -> dict:
+        return _successful_history(
+            prompt_id,
+            {"1": {"images": [{"filename": "final.png", "subfolder": "", "type": "output"}]}}
+        ) if prompt_id else {}
+
+    adapter = FakeLifecycleAdapter()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", fake_history)
+
+    workflow = _make_one_shot_run_wf()
+    workflow.outputs = [VibeOutput("1", "SaveImage", name="final")]
+    result = asyncio.run(
+        runtime_run_module.run(
+            *_approved(workflow),
+            server_url="https://pod-123-8188.proxy.runpod.net",
+            runtime_target={"managed": True, "_runpod_lifecycle_adapter": adapter},
+        )
+    )
+
+    assert adapter.calls == ["attach", "download", "log"]
+    run_dir = Path(result.metadata_path).parent
+    attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
+    assert attempt["adapter"]["kind"] == "runpod_lifecycle"
+    assert attempt["adapter"]["lifecycle"]["status"] == "attached"
+    assert attempt["lifecycle_retrieval"]["status"] == "retrieved"
+    assert attempt["prompt_id"] == "lifecycle-prompt"
+    assert attempt["completion_path"] == result.completion_path
+    assert result.artifacts[0]["path"].endswith("downloaded-artifacts/output/final.png")
+    assert attempt["artifacts"][0]["path"] == result.artifacts[0]["path"]
+
+
+def test_bound_runpod_retrieval_failure_preserves_generation_and_delivery_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    queue_calls: list[str] = []
+
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "https://pod-123-8188.proxy.runpod.net"
+
+    class FakeLifecycleAdapter:
+        async def attach(self):
+            return {"provider": "runpod_lifecycle", "pod_id": "pod-123", "status": "attached"}
+
+        async def download_artifacts(self, *, local_root: Path):
+            raise OSError("archive connection closed")
+
+        async def capture_log(self, *, local_path: Path):
+            local_path.write_text("render completed before retrieval failed", encoding="utf-8")
+            return {
+                "provider": "runpod_lifecycle",
+                "status": "captured",
+                "remote_path": "/workspace/ComfyUI/comfy.log",
+                "local_path": str(local_path),
+            }
+
+    class FakeClient:
+        def __init__(self, _server_url: str) -> None:
+            pass
+
+        async def _post_prompt(self, _prompt: dict) -> dict:
+            queue_calls.append("queue")
+            return {"prompt_id": "generated-prompt"}
+
+    async def fake_history(_url: str, prompt_id: str | None, config=None) -> dict:
+        return _successful_history(
+            prompt_id,
+            {"1": {"gifs": [{
+                "filename": "final.mp4",
+                "subfolder": "video/nested",
+                "type": "output",
+            }]}},
+        ) if prompt_id else {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda _url: None)
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", fake_history)
+
+    workflow = _make_one_shot_run_wf()
+    workflow.outputs = [VibeOutput("1", "SaveImage", name="final")]
+    with pytest.raises(RuntimeNodeError, match="retrieval failed") as caught:
+        asyncio.run(
+            runtime_run_module.run(
+                *_approved(workflow),
+                server_url="https://pod-123-8188.proxy.runpod.net",
+                runtime_target={
+                    "managed": True,
+                    "_runpod_lifecycle_adapter": FakeLifecycleAdapter(),
+                },
+            )
+        )
+
+    assert queue_calls == ["queue"]
+    assert caught.value.completion_status == "Incomplete — generation verified but retrieval failed"
+    assert caught.value.delivery_state["execution"]["status"] == "succeeded"
+    assert caught.value.delivery_state["retrieval"]["status"] == "failed"
+    attempt_path = Path(caught.value.receipt_path)
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    assert attempt["prompt_id"] == "generated-prompt"
+    assert attempt["completion_status"] == "Incomplete — generation verified but retrieval failed"
+    assert attempt["terminal"]["execution_state"] == "succeeded"
+    assert attempt["terminal"]["verification_state"] == "pending"
+    assert attempt["terminal"]["retrieval_state"] == "failed"
+    assert attempt["artifacts"][0]["reported_path"] == "video/nested/final.mp4"
+    assert attempt["log_path"].endswith("runpod-comfy.log")
+
+
+def test_retry_delivery_reuses_attempt_without_queueing(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "out/runs/run-existing"
+    run_dir.mkdir(parents=True)
+    attempt_path = run_dir / "attempt.json"
+    attempt_path.write_text(json.dumps({
+        "queue_acceptance": {"status": "accepted", "prompt_id": "existing-prompt"},
+        "terminal": {
+            "phase": "retrieval",
+            "completion_status": "Incomplete — generation verified but retrieval failed",
+        },
+        "adapter": {"kind": "runpod_lifecycle"},
+        "artifacts": [{
+            "reported_path": "video/nested/final.mp4",
+            "filename": "final.mp4",
+            "subfolder": "video/nested",
+            "type": "output",
+            "location": "https://pod.test/view?filename=final.mp4&subfolder=video%2Fnested&type=output",
+            "path": None,
+        }],
+        "delivery_state": {
+            "execution": {"status": "succeeded"},
+            "verification": {"status": "pending"},
+            "retrieval": {"status": "failed"},
+            "retryable": True,
+        },
+    }), encoding="utf-8")
+
+    class RetryAdapter:
+        calls: list[str] = []
+
+        async def attach(self):
+            self.calls.append("attach")
+            return {"provider": "runpod_lifecycle", "status": "attached"}
+
+        async def download_artifacts(self, *, local_root: Path):
+            self.calls.append("download")
+            target = local_root / "output/video/nested/final.mp4"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"existing generation")
+            return {"status": "retrieved", "local_root": str(local_root)}
+
+        async def capture_log(self, *, local_path: Path):
+            self.calls.append("log")
+            local_path.write_text("existing prompt log", encoding="utf-8")
+            return {"status": "captured", "local_path": str(local_path)}
+
+    adapter = RetryAdapter()
+    result = asyncio.run(
+        runtime_run_module.retry_delivery(attempt_path, lifecycle_adapter=adapter)
+    )
+
+    assert adapter.calls == ["attach", "download", "log"]
+    assert result["prompt_id"] == "existing-prompt"
+    assert result["delivery_state"]["retrieval"]["status"] == "succeeded"
+    assert result["artifacts"][0]["path"].endswith(
+        "downloaded-artifacts/output/video/nested/final.mp4"
+    )
+    updated = json.loads(attempt_path.read_text(encoding="utf-8"))
+    assert updated["queue_acceptance"]["prompt_id"] == "existing-prompt"
+    assert updated["terminal"]["phase"] == "delivery_retry"
+    assert updated["terminal"]["retrieval_state"] == "succeeded"
 
 
 def test_one_shot_run_object_queue_result_sets_run_result_prompt_id(

@@ -20,10 +20,12 @@ from vibecomfy.workflow_bundle import (
     WorkflowBundle,
     WorkflowBundleError,
     _build_v2_sidecar,
+    _generated_metadata_expressions,
     _import_identity,
     _resolve_reference,
     _sidecar_path,
     _sidecar_ui_digest,
+    _migrate_legacy_sidecar,
     _source_provenance,
     _split_import_api,
     _validate_v2_marker,
@@ -111,6 +113,16 @@ def _digest_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _has_v2_source_marker(payload: bytes | None) -> bool:
+    if payload is None:
+        return False
+    try:
+        _expressions, values = _generated_metadata_expressions(payload)
+    except WorkflowBundleError:
+        return False
+    return isinstance(values.get("source_bundle"), Mapping)
+
+
 def _is_canonical_python_source(bundle: WorkflowBundle, python_path: Path) -> bool:
     """Return whether the source is exactly a VibeComfy-rendered representation.
 
@@ -121,12 +133,15 @@ def _is_canonical_python_source(bundle: WorkflowBundle, python_path: Path) -> bo
     different provenance in that call, but their graph-building code must
     still match one of VibeComfy's canonical renderers.
     """
-    if bundle.ui_sidecar is None:
-        return False
     try:
         actual = python_path.read_bytes()
         workflow = bundle.workflow.copy()
-        workflow.metadata["source_bundle"] = _v2_marker(bundle.ui_sidecar)
+        legacy_source = not (
+            isinstance(bundle.ui_sidecar, Mapping)
+            and bundle.ui_sidecar.get("format_version") == 2
+        )
+        if not legacy_source:
+            workflow.metadata["source_bundle"] = _v2_marker(bundle.ui_sidecar)
         provenance = _source_provenance(bundle.provenance)
         from vibecomfy.porting.emit import emit_scratchpad_python
 
@@ -136,7 +151,20 @@ def _is_canonical_python_source(bundle: WorkflowBundle, python_path: Path) -> bo
             source_path=str(python_path),
             provenance=provenance,
             external_custody=True,
+        ).encode("utf-8") if not legacy_source else emit_scratchpad_python(
+            workflow,
+            workflow_id=workflow.id,
+            source_path=str(python_path),
+            provenance=provenance,
+            external_custody=False,
         ).encode("utf-8")
+
+        # Legacy generated sources carry their verified execution custody in
+        # constructor/finalize metadata rather than a v2 companion marker.
+        # Compare the whole source before allowing an IR rewrite; only the
+        # modern v2 path has a generated marker that can be replaced in place.
+        if legacy_source:
+            return actual == scratchpad
 
         expected_marker = _v2_marker(bundle.ui_sidecar)
 
@@ -383,40 +411,53 @@ def _manual_capture_input(
 
     sidecar_path = _sidecar_path(python_path)
     sidecar_bytes, _digest = _read_member(sidecar_path)
-    if sidecar_bytes is None:
-        raise BundleTransitionError(
-            "capture requires a generated workflow.py with its sibling .vibe.json companion"
-        )
-    try:
-        old_sidecar = json.loads(sidecar_bytes.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise BundleTransitionError(f"workflow companion is not valid JSON: {exc}") from exc
-    if not isinstance(old_sidecar, Mapping) or old_sidecar.get("format_version") != 2:
-        raise BundleTransitionError(
-            "capture supports generated VibeComfy v2 workflow bundles only"
-        )
+    old_sidecar: Mapping[str, Any] | None = None
+    if sidecar_bytes is not None:
+        try:
+            decoded_sidecar = json.loads(sidecar_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise BundleTransitionError(f"workflow companion is not valid JSON: {exc}") from exc
+        if not isinstance(decoded_sidecar, Mapping):
+            raise BundleTransitionError("workflow companion must contain a JSON object")
+        if decoded_sidecar.get("format_version") not in {1, 2}:
+            raise BundleTransitionError(
+                "capture supports generated VibeComfy v1/v2 workflow bundles only"
+            )
+        old_sidecar = decoded_sidecar
 
     # The active GateContext owns prompting and the explicit --yes audit path.
     # USER_CONFIRMED would preconfirm external code and silently skip that gate.
     workflow = load_scratchpad(python_path)
-    bind = old_sidecar.get("bind")
+    bind = old_sidecar.get("bind") if old_sidecar is not None else None
     # The generated loader validates the source marker and uses it to recover
     # custody metadata, then normalizes it out of workflow.metadata. The
     # companion's bind record remains the stable identity check after load.
-    if not isinstance(bind, Mapping):
-        raise BundleTransitionError("capture requires a generated companion identity marker")
-    if bind.get("workflow_identity") != workflow.id:
+    if old_sidecar is not None and not isinstance(bind, Mapping):
+        raise BundleTransitionError("capture requires a companion identity marker")
+    if isinstance(bind, Mapping) and bind.get("workflow_identity") != workflow.id:
         raise BundleTransitionError(
             "captured Python workflow identity differs from its sibling companion"
         )
 
     candidate: Mapping[str, Any] | None
-    try:
-        candidate = validate_sidecar(old_sidecar, workflow)
-    except WorkflowBundleError:
-        # Explicit capture authorizes replacing stale presentation, not
-        # changing source identity or bypassing Python's trust boundary.
+    if old_sidecar is None:
         candidate = None
+    else:
+        try:
+            candidate = validate_sidecar(old_sidecar, workflow)
+        except WorkflowBundleError:
+            if old_sidecar.get("format_version") != 1:
+                # Explicit capture authorizes replacing stale presentation,
+                # not changing source identity or bypassing Python's trust
+                # boundary.
+                candidate = None
+            else:
+                try:
+                    candidate = _migrate_legacy_sidecar(old_sidecar, workflow)
+                except WorkflowBundleError as exc:
+                    raise BundleTransitionError(
+                        f"legacy companion cannot be migrated safely: {exc}"
+                    ) from exc
     source_provenance = getattr(getattr(workflow, "source", None), "provenance", {})
     clean_provenance = dict(source_provenance) if isinstance(source_provenance, Mapping) else {}
     clean_provenance["operation"] = "captured"
@@ -772,7 +813,9 @@ def transition_bundle(
         candidate_source = candidate_payloads[candidate_path]
         if candidate_source is None:
             raise BundleTransitionError("capture Python candidate disappeared while it was being loaded")
-        preserved_python_source = candidate_source
+        preserved_python_source = (
+            candidate_source if _has_v2_source_marker(candidate_source) else None
+        )
     elif direct_capture:
         try:
             workflow, candidate_ui, provenance = _manual_capture_input(source_path)
@@ -857,7 +900,11 @@ def transition_bundle(
             },)
         )
         operation = "captured"
-        preserved_python_source = payloads[source_path]
+        preserved_python_source = (
+            payloads[source_path]
+            if _has_v2_source_marker(payloads[source_path])
+            else None
+        )
     elif ui_capture:
         assert initial is not None
         if initial.python_path is None:
@@ -890,8 +937,6 @@ def transition_bundle(
         operation = "captured"
     else:
         assert initial is not None
-        if initial.ui_sidecar is None:
-            raise BundleTransitionError("workflow edits require a validated canonical .vibe.json companion")
         if not _is_canonical_python_source(initial, source_path):
             raise BundleTransitionError(
                 "workflow.py differs from the canonical generated source, so a typed edit "

@@ -535,6 +535,28 @@ def test_bundle_model_gate_rejects_metadata_model_not_registered(monkeypatch: py
         load_bundle(workflow).compile()
 
 
+def test_bundle_reconciles_imported_missing_node_hint_against_known_pack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An imported ``missing_nodes`` hint is cleared by a pinned pack witness."""
+    import vibecomfy.node_packs as node_packs
+    from vibecomfy.node_packs import CustomNodePack
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("imported-missing-node-hint")
+    workflow.requirements.missing_nodes.append("InstalledNode")
+    workflow.requirements.missing_nodes.append("Note")
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [])
+    monkeypatch.setattr(
+        node_packs,
+        "get_known_node_packs",
+        lambda _path: (CustomNodePack("InstalledPack", "local", frozenset({"InstalledNode"})),),
+    )
+
+    provider = type("Provider", (), {"get_schema": lambda _self, _class: None})()
+    assert _approval_preconditions(workflow, provider) == []
+
+
 def test_bundle_identity_comes_from_lock_and_schema_source(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
@@ -1132,6 +1154,211 @@ def test_rewriting_existing_pair_preserves_authored_presentation(tmp_path: Path)
     assert presentation["nodes"]["integer-node"]["pos"] == [101.0, 202.0]
     assert presentation["nodes"]["note"]["pos"] == [303.0, 404.0]
     assert presentation["annotations"][0]["content"] == "Keep this through an edit"
+
+
+def test_legacy_embedded_execution_metadata_migrates_to_v2_companion(
+    tmp_path: Path,
+) -> None:
+    """Verified legacy custody survives while Python remains executable authority."""
+    legacy_path = tmp_path / "legacy.py"
+    # This is the supported pre-v2 inline form: the helper roster is execution
+    # metadata carried by ``finalize(canonical_helpers=...)`` while native
+    # socket rosters remain source evidence.  It deliberately has no
+    # source_bundle marker or companion.
+    legacy_path.write_text(
+        "from vibecomfy.templates import ReadyMetadata, new_workflow, node\n"
+        "READY_METADATA = ReadyMetadata.build(\n"
+        "    capability='unknown', template_id='legacy-execution-custody',\n"
+        ")\n\n"
+        "def build():\n"
+        "    with new_workflow(READY_METADATA, source_path=__file__) as wf:\n"
+        "        source = node(\n"
+        "            'Source', '1', _outputs=('out',),\n"
+        "            _native_ports={'native_input_names': None, 'native_output_names': ['out'],\n"
+        "                'native_input_types': None, 'native_output_types': ['IMAGE'],\n"
+        "                'native_input_optional': None, 'native_input_asset_kinds': None,\n"
+        "                'native_output_slots': None},\n"
+        "        )\n"
+        "        target = node(\n"
+        "            'Target', '2',\n"
+        "            _native_ports={'native_input_names': ['in'], 'native_output_names': None,\n"
+        "                'native_input_types': ['IMAGE'], 'native_output_types': None,\n"
+        "                'native_input_optional': None, 'native_input_asset_kinds': None,\n"
+        "                'native_output_slots': None},\n"
+        "            _extras={'in': None, '0': source.out('out')},\n"
+        "        )\n"
+        "        wf = wf.finalize(\n"
+        "            {}, outputs=[],\n"
+        "            canonical_helpers=[{'id': 'legacy-helper', 'uid': 'legacy-helper',\n"
+        "                'class_type': 'Reroute', 'pos': [12, 24]}],\n"
+        "        )\n"
+        "        wf.strict_types = False\n"
+        "        return wf\n",
+        encoding="utf-8",
+    )
+    loaded = load_bundle(legacy_path, trust=Provenance.USER_CONFIRMED)
+    assert loaded.ui_sidecar is None
+    before_api = loaded.workflow.compile("api")
+
+    migrated_path = tmp_path / "migrated.py"
+    migrated = emit_bundle(loaded.workflow, migrated_path, {"operation": "authored"})
+    assert migrated.ui_sidecar is not None
+    helpers = migrated.ui_sidecar["custody"]["scopes"][0]["helpers"]
+    assert {item["uid"] for item in helpers} == {"legacy-helper"}
+
+    reopened = load_bundle(migrated_path, trust=Provenance.USER_CONFIRMED)
+    assert reopened.workflow.compile("api") == before_api
+    assert reopened.workflow.nodes["1"].native_output_types == ["IMAGE"]
+    assert reopened.workflow.nodes["2"].native_input_types == ["IMAGE"]
+
+
+def test_legacy_stale_link_is_dropped_and_deleted_python_edge_stays_deleted(
+    tmp_path: Path,
+) -> None:
+    """Legacy presentation links cannot resurrect a removed Python edge."""
+    from vibecomfy.porting.emit.entrypoints import emit_canonical_python
+
+    workflow = _connected_workflow()
+    path = tmp_path / "deleted-edge.py"
+    path.write_text(
+        emit_canonical_python(
+            workflow,
+            workflow_id=workflow.id,
+            source_path=str(path),
+            provenance={"operation": "authored"},
+            preserve_node_ids=True,
+        ),
+        encoding="utf-8",
+    )
+    # The current legacy emitter mints n<N> UIDs because it predates durable
+    # v2 source custody.  Build the old sidecar from that actually loaded
+    # source, so the test exercises stale-link migration rather than a UID
+    # repair that legacy migration is not allowed to guess.
+    legacy_loaded = load_bundle(path, trust=Provenance.USER_CONFIRMED)
+    legacy_workflow = legacy_loaded.workflow
+    legacy_nodes = {
+        str(node.uid): {"id": index, "class_type": node.class_type}
+        for index, node in enumerate(legacy_workflow.nodes.values(), start=1)
+    }
+    legacy_edge = legacy_workflow.edges[0]
+    legacy_source = legacy_workflow.nodes[str(legacy_edge.from_node)]
+    legacy_target = legacy_workflow.nodes[str(legacy_edge.to_node)]
+    legacy_sidecar = {
+        "format_version": 1,
+        "bind": {
+            "workflow_identity": legacy_workflow.id,
+            "semantic_digest": legacy_workflow.semantic_digest(),
+        },
+        "nodes": legacy_nodes,
+        "links": [{
+            "edge_ref": {
+                "scope_path": "",
+                "from_uid": legacy_source.uid,
+                "from_port": 0,
+                "to_uid": legacy_target.uid,
+                "to_port": 0,
+            },
+            "occurrence_index": 0,
+            "id": 9,
+        }],
+        "groups": [],
+        "canvas": {"zoom": 1, "pan": [0, 0]},
+    }
+    path.with_suffix(".vibe.json").write_text(
+        canonical_json(legacy_sidecar), encoding="utf-8"
+    )
+
+    deleted = workflow.copy()
+    deleted.edges = []
+    path.write_text(
+        emit_canonical_python(
+            deleted,
+            workflow_id=deleted.id,
+            source_path=str(path),
+            provenance={"operation": "authored"},
+            preserve_node_ids=True,
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_bundle(path, trust=Provenance.USER_CONFIRMED)
+    assert loaded.workflow.edges == []
+    assert loaded.ui_sidecar is not None
+    assert loaded.ui_sidecar["links"] == []
+    diagnostics = loaded.workflow.metadata.get("companion_diagnostics", [])
+    assert diagnostics[0]["code"] == "stale_companion_link_dropped"
+    assert diagnostics[0]["reference"]["to_uid"] == legacy_target.uid
+
+    emit_bundle(loaded.workflow, path, {"operation": "authored"})
+    reopened = load_bundle(path, trust=Provenance.USER_CONFIRMED)
+    assert reopened.workflow.edges == []
+    assert reopened.ui_sidecar["presentation"]["links"] == []
+
+
+def test_unknown_legacy_execution_semantics_refuse_without_replacing_pair(
+    tmp_path: Path,
+) -> None:
+    workflow = _connected_workflow()
+    path = tmp_path / "unknown-legacy.py"
+    emit_bundle(workflow, path, {"operation": "authored"})
+    before = {
+        path.name: path.read_bytes()
+        for path in (path, path.with_suffix(".vibe.json"))
+    }
+    candidate = _strict_sidecar(workflow)
+    candidate["execution"] = {"edges": ["not-a-verified-authority"]}
+
+    with pytest.raises(WorkflowBundleError, match="unknown field"):
+        emit_bundle_with_candidate(workflow, path, {"operation": "authored"}, candidate)
+    assert before == {
+        path.name: path.read_bytes()
+        for path in (path, path.with_suffix(".vibe.json"))
+    }
+
+
+def test_interrupted_publication_journal_recovers_original_pair(
+    tmp_path: Path,
+) -> None:
+    import vibecomfy.workflow_bundle as module
+
+    workflow = _connected_workflow()
+    path = tmp_path / "recover.py"
+    emit_bundle(workflow, path, {"operation": "authored"})
+    companion = path.with_suffix(".vibe.json")
+    originals = {path: path.read_bytes(), companion: companion.read_bytes()}
+
+    staged = {
+        path: tmp_path / ".recover.py.stage",
+        companion: tmp_path / ".recover.vibe.json.stage",
+    }
+    backups = {
+        path: tmp_path / ".recover.py.original.bak",
+        companion: tmp_path / ".recover.vibe.json.original.bak",
+    }
+    members = []
+    for destination in (path, companion):
+        staged[destination].write_bytes(b"interrupted replacement")
+        backups[destination].write_bytes(originals[destination])
+        members.append({
+            "destination": str(destination.resolve()),
+            "staged": str(staged[destination].resolve()),
+            "staged_digest": hashlib.sha256(staged[destination].read_bytes()).hexdigest(),
+            "original_exists": True,
+            "original_digest": hashlib.sha256(originals[destination]).hexdigest(),
+            "backup": str(backups[destination].resolve()),
+        })
+        destination.write_bytes(b"interrupted replacement")
+
+    module._write_publish_transaction(path, {
+        "version": module._TRANSACTION_VERSION,
+        "transaction_id": "interrupted-test",
+        "state": "publishing",
+        "members": members,
+    })
+    module._recover_publish_transaction(path)
+
+    assert {path: path.read_bytes(), companion: companion.read_bytes()} == originals
+    assert not module._publish_transaction_path(path).exists()
+    assert not any(item.exists() for item in (*staged.values(), *backups.values()))
 
 
 def test_sidecar_groups_are_sorted_and_duplicate_identity_rejected() -> None:

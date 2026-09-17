@@ -914,6 +914,25 @@ def _is_dynamic_payload_input(
     add class-specific validation below so dynamic inputs remain intentional.
     """
 
+    # ComfyUI supports controller-dependent payload fields.  Video Helper
+    # Suite's ``format`` input is the canonical example: selecting
+    # ``video/h264-mp4`` adds ``crf``, ``pix_fmt``, ``save_metadata`` and
+    # ``trim_to_audio``.  The fields are real execution inputs even though
+    # they are absent from the top-level object_info input map.  Accept only
+    # names observed under the selected controller value; do not turn this
+    # into a class-wide unknown-input escape hatch.
+    for controller, spec in (schema_inputs or {}).items():
+        dynamic_fields = getattr(spec, "dynamic_fields", {}) or {}
+        if not dynamic_fields:
+            continue
+        selected = (inputs or {}).get(controller)
+        if _is_api_link(selected):
+            allowed = {name for fields in dynamic_fields.values() for name in fields}
+        else:
+            allowed = set(dynamic_fields.get(selected, ()))
+        if input_name in allowed:
+            return True
+
     if class_type == "LTXVImgToVideoInplaceKJ":
         return _ltx_image_slot_index(input_name) is not None
     if class_type == "ImageConcatMulti":

@@ -154,6 +154,11 @@ def prepare_workflow(
     download_workers: int | None = None,
     quiet: bool = False,
     runtime_dependency_report: Mapping[str, Any] | None = None,
+    dependency_mode: str = "reuse",
+    runtime_target: Mapping[str, Any] | None = None,
+    server_url: str | None = None,
+    offline: bool | None = None,
+    remote_adapter: Any | None = None,
 ) -> PreparationResult:
     """Prepare once per runtime root, serializing setup across callers."""
     from vibecomfy.runtime.locks import resource_lock
@@ -174,6 +179,11 @@ def prepare_workflow(
             download_workers=download_workers,
             quiet=quiet,
             runtime_dependency_report=runtime_dependency_report,
+            dependency_mode=dependency_mode,
+            runtime_target=runtime_target,
+            server_url=server_url,
+            offline=offline,
+            remote_adapter=remote_adapter,
         )
 
 
@@ -188,6 +198,11 @@ def _prepare_workflow_unlocked(
     download_workers: int | None = None,
     quiet: bool = False,
     runtime_dependency_report: Mapping[str, Any] | None = None,
+    dependency_mode: str = "reuse",
+    runtime_target: Mapping[str, Any] | None = None,
+    server_url: str | None = None,
+    offline: bool | None = None,
+    remote_adapter: Any | None = None,
 ) -> PreparationResult:
     """Prepare canonical dependencies and persist one receipt before queueing."""
     root = (
@@ -199,11 +214,98 @@ def _prepare_workflow_unlocked(
 
     model_root = root / "ComfyUI" / "models" if runtime_root is not None else fetch_assets.models_root()
     plan = build_plan(workflow, reference=reference, ensure_models=ensure_models, ensure_packs=ensure_packs)
-    from vibecomfy.runtime.dependencies import compare_runtime, runtime_requirements_from_workflow
+    from vibecomfy.runtime.dependencies import (
+        RuntimeDependencyError,
+        compare_runtime,
+        runtime_requirements_from_workflow,
+        sync_runtime,
+    )
     runtime_requirements = runtime_requirements_from_workflow(workflow)
-    runtime_report = compare_runtime(runtime_requirements, runtime_root=runtime_root)
+    if dependency_mode not in {"reuse", "sync"}:
+        raise PreparationError("dependency mode must be reuse or sync")
+    external_target = server_url is not None and not (
+        isinstance(runtime_target, Mapping) and runtime_target.get("managed") is True
+    )
+    runtime_report = compare_runtime(
+        runtime_requirements,
+        target=runtime_target if runtime_target is not None else ({} if external_target else None),
+        runtime_root=None if external_target else runtime_root,
+    )
+    if runtime_dependency_report is not None:
+        # Preserve the caller's earlier target observation and actions, but
+        # refresh the compatibility result against the selected target.
+        supplied = dict(runtime_dependency_report)
+        for key in ("mode", "actions", "synced", "managed", "changes"):
+            if key in supplied:
+                runtime_report[key] = supplied[key]
+    runtime_report["mode"] = dependency_mode
+
+    if remote_adapter is not None:
+        try:
+            remote_result = remote_adapter.prepare(
+                workflow_reference=reference,
+                dependency_mode=dependency_mode,
+                runtime_root=runtime_root,
+                ensure_models=ensure_models,
+                ensure_packs=ensure_packs,
+                offline=(os.environ.get("VIBECOMFY_OFFLINE") == "1") if offline is None else bool(offline),
+                plan=plan.to_json(),
+                runtime_target=dict(runtime_target) if isinstance(runtime_target, Mapping) else None,
+            )
+        except Exception as exc:
+            raise PreparationError(f"remote lifecycle preparation failed: {exc}") from exc
+        if not isinstance(remote_result, Mapping):
+            raise PreparationError("remote lifecycle preparation returned an invalid result")
+        receipt_dir = root / "out" / "preparations"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        suffix = session_id or "one-shot"
+        receipt_path = receipt_dir / f"{Path(str(reference)).stem}-{suffix}.json"
+        diagnostics: dict[str, Any] = {
+            "runtime_root": str(root),
+            "session_id": session_id,
+            "python_executable": (
+                runtime_target.get("python_executable")
+                if isinstance(runtime_target, Mapping)
+                else None
+            ),
+            "runtime_dependency": dict(runtime_report),
+            "remote_lifecycle": dict(remote_result),
+        }
+        result = PreparationResult(
+            plan=plan,
+            receipt_path=str(receipt_path),
+            diagnostics=diagnostics,
+        )
+        receipt_path.write_text(json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return result
+
+    if dependency_mode == "sync" and runtime_requirements is not None:
+        if external_target:
+            raise PreparationError(
+                "--deps sync is unavailable for an explicit external server; use --deps reuse"
+            )
+        try:
+            # Only a report explicitly marked as synchronized represents a
+            # completed install transaction. A compatibility observation from
+            # the coordinator must not suppress the requested sync.
+            if not bool(runtime_report.get("synced")):
+                runtime_report = sync_runtime(
+                    runtime_requirements,
+                    runtime_root=runtime_root,
+                    target=runtime_target,
+                    offline=(os.environ.get("VIBECOMFY_OFFLINE") == "1") if offline is None else offline,
+                    launch_flags=list(runtime_requirements.launch_flags),
+                )
+            elif runtime_report.get("status") not in {"matching", "unverified"}:
+                raise RuntimeDependencyError(
+                    "runtime dependencies are not compatible with this target: "
+                    + "; ".join(str(item) for item in runtime_report.get("mismatches", ()))
+                )
+        except RuntimeDependencyError as exc:
+            raise PreparationError(str(exc)) from exc
+
     _validate_model_destinations(plan.models, model_root)
-    _validate_model_entries(plan.models)
+    _validate_model_entries(plan.models, root=model_root)
 
     lockfile_path = root / "custom_nodes.lock"
     packs: list[Any] = []
@@ -266,12 +368,24 @@ def _prepare_workflow_unlocked(
     if ensure_models and plan.models:
         from vibecomfy import fetch as fetch_assets
 
-        model_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vibecomfy-prepare")
+        present_local_models = [
+            str(fetch_assets.local_path(entry, root=model_root))
+            for entry in plan.models
+            if not isinstance(entry.get("url"), str) or not entry.get("url", "").strip()
+        ]
+        download_entries = [
+            entry for entry in plan.models
+            if isinstance(entry.get("url"), str) and entry.get("url", "").strip()
+        ]
+        model_executor = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="vibecomfy-prepare")
+            if download_entries else None
+        )
 
         def download_models() -> list[Path]:
             try:
                 return fetch_assets.download_many(
-                    list(plan.models),
+                    download_entries,
                     root=model_root,
                     max_workers=download_workers,
                     quiet=quiet,
@@ -282,9 +396,10 @@ def _prepare_workflow_unlocked(
                 # rolls out.
                 if "max_workers" not in str(exc):
                     raise
-                return fetch_assets.download_many(list(plan.models), root=model_root)
+                return fetch_assets.download_many(download_entries, root=model_root)
 
-        model_future = model_executor.submit(download_models)
+        if model_executor is not None:
+            model_future = model_executor.submit(download_models)
 
     try:
         node_results: list[dict[str, Any]] = []
@@ -315,8 +430,8 @@ def _prepare_workflow_unlocked(
                 raise PreparationError(f"custom-node preparation failed: {details}")
         if model_future is not None:
             try:
-                model_paths = [str(path) for path in model_future.result()]
-                for entry in plan.models:
+                model_paths = [*present_local_models, *[str(path) for path in model_future.result()]]
+                for entry in download_entries:
                     receipt = fetch_assets.read_resolution_receipt(entry, root=model_root)
                     if receipt is not None:
                         model_evidence.append(receipt)
@@ -336,7 +451,7 @@ def _prepare_workflow_unlocked(
         "python_executable": sys.executable,
     }
     if runtime_requirements is not None:
-        diagnostics["runtime_dependency"] = dict(runtime_dependency_report or runtime_report)
+        diagnostics["runtime_dependency"] = dict(runtime_report)
     result = PreparationResult(
         plan=plan,
         model_paths=tuple(model_paths),
@@ -349,19 +464,27 @@ def _prepare_workflow_unlocked(
     return result
 
 
-def _validate_model_entries(entries: tuple[dict[str, Any], ...]) -> None:
+def _validate_model_entries(
+    entries: tuple[dict[str, Any], ...], *, root: Path | None = None
+) -> None:
     from vibecomfy import fetch as fetch_assets
 
     missing = [
         str(entry.get("name", entry.get("filename", "<unnamed>")))
         for entry in entries
-        if not isinstance(entry.get("url"), str) or not entry["url"].strip()
+        if (
+            not isinstance(entry.get("url"), str)
+            or not entry["url"].strip()
+        )
+        and (root is None or not fetch_assets.is_present(entry, root=root))
     ]
     if missing:
         raise PreparationError(
             "model planning could not resolve URLs: " + ", ".join(sorted(set(missing)))
         )
     for entry in entries:
+        if not isinstance(entry.get("url"), str) or not entry["url"].strip():
+            continue
         revision = entry.get("hf_revision") or entry.get("revision")
         if revision is None or revision == "":
             continue

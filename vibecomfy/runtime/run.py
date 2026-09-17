@@ -11,12 +11,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from vibecomfy.errors import QueueError
+from vibecomfy.errors import QueueError, RuntimeNodeError
 from vibecomfy.workflow import VibeWorkflow
 from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, WorkflowBundleError
 
 from .attempt import build_attempt_bundle, write_attempt_json
 from .client import ComfyClient
+from .dependencies import RuntimeDependencyError
 from .execution import queue_server_prompt
 from .drift import enforce_strict_drift
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
@@ -27,9 +28,11 @@ from .session import (
     SessionConfig,
     _build_schema_provider,
     _configured_output_directory,
+    _normalized_descriptor_path,
     _embedded_configuration,
     _external_log_locator,
     _outputs_from_server_history,
+    _declared_outputs_from_server_history,
     _prepare_prompt_async,
     _begin_runtime_lifecycle,
     _commit_queue_witness,
@@ -44,7 +47,10 @@ from .session import (
     _comfy_server_argv,
     _wait_for_server_history,
     _workflow_queue_failure_message,
+    _validate_declared_output_contract,
+    _verify_declared_media,
 )
+from .reconciliation import assert_execution_snapshot, build_execution_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +179,191 @@ def _allocate_run_dir(
     return run_id, run_dir
 
 
+def _bind_downloaded_lifecycle_artifacts(
+    artifacts: list[dict[str, Any]], local_root: Path
+) -> int:
+    """Attach safe local paths to artifacts pulled by the lifecycle adapter."""
+    root = local_root.resolve(strict=False)
+    bound = 0
+    for artifact in artifacts:
+        filename = artifact.get("filename")
+        if not isinstance(filename, str) or not filename:
+            continue
+        relative_descriptor = {
+            "filename": filename,
+            "subfolder": artifact.get("subfolder") or "",
+        }
+        relative_posix = _normalized_descriptor_path(relative_descriptor)
+        relative = Path(*relative_posix.parts)
+        for prefix in (Path("output"), Path("out"), Path(".")):
+            candidate = (root / prefix / relative).resolve(strict=False)
+            try:
+                inside_root = candidate.is_relative_to(root)
+            except AttributeError:  # pragma: no cover - Python 3.8 compatibility
+                inside_root = str(candidate).startswith(str(root) + os.sep)
+            if inside_root and candidate.is_file():
+                artifact["path"] = str(candidate)
+                artifact["downloaded_path"] = str(candidate)
+                artifact["download_source"] = "runpod_lifecycle"
+                bound += 1
+                break
+    return bound
+
+
+def _delivery_failure(
+    error: RuntimeError,
+    *,
+    output_verification: Mapping[str, Any],
+    artifacts: list[dict[str, Any]],
+    retrieval: Mapping[str, Any],
+) -> RuntimeError:
+    """Attach recoverable post-generation state to a delivery exception."""
+    error.output_verification = dict(output_verification)
+    error.delivery_state = {
+        "execution": {
+            "status": "succeeded",
+            "evidence": "declared final artifact was attributed by current prompt history",
+        },
+        "verification": {"status": "pending"},
+        "retrieval": dict(retrieval),
+        "artifacts": [dict(item) for item in artifacts],
+        "remote_artifacts": [
+            item.get("location")
+            for item in artifacts
+            if isinstance(item.get("location"), str) and item.get("location")
+        ],
+        "local_artifacts": [
+            item.get("path")
+            for item in artifacts
+            if isinstance(item.get("path"), str) and item.get("path")
+        ],
+        "retryable": True,
+    }
+    return error
+
+
+async def _capture_lifecycle_log(
+    lifecycle_adapter: Any,
+    *,
+    run_dir: Path,
+    lifecycle_details: dict[str, Any],
+) -> str | None:
+    capture_log = getattr(lifecycle_adapter, "capture_log", None)
+    if not callable(capture_log):
+        return None
+    try:
+        log_evidence = await capture_log(local_path=run_dir / "runpod-comfy.log")
+    except Exception as exc:  # Log capture must not hide the delivery failure.
+        log_evidence = {
+            "status": "unavailable",
+            "local_path": None,
+            "reason": str(exc) or type(exc).__name__,
+        }
+    if not isinstance(log_evidence, Mapping):
+        log_evidence = {
+            "status": "unavailable",
+            "local_path": None,
+            "reason": "lifecycle adapter returned an invalid log witness",
+        }
+    lifecycle_details["logs"] = dict(log_evidence)
+    if log_evidence.get("status") == "captured" and log_evidence.get("local_path"):
+        return str(log_evidence["local_path"])
+    return None
+
+
+async def retry_delivery(
+    attempt_path: str | Path,
+    *,
+    lifecycle_adapter: Any,
+) -> dict[str, Any]:
+    """Retry RunPod artifact/log delivery for an accepted prompt without queueing.
+
+    The existing attempt is the authority. This function deliberately has no
+    workflow compilation or queue client dependency, so a retry cannot sample a
+    second generation by accident.
+    """
+    path = Path(attempt_path).expanduser().resolve(strict=True)
+    attempt = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(attempt, dict):
+        raise WorkflowBundleError("delivery retry requires a JSON attempt object")
+    acceptance = attempt.get("queue_acceptance")
+    if not isinstance(acceptance, Mapping) or acceptance.get("status") != "accepted" or not acceptance.get("prompt_id"):
+        raise WorkflowBundleError("delivery retry requires an accepted prompt witness")
+    artifacts = attempt.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts or not all(
+        isinstance(item, Mapping) for item in artifacts
+    ):
+        raise WorkflowBundleError("delivery retry requires attributed remote artifacts")
+    materialized = [dict(item) for item in artifacts]
+    attached = await lifecycle_adapter.attach()
+    if not isinstance(attached, Mapping):
+        raise WorkflowBundleError("lifecycle adapter returned an invalid attach witness")
+    local_root = path.parent / "downloaded-artifacts"
+    retrieval = await lifecycle_adapter.download_artifacts(local_root=local_root)
+    if not isinstance(retrieval, Mapping) or retrieval.get("status") != "retrieved":
+        raise RuntimeError("lifecycle adapter did not retrieve the accepted artifact")
+    retrieved_root = Path(str(retrieval.get("local_root") or local_root))
+    if _bind_downloaded_lifecycle_artifacts(materialized, retrieved_root) < len(materialized):
+        raise RuntimeError("retrieved archive did not contain every accepted output artifact")
+    lifecycle_details = dict(attached)
+    lifecycle_details["retrieval"] = dict(retrieval)
+    log_path = await _capture_lifecycle_log(
+        lifecycle_adapter, run_dir=path.parent, lifecycle_details=lifecycle_details
+    )
+    delivery_state = dict(attempt.get("delivery_state") or {})
+    delivery_state.update({
+        "execution": delivery_state.get("execution") or {
+            "status": "succeeded",
+            "evidence": "accepted prompt retained from original attempt",
+        },
+        "verification": delivery_state.get("verification") or {"status": "pending"},
+        "retrieval": {**dict(retrieval), "status": "succeeded"},
+        "artifacts": materialized,
+        "remote_artifacts": [
+            item.get("location") for item in materialized if item.get("location")
+        ],
+        "local_artifacts": [
+            item.get("path") for item in materialized if item.get("path")
+        ],
+        "retryable": False,
+    })
+    attempt["delivery_state"] = delivery_state
+    attempt["artifacts"] = materialized
+    attempt["local_artifact_paths"] = list(delivery_state["local_artifacts"])
+    attempt["adapter"] = {
+        **dict(attempt.get("adapter") or {}),
+        "lifecycle": lifecycle_details,
+    }
+    attempt["lifecycle_retrieval"] = dict(retrieval)
+    attempt["log_path"] = log_path
+    attempt["log_provenance"] = dict(lifecycle_details.get("logs") or {})
+    terminal = dict(attempt.get("terminal") or {})
+    terminal.update({
+        "phase": "delivery_retry",
+        "execution_state": "succeeded",
+        "verification_state": str(delivery_state["verification"].get("status", "pending")),
+        "retrieval_state": "succeeded",
+        "delivery": delivery_state,
+        "reason_type": "none",
+        "reason": None,
+    })
+    attempt["terminal"] = terminal
+    runtime_evidence = attempt.get("runtime_evidence")
+    if isinstance(runtime_evidence, Mapping):
+        runtime_evidence = dict(runtime_evidence)
+        runtime_evidence["terminal"] = dict(terminal)
+        runtime_evidence["adapter"] = dict(attempt["adapter"])
+        attempt["runtime_evidence"] = runtime_evidence
+    write_attempt_json(path.parent, attempt)
+    return {
+        "attempt_path": str(path),
+        "prompt_id": acceptance["prompt_id"],
+        "artifacts": materialized,
+        "log_path": log_path,
+        "delivery_state": delivery_state,
+    }
+
+
 async def run(
     record: ApprovedProjectionRecord,
     bundle: WorkflowBundle,
@@ -192,7 +383,12 @@ async def run(
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
-    bundle.require_canonical_authority("runtime execution")
+    if bundle.is_unresolved and any(
+        str(item.get("kind", "")) != "companion" for item in bundle.unresolved
+    ):
+        bundle.require_canonical_authority("runtime execution")
+    elif not bundle.is_unresolved:
+        bundle.require_canonical_authority("runtime execution")
     workflow = bundle.workflow
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
     run_id, run_dir = _allocate_run_dir("run", runtime_root=resolved_config.runtime_root)
@@ -200,6 +396,26 @@ async def run(
     # a local path that this adapter never created.
     log_path = run_dir / "comfy.log" if server_url is None else None
     managed_config = resolved_config if server_url is None else None
+    lifecycle_adapter = None
+    lifecycle_details: dict[str, Any] | None = None
+    if isinstance(runtime_target, Mapping):
+        candidate = runtime_target.get("_runpod_lifecycle_adapter")
+        if candidate is not None:
+            if not callable(getattr(candidate, "attach", None)):
+                raise WorkflowBundleError("bound RunPod lifecycle adapter is invalid")
+            lifecycle_adapter = candidate
+            describe = getattr(candidate, "describe", None)
+            if callable(describe):
+                described = describe()
+                if isinstance(described, Mapping):
+                    lifecycle_details = dict(described)
+    runtime_adapter_kind = (
+        "runpod_lifecycle"
+        if lifecycle_adapter is not None
+        else "external"
+        if server_url is not None
+        else "managed"
+    )
     try:
         dependency_report = _dependency_check(
             workflow,
@@ -220,9 +436,10 @@ async def run(
         try:
             attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
                 run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
-                adapter_kind="external" if server_url is not None else "managed",
+                adapter_kind=runtime_adapter_kind,
                 backend=backend, endpoint=server_url,
                 dependency_report=dependency_report,
+                adapter_details=lifecycle_details,
             )
             _persist_runtime_failure(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
@@ -243,7 +460,7 @@ async def run(
         shared_root=shared_models_root,
     )
     async with comfy_server(server_url=server_url, log_path=log_path, config=managed_config) as active_url:
-        adapter_kind = "managed" if server_url is None else "external"
+        adapter_kind = runtime_adapter_kind
         attempt_bundle, journal_state, journal_generation, initial_evidence = _begin_runtime_lifecycle(
             run_dir=run_dir,
             run_id=run_id,
@@ -253,9 +470,38 @@ async def run(
             backend=backend,
             endpoint=active_url,
             dependency_report=dependency_report,
+            adapter_details=lifecycle_details,
         )
+        if lifecycle_adapter is not None:
+            try:
+                attached = await lifecycle_adapter.attach()
+                if not isinstance(attached, Mapping):
+                    raise RuntimeError("RunPod lifecycle adapter returned an invalid attach witness")
+                lifecycle_details = dict(attached)
+                attempt_bundle["adapter"] = {
+                    **dict(attempt_bundle.get("adapter") or {}),
+                    "lifecycle": dict(lifecycle_details),
+                }
+                attempt_bundle.setdefault("runtime_evidence", {})["adapter"] = dict(
+                    attempt_bundle["adapter"]
+                )
+                write_attempt_json(run_dir, attempt_bundle)
+            except Exception as exc:
+                _persist_runtime_failure(
+                    run_dir=run_dir,
+                    attempt_bundle=attempt_bundle,
+                    state=journal_state,
+                    run_id=run_id,
+                    record=record,
+                    generation=journal_generation,
+                    original_error=exc,
+                    queue_acceptance={"status": "not_attempted", "prompt_id": None},
+                    phase="target",
+                    exc=exc,
+                )
+                raise
         if runtime_declared is not None and server_url is None:
-            from .dependencies import RuntimeDependencyError, compare_runtime, inspect_runtime_target
+            from .dependencies import compare_runtime, inspect_runtime_target
 
             started_target = inspect_runtime_target(
                 runtime_root=resolved_config.runtime_root,
@@ -291,7 +537,66 @@ async def run(
                     phase="dependencies", exc=exc,
                 )
                 raise exc
-        schema_provenance = _schema_provider_provenance(None)
+        # Query the actual process generation immediately before the final
+        # approval/queue boundary.  This is also the recovery path for a
+        # marked source whose presentation companion is stale: the semantic
+        # Python draft is retained, the companion is rebuilt transactionally,
+        # and the API record is recompiled from that corrected IR.
+        from .reconciliation import ReconciliationError, reconcile_before_queue_async
+
+        live_provider = schema_provider
+        if live_provider is None or not getattr(live_provider, "requires_fresh_target", False):
+            live_provider = _build_schema_provider(active_url)
+        can_reconcile = callable(getattr(live_provider, "object_info", None)) or callable(
+            getattr(live_provider, "refresh", None)
+        ) or callable(getattr(live_provider, "object_info_async", None))
+        try:
+            reconciliation = (
+                await reconcile_before_queue_async(
+                    bundle,
+                    target_schema_provider=live_provider,
+                    publish=True,
+                )
+                if live_provider is not None and can_reconcile
+                else None
+            )
+        except ReconciliationError as exc:
+            # The pre-load lifecycle witness is already allocated above. Keep
+            # this failure on that same attempt instead of opening a second
+            # receipt/journal generation for one queue attempt.
+            attempt_bundle["schema_reconciliation"] = list(exc.diagnostics)
+            _persist_runtime_failure(
+                run_dir=run_dir,
+                attempt_bundle=attempt_bundle,
+                state=journal_state,
+                run_id=run_id,
+                record=record,
+                generation=journal_generation,
+                original_error=exc,
+                queue_acceptance={"status": "not_attempted", "prompt_id": None},
+                phase="mapping",
+                exc=exc,
+            )
+            raise
+        reconciliation_schema = reconciliation.schema if reconciliation is not None else None
+        if reconciliation is not None and reconciliation.bundle is not bundle:
+            bundle = reconciliation.bundle
+            # The reconciled/reloaded bundle is the immutable execution
+            # snapshot. Every later gate must consume this same workflow;
+            # retaining the pre-reconciliation local would reintroduce stale
+            # model and semantic inputs.
+            workflow = bundle.workflow
+            record = bundle.compile(
+                run_inputs=dict(record.input_binding),
+                schema_provider=live_provider,
+            )
+        execution_snapshot = build_execution_snapshot(
+            bundle,
+            record,
+            schema=reconciliation_schema,
+        ).to_dict()
+        schema_provider = live_provider
+        schema_provenance = _schema_provider_provenance(live_provider)
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
         warned = {"emitted": False}
         dependency_report = dict(dependency_report)
@@ -315,6 +620,9 @@ async def run(
                 schema_provider=provider,
                 on_unavailable=on_unavailable,
             )
+            assert_execution_snapshot(
+                execution_snapshot, bundle, record, schema_provider=provider
+            )
             schema_validation_skipped = list(getattr(api_dict, "schema_validation_skipped", []))
             schema_provenance = dict(getattr(api_dict, "schema_provenance", {})) or _schema_provider_provenance(provider)
             evidence = _runtime_evidence(
@@ -326,6 +634,7 @@ async def run(
                 schema_provenance=schema_provenance,
                 queue_acceptance=queue_acceptance,
                 terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+                adapter_details=lifecycle_details,
             )
             attempt_bundle = build_attempt_bundle(
                 bundle,
@@ -338,6 +647,7 @@ async def run(
                 runtime_evidence=evidence,
                 runtime_compatibility=dependency_report,
             )
+            attempt_bundle["execution_snapshot"] = execution_snapshot
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             phase = "drift"
             resolved_strict = strict_drift if strict_drift is not None else bool(resolved_config.strict_drift)
@@ -353,9 +663,13 @@ async def run(
             except asyncio.TimeoutError:
                 raise
             except Exception as exc:
-                raise QueueError(
+                wrapped = QueueError(
                     _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
-                ) from exc
+                )
+                for attribute in ("diagnostics", "prompt_id", "output_verification", "completion_status"):
+                    if hasattr(exc, attribute):
+                        setattr(wrapped, attribute, getattr(exc, attribute))
+                raise wrapped from exc
             phase = "acceptance_witness"
             prompt_id = _commit_queue_witness(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -366,7 +680,11 @@ async def run(
             queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
             phase = "history"
             history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
-            comfy_outputs = _outputs_from_server_history(history, prompt_id)
+            output_verification = _validate_declared_output_contract(workflow, history, prompt_id)
+            # Keep terminal status/error decoding authoritative even when the
+            # declared-sink filter below selects a subset of history outputs.
+            _outputs_from_server_history(history, prompt_id)
+            comfy_outputs = _declared_outputs_from_server_history(workflow, history, prompt_id)
             phase = "output"
             output_directory = _configured_output_directory(resolved_config)
             artifacts = _artifact_records(
@@ -376,6 +694,142 @@ async def run(
                 output_directory=output_directory,
             )
             outputs = [artifact["reported_path"] for artifact in artifacts]
+            attempt_bundle.update({
+                "prompt_id": prompt_id,
+                "output_verification": dict(output_verification),
+                "artifacts": [dict(item) for item in artifacts],
+                "artifact_paths": list(outputs),
+            })
+            write_attempt_json(run_dir, attempt_bundle)
+            if lifecycle_adapter is not None:
+                phase = "retrieval"
+                lifecycle_details = dict(lifecycle_details or {})
+                try:
+                    retrieval = await lifecycle_adapter.download_artifacts(
+                        local_root=run_dir / "downloaded-artifacts"
+                    )
+                except Exception as exc:
+                    diagnostic = {
+                        "code": "runpod_lifecycle_artifact_retrieval_failed",
+                        "detail": str(exc),
+                    }
+                    error = RuntimeNodeError(
+                        "RunPod lifecycle artifact retrieval failed after generation was accepted",
+                        next_action="inspect the lifecycle SSH/archive evidence and retry retrieval",
+                    )
+                    error.diagnostics = [diagnostic]
+                    retrieval_failure = {"status": "failed", **diagnostic}
+                    lifecycle_details["retrieval"] = retrieval_failure
+                    log_path = await _capture_lifecycle_log(
+                        lifecycle_adapter,
+                        run_dir=run_dir,
+                        lifecycle_details=lifecycle_details,
+                    )
+                    attempt_bundle["adapter"] = {
+                        **dict(attempt_bundle.get("adapter") or {}),
+                        "lifecycle": dict(lifecycle_details),
+                    }
+                    attempt_bundle["lifecycle_retrieval"] = retrieval_failure
+                    attempt_bundle["log_path"] = log_path
+                    attempt_bundle["log_provenance"] = dict(lifecycle_details.get("logs") or {})
+                    write_attempt_json(run_dir, attempt_bundle)
+                    raise _delivery_failure(
+                        error,
+                        output_verification=output_verification,
+                        artifacts=artifacts,
+                        retrieval=retrieval_failure,
+                    ) from exc
+                if not isinstance(retrieval, Mapping) or retrieval.get("status") != "retrieved":
+                    diagnostic = {
+                        "code": "runpod_lifecycle_artifacts_unavailable",
+                        **(dict(retrieval) if isinstance(retrieval, Mapping) else {}),
+                    }
+                    error = RuntimeNodeError(
+                        "RunPod lifecycle did not retrieve the accepted final artifact",
+                        next_action="inspect the remote output directory and lifecycle download logs",
+                    )
+                    error.diagnostics = [diagnostic]
+                    retrieval_failure = {"status": "failed", **diagnostic}
+                    lifecycle_details["retrieval"] = retrieval_failure
+                    log_path = await _capture_lifecycle_log(
+                        lifecycle_adapter,
+                        run_dir=run_dir,
+                        lifecycle_details=lifecycle_details,
+                    )
+                    attempt_bundle["adapter"] = {
+                        **dict(attempt_bundle.get("adapter") or {}),
+                        "lifecycle": dict(lifecycle_details),
+                    }
+                    attempt_bundle["lifecycle_retrieval"] = retrieval_failure
+                    attempt_bundle["log_path"] = log_path
+                    attempt_bundle["log_provenance"] = dict(lifecycle_details.get("logs") or {})
+                    write_attempt_json(run_dir, attempt_bundle)
+                    raise _delivery_failure(
+                        error,
+                        output_verification=output_verification,
+                        artifacts=artifacts,
+                        retrieval=retrieval_failure,
+                    )
+                local_artifact_root = Path(str(retrieval.get("local_root")))
+                if _bind_downloaded_lifecycle_artifacts(artifacts, local_artifact_root) < len(artifacts):
+                    error = RuntimeNodeError(
+                        "RunPod lifecycle archive did not contain every accepted output artifact",
+                        next_action="inspect the remote output directory and final sink attribution",
+                    )
+                    error.diagnostics = [{
+                        "code": "runpod_lifecycle_artifact_mapping_incomplete",
+                        "local_root": str(local_artifact_root),
+                        "reported_outputs": list(outputs),
+                    }]
+                    retrieval_failure = {
+                        "status": "failed",
+                        "code": "runpod_lifecycle_artifact_mapping_incomplete",
+                        "local_root": str(local_artifact_root),
+                    }
+                    lifecycle_details["retrieval"] = retrieval_failure
+                    log_path = await _capture_lifecycle_log(
+                        lifecycle_adapter,
+                        run_dir=run_dir,
+                        lifecycle_details=lifecycle_details,
+                    )
+                    attempt_bundle["adapter"] = {
+                        **dict(attempt_bundle.get("adapter") or {}),
+                        "lifecycle": dict(lifecycle_details),
+                    }
+                    attempt_bundle["lifecycle_retrieval"] = retrieval_failure
+                    attempt_bundle["log_path"] = log_path
+                    attempt_bundle["log_provenance"] = dict(lifecycle_details.get("logs") or {})
+                    write_attempt_json(run_dir, attempt_bundle)
+                    raise _delivery_failure(
+                        error,
+                        output_verification=output_verification,
+                        artifacts=artifacts,
+                        retrieval=retrieval_failure,
+                    )
+                lifecycle_details["retrieval"] = dict(retrieval)
+                log_path = await _capture_lifecycle_log(
+                    lifecycle_adapter,
+                    run_dir=run_dir,
+                    lifecycle_details=lifecycle_details,
+                )
+                attempt_bundle["adapter"] = {
+                    **dict(attempt_bundle.get("adapter") or {}),
+                    "lifecycle": dict(lifecycle_details),
+                }
+                attempt_bundle["lifecycle_retrieval"] = dict(retrieval)
+                attempt_bundle["artifacts"] = [dict(item) for item in artifacts]
+                attempt_bundle["local_artifact_paths"] = [
+                    item["path"] for item in artifacts if item.get("path")
+                ]
+                write_attempt_json(run_dir, attempt_bundle)
+            phase = "verification"
+            media_validation = _verify_declared_media(
+                workflow,
+                artifacts,
+                adapter_kind=adapter_kind,
+                output_verification=output_verification,
+            )
+            output_verification = {**output_verification, "media": media_validation}
             phase = "metadata"
             metadata = _run_metadata(
                 run_id=run_id,
@@ -399,6 +853,9 @@ async def run(
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
                 dependency_report=dependency_report,
+                output_verification=output_verification,
+                media_validation=media_validation,
+                adapter_details=lifecycle_details,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -407,6 +864,7 @@ async def run(
                 schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
                 metadata=metadata,
                 dependency_report=dependency_report,
+                adapter_details=lifecycle_details,
             )
             return RunResult(
                 run_id=run_id,
@@ -415,6 +873,8 @@ async def run(
                 metadata_path=str(metadata_path),
                 log_path=str(log_path) if log_path is not None else None,
                 completion_path=str(Path(metadata_path).with_name("completion.json")),
+                status=str(metadata.get("status", "completed")),
+                media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
             )

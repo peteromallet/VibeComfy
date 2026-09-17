@@ -11,10 +11,13 @@ class RuntimeDependencyError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class RuntimeRequirements:
+    comfy_source: str | None = None
+    comfy_ref: str | None = None
     comfy_commit: str | None = None
     comfy_version: str | None = None
     python_version: str | None = None
     packages: tuple[tuple[str, str], ...] = ()
+    package_indexes: tuple[str, ...] = ()
     launch_flags: tuple[str, ...] = ()
     models: tuple[dict[str, Any], ...] = ()
     custom_nodes: tuple[dict[str, Any], ...] = ()
@@ -33,6 +36,10 @@ class RuntimeRequirements:
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
+        if self.comfy_source is not None:
+            result["comfy_source"] = self.comfy_source
+        if self.comfy_ref is not None:
+            result["comfy_ref"] = self.comfy_ref
         if self.comfy_commit is not None:
             result["comfy_commit"] = self.comfy_commit
         if self.comfy_version is not None:
@@ -41,6 +48,8 @@ class RuntimeRequirements:
             result["python_version"] = self.python_version
         if self.packages:
             result["packages"] = dict(self.packages)
+        if self.package_indexes:
+            result["package_indexes"] = list(self.package_indexes)
         if self.launch_flags:
             result["launch_flags"] = list(self.launch_flags)
         if self.models:
@@ -66,6 +75,39 @@ class RuntimeRequirements:
         comfy = value.get("comfyui", value.get("comfy", {}))
         if comfy is not None and not isinstance(comfy, Mapping):
             raise RuntimeDependencyError("requirements.runtime.comfyui must be a mapping")
+        comfy_source = _optional_string(
+            value.get("comfy_source", value.get("comfy_url")),
+            "requirements.runtime.comfy_source",
+        )
+        nested_comfy_source = (
+            _optional_string(
+                comfy.get("source", comfy.get("url")),
+                "requirements.runtime.comfyui.source",
+            )
+            if isinstance(comfy, Mapping)
+            else None
+        )
+        if comfy_source and nested_comfy_source and comfy_source != nested_comfy_source:
+            raise RuntimeDependencyError(
+                "requirements.runtime.comfy_source contradicts requirements.runtime.comfyui.source"
+            )
+        comfy_source = comfy_source or nested_comfy_source
+        comfy_ref = _optional_string(
+            value.get("comfy_ref"), "requirements.runtime.comfy_ref"
+        )
+        nested_comfy_ref = (
+            _optional_string(
+                comfy.get("ref", comfy.get("branch")),
+                "requirements.runtime.comfyui.ref",
+            )
+            if isinstance(comfy, Mapping)
+            else None
+        )
+        if comfy_ref and nested_comfy_ref and comfy_ref != nested_comfy_ref:
+            raise RuntimeDependencyError(
+                "requirements.runtime.comfy_ref contradicts requirements.runtime.comfyui.ref"
+            )
+        comfy_ref = comfy_ref or nested_comfy_ref
         comfy_commit = _optional_string(value.get("comfy_commit"), "requirements.runtime.comfy_commit")
         nested_comfy_commit = (
             _optional_string(comfy.get("commit"), "requirements.runtime.comfyui.commit")
@@ -116,6 +158,20 @@ class RuntimeRequirements:
             if not isinstance(name, str) or not name.strip() or not isinstance(constraint, str) or not constraint.strip():
                 raise RuntimeDependencyError("requirements.runtime.packages entries need nonblank name and constraint")
             packages[name.strip()] = constraint.strip()
+        indexes_raw = value.get(
+            "package_indexes",
+            value.get("pip_indexes", value.get("indexes", value.get("package_index", []))),
+        )
+        if indexes_raw is None:
+            indexes_raw = []
+        if isinstance(indexes_raw, str):
+            indexes_raw = [indexes_raw]
+        if not isinstance(indexes_raw, (list, tuple)) or not all(
+            isinstance(item, str) and item.strip() for item in indexes_raw
+        ):
+            raise RuntimeDependencyError(
+                "requirements.runtime.package_indexes must be an array of nonblank strings"
+            )
         if legacy_python_env is not None:
             for name, constraint in legacy_python_env.items():
                 if not isinstance(name, str) or not isinstance(constraint, str) or not constraint.strip():
@@ -136,12 +192,21 @@ class RuntimeRequirements:
             flags_raw = []
         if not isinstance(flags_raw, (list, tuple)) or not all(isinstance(item, str) and item.strip() for item in flags_raw):
             raise RuntimeDependencyError("requirements.runtime.launch_flags must be an array of nonblank strings")
-        known = {"comfyui", "comfy", "comfy_commit", "comfy_version", "python", "python_version", "packages", "python_packages", "launch", "launch_flags", "models", "custom_nodes"}
+        known = {
+            "comfyui", "comfy", "comfy_source", "comfy_url", "comfy_ref",
+            "comfy_commit", "comfy_version", "python", "python_version",
+            "packages", "python_packages", "package_indexes", "pip_indexes",
+            "indexes", "package_index", "launch", "launch_flags", "models",
+            "custom_nodes",
+        }
         return cls(
+            comfy_source=comfy_source,
+            comfy_ref=comfy_ref,
             comfy_commit=comfy_commit,
             comfy_version=comfy_version,
             python_version=python_version,
             packages=tuple(sorted(packages.items())),
+            package_indexes=tuple(dict.fromkeys(item.strip() for item in indexes_raw)),
             launch_flags=tuple(dict.fromkeys(item.strip() for item in flags_raw)),
             models=tuple(_object_list(value.get("models"), "requirements.runtime.models")),
             custom_nodes=tuple(_object_list(value.get("custom_nodes"), "requirements.runtime.custom_nodes")),

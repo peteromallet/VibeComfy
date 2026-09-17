@@ -69,19 +69,34 @@ def resolve_model_preflight_policy(
     return ModelPreflightPolicy(mode=mode, ensure_models=ensure_models, local_models_root=local_root, shared_models_root=shared)
 
 
-def ensure_workflow_models(workflow: VibeWorkflow) -> None:
+def ensure_workflow_models(
+    workflow: VibeWorkflow, *, models_root: str | Path | None = None
+) -> None:
     from vibecomfy import fetch as fetch_assets
     from vibecomfy.runtime.session import _model_assets_from_workflow
 
-    entries = _model_assets_from_workflow(workflow)
+    root = Path(normalized_models_root(models_root)) if models_root is not None else None
+    entries = _model_assets_from_workflow(workflow, models_root=root)
     if entries:
         try:
-            fetch_assets.download_many(entries)
+            downloadable = [
+                entry for entry in entries
+                if isinstance(entry.get("url"), str) and entry["url"].strip()
+            ]
+            if downloadable:
+                try:
+                    fetch_assets.download_many(downloadable, root=root)
+                except TypeError as exc:
+                    # Preserve the small, pre-existing fetch seam used by
+                    # embedders while the optional destination-root argument
+                    # rolls out.  Do not mask ordinary downloader failures.
+                    if "root" not in str(exc):
+                        raise
+                    fetch_assets.download_many(downloadable)
         except Exception as exc:
             raise RuntimeError(f"ensure_models: {exc}") from exc
 
 
 def apply_model_preflight(workflow: VibeWorkflow, policy: ModelPreflightPolicy) -> None:
     if policy.ensure_models:
-        ensure_workflow_models(workflow)
-
+        ensure_workflow_models(workflow, models_root=policy.local_models_root)
